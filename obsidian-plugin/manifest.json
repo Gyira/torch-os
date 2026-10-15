@@ -1,0 +1,9 @@
+{
+  "id": "torch",
+  "name": "薪火OS",
+  "version": "0.99.0",
+  "minAppVersion": "1.4.0",
+  "description": "把整个薪火OS工作台嵌进 Obsidian：自动拉起本地服务、跟随主题、重新打开时同步刷新。",
+  "author": "薪火OS",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.local
+data/
+.test-data/
+*.log
+test-results/
+artifacts/
+*.db
+*.sqlite3
+node_modules/
+dist/
+.DS_Store
+obsidian-plugin/data.json

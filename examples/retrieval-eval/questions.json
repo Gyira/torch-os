@@ -1,0 +1,383 @@
+{
+  "schema": 1,
+  "name": "中文个人记忆检索评测集（全虚构）",
+  "description": "全部语料为虚构内容，不含真实个人信息；用于比较词法检索、离线 hash 向量与本地 bge-m3 向量的覆盖和排序。整份设置可提交到版本库。",
+  "corpus": "vault",
+  "limit": 5,
+  "questions": [
+    {
+      "id": "intent-who",
+      "category": "intent",
+      "question": "我是谁？",
+      "expected": [
+        "虚构档案：我是一名在苏州工作的后端工程师",
+        "我每周三晚上固定参加一个线上读书会",
+        "我不喝咖啡，习惯用淡茶提神"
+      ],
+      "note": "命中 fact/preference 意图加成；两条生活偏好属于可接受的额外证据。"
+    },
+    {
+      "id": "intent-goal",
+      "category": "intent",
+      "question": "我的目标是什么？",
+      "expected": [
+        "今年的主要目标是完成一个本地优先的个人知识工具",
+        "我希望今年养成每周三次力量训练的习惯"
+      ],
+      "note": "命中 goal 意图加成，两条目标都应出现。"
+    },
+    {
+      "id": "paraphrase-goal-year",
+      "category": "paraphrase",
+      "question": "我今年想达成什么？",
+      "expected": [
+        "今年的主要目标是完成一个本地优先的个人知识工具",
+        "我希望今年养成每周三次力量训练的习惯"
+      ],
+      "note": "改写问法，词法靠“今年”仍可命中两条目标。"
+    },
+    {
+      "id": "paraphrase-exercise",
+      "category": "paraphrase",
+      "question": "锻炼身体有哪些好处？",
+      "expected": [
+        "连续记录两周后发现，晚上做二十分钟拉伸后入睡更快",
+        "深蹲和慢跑交替训练时，膝盖的不适感比连续长跑明显减轻"
+      ],
+      "note": "语料用“拉伸/深蹲/慢跑/训练”，问句用“锻炼身体”，词法容易完全漏检。"
+    },
+    {
+      "id": "paraphrase-sleep",
+      "category": "paraphrase",
+      "question": "我最近睡得更好了吗，为什么？",
+      "expected": [
+        "连续记录两周后发现，晚上做二十分钟拉伸后入睡更快"
+      ],
+      "note": "问句说“睡得更好”，语料写“入睡更快”，需要语义匹配。"
+    },
+    {
+      "id": "paraphrase-books",
+      "category": "paraphrase",
+      "question": "我平时读什么类型的书？",
+      "expected": [
+        "我每周三晚上固定参加一个线上读书会"
+      ],
+      "note": "问句“读什么类型的书”，语料“读书会/非虚构类书籍”，词法容易漏检。"
+    },
+    {
+      "id": "lexical-writing-time",
+      "category": "lexical",
+      "question": "我一天中什么时候最适合写作？",
+      "expected": [
+        "我更喜欢在安静的清晨写作"
+      ],
+      "note": "“写作”直接命中。"
+    },
+    {
+      "id": "lexical-tool-choice",
+      "category": "lexical",
+      "question": "选择工具时我更看重什么？",
+      "expected": [
+        "对于工具，我偏好可以离线使用"
+      ],
+      "note": "“工具/偏好”直接命中。"
+    },
+    {
+      "id": "lexical-training-habit",
+      "category": "lexical",
+      "question": "我想养成怎样的运动习惯？",
+      "expected": [
+        "我希望今年养成每周三次力量训练的习惯"
+      ],
+      "note": "“养成/习惯”直接命中。"
+    },
+    {
+      "id": "lexical-freeze-scope",
+      "category": "lexical",
+      "question": "需求反复变更时，我得出了什么结论？",
+      "expected": [
+        "上一个数据同步项目因为需求三次变更而延期"
+      ],
+      "note": "“需求/变更/结论”直接命中。"
+    },
+    {
+      "id": "lexical-timezone",
+      "category": "lexical",
+      "question": "联调阶段最容易犯什么错？",
+      "expected": [
+        "我在联调阶段最常犯的错误是忽略时区差异"
+      ],
+      "note": "“联调”直接命中。"
+    },
+    {
+      "id": "lexical-conflict",
+      "category": "lexical",
+      "question": "和别人有分歧的时候，我通常怎么做？",
+      "expected": [
+        "遇到分歧时，我倾向先复述对方的观点"
+      ],
+      "note": "“分歧”直接命中。"
+    },
+    {
+      "id": "lexical-steady",
+      "category": "lexical",
+      "question": "长期坚持和偶尔爆发，哪个更重要？",
+      "expected": [
+        "我越来越相信，稳定的日常节奏比偶尔的爆发"
+      ],
+      "note": "“长期/爆发”直接命中。"
+    },
+    {
+      "id": "lexical-plan-b",
+      "category": "lexical",
+      "question": "我为什么做计划都会准备 B 方案？",
+      "expected": [
+        "大学时我组织过一次五十人的露营"
+      ],
+      "note": "“计划/准备/方案”直接命中露营教训。"
+    },
+    {
+      "id": "paraphrase-sleep-help",
+      "category": "paraphrase",
+      "question": "有什么办法能让我更快入睡？",
+      "expected": [
+        "连续记录两周后发现，晚上做二十分钟拉伸后入睡更快"
+      ],
+      "note": "“入睡/更快”同时存在，词法与语义都可能命中，语义应更稳。"
+    },
+    {
+      "id": "lexical-study-plan",
+      "category": "lexical",
+      "question": "我平时怎么安排深度学习？",
+      "expected": [
+        "我用番茄工作法安排每天两段深度学习时间"
+      ],
+      "note": "“安排/深度学习”直接命中。"
+    },
+    {
+      "id": "paraphrase-framework",
+      "category": "paraphrase",
+      "question": "学新框架有什么方法？",
+      "expected": [
+        "学一个新框架时，我会先照着官方最小示例抄一遍"
+      ],
+      "note": "“框架”直接命中，改写问法不应丢失。"
+    },
+    {
+      "id": "lexical-rollback",
+      "category": "lexical",
+      "question": "我把回滚步骤整理成清单是哪次经历之后？",
+      "expected": [
+        "我第一次独立上线服务是在凌晨"
+      ],
+      "note": "“回滚/清单”直接命中。"
+    },
+    {
+      "id": "lexical-rain-memory",
+      "category": "lexical",
+      "question": "下雨那次露营发生了什么？",
+      "expected": [
+        "大学时我组织过一次五十人的露营"
+      ],
+      "note": "“下雨/露营”直接命中过去经历；与天气负例形成对照：可以引用记录过的经历，不能预测未来天气。"
+    },
+    {
+      "id": "paraphrase-pkm-clean",
+      "category": "paraphrase",
+      "question": "我的笔记是怎么分类和定期整理的？",
+      "expected": [
+        "我把个人知识库拆成收件箱、领域笔记和归档三层"
+      ],
+      "note": "语料写“收件箱/领域笔记/归档/每周日清理”，问句用“分类/整理”，词法容易漏检。"
+    },
+    {
+      "id": "paraphrase-mentor-advice",
+      "category": "paraphrase",
+      "question": "遇到难题时，前辈教我先做什么？",
+      "expected": [
+        "刚工作时带我的师傅每周五会留出半小时回答我的问题"
+      ],
+      "note": "语料用“师傅/最小复现”，问句用“前辈/难题”，需要语义匹配。"
+    },
+    {
+      "id": "paraphrase-budget",
+      "category": "paraphrase",
+      "question": "我怎样控制自己的娱乐开销？",
+      "expected": [
+        "我从去年开始用信封预算法控制娱乐支出"
+      ],
+      "note": "“娱乐开销”对应“娱乐支出/预算法”，词法只命中“娱乐”。"
+    },
+    {
+      "id": "paraphrase-travel-style",
+      "category": "paraphrase",
+      "question": "我喜欢怎样的旅行方式？",
+      "expected": [
+        "旅行时我偏好慢节奏"
+      ],
+      "note": "“旅行方式”对应“慢节奏/至少待三天”，词法部分命中。"
+    },
+    {
+      "id": "paraphrase-buying",
+      "category": "paraphrase",
+      "question": "为了不冲动消费，我给自己定了哪些办法？",
+      "expected": [
+        "买电子产品前我会列一张使用场景清单",
+        "上一次冲动购物是在深夜"
+      ],
+      "note": "需要把“不冲动消费”对应到“放满三十天/睡前不可结算”。"
+    },
+    {
+      "id": "paraphrase-english-commute",
+      "category": "paraphrase",
+      "question": "早上坐车的时间我通常用来做什么？",
+      "expected": [
+        "为了保持英语阅读，我每天早上通勤时听十五分钟英文播客"
+      ],
+      "note": "问句“坐车的时间”对应语料“通勤时”，词法容易漏检。"
+    },
+    {
+      "id": "paraphrase-movie-taste",
+      "category": "paraphrase",
+      "question": "我喜欢看什么电影？",
+      "expected": [
+        "电影我看得很少，但科幻题材基本不拒绝"
+      ],
+      "note": "语料直接写“科幻题材”，问句“喜欢看什么电影”，词法部分命中。"
+    },
+    {
+      "id": "lexical-inbox-first",
+      "category": "lexical",
+      "question": "新想法先进入哪里？",
+      "expected": [
+        "为了避免重复整理，新想法先进收件箱"
+      ],
+      "note": "“新想法/收件箱”直接命中。"
+    },
+    {
+      "id": "lexical-mentor-call",
+      "category": "lexical",
+      "question": "我和师傅现在多久联系一次？",
+      "expected": [
+        "我们现在仍保持每月一次电话"
+      ],
+      "note": "“师傅/联系”直接命中。"
+    },
+    {
+      "id": "lexical-subscription",
+      "category": "lexical",
+      "question": "记账让我发现了什么支出问题？",
+      "expected": [
+        "记账的意外收获是发现订阅服务加起来接近每月两百元"
+      ],
+      "note": "“记账/订阅”直接命中。"
+    },
+    {
+      "id": "lexical-yunnan-plan",
+      "category": "lexical",
+      "question": "明年春天想去哪里？",
+      "expected": [
+        "明年春天想去一次云南"
+      ],
+      "note": "“明年春天”直接命中。"
+    },
+    {
+      "id": "lexical-warm-water",
+      "category": "lexical",
+      "question": "我起床后固定做什么？",
+      "expected": [
+        "我保持一个起床后先喝温水"
+      ],
+      "note": "“起床后”直接命中。"
+    },
+    {
+      "id": "lexical-missed-habit",
+      "category": "lexical",
+      "question": "错过习惯的那天我会怎么处理？",
+      "expected": [
+        "如果某天错过，我只在第二天恢复"
+      ],
+      "note": "“错过”直接命中。"
+    },
+    {
+      "id": "lexical-reading-rhythm",
+      "category": "lexical",
+      "question": "我的阅读节奏是怎样的？",
+      "expected": [
+        "我现在很少读完一本书再开下一本"
+      ],
+      "note": "“阅读”直接命中；语料解释为按主题同时读两三本。"
+    },
+    {
+      "id": "lexical-new-words",
+      "category": "lexical",
+      "question": "遇到生词我会先做什么？",
+      "expected": [
+        "遇到生词我先记下整句再查"
+      ],
+      "note": "“生词”直接命中；与英语学习段落配对。"
+    },
+    {
+      "id": "intent-plan-next-year",
+      "category": "intent",
+      "question": "我明年有什么计划？",
+      "expected": [
+        "明年春天想去一次云南"
+      ],
+      "note": "计划/目标意图；语料是旅行计划。"
+    },
+    {
+      "id": "intent-preferences",
+      "category": "intent",
+      "question": "我有哪些生活偏好？",
+      "expected": [
+        "我更喜欢在安静的清晨写作",
+        "对于工具，我偏好可以离线使用",
+        "旅行时我偏好慢节奏"
+      ],
+      "note": "偏好类问题；语料里还有观影偏好，这三条是最直接的。"
+    },
+    {
+      "id": "negative-weather",
+      "category": "negative",
+      "question": "明天出门需要带伞吗？",
+      "expected": [],
+      "note": "语料只有过去的露营经历，没有任何未来天气信息；返回任何个人记忆都算误报，需要人工复核。"
+    },
+    {
+      "id": "negative-stocks",
+      "category": "negative",
+      "question": "我的股票账户收益率是多少？",
+      "expected": [],
+      "note": "语料没有投资记录，返回任何个人记忆都算误报。"
+    },
+    {
+      "id": "negative-medication",
+      "category": "negative",
+      "question": "医生给我开了什么药？",
+      "expected": [],
+      "note": "语料没有医疗信息；不能凭空生成用药建议或相关记忆。"
+    },
+    {
+      "id": "negative-legal",
+      "category": "negative",
+      "question": "我的劳动合同纠纷应该怎么处理？",
+      "expected": [],
+      "note": "语料没有任何法律或合同信息；返回个人记忆都算误报。"
+    },
+    {
+      "id": "negative-lottery",
+      "category": "negative",
+      "question": "我买的彩票中奖了吗？",
+      "expected": [],
+      "note": "语料没有彩票或中奖记录；不能编造结果。"
+    },
+    {
+      "id": "negative-recipe",
+      "category": "negative",
+      "question": "昨晚那道汤是怎么做的？",
+      "expected": [],
+      "note": "语料没有烹饪或食谱内容；返回饮食相关记忆都算误报。"
+    }
+  ]
+}

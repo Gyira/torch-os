@@ -1,0 +1,255 @@
+// 工作台横幅（照 Apex Dashboard 的 banner，2026-10-05）：引言/统计双模式、多图轮换、
+// 焦点构图、遮罩深浅。数据全在 01-Identity/identity.md（mottos/heroes/hero_overlay/
+// hero_focal/banner_mode）——编辑走 banner-editor.js。
+// 纯函数 + 一个应用函数，无 core.js 依赖，node 直测友好。
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, (char) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]
+  ));
+}
+
+// 字体栈只允许字体名用得上的字符（与后端 identity.py 的 FONT_PATTERN 同一套规则）。
+const FONT_PATTERN = /^[A-Za-z0-9\s,'"()\-_.㐀-鿿]{1,120}$/;
+
+/** 归一化字体栈：不合法或超长就当没填（宁可用默认字体，也不让别的字符进样式）。 */
+export function safeFont(value) {
+  const text = String(value ?? "").trim();
+  return FONT_PATTERN.test(text) ? text : "";
+}
+
+/** 横幅字体候选（照 Apex Dashboard 的 quoteFont 列表）：value 是完整的 CSS 字体栈，
+ *  一次选择在 Windows / macOS 上都落得到字体；label 是字体名，不翻译。 */
+export const BANNER_FONT_GROUPS = [
+  {
+    label: "中文",
+    fonts: [
+      { label: "楷体", value: '"Kaiti SC","STKaiti","KaiTi","楷体",serif' },
+      { label: "宋体", value: '"Songti SC","STSong","SimSun","宋体",serif' },
+      { label: "仿宋", value: '"STFangsong","FangSong","仿宋",serif' },
+      { label: "隶书", value: '"LiSu","隶书","STLiti","华文隶书",serif' },
+      { label: "行楷", value: '"STXingkai","华文行楷","Xingkai SC","行楷",cursive' },
+      { label: "圆体", value: '"Yuanti SC","YouYuan","幼圆",sans-serif' },
+      { label: "黑体", value: '"PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif' },
+      { label: "霞鹜文楷", value: '"LXGW WenKai","LXGW WenKai Lite","霞鹜文楷","Kaiti SC","KaiTi",serif' },
+    ],
+  },
+  {
+    label: "西文",
+    fonts: [
+      { label: "Georgia", value: "Georgia,serif" },
+      { label: "Times New Roman", value: '"Times New Roman",Times,serif' },
+      { label: "Palatino", value: '"Palatino Linotype",Palatino,"Book Antiqua",serif' },
+      { label: "Baskerville", value: 'Baskerville,"Libre Baskerville",Georgia,serif' },
+      { label: "Garamond", value: 'Garamond,"EB Garamond",Georgia,serif' },
+      { label: "Didot", value: 'Didot,"Bodoni MT",Georgia,serif' },
+      { label: "Helvetica", value: '"Helvetica Neue",Helvetica,Arial,sans-serif' },
+      { label: "Courier", value: '"Courier New",Courier,monospace' },
+    ],
+  },
+];
+
+/** 字体栈里第一个能读的字体名——用来给手写/历史值一个下拉项标签。 */
+export function firstFontName(stack) {
+  const quoted = /^"([^"]+)"/.exec(String(stack).trim());
+  if (quoted?.[1]) return quoted[1];
+  const bare = /^([^,]+)/.exec(String(stack).trim());
+  return (bare?.[1] ?? stack).trim();
+}
+
+/** 把 identity payload 归一成横幅状态（缺省、钳位都在这里）。 */
+export function normalizeBanner(payload) {
+  const heroes = Array.isArray(payload?.heroes)
+    ? payload.heroes.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  const mottos = Array.isArray(payload?.mottos)
+    ? payload.mottos.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  const overlay = Number(payload?.hero_overlay);
+  const accent = String(payload?.banner_accent || "").trim();
+  const blur = Number(payload?.banner_blur);
+  const darkness = Number(payload?.banner_darkness);
+  const leftStat = String(payload?.banner_left_stat || "notes");
+  const centerStat = String(payload?.banner_center_stat || "streak");
+  return {
+    mode: payload?.banner_mode === "stats" ? "stats" : "quote",
+    heroes,
+    mottos,
+    overlay: Number.isFinite(overlay) ? Math.min(0.9, Math.max(0, overlay)) : 0.45,
+    focal: String(payload?.hero_focal || "").trim(),
+    accent: /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : "",
+    blur: Number.isFinite(blur) ? Math.min(20, Math.max(0, blur)) : 6,
+    darkness: Number.isFinite(darkness) ? Math.min(60, Math.max(0, darkness)) : 30,
+    leftStat: ["notes", "memories", "open", "files"].includes(leftStat) ? leftStat : "notes",
+    centerStat: ["streak", "percent"].includes(centerStat) ? centerStat : "streak",
+    details: payload?.banner_details !== false,
+    font: safeFont(payload?.banner_font),
+  };
+}
+
+/** 暗度 → (亮度, 暗幕) 的换算，照 Apex 原公式。 */
+export function backdropVars(blur, darkness) {
+  const safeDarkness = Number.isFinite(darkness) ? darkness : 30;
+  const safeBlur = Number.isFinite(blur) ? blur : 6;
+  const round3 = (value) => Math.round(value * 1000) / 1000;
+  return {
+    blur: `${Math.min(20, Math.max(0, safeBlur))}px`,
+    bright: String(round3(Math.max(0.3, 1 - (safeDarkness / 100) * 0.7))),
+    scrim: String(round3(0.25 + (safeDarkness / 100) * 0.5)),
+  };
+}
+
+/** 图片地址：http(s) 直接用链接；库内路径走后端沙箱端点（按索引取）。 */
+export function imageSrc(entry, index) {
+  const value = String(entry || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `/api/identity/hero?i=${Number(index) || 0}`;
+}
+
+function cssUrl(entry, index) {
+  return `url("${imageSrc(entry, index).replace(/"/g, "%22")}")`;
+}
+
+/** 按图片索引轮换横幅背景（配合 startRotation 使用）。 */
+export function setBannerImage(element, banner, index) {
+  if (!element || !banner || !banner.heroes.length) return;
+  const safeIndex = ((Number(index) || 0) % banner.heroes.length + banner.heroes.length) % banner.heroes.length;
+  element.style.backgroundImage = cssUrl(banner.heroes[safeIndex], safeIndex);
+  element.style.backgroundPosition = banner.focal || "center";
+  element.dataset.heroIndex = String(safeIndex);
+}
+
+export function quotesHtml(mottos) {
+  return mottos.map((line, index) =>
+    `<p class="workbench-motto-line${index === 0 ? " primary" : ""}">${esc(line)}</p>`).join("");
+}
+
+/** 统计模式（照 Apex Dashboard 的 stats banner 1:1）：左列大数字+底部小条 / 中列主位+热力图 / 右列三行进度条。 */
+export function statsHtml(stats, options = {}) {
+  const number = (key) => {
+    const value = stats ? Number(stats[key]) : NaN;
+    return Number.isFinite(value) ? value : null;
+  };
+  const text = (value) => (value == null ? "—" : String(value));
+  const pct = (done, total) => (total ? Math.round((done / total) * 100) : 0);
+  const details = options.details !== false;
+  const leftStat = ["notes", "memories", "open", "files"].includes(options.leftStat)
+    ? options.leftStat : "notes";
+  const centerStat = options.centerStat === "percent" ? "percent" : "streak";
+
+  const notes = number("notes");
+  const streak = number("journal_streak");
+  const percent = number("today_percent");
+  const dailyDone = number("daily_done");
+  const dailyTotal = number("daily_total");
+  const habitDone = number("habits_done");
+  const habitTotal = number("habits_total");
+  const openTodos = number("open_todos");
+  const todayFiles = number("activity_today");
+
+  const leftMap = {
+    notes: [notes, "资料"],
+    memories: [number("memories"), "记忆"],
+    open: [openTodos, "待办"],
+    files: [todayFiles, "今日文件"],
+  };
+  const centerMap = {
+    streak: [streak, "天 · 连续日记"],
+    percent: [percent, "% · 今日完成度"],
+  };
+  const [leftValue, leftLabel] = leftMap[leftStat];
+  const [centerValue, centerLabel] = centerMap[centerStat];
+
+  // 热力图：最近 14 天的活动量分 4 级（0 = 空），今天描边。
+  const activity = Array.isArray(stats?.activity) ? stats.activity : [];
+  const counts = activity.map((item) => Number(item.count) || 0);
+  const max = Math.max(1, ...counts);
+  const level = (count) => (count <= 0 ? 0
+    : count <= max * 0.25 ? 1 : count <= max * 0.5 ? 2 : count <= max * 0.75 ? 3 : 4);
+  const today = String(stats?.day || "");
+  const heatmap = activity.map((item) => {
+    const count = Number(item.count) || 0;
+    const rank = level(count);
+    const classes = ["banner-heat-cell", rank ? `level-${rank}` : "", item.day === today ? "today" : ""]
+      .filter(Boolean).join(" ");
+    return `<div class="${classes}"></div>`;
+  }).join("");
+
+  const strip = [
+    ["📄", `今天动过 ${text(todayFiles ?? 0)} 个文件`],
+    ["✅", `待办还差 ${text(openTodos ?? 0)} 项`],
+    ["🔥", `每日必做 ${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`],
+  ];
+  const progress = [
+    ["今日完成度", `${text(percent ?? 0)}%`, percent ?? 0],
+    ["每日必做", `${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`, pct(dailyDone ?? 0, dailyTotal ?? 0)],
+    ["习惯打卡", `${text(habitDone ?? 0)}/${text(habitTotal ?? 0)}`, pct(habitDone ?? 0, habitTotal ?? 0)],
+  ];
+
+  return [
+    '<div class="banner-stats-col banner-stats-left">',
+    `<div class="banner-stats-hero"><span class="banner-stats-num">${text(leftValue)}</span><span class="banner-stats-label">${esc(leftLabel)}</span></div>`,
+    details ? `<div class="banner-stats-strip">${strip.map(([icon, line]) =>
+      `<span class="banner-stats-strip-item"><i aria-hidden="true">${icon}</i>${esc(line)}</span>`).join("")}</div>` : "",
+    "</div>",
+    '<div class="banner-stats-col banner-stats-center">',
+    `<div class="banner-stats-hero"><span class="banner-stats-icon" aria-hidden="true">✍️</span><span class="banner-stats-num">${text(centerValue)}</span><span class="banner-stats-label">${esc(centerLabel)}</span></div>`,
+    details ? `<div class="banner-stats-sub">今日完成度 ${text(percent ?? 0)}% · 记忆 ${text(number("memories"))} 条</div>` +
+      `<div class="banner-heatmap">${heatmap}</div>` : "",
+    "</div>",
+    '<div class="banner-stats-col banner-stats-right">',
+    progress.map(([label, value, fill]) =>
+      `<div class="banner-stats-prog"><div class="banner-stats-prog-head"><span class="banner-stats-prog-title">${esc(label)}</span><span class="banner-stats-prog-val">${esc(value)}</span></div>` +
+      (details ? `<div class="banner-stats-prog-track"><div class="banner-stats-prog-fill" style="width:${Math.max(0, Math.min(100, Number(fill) || 0))}%"></div></div>` : "") +
+      `</div>`).join(""),
+    "</div>",
+  ].join("");
+}
+
+/** 把横幅状态画进 DOM；返回归一化后的 banner（供轮换与编辑器复用）。 */
+export function applyBanner(element, payload, stats) {
+  if (!element) return null;
+  const banner = normalizeBanner(payload);
+  const background = element.querySelector(".banner-bg");
+  const overlay = element.querySelector(".banner-overlay");
+  const quotes = element.querySelector(".banner-quote");
+  const statsBox = element.querySelector(".banner-stats");
+  element.classList.toggle("banner-empty", banner.heroes.length === 0);
+  if (background) setBannerImage(background, banner, 0);
+  if (overlay) overlay.style.opacity = String(banner.overlay);
+  if (banner.accent) element.style.setProperty("--banner-accent", banner.accent);
+  else element.style.removeProperty("--banner-accent");
+  // 字体：座右铭与统计文字共用一条字体栈；没选就交回样式表里的默认字体。
+  if (banner.font) element.style.setProperty("--banner-font", banner.font);
+  else element.style.removeProperty("--banner-font");
+  const backdrop = backdropVars(banner.blur, banner.darkness);
+  element.style.setProperty("--banner-blur", backdrop.blur);
+  element.style.setProperty("--banner-bright", backdrop.bright);
+  element.style.setProperty("--banner-scrim-alpha", backdrop.scrim);
+  const showStats = banner.mode === "stats";
+  element.classList.toggle("banner-stats-mode", showStats);
+  if (quotes) {
+    quotes.hidden = showStats;
+    quotes.innerHTML = quotesHtml(banner.mottos);
+  }
+  if (statsBox) {
+    statsBox.hidden = !showStats;
+    if (showStats) statsBox.innerHTML = statsHtml(stats, banner);
+  }
+  return banner;
+}
+
+export const ROTATION_MINUTES = 30;
+
+/** 多图轮换：setTimeout 链式自调度（测试环境没有 setInterval，照时钟同款），可注入。 */
+export function startRotation(banner, apply, schedule = (fn, ms) => setTimeout(fn, ms)) {
+  if (!banner || banner.heroes.length < 2) return false;
+  const interval = ROTATION_MINUTES * 60 * 1000;
+  let index = 0;
+  const tick = () => {
+    index = (index + 1) % banner.heroes.length;
+    apply(index);
+    schedule(tick, interval);
+  };
+  schedule(tick, interval);
+  return true;
+}
