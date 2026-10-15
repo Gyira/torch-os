@@ -39,23 +39,103 @@
 
 ## 快速开始（Windows / Python 3.12）
 
+首次安装**四步**，全在本机完成：不需要管理员权限、不需要 Node、默认不联网。
+
+| # | 做什么 | 靠什么 |
+|---|---|---|
+| 0 | 确认机器上有 Python 3.12 | `python --version`（没有就装，见下） |
+| 1 | 初始化环境：venv + 依赖 + `.env` + 示例数据 | `scripts\setup.ps1` |
+| 2 | 起本地服务 | `scripts\start.ps1` |
+| 3 | 把工作台装进 Obsidian（可选，但推荐） | `scripts\install-obsidian-plugin.ps1` |
+
+### 0. 前置：Python 3.12
+
+**仓库里不含 Python**，第一件事是确认它真的在：
+
 ```powershell
-git clone <本仓库地址> && cd torch-os
+python --version    # 期望看到 Python 3.12.x
+```
+
+没装的话，症状是命令弹出微软商店、或报 “Python was not found”——那是 Windows 自带的空壳别名，等于没装。装一个（按用户安装，不要管理员权限）：
+
+```powershell
+winget install --id Python.Python.3.12 --source winget --scope user
+```
+
+装完**新开一个终端**再验一次（PATH 要新会话才刷新）。已有别的 Python 也行，把后面命令里的 `python`
+换成 `py -3.12` 或解释器全路径即可。
+
+### 1. 初始化环境
+
+```powershell
+git clone <本仓库地址>
+cd torch-os
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1
+```
+
+`setup.ps1` 一次做完四件事：建 `.venv`、按 `requirements.lock.txt` 装依赖、从 `.env.example` 生成 `.env`、
+把 `examples\vault` 的示例数据铺进 `data\vault`。**重复执行是安全的。**
+
+示例数据只在 `data\vault` **还不存在**时自动铺（起过一次服务它就会被创建）。已经有库、又想补一份示例数据，
+加开关再跑一次——它不会删任何东西，但同名的示例文件会覆盖：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1 -SeedExamples
+```
+
+它做的就是下面这几步，想逐步手动控制时用（效果一样）：
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m backend.app.run
 ```
 
-然后打开 <http://127.0.0.1:8765>。默认只监听本机回环地址，不对外开放。
+> **国内网络注意**：pip 连 `files.pythonhosted.org` 很容易读超时（会卡一阵再报 `ReadTimeoutError`）。
+> 换镜像重跑即可，其它步骤不变：
+> ```powershell
+> .\.venv\Scripts\python.exe -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.lock.txt
+> ```
+
+### 2. 起服务
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+打开 <http://127.0.0.1:8765>。默认只监听本机回环地址，不对外开放。
+
+### 3. 装进 Obsidian
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plugin.ps1 -VaultPath "D:\Obsidian\我的知识库"
+```
+
+`-VaultPath` 填**库根目录**——有 `.obsidian` 文件夹的那一层。脚本只写两处：`.obsidian\plugins\torch\`
+（插件本体，外加预填了本机仓库路径的 `data.json`）和 `community-plugins.json`（预启用），不碰库里任何笔记。
+
+装完在 Obsidian 里：
+
+1. **完全重启 Obsidian**——`.obsidian\plugins` 的改动不会热加载；
+2. 首次会弹「信任仓库作者并启用插件」，点确认；
+3. 左侧 ribbon 出现**薪火OS**图标，或 `Ctrl+P` 搜「打开工作台」。
+
+插件会自动 ping `127.0.0.1:8765`，没在跑就用「仓库路径/.venv/Scripts/python.exe」把服务拉起来，
+所以**第 1 步必须先做完**，否则视图只会显示连不上。服务地址、仓库路径、Python 路径、是否自动拉起，
+都能在插件设置页改。
+
+### 卡住了看这里
+
+| 现象 | 原因与处理 |
+|---|---|
+| `python` 弹出微软商店 / “Python was not found” | 只有商店别名，真身没装 → 回第 0 步；装完要新开终端 |
+| pip 卡一阵后报 `ReadTimeoutError` | 到 pythonhosted 的网络不通 → 用上面的清华镜像重跑 |
+| `No module named venv` | 用的是嵌入式/精简版 Python → 换 python.org 或 winget 的完整版 |
+| Obsidian 左侧没有图标 | 没完全重启；或 `-VaultPath` 填错一层；或处于限制模式 |
+| 打开视图提示连不上服务 | 第 1 步没做完（缺 `.venv`），或 8765 端口被别的程序占着 |
 
 - 数据默认落在 `data\`（数据库、Vault、导入、备份），整个目录都被 Git 忽略。
   想用自己已有的 Obsidian 库，在 `.env` 里改 `VAULT_DIR` 指向它即可（界面里也能改）。
-- 想把它装进 Obsidian 当视图：
-  ```powershell
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plugin.ps1 -VaultPath "D:\Obsidian\我的知识库"
-  ```
-  首次打开需在 Obsidian 里点一次「信任仓库作者并启用插件」。
 - 前端是原生 ES 模块 + 一个 CSS 文件，**不需要 Node 构建**；Node 仅用于离线前端测试。
 
 ## 设计原则
