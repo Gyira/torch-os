@@ -40,7 +40,6 @@ type: tasks
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -54,9 +53,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .db import Database, utc_now
+from .markdown_store import (
+    guarded_write as _guarded_write,
+    heading_line as _heading_line,
+    load_note,
+    revision as _revision,
+    section_bounds as _section_bounds,
+)
 from .task_import import parse_checkboxes
-from .todo_note import _guarded_write, _heading_line, _section_bounds  # 同一套外科手术协议
-from .vault import MAX_NOTE_BYTES, managed_note_path, note_relative
+from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -163,10 +168,6 @@ def _audit(database: Database, event_type: str, details: dict[str, Any]) -> None
         )
 
 
-def _revision(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()[:16]
-
-
 def _clean_date(value: str, field: str) -> str:
     """日期只校验格式——注意不能复用日记的 validate_day：它拦未来日期，而任务就是要排到未来。"""
     text = (value or "").strip()
@@ -236,26 +237,8 @@ def _clean_title(value: str) -> str:
 
 
 def _load_tasks(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {"exists": False, "path": path, "raw": None, "revision": "",
-                "newline": "\n", "lines": [], "body_start": 0}
-    raw = path.read_bytes()
-    if len(raw) > MAX_NOTE_BYTES:
-        raise HTTPException(413, "任务文件过大，已停止编辑")
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(409, "任务文件不是 UTF-8 编码，暂不能编辑") from exc
-    newline = "\r\n" if "\r\n" in text else "\n"
-    lines = text.replace("\r\n", "\n").split("\n")
-    body_start = 0
-    if lines and lines[0].strip() == "---":
-        for index in range(1, len(lines)):
-            if lines[index].strip() == "---":
-                body_start = index + 1
-                break
-    return {"exists": True, "path": path, "raw": raw, "revision": _revision(raw),
-            "newline": newline, "lines": lines, "body_start": body_start}
+    return load_note(path, too_large="任务文件过大，已停止编辑",
+                     bad_encoding="任务文件不是 UTF-8 编码，暂不能编辑")
 
 
 def _front_matter(loaded: dict[str, Any]) -> dict[str, Any]:

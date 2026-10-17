@@ -255,7 +255,7 @@
           <button class="settings-nav-item" type="button" data-settings-nav="schedule" aria-current="false">定时提醒</button>
           <button class="settings-nav-item" type="button" data-settings-nav="backup" aria-current="false">备份与恢复</button>
           <button class="settings-nav-item" type="button" data-settings-nav="data" aria-current="false">数据与导出</button>
-          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">Obsidian 库</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
           <button class="settings-nav-item" type="button" data-settings-nav="help" aria-current="false">帮助</button><button class="settings-nav-item" type="button" data-settings-nav="about" aria-current="false">关于</button>
         </nav>
         <div class="settings-content">
@@ -327,7 +327,7 @@
               <div id="vault-scan-preview" class="panel" hidden></div>
               <div id="vault-report" class="panel" hidden></div>
             </article>
-            <article class="settings-card">
+            <article class="settings-card" id="vault-connect-card">
               <div class="settings-card-head"><div><span class="eyebrow">CONNECT</span><h3>更换目录或读写模式</h3><p>写入的是本地 <code>.env</code>（<code>VAULT_DIR</code> 与 <code>VAULT_READ_ONLY</code>），重启本地服务后生效；不会改动库里的任何文件。</p></div></div>
               <form id="vault-form" novalidate>
                 <div class="field"><label for="vault-path">Obsidian 库的完整路径</label><input id="vault-path" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
@@ -336,6 +336,23 @@
               </form>
               <p id="vault-connection-support" class="meta" role="status" hidden></p>
               <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 分享导入 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
+            </article>
+            <article class="settings-card">
+              <div class="settings-card-head"><div><span class="eyebrow">WORKSPACES</span><h2 id="settings-workspaces-heading" tabindex="-1">工作区（用户文件夹）</h2><p>换用户就是换文件夹：一个文件夹 = 一个人的 Obsidian 库 + 应用数据。切换会写入本地 <code>.env</code>（<code>DATA_DIR</code>、<code>VAULT_DIR</code>、读写模式），重启本地服务后生效。</p></div><div class="section-actions"><button id="workspace-new" class="text-button" type="button" disabled>新建工作区</button></div></div>
+              <div id="workspace-list" class="panel workspace-list">正在读取工作区…</div>
+              <p id="workspace-note" class="field-help"></p>
+              <form id="workspace-form" novalidate hidden>
+                <div class="form-grid">
+                  <div class="field"><label for="workspace-name">名字</label><input id="workspace-name" type="text" autocomplete="off" maxlength="40" placeholder="例如 我的 / 家人A" /></div>
+                  <div class="field"><label for="workspace-folder">用户文件夹（Obsidian 库根目录）</label><input id="workspace-folder" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
+                </div>
+                <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进第二大脑索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
+                <div class="field"><label class="check-label" for="workspace-read-only"><input id="workspace-read-only" type="checkbox" />只读安全模式（扫描照常，所有写入拒绝）</label></div>
+                <div class="form-actions"><div><button id="workspace-save" class="button primary" type="submit" disabled>保存工作区</button> <button id="workspace-cancel" class="button secondary" type="button" disabled>取消</button></div></div>
+              </form>
+              <p id="workspace-status" class="status-message" role="status"></p>
+              <p id="workspace-support" class="meta" role="status" hidden></p>
+              <p class="field-help">切换工作区不会删除任何数据：当前文件夹里的 Markdown、索引与备份都原样留在原处，换回来即可。删除条目只从列表移除，不动磁盘文件。</p>
             </article>
           </section>
           <section class="settings-section" data-settings-section="audit" aria-labelledby="settings-audit-heading" hidden>

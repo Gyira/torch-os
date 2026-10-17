@@ -49,6 +49,10 @@ function renderConnection(payload) {
 function syncControls() {
   const enabled = available();
   const disabled = busy || !enabled;
+  // 有「工作区」能力时，路径切换统一走工作区（DATA_DIR 与 VAULT_DIR 必须一起换）；
+  // 这里只保留只读展示、扫描预览与演练报告，避免“只换 Vault”把两个人的索引混在一起。
+  const legacyForm = $("#vault-connect-card");
+  if (legacyForm) legacyForm.hidden = state.config?.capabilities?.workspaces === true;
   ["#vault-path", "#vault-read-only"].forEach((selector) => { const node = $(selector); if (node) node.disabled = disabled; });
   const save = $("#vault-save");
   if (save) save.disabled = disabled;

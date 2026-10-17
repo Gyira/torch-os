@@ -41,6 +41,25 @@ def rewrite_archive(path: Path, mutate, name="modified.zip") -> Path:
     return destination
 
 
+def test_the_workspace_hidden_folder_can_hold_backups_and_is_not_snapshotted(backup_source):
+    """工作区模型：<Vault>/.torch-os 放索引/诊断/备份；它不进备份，也不该被“备份在库外”挡住。"""
+    database, vault, _backups, _data = backup_source
+    hidden = vault / ".torch-os"
+    (hidden / "diagnostics").mkdir(parents=True)
+    (hidden / "diagnostics" / "restore-drill.md").write_text("内部报告", encoding="utf-8")
+
+    archive_path = Path(create_backup(database, vault, hidden / "backups")["path"])
+    assert archive_path.is_relative_to(hidden)
+    with zipfile.ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+    assert "vault/学习/笔记.md" in names
+    assert not any(name.startswith("vault/.torch-os/") for name in names)
+
+    # 库内的普通目录仍然拒绝
+    with pytest.raises(BackupError):
+        create_backup(database, vault, vault / "backups")
+
+
 def test_backup_round_trip_preserves_database_and_unicode_markdown(backup_source):
     database, vault, backups, data = backup_source
     conversation = database.create_conversation("备份测试")

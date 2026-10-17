@@ -18,9 +18,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -32,8 +30,15 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .db import Database, utc_now
 from .journal import validate_day
-from .task_import import FENCE, HEADING, LIST_FENCE, _mask_comments, parse_checkboxes
-from .vault import MAX_NOTE_BYTES, managed_note_path, note_relative
+from .markdown_store import (
+    guarded_write as _guarded_write,
+    heading_line as _heading_line,
+    load_note,
+    revision as _revision,
+    section_bounds as _section_bounds,
+)
+from .task_import import parse_checkboxes
+from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -133,47 +138,9 @@ def normalize_title(value: str) -> str:
     return " ".join(value.split())
 
 
-def _revision(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()[:16]
-
-
 def _load(path: Path) -> dict[str, Any]:
     """Read one todo-ish Markdown file; missing file is a normal state."""
-    if not path.is_file():
-        return {"exists": False, "path": path, "raw": None, "revision": "",
-                "newline": "\n", "lines": [], "body_start": 0}
-    raw = path.read_bytes()
-    if len(raw) > MAX_NOTE_BYTES:
-        raise HTTPException(413, "文件过大，已停止编辑")
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(409, "待办文件不是 UTF-8 编码，暂不能编辑") from exc
-    newline = "\r\n" if "\r\n" in text else "\n"
-    lines = text.replace("\r\n", "\n").split("\n")
-    body_start = 0
-    if lines and lines[0].strip() == "---":
-        for index in range(1, len(lines)):
-            if lines[index].strip() == "---":
-                body_start = index + 1
-                break
-    return {"exists": True, "path": path, "raw": raw, "revision": _revision(raw),
-            "newline": newline, "lines": lines, "body_start": body_start}
-
-
-def _guarded_write(loaded: dict[str, Any], new_lines: list[str]) -> bytes:
-    """Compare-before-replace: another writer's change wins and we fail loudly."""
-    path: Path = loaded["path"]
-    text = loaded["newline"].join(new_lines)
-    if loaded["exists"]:
-        current = path.read_bytes()
-        if current != loaded["raw"]:
-            raise HTTPException(409, "文件已在别处修改，请刷新后重试")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(text, encoding="utf-8", newline="")
-    os.replace(temporary, path)
-    return text.encode("utf-8")
+    return load_note(path, bad_encoding="待办文件不是 UTF-8 编码，暂不能编辑")
 
 
 def _parse_items(loaded: dict[str, Any]) -> list[dict[str, Any]]:
@@ -201,61 +168,6 @@ def _parse_items(loaded: dict[str, Any]) -> list[dict[str, Any]]:
             "section": section,
         })
     return parsed
-
-
-def _heading_line(lines: list[str], start: int, title: str, level: int = 2) -> int:
-    """Find ``## {title}`` (0-based line index), fence/comment aware."""
-    inside_comment = False
-    fence_character: str | None = None
-    fence_length = 0
-    for index in range(start, len(lines)):
-        line = lines[index]
-        if fence_character:
-            fence = FENCE.match(line)
-            if (fence and fence.group(1)[0] == fence_character
-                    and len(fence.group(1)) >= fence_length and not fence.group(2).strip()):
-                fence_character = None
-            continue
-        visible, inside_comment, _ = _mask_comments(line, inside_comment)
-        fence = FENCE.match(visible) or LIST_FENCE.match(visible)
-        if fence and not (fence.group(1)[0] == "`" and "`" in fence.group(2)):
-            fence_character, fence_length = fence.group(1)[0], len(fence.group(1))
-            continue
-        heading = HEADING.match(visible)
-        if heading and len(heading.group(1)) == level:
-            text = re.sub(r"[ \t]+#+[ \t]*$", "", heading.group(2) or "").strip()
-            if text == title:
-                return index
-    return -1
-
-
-def _section_bounds(lines: list[str], start: int, heading_index: int) -> tuple[int, int]:
-    """[content_start, insert_at) for the section beginning at ``heading_index``."""
-    inside_comment = False
-    fence_character: str | None = None
-    fence_length = 0
-    content_start = heading_index + 1
-    insert_at = len(lines)
-    for index in range(content_start, len(lines)):
-        line = lines[index]
-        if fence_character:
-            fence = FENCE.match(line)
-            if (fence and fence.group(1)[0] == fence_character
-                    and len(fence.group(1)) >= fence_length and not fence.group(2).strip()):
-                fence_character = None
-            continue
-        visible, inside_comment, _ = _mask_comments(line, inside_comment)
-        fence = FENCE.match(visible) or LIST_FENCE.match(visible)
-        if fence and not (fence.group(1)[0] == "`" and "`" in fence.group(2)):
-            fence_character, fence_length = fence.group(1)[0], len(fence.group(1))
-            continue
-        heading = HEADING.match(visible)
-        if heading and len(heading.group(1)) <= 2:
-            insert_at = index
-            break
-    while insert_at > content_start and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    return content_start, insert_at
 
 
 def _format_line(title: str, *, checked: bool, day: str | None) -> str:

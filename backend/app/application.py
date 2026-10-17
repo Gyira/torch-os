@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
+from .envfile import write_env_value
 from .audit_summary import create_audit_summary_router
 from .backup import (
     RESTORED_NAME_PATTERN, BackupError, create_backup, list_restored_copies,
@@ -41,6 +42,7 @@ from . import harness_brain
 from .suggestions import SuggestionService, create_suggestions_router
 from .tools import ToolService
 from . import agent as agent_module
+from .workspaces import create_workspaces_router
 from .vault_connection import (
     READ_ONLY_ENV,
     VaultReadOnlyError,
@@ -205,27 +207,6 @@ class ModelKeyUpdate(InputModel):
         return self
 
 
-def write_env_value(path: Path, name: str, value: str) -> None:
-    """Atomically replace one key in a local .env file, preserving every other line."""
-    path = Path(path)
-    lines = path.read_text(encoding='utf-8').splitlines() if path.exists() else []
-    pattern = re.compile(rf'^\s*{re.escape(name)}\s*=')
-    replaced = False
-    output = []
-    for line in lines:
-        if pattern.match(line):
-            output.append(f'{name}={value}')
-            replaced = True
-        else:
-            output.append(line)
-    if not replaced:
-        output.append(f'{name}={value}')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f'.{path.name}.tmp-{uuid4().hex[:8]}')
-    temporary.write_text('\n'.join(output) + '\n', encoding='utf-8')
-    os.replace(temporary, path)
-
-
 def local_answer(evidence: list[dict], cloud_available: bool = False) -> str:
     if not evidence:
         message = '当前没有找到相关且已确认的记忆，我还不知道这件事。请先在记录页保存资料，再到记忆页核对并确认。'
@@ -248,7 +229,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                gateway: ModelGateway | None = None, *, session_token: str | None = None,
                host: str = '127.0.0.1', security_environ: dict | None = None,
                runtime_label: str = 'personal', embedding_provider: Any = None,
-               env_file: Path | None = None) -> FastAPI:
+               env_file: Path | None = None, workspace_registry: Path | None = None) -> FastAPI:
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST
         database = database or Database(DB_PATH)
@@ -419,6 +400,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                                 'conversation_extract':True,
                                 'share_import':True,
                                 'vault_connection':True,
+                                'workspaces':runtime_label == 'personal',
                                 'schema_export':True,
                                 'tools':True,
                                 'mcp_bridge':True,
@@ -848,6 +830,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     # 横幅统计：连续日记天数 / 今日完成度 / 记忆与资料计数。
     app.include_router(create_banner_stats_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])
+    # 工作区（多人/多数据库）：切换写入 .env，重启后生效；QA 环境只读。
+    workspace_options = {} if workspace_registry is None else {'registry_path': workspace_registry}
+    app.include_router(create_workspaces_router(
+        data_dir=database.path.parent, vault_dir=vault_dir, read_only=vault_read_only,
+        env_path=env_path, database=database, runtime_label=runtime_label, **workspace_options))
     suggestion_service = SuggestionService(database, vault_dir)
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_profile_router(database, vault_dir, app.state.data_lock, APP_VERSION))

@@ -11,7 +11,6 @@ each other.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from pathlib import Path
@@ -22,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .db import utc_now
+from .markdown_store import revision as _revision
 from .vault import managed_note_path, note_relative, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -46,10 +46,6 @@ class IdentityWrite(BaseModel):
     values: str = Field(default="", max_length=MAX_FIELD)
     notes: str = Field(default="", max_length=MAX_FIELD)
     revision: str = Field(default="", max_length=64)
-
-
-def _revision(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _float_in(value: Any, default: float, low: float, high: float) -> float:

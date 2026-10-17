@@ -988,3 +988,11 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .time-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 10px; padding: 6px 10px; border: 1px solid var(--p-accent-line); border-radius: 10px; background: var(--p-accent-soft-3); }
 .time-bulk .button { padding: 4px 12px; font-size: 12px; }
 .time-bulk .button:disabled { opacity: .5; }
+.workspace-list { padding: 0 18px; }
+.workspace-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--p-line); }
+.workspace-row:last-child { border-bottom: 0; }
+.workspace-info { min-width: 0; flex: 1; }
+.workspace-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+.workspace-info .meta { margin: 3px 0; overflow-wrap: anywhere; }
+.workspace-row .section-actions { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 760px) { .workspace-row { display: block; } .workspace-row .section-actions { justify-content: flex-start; margin-top: 8px; } }

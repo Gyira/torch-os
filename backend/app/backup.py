@@ -36,7 +36,8 @@ RESTORED_DATABASE_NAME = "torch_os.sqlite3"
 RESTORED_NAME_PATTERN = re.compile(r"[0-9a-f]{32}")
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _CHUNK = 1024 * 1024
-_EXCLUDED_DIRS = {".git", ".obsidian", "__pycache__", "logs"}
+# `.torch-os` = 工作区的应用数据目录（索引/备份/诊断），和 `.obsidian` 一样不进备份快照。
+_EXCLUDED_DIRS = {".git", ".obsidian", "__pycache__", "logs", ".torch-os"}
 RELATIONSHIP_DIRS = {"relationship", "relationships", "relationship-vault", "relationship vault"}
 _DEVICE_NAMES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 _REQUIRED_COLUMNS = {
@@ -405,7 +406,11 @@ def create_backup(database: Database, vault_dir: Path, backup_dir: Path) -> dict
         vault_dir = _safe_path(vault_dir)
         backup_dir = _safe_path(backup_dir)
         if backup_dir.is_relative_to(vault_dir):
-            raise BackupError("Backup directory must be outside the Vault")
+            # 工作区模型把应用数据放在 <Vault>/.torch-os；这个隐藏目录不进扫描与备份，
+            # 所以允许备份放在它里面。其它库内路径仍然拒绝。
+            relative = backup_dir.relative_to(vault_dir)
+            if not relative.parts or relative.parts[0].casefold() != ".torch-os":
+                raise BackupError("Backup directory must be outside the Vault")
         inventory = _scan_vault(vault_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
         _safe_path(backup_dir)
