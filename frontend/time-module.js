@@ -3,10 +3,11 @@
 // 数据来自 /api/time/*（Markdown 本体 `00-System/任务（tasks）.md`）；写操作一律「POST → 重载 → 提示」，
 // 与 workbench.js 里待办/习惯那套写法保持一致。日历页与四象限页在第 3 轮接上（照滴答实测规格），
 // 2026-10-11 第 4 轮把日历扩成七种视图（状态：视图/锚点/档位/显示设置，全存本机）。
-import { $, api, jsonBody, toast, setStatus, confirmAction } from "./core.js";
+import { $, state, api, jsonBody, toast, setStatus, confirmAction } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
-  INBOX, priorityMeta, filterTasks, groupTasks, sortTasks, boardTitle, defaultCalendarState,
+  INBOX, INBOX_HINT, priorityMeta, filterTasks, groupTasks, sortTasks, boardTitle,
+  defaultCalendarState,
 } from "./tasks-model.js";
 import { renderTaskSidebar } from "./tasks-sidebar.js";
 import { renderTaskBoard, openSortMenu, paintAddTools } from "./tasks.js";
@@ -25,7 +26,8 @@ const SIDEBAR_KEY = "torch-os:time-sidebar";
 const CAL_KEY = "torch-os:time-calendar";
 
 let board = null;          // 后端板面数据 {revision, lists, tags, tasks}
-let viewState = { selection: { view: "today" }, group: "time", sort: "time", order: "old" };
+// showDone 默认开：在 Obsidian 里勾完回到工作台，能直接看到勾上的那一行（也可以在工具栏关掉）。
+let viewState = { selection: { view: "today" }, group: "time", sort: "time", order: "old", showDone: true };
 let collapsed = { views: false, lists: false, tags: false };
 let pending = { date: "", time: "", priority: "none", tags: [], list: "" };
 let calendar = {};   // 日历页：哪张视图、锚点哪天、档位、周起始、是否显示已完成（见 paintCalendar）
@@ -53,6 +55,10 @@ function writeStore(key, value) {
 
 export function initTimeModule() {
   viewState = readStore(VIEW_KEY, viewState);
+  // 「最近 7 天」视图已取消；旧的本机状态回落到今天。
+  if (viewState.selection?.view === "week") {
+    viewState = { ...viewState, selection: { view: "today" } };
+  }
   collapsed = readStore(SIDEBAR_KEY, collapsed);
   calendar = readStore(CAL_KEY, calendar);
   // 添加栏的默认值跟着当前视图走：任务看板默认“今天”，清单/标签视图默认不带日期（照需求 ④）。
@@ -181,6 +187,38 @@ export function initTimeModule() {
       paintBoard();
     });
   });
+
+  // 显示已完成：默认开；在 Obsidian 里勾完回到工作台，能直接看到勾上的那一行。
+  const showDoneButton = $("#time-show-done");
+  const syncShowDone = () => {
+    if (!showDoneButton) return;
+    const on = viewState.showDone !== false;
+    showDoneButton.classList.toggle("is-active", on);
+    showDoneButton.setAttribute("aria-pressed", on ? "true" : "false");
+  };
+  showDoneButton?.addEventListener("click", () => {
+    viewState = { ...viewState, showDone: viewState.showDone === false };
+    writeStore(VIEW_KEY, viewState);
+    syncShowDone();
+    paintSidebar();
+    paintBoard();
+  });
+  syncShowDone();
+
+  // 外部（Obsidian）改完文件后自动重读：切回工作台/标签页可见时 + 每 30 秒一次；
+  // revision 没变就不重画，避免打断正在进行的编辑或弹窗。
+  const refreshFromDisk = () => {
+    if (state.view === "workbench" && !document.hidden) loadTimeTasks({ silent: true });
+  };
+  window.addEventListener("focus", refreshFromDisk);
+  document.addEventListener("visibilitychange", refreshFromDisk);
+  window.setInterval?.(refreshFromDisk, 30000);
+  // 从别的模块切回工作台（或从日记切回时间管理）时立刻重读一次。
+  document.addEventListener("click", (event) => {
+    if (event.target.closest('[data-view="workbench"], [data-pane="workbench-view"]')) {
+      loadTimeTasks({ silent: true });
+    }
+  });
   return loadTimeTasks();
 }
 
@@ -216,15 +254,20 @@ export function renderTimeProgress(progress) {
   if (wrap) wrap.setAttribute("aria-valuenow", String(value ?? 0));
 }
 
-export async function loadTimeTasks() {
+export async function loadTimeTasks({ silent = false } = {}) {
+  let next;
   try {
-    board = await api("/api/time/tasks");
+    next = await api("/api/time/tasks");
   } catch (error) {
+    if (silent) return;  // 自动重读失败时别打扰用户，保留当前画面
     board = null;
     setStatus("#time-status", `任务：${error.message}`, "warning");
     toast(`任务没读出来：${error.message}`, "error");   // 状态行在任务页；别的页也要看得见
     return;
   }
+  // 自动重读：文件没变（revision 相同）就不重画，避免打断正在进行的操作。
+  if (silent && board && next.revision === board.revision) return;
+  board = next;
   setStatus("#time-status", "");
   paintSidebar();
   paintBoard();
@@ -252,6 +295,7 @@ function paintSidebar() {
     folders: board?.folders || [],
     tags: board?.tags || [],
     selection: viewState.selection,
+    showDone: viewState.showDone !== false,
     collapsed,
     onSelect: selectView,
     onToggleGroup: (name) => {
@@ -412,10 +456,18 @@ function paintBoard() {
   const selection = viewState.selection || { view: "today" };
   const tasks = board?.tasks || [];
   $("#time-board-title").textContent = boardTitle(selection);
+  // 收集箱的说明文本：只在选中它时出现，其它视图不占地方。
+  const boardHint = $("#time-board-hint");
+  if (boardHint) {
+    const inboxSelected = !selection.list && !selection.tag && (selection.view || "today") === "inbox";
+    boardHint.hidden = !inboxSelected;
+    boardHint.textContent = inboxSelected ? INBOX_HINT : "";
+  }
   const picked = filterTasks(tasks, selection.view || "today", {
     today,
     list: selection.list || "",
     tag: selection.tag || "",
+    showDone: viewState.showDone !== false,
   });
   const sorted = sortTasks(picked, viewState.sort, viewState.order);
   const groups = groupTasks(sorted, viewState.group, {

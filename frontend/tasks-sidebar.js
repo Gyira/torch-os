@@ -1,10 +1,10 @@
 // 任务页的二级侧边栏（2026-10-08）：置顶区 + 三大可折叠组（任务看板 / 清单管理 / 标签管理）。
 // 第 2 轮照滴答实测规格补齐：清单与标签的「＋」「…」菜单、文件夹树（可折叠）、清单行的快速添加。
 import { escapeHtml } from "./core.js";
-import { VIEWS, INBOX, viewCounts, countBy, listTree, pinnedItems, listIcon } from "./tasks-model.js";
+import { VIEWS, INBOX, INBOX_HINT, viewCounts, countBy, listTree, pinnedItems, listIcon } from "./tasks-model.js";
 import { openPopover } from "./tasks-picker.js";
 
-const ICONS = { today: "☀", week: "🗓", inbox: "📥", done: "✅" };
+const ICONS = { today: "☀", inbox: "📥", done: "✅" };
 
 function group(container, { label, collapsed, onToggle, hint, onAdd, addLabel }) {
   const section = document.createElement("section");
@@ -37,7 +37,7 @@ function group(container, { label, collapsed, onToggle, hint, onAdd, addLabel })
   return body;
 }
 
-function item(host, { id, icon, label, count, active, kind, onClick, actions = [] }) {
+function item(host, { id, icon, label, hint = "", count, active, kind, onClick, actions = [] }) {
   const row = document.createElement("div");
   row.className = `time-side-row${active ? " is-active" : ""}`;
   const button = document.createElement("button");
@@ -46,6 +46,7 @@ function item(host, { id, icon, label, count, active, kind, onClick, actions = [
   button.dataset.timeKind = kind;
   button.dataset.timeId = id;
   button.setAttribute("aria-current", active ? "true" : "false");
+  if (hint) button.title = hint;
   button.innerHTML = `<span class="time-side-icon" aria-hidden="true">${icon || ""}</span>` +
     `<span class="time-side-label">${escapeHtml(label)}</span>` +
     (count ? `<span class="time-side-count">${count}</span>` : "");
@@ -115,7 +116,7 @@ export function renderTaskSidebar(container, options) {
     onAddList = () => {}, onAddTag = () => {},
     onListAction = () => {}, onFolderAction = () => {}, onTagAction = () => {},
   } = options;
-  const counts = viewCounts(tasks);
+  const counts = viewCounts(tasks, { showDone: Boolean(options.showDone) });
   const listCounts = countBy(tasks, "list_name");
   const tagCounts = countBy(tasks, "tags");
   const view = selection.view || (selection.list || selection.tag ? "" : "today");
@@ -149,7 +150,8 @@ export function renderTaskSidebar(container, options) {
   for (const entry of VIEWS) {
     const count = entry.id === "inbox" ? listCounts[INBOX] : counts[entry.id];
     item(board, {
-      id: entry.id, icon: ICONS[entry.id] || "", label: entry.label, count: count || 0,
+      id: entry.id, icon: ICONS[entry.id] || "", label: entry.label,
+      hint: entry.id === "inbox" ? INBOX_HINT : "", count: count || 0,
       active: !selection.list && !selection.tag && view === entry.id, kind: "view",
       onClick: () => onSelect({ view: entry.id }),
     });

@@ -43,25 +43,32 @@ test("dayOffset walks calendar days as plain strings", () => {
   assert.equal(relativeDay("2026-10-20", TODAY), "10-20");
 });
 
-test("the four board views pick the right tasks", () => {
+test("the three board views pick the right tasks", () => {
   const titles = (list) => list.map((item) => item.title);
   assert.deepEqual(titles(filterTasks(TASKS, "today", { today: TODAY })), ["今天的事", "别人清单的任务"]);
-  assert.deepEqual(titles(filterTasks(TASKS, "week", { today: TODAY })),
-    ["今天的事", "逾期的事", "明天的事", "别人清单的任务"]); // 逾期 + 未来 6 天，不含已完成
   assert.deepEqual(titles(filterTasks(TASKS, "inbox", { today: TODAY })),
     ["今天的事", "逾期的事", "明天的事", "下周的事", "没日期的事"]);
   assert.deepEqual(titles(filterTasks(TASKS, "done", { today: TODAY })), ["已经做完的"]);
 
+  // 显示已完成：外部勾选后工作台里能直接看到勾上的那一行
+  assert.deepEqual(titles(filterTasks(TASKS, "today", { today: TODAY, showDone: true })),
+    ["今天的事", "别人清单的任务", "已经做完的"]);
+  assert.deepEqual(titles(filterTasks(TASKS, "inbox", { today: TODAY, showDone: true })),
+    ["今天的事", "逾期的事", "明天的事", "下周的事", "没日期的事", "已经做完的"]);
+  assert.deepEqual(viewCounts(TASKS, { today: TODAY, showDone: true }),
+    { today: 3, inbox: 6, done: 1 });
+
   // 清单 / 标签视图：已完成也留着（列表里只看未完成会让人以为东西丢了）
   assert.equal(filterTasks(TASKS, "today", { list: "心愿清单" }).length, 1);
   assert.equal(filterTasks(TASKS, "today", { tag: "心愿" }).length, 1);
-  assert.deepEqual(viewCounts(TASKS, { today: TODAY }), { today: 2, week: 4, inbox: 5, done: 1 });
+  assert.deepEqual(viewCounts(TASKS, { today: TODAY }), { today: 2, inbox: 5, done: 1 });
   assert.deepEqual(countBy(TASKS, "list_name"), { 收集箱: 5, 心愿清单: 1 });
   assert.deepEqual(countBy(TASKS, "tags"), { 心愿: 1 });
 });
 
 test("grouping by time / list / tag / priority / created", () => {
-  const byTime = groupTasks(filterTasks(TASKS, "week", { today: TODAY }), "time", { today: TODAY });
+  const sample = TASKS.filter((item) => !item.done && item.date && item.date <= "2026-10-09");
+  const byTime = groupTasks(sample, "time", { today: TODAY });
   assert.deepEqual(byTime.map((group) => group.label), ["已逾期", "今天", "明天"]);
   assert.deepEqual(byTime[1].tasks.map((item) => item.title), ["今天的事", "别人清单的任务"]);
 
@@ -116,11 +123,11 @@ test("sorting keeps pinned tasks on top and honours the direction", () => {
 
 test("boardTitle names the current selection", () => {
   assert.equal(boardTitle({ view: "today" }), "今天");
-  assert.equal(boardTitle({ view: "week" }), "最近 7 天");
+  assert.equal(boardTitle({ view: "week" }), "今天");  // 旧的本机状态回落到今天
   assert.equal(boardTitle({ list: "客户A" }), "客户A");
   assert.equal(boardTitle({ tag: "重要" }), "#重要");
   assert.equal(boardTitle({}), "今天");
-  assert.deepEqual(VIEWS.map((view) => view.id), ["today", "week", "inbox", "done"]);
+  assert.deepEqual(VIEWS.map((view) => view.id), ["today", "inbox", "done"]);
 });
 
 test("listTree groups root lists first and folds folders in order", () => {

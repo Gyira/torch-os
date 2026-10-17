@@ -250,7 +250,7 @@ function initBannerCollapse() {
 }
 
 export function initWorkbench() {
-  $("#workbench-refresh").addEventListener("click", () => { loadWorkbench(); loadWeather(true); });
+  $("#workbench-refresh").addEventListener("click", () => { loadWorkbench(); loadWeather(true); loadTimeTasks(); });
   $("#workbench-weather-refresh").addEventListener("click", () => loadWeather(true));
   // 5 天缩略条：点哪天，上半区就换成那天；右上角“今天”随时回到今天。
   $("#workbench-weather").addEventListener("click", (event) => {

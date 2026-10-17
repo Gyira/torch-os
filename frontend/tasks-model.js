@@ -7,6 +7,8 @@
 import { shanghaiDay } from "./journal-model.js";
 
 export const INBOX = "收集箱";
+/** 侧栏与看板上的说明文案：收集箱是临时中转站。 */
+export const INBOX_HINT = "收集箱是临时中转站，临时蹦出的点子、来不及指定清单的任务，可以记录在这里。";
 
 /** 优先级四档（顺序 = 从高到低；颜色写在上面的 CSS 类里，不在这里写死颜色）。 */
 export const PRIORITIES = [
@@ -20,10 +22,9 @@ export function priorityMeta(value) {
   return PRIORITIES.find((item) => item.value === value) || PRIORITIES[3];
 }
 
-/** 任务看板四项（侧边栏第一组）。 */
+/** 任务看板三项（侧边栏第一组）。 */
 export const VIEWS = [
   { id: "today", label: "今天" },
-  { id: "week", label: "最近 7 天" },
   { id: "inbox", label: INBOX },
   { id: "done", label: "已完成" },
 ];
@@ -65,9 +66,8 @@ export function relativeDay(day, today) {
 
 /**
  * 选中一个视图（或某个清单 / 标签）时，哪些任务进列表。
- * - today：今天到期且未完成
- * - week：最近 7 天 = 逾期 + 未来 6 天（未完成、有日期）
- * - inbox：收集箱里未完成的
+ * - today：今天到期（showDone 时连已完成的也留着，勾会立刻显示出来）
+ * - inbox：收集箱（showDone 时含已完成）
  * - done：所有已完成的
  * - list / tag：那个清单 / 标签下的全部（未完成在前，已完成也留着）
  */
@@ -75,26 +75,24 @@ export function filterTasks(tasks, view, options = {}) {
   const today = options.today || shanghaiDay();
   const list = options.list || "";
   const tag = options.tag || "";
+  const showDone = Boolean(options.showDone);
   const all = Array.isArray(tasks) ? tasks : [];
   if (list) return all.filter((task) => task.list_name === list);
   if (tag) return all.filter((task) => (task.tags || []).includes(tag));
-  if (view === "week") {
-    const end = dayOffset(today, 6);
-    return all.filter((task) => !task.done && task.date && task.date <= end);
+  if (view === "inbox") {
+    return all.filter((task) => (showDone || !task.done) && task.list_name === INBOX);
   }
-  if (view === "inbox") return all.filter((task) => !task.done && task.list_name === INBOX);
   if (view === "done") return all.filter((task) => task.done);
-  return all.filter((task) => !task.done && task.date === today); // today（默认）
+  return all.filter((task) => (showDone || !task.done) && task.date === today); // today（默认）
 }
 
-/** 侧栏上的小计数（今天 / 最近 7 天 / 收集箱 / 已完成）；today 可传，测试里别依赖运行当天。 */
+/** 侧栏上的小计数（今天 / 收集箱 / 已完成）；today 可传，测试里别依赖运行当天。 */
 export function viewCounts(tasks, options = {}) {
   const all = Array.isArray(tasks) ? tasks : [];
   const today = options.today || shanghaiDay();
   return {
-    today: filterTasks(all, "today", { today }).length,
-    week: filterTasks(all, "week", { today }).length,
-    inbox: filterTasks(all, "inbox", { today }).length,
+    today: filterTasks(all, "today", { today, showDone: options.showDone }).length,
+    inbox: filterTasks(all, "inbox", { today, showDone: options.showDone }).length,
     done: filterTasks(all, "done", { today }).length,
   };
 }

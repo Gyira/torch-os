@@ -9,7 +9,7 @@
     <nav aria-label="主要页面">
       <button class="nav-item active" data-view="workbench" aria-current="page" aria-expanded="true" aria-controls="nav-sub-workbench"><span aria-hidden="true">◷</span>工作台</button>
       <div class="nav-sublist" id="nav-sub-workbench" data-sublist="workbench" role="group" aria-label="工作台分区">
-        <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">时间管理</button>
+        <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">待办事项</button>
         <button type="button" class="nav-subitem" data-pane="journal-view" aria-current="false">日记</button>
       </div>
       <button class="nav-item" data-view="identity" aria-expanded="false" aria-controls="nav-sub-identity"><span aria-hidden="true">◈</span>数字分身</button>
@@ -50,7 +50,7 @@
           <div class="workbench-head-main">
             <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
-            <h2 id="time-module-heading" class="visually-hidden">时间管理</h2>
+            <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
               <button type="button" class="time-rail-item is-active" data-time-page="tasks" role="tab" aria-selected="true"><span aria-hidden="true">☰</span>任务</button>
               <button type="button" class="time-rail-item" data-time-page="calendar" role="tab" aria-selected="false"><span aria-hidden="true">🗓</span>日历</button>
@@ -62,8 +62,9 @@
               <header class="time-head">
                 <h3 id="time-board-title">今天</h3>
                 <div class="time-progress" role="group" aria-label="今日完成度"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
-                <button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="workbench-refresh" class="text-button">刷新</button>
+                <button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="true">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="workbench-refresh" class="text-button">刷新</button>
               </header>
+              <p id="time-board-hint" class="field-help" hidden></p>
               <div class="time-bulk" id="time-bulk" hidden role="group" aria-label="批量操作">
                 <span id="time-bulk-count" class="meta" role="status">已选 0 项</span>
                 <button type="button" id="time-bulk-all" class="text-button">全选</button>

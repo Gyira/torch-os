@@ -34,7 +34,7 @@ const titles = NAV_LABELS;
 const MODULES = {
   workbench: {
     stacked: true,
-    panes: [["workbench-view", "时间管理"], ["journal-view", "日记"]],
+    panes: [["workbench-view", "待办事项"], ["journal-view", "日记"]],
   },
   identity: {
     panes: [["me-view", "座右铭与三观"], ["profile-view", "画像"], ["memory-view", "记忆"],

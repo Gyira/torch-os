@@ -985,6 +985,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .time-task.is-selected .task-title { color: var(--p-ink-strong); }
 .task-select { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--p-accent-2); cursor: pointer; }
 #time-multi-btn.is-active { background: var(--p-fill-strong); color: var(--p-ink-strong); border-radius: 7px; padding: 4px 8px; text-decoration: none; }
+#time-show-done.is-active { background: var(--p-fill-strong); color: var(--p-ink-strong); border-radius: 7px; padding: 4px 8px; text-decoration: none; }
 .time-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 10px; padding: 6px 10px; border: 1px solid var(--p-accent-line); border-radius: 10px; background: var(--p-accent-soft-3); }
 .time-bulk .button { padding: 4px 12px; font-size: 12px; }
 .time-bulk .button:disabled { opacity: .5; }
