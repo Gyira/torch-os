@@ -5,8 +5,54 @@ import {
 
 let loadId = 0;
 let busy = false;
+let syncing = false;
+let quickStatus = null;
+let quickStatusError = "";
+let quickStatusRequest = 0;
 
 const available = () => state.config?.capabilities?.dida_sync === true;
+
+/** 时间管理模块右上角「立即同步」：跟着能力与配置状态显示/禁用。 */
+function renderQuickState() {
+  const button = $("#time-dida-sync");
+  if (!button) return;
+  if (!available()) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  const running = syncing || Boolean(quickStatus?.running);
+  button.disabled = !quickStatus
+    || Boolean(quickStatusError)
+    || !quickStatus.supported
+    || Boolean(quickStatus.read_only)
+    || !quickStatus.configured
+    || running;
+  button.textContent = running ? "同步中…" : "立即同步";
+  button.title = quickStatusError ? `无法读取滴答同步状态：${quickStatusError}`
+    : !quickStatus ? "正在读取滴答同步状态…"
+    : !quickStatus.supported ? "当前运行环境不支持滴答同步"
+    : quickStatus.read_only ? "当前库是只读模式，不能同步"
+    : !quickStatus.configured ? "请先到 设置 → 滴答同步 配置登录凭据"
+    : running ? "正在从滴答清单同步…"
+    : "从滴答清单拉取最新任务";
+}
+
+async function loadQuickStatus() {
+  if (!available()) return;
+  const request = ++quickStatusRequest;
+  try {
+    const status = await api("/api/sync/dida/status");
+    if (request !== quickStatusRequest) return;
+    quickStatus = status;
+    quickStatusError = "";
+  } catch (error) {
+    if (request !== quickStatusRequest) return;
+    quickStatus = null;
+    quickStatusError = error.message;
+  }
+  renderQuickState();
+}
 
 function applyCapability() {
   const nav = document.querySelector('[data-settings-nav="dida"]');
@@ -14,8 +60,13 @@ function applyCapability() {
   if (!available()) {
     if (nav) nav.hidden = true;
     if (section) section.hidden = true;
+    quickStatus = null;
+    quickStatusError = "";
+    renderQuickState();
   } else {
     if (nav) nav.hidden = false;
+    renderQuickState();
+    loadQuickStatus();
   }
 }
 
@@ -31,6 +82,9 @@ function renderStatus(status) {
     badgeNode.textContent = badge.text;
     badgeNode.className = `badge ${badge.tone}`;
   }
+  quickStatus = status;
+  quickStatusError = "";
+  renderQuickState();
   const rows = [
     ["连接", status.configured ? (status.csrf_set ? "cookie 已保存（含 CSRF）" : "cookie 已保存") : "未保存 cookie"],
     ["上次成功", formatWhen(status.last_success_at)],
@@ -185,10 +239,13 @@ function summaryText(result) {
   return lines.join(" · ");
 }
 
-async function runSync(dryRun = false) {
+async function runSync(dryRun = false, quick = false) {
   if (busy) return;
   busy = true;
-  setStatus("#dida-feedback", dryRun ? "正在生成预览…" : "正在从滴答拉取任务…");
+  syncing = true;
+  renderQuickState();
+  const feedback = quick ? "#time-status" : "#dida-feedback";
+  setStatus(feedback, dryRun ? "正在生成预览…" : "正在从滴答拉取任务…");
   const panel = $("#dida-summary");
   if (panel) panel.hidden = true;
   try {
@@ -200,14 +257,19 @@ async function runSync(dryRun = false) {
       panel.hidden = false;
       panel.innerHTML = `<p class="meta">${dryRun ? "预览（没有写入）" : "同步完成"}：${escapeHtml(summaryText(result))}</p>`;
     }
-    setStatus("#dida-feedback", dryRun ? "预览完成，没有写入任何文件。" : "同步完成。", "success");
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
     changed();
     await loadDidaSync();
+    setStatus(feedback,
+      quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
+        : dryRun ? "预览完成，没有写入任何文件。" : "同步完成。",
+      "success");
   } catch (error) {
-    setStatus("#dida-feedback", error.message, "error");
+    setStatus(feedback, error.message, "error");
   } finally {
     busy = false;
+    syncing = false;
+    renderQuickState();
   }
 }
 
@@ -252,6 +314,7 @@ export function initDidaSync() {
   $("#dida-test")?.addEventListener("click", testConnection);
   $("#dida-preview")?.addEventListener("click", () => runSync(true));
   $("#dida-run")?.addEventListener("click", () => runSync(false));
+  $("#time-dida-sync")?.addEventListener("click", () => runSync(false, true));
   $("#dida-clear")?.addEventListener("click", clearCredentials);
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-dida-keep-local]");
