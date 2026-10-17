@@ -14,7 +14,7 @@ export function renderQuadrant(container, options = {}) {
   const head = document.createElement("header");
   head.className = "time-head";
   head.innerHTML = "<h3>四象限</h3>" +
-    '<span class="meta" role="status">按优先级分格：改优先级（右键任务）就会换到对应象限</span>';
+    '<span class="meta" role="status">按优先级分格：拖动任务到另一格，或右键改优先级，就会换到对应象限</span>';
   container.append(head);
 
   const grid = document.createElement("div");
@@ -23,6 +23,7 @@ export function renderQuadrant(container, options = {}) {
     const meta = priorityMeta(bucket.priority);
     const panel = document.createElement("section");
     panel.className = `time-quad-panel prio-${bucket.priority}`;
+    panel.dataset.priority = bucket.priority;
     panel.setAttribute("aria-label", `${bucket.label}（${bucket.hint}）`);
     const panelHead = document.createElement("header");
     panelHead.className = "time-quad-head";
