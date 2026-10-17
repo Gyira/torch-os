@@ -2,7 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  conflictReasonText, syncBadge, syncCountsText, syncErrorText, validateSyncForm,
+  conflictReasonText, syncBadge, syncCountsText, syncErrorText, syncWarningText,
+  validateSyncForm,
 } from "../dida-sync-model.js";
 
 test("sync errors map to readable Chinese guidance", () => {
@@ -14,11 +15,19 @@ test("sync errors map to readable Chinese guidance", () => {
 test("sync counts omit zero noise and keep important anomalies", () => {
   const text = syncCountsText({
     created: 2, updated: 1, unchanged: 3, conflicts: 1, errors: 0, remote_deleted: 4,
+    projects_created: 0, projects_deleted: 2,
   });
   assert.match(text, /新建 2/);
   assert.match(text, /冲突 1/);
   assert.match(text, /远端删除 4/);
+  assert.match(text, /删除清单 2/);
   assert.doesNotMatch(text, /错误 0/);
+});
+
+test("sync warnings explain what to do instead of leaking codes", () => {
+  assert.match(syncWarningText("push_delete_error"), /_csrf_token/);
+  assert.match(syncWarningText("project_delete_error_HTTPException"), /非任务文件/);
+  assert.equal(syncWarningText("some_new_code"), "some_new_code");
 });
 
 test("conflict reasons are human readable", () => {

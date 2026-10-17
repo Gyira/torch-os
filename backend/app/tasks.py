@@ -143,6 +143,12 @@ class TrashDelete(BaseModel):
         return self
 
 
+class TrashRestore(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    paths: list[str] = Field(min_length=1, max_length=500)
+
+
 class ListCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -1271,6 +1277,13 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
         result = task_trash.purge_trash(vault_dir, paths=payload.paths,
                                         all_items=payload.all)
         _audit(database, "task_trash_purged", {"count": result["deleted"]})
+        return result
+
+    @router.post("/trash/restore")
+    def trash_restore(payload: TrashRestore):
+        _ensure_write(read_only, "恢复回收站任务")
+        result = task_trash.restore_trash(vault_dir, paths=payload.paths)
+        _audit(database, "task_trash_restored", {"count": result["restored"]})
         return result
 
     @router.post("/lists")

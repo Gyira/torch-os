@@ -1,6 +1,7 @@
 import { $, api, escapeHtml, formatDate, jsonBody, setStatus, toast, confirmAction, changed, state } from "./core.js";
 import {
-  conflictReasonText, syncBadge, syncCountsText, syncErrorText, validateSyncForm,
+  conflictReasonText, syncBadge, syncCountsText, syncErrorText, syncWarningText,
+  validateSyncForm,
 } from "./dida-sync-model.js";
 
 let loadId = 0;
@@ -29,13 +30,16 @@ function renderQuickState() {
     || !quickStatus.configured
     || running;
   button.textContent = running ? "同步中…" : "立即同步";
-  button.title = quickStatusError ? `无法读取滴答同步状态：${quickStatusError}`
+  const title = quickStatusError ? `无法读取滴答同步状态：${quickStatusError}`
     : !quickStatus ? "正在读取滴答同步状态…"
     : !quickStatus.supported ? "当前运行环境不支持滴答同步"
     : quickStatus.read_only ? "当前库是只读模式，不能同步"
     : !quickStatus.configured ? "请先到 设置 → 滴答同步 配置登录凭据"
     : running ? "正在从滴答清单同步…"
     : "从滴答清单拉取最新任务";
+  button.title = quickStatus?.push_deletes && !quickStatus?.csrf_set
+    ? `${title}（缺少 _csrf_token，本地删除不会写回滴答）`
+    : title;
 }
 
 async function loadQuickStatus() {
@@ -119,7 +123,9 @@ function renderStatus(status) {
   }
   if ($("#dida-csrf")) {
     $("#dida-csrf").value = "";
-    $("#dida-csrf").placeholder = status.csrf_set ? "已保存；留空则不修改" : "可选，写回阶段预留";
+    $("#dida-csrf").placeholder = status.csrf_set
+      ? "已保存；留空则不修改"
+      : "本地删除写回滴答必需，从浏览器 Cookie 复制";
   }
   const test = $("#dida-test");
   const preview = $("#dida-preview");
@@ -159,13 +165,14 @@ async function loadDidaSync() {
   try {
     const status = await api("/api/sync/dida/status");
     if (request !== loadId) return;
+    // renderStatus 会在缺 _csrf_token 等情况下写入警告，不能在读取结束后清掉。
+    setStatus("#dida-feedback", "");
     renderStatus(status);
     const conflicts = status.conflicts
       ? await api("/api/sync/dida/conflicts?limit=100")
       : { conflicts: [] };
     if (request !== loadId) return;
     renderConflicts(conflicts.conflicts || []);
-    setStatus("#dida-feedback", "");
   } catch (error) {
     if (request === loadId) setStatus("#dida-feedback", error.message, "error");
   }
@@ -235,7 +242,7 @@ function summaryText(result) {
   const counts = result.counts || {};
   const lines = [syncCountsText(counts)];
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-  if (warnings.length) lines.push(`提示：${warnings.join("、")}`);
+  if (warnings.length) lines.push(`提示：${warnings.map(syncWarningText).join("；")}`);
   return lines.join(" · ");
 }
 
@@ -260,10 +267,13 @@ async function runSync(dryRun = false, quick = false) {
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
     changed();
     await loadDidaSync();
+    const pushFailed = Array.isArray(result.warnings) && result.warnings.includes("push_delete_error");
     setStatus(feedback,
       quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
-        : dryRun ? "预览完成，没有写入任何文件。" : "同步完成。",
-      "success");
+        : dryRun ? "预览完成，没有写入任何文件。"
+        : pushFailed ? "任务已同步，但本地删除未能写回滴答；请到设置 → 滴答同步 检查 _csrf_token。"
+        : "同步完成。",
+      pushFailed ? "warning" : "success");
   } catch (error) {
     setStatus(feedback, error.message, "error");
   } finally {

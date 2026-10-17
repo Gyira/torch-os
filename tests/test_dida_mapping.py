@@ -192,6 +192,32 @@ def test_client_delete_tasks_uses_csrf_and_web_envelope():
     asyncio.run(provider.aclose())
 
 
+def test_client_restore_tasks_uses_web_payload():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["csrf"] = request.headers.get("x-csrftoken")
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"id2etag": {"t1": "etag-2"}, "id2error": {}})
+
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(provider.restore_tasks([{"taskId": "t1", "projectId": "p1"}]))
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v2/trash/restore"
+    assert seen["csrf"] == "csrf-1"
+    assert seen["body"] == [
+        {"fromProjectId": "p1", "taskId": "t1", "toProjectId": "p1"}
+    ]
+    assert result["etags"] == {"t1": "etag-2"}
+    asyncio.run(provider.aclose())
+
+
 def test_client_delete_requires_csrf():
     provider = PrivateDidaProvider(
         DidaCredentials(region="dida365", cookie="abc", device_id="dev-1"),

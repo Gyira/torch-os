@@ -26,6 +26,8 @@ export function syncCountsText(counts = {}) {
     `未变 ${number("unchanged")}`,
   ];
   if (number("projects_created")) parts.push(`新清单 ${number("projects_created")}`);
+  if (number("projects_deleted")) parts.push(`删除清单 ${number("projects_deleted")}`);
+  if (number("restored")) parts.push(`恢复 ${number("restored")}`);
   if (number("completed")) parts.push(`完成 ${number("completed")}`);
   if (number("uncompleted")) parts.push(`取消完成 ${number("uncompleted")}`);
   if (number("local_edits")) parts.push(`本地改动 ${number("local_edits")}`);
@@ -35,6 +37,30 @@ export function syncCountsText(counts = {}) {
   if (number("local_missing")) parts.push(`本地缺失 ${number("local_missing")}`);
   if (number("errors")) parts.push(`错误 ${number("errors")}`);
   return parts.join(" · ");
+}
+
+/** 同步结果里的 warning 代码 → 可操作的中文提示。 */
+export function syncWarningText(code) {
+  const text = String(code || "");
+  const map = {
+    push_delete_error: "本地删除未能写回滴答（常见原因是缺少 _csrf_token）；请到 设置 → 滴答同步 查看「回写错误」。",
+    attachments_ignored: "附件暂不映射。",
+    completed_filtered: "部分已完成任务超出回看范围，已跳过。",
+    completed_truncated: "已完成任务超过 2000 条，超出部分已截断。",
+    unknown_project: "有任务所属清单已不在远端，已放入收集箱。",
+    closed_project_inbox: "有已归档清单的任务已放入收集箱。",
+    list_deleted: "有清单在本地已删除，其中的远端任务已跳过。",
+    list_create_failed: "有清单创建失败，其中的任务已放入收集箱。",
+    duplicate_dida_id: "有重复的滴答任务 ID，重复项已跳过。",
+    scan_warning: "有任务笔记无法读取，已跳过。",
+    invalid_task: "有任务数据不完整，已跳过。",
+    restored_note_unreadable: "滴答恢复的任务在本地回收站里无法读取，已保留原文件，请手动检查。",
+  };
+  if (map[text]) return map[text];
+  if (text.startsWith("project_delete_error_")) return "有远端已删除的清单未能移入回收站，请检查清单目录里是否有非任务文件。";
+  if (text.startsWith("task_error_")) return "有任务同步失败，其余任务不受影响。";
+  if (text.startsWith("trash_error_")) return "有任务未能移入回收站，请稍后重试。";
+  return text;
 }
 
 export function conflictReasonText(reason) {

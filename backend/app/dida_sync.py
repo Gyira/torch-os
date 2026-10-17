@@ -186,6 +186,12 @@ class DidaRunRequest(BaseModel):
     force: StrictBool = False
 
 
+class DidaRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    external_ids: list[str] = Field(min_length=1, max_length=500)
+
+
 def _zone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(str(name or "").strip() or "Asia/Shanghai")
@@ -231,7 +237,9 @@ def _completed_recent(task: RemoteTask, cutoff: datetime | None) -> bool:
 @dataclass
 class SyncCounts:
     projects_created: int = 0
+    projects_deleted: int = 0
     created: int = 0
+    restored: int = 0
     updated: int = 0
     completed: int = 0
     uncompleted: int = 0
@@ -464,7 +472,11 @@ class DidaSyncService:
             await provider.aclose()
 
     def _pending_delete_entries(self) -> list[dict[str, Any]]:
-        """回收站里已同步、且还没回写删除的任务。"""
+        """已同步、且还没回写删除的本地删除任务。
+
+        回收站是主要来源；如果任务已被“彻底删除”或回收站被清空，只要同步链接还在、
+        原笔记也不在任务目录里，仍然补发删除——否则先清理回收站就永远删不掉远端任务。
+        """
         if not self.supported or self.read_only:
             return []
         row = self._row()
@@ -474,22 +486,54 @@ class DidaSyncService:
         if not cookie:
             return []
         items = task_trash.list_trash(self.vault_dir)
-        if not items:
-            return []
         with self.database.connect() as connection:
             links = self._load_links(connection)
+            project_links = self._load_project_links(connection)
         entries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(dida_id: str, link: dict[str, Any], item: dict[str, Any]) -> None:
+            if not dida_id or dida_id in seen:
+                return
+            if str(link.get("status") or "") == "remote_deleted":
+                return
+            project_id = str(link.get("project_id") or "")
+            # 远端清单已经被删除时，任务多半随清单一起消失；不再逐条回写。
+            if not project_id or project_id not in project_links:
+                return
+            seen.add(dida_id)
+            entries.append({"taskId": dida_id, "projectId": project_id, "item": item})
+
         for item in items:
             dida_id = str(item.get("dida_id") or "")
-            if not dida_id:
-                continue
             link = links.get(dida_id)
-            if link is None or str(link.get("status") or "") == "remote_deleted":
+            if link is not None:
+                add(dida_id, link, item)
+
+        # 回收站里找不到、但本地已不存在的已同步任务（例如已被彻底清理）。
+        # 先扫描现有任务笔记，避免把“在任务目录里换了位置”的笔记误判成删除。
+        root = Path(self.vault_dir)
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for dida_id, link in links.items():
+            if dida_id in seen or str(link.get("status") or "") == "remote_deleted":
                 continue
-            project_id = str(link.get("project_id") or "")
-            if not project_id:
+            relpath = str(link.get("relpath") or "")
+            if not relpath.startswith(task_notes.TASK_DIR_POSIX + "/"):
                 continue
-            entries.append({"taskId": dida_id, "projectId": project_id, "item": item})
+            try:
+                if (root / relpath).exists():
+                    continue
+            except OSError:
+                continue
+            candidates.append((dida_id, link))
+        if candidates:
+            notes, _warnings = task_notes.scan_task_notes(self.vault_dir)
+            existing = {str(note.get("dida_id") or "") for note in notes}
+            for dida_id, link in candidates:
+                if dida_id in existing:
+                    continue
+                add(dida_id, link, {"dida_id": dida_id,
+                                    "trash_path": str(link.get("relpath") or "")})
         return entries
 
     async def push_deletions(self, *, force: bool = False) -> dict[str, Any]:
@@ -568,6 +612,63 @@ class DidaSyncService:
             if success_ids:
                 self.database.audit("dida_sync_delete_pushed", {"count": len(success_ids)})
             return {"enabled": True, "deleted": len(success_ids), "errors": errors}
+
+    async def restore_tasks(self, external_ids: list[str]) -> dict[str, Any]:
+        """本地恢复任务后，把滴答回收站里对应的任务也恢复。"""
+        if not self.supported:
+            raise DidaError("unsupported", "当前运行环境不支持滴答同步")
+        if self.read_only:
+            raise VaultReadOnlyError("当前是 Obsidian 只读模式，已拒绝恢复滴答任务")
+        wanted = [str(item).strip() for item in external_ids if str(item or "").strip()]
+        if not wanted:
+            return {"ok": True, "restored": 0, "errors": [], "skipped": []}
+        with self.database.connect() as connection:
+            links = self._load_links(connection)
+        entries: list[dict[str, str]] = []
+        skipped: list[str] = []
+        for external_id in wanted:
+            link = links.get(external_id)
+            # 只恢复“已经回写删除、正在滴答回收站里”的任务；普通任务无需远端恢复。
+            if link is None or str(link.get("status") or "") != "remote_deleted":
+                skipped.append(external_id)
+                continue
+            project_id = str(link.get("project_id") or "")
+            if not project_id:
+                skipped.append(external_id)
+                continue
+            entries.append({"taskId": external_id, "projectId": project_id})
+        if not entries:
+            return {"ok": True, "restored": 0, "errors": [], "skipped": skipped}
+        provider: DidaProvider | None = None
+        try:
+            provider = self.build_provider()
+            result = await provider.restore_tasks(entries)
+        except DidaError as error:
+            return {
+                "ok": False, "restored": 0, "skipped": skipped,
+                "errors": [{"taskId": entry["taskId"], "code": error.code,
+                            "message": error.message} for entry in entries],
+            }
+        finally:
+            if provider is not None:
+                await provider.aclose()
+        raw_errors = result.get("errors") if isinstance(result, dict) else {}
+        errors: list[dict[str, str]] = []
+        success_ids: set[str] = set()
+        for entry in entries:
+            code = str((raw_errors or {}).get(entry["taskId"]) or "")
+            if code and code not in {"NOT_EXISTED", "DELETED", "NOT_EXIST", "NOT_FOUND"}:
+                errors.append({"taskId": entry["taskId"], "code": code})
+            else:
+                success_ids.add(entry["taskId"])
+        if success_ids:
+            with self.database.connect() as connection:
+                for dida_id in success_ids:
+                    self._mark_link_status(connection, dida_id, "synced", "")
+                connection.commit()
+            self.database.audit("dida_sync_delete_restored", {"count": len(success_ids)})
+        return {"ok": not errors, "restored": len(success_ids),
+                "errors": errors, "skipped": skipped}
 
     def due(self, now: datetime | None = None) -> bool:
         if not self.supported or self.read_only or self._running:
@@ -663,6 +764,13 @@ class DidaSyncService:
         )
         connection.commit()
 
+    def _delete_project_link(self, connection, project_id: str) -> None:
+        connection.execute(
+            "DELETE FROM dida_project_links WHERE source = ? AND project_id = ?",
+            (SOURCE, project_id),
+        )
+        connection.commit()
+
     def _save_link_synced(self, connection, mapped: MappedTask, note: dict[str, Any]) -> None:
         now = _iso_now()
         connection.execute(
@@ -755,6 +863,85 @@ class DidaSyncService:
         if not dry_run and link is not None:
             self._mark_link_status(connection, external_id, "remote_deleted",
                                    "remote_deleted")
+
+    def _apply_remote_project_deletions(self, connection,
+                                        snapshot: RemoteSnapshot,
+                                        projects: dict[str, RemoteProject],
+                                        project_links: dict[str, dict[str, Any]],
+                                        task_links: dict[str, dict[str, Any]],
+                                        counts: SyncCounts, warnings: Counter,
+                                        dry_run: bool) -> None:
+        """滴答删除了清单：本地清单连同任务移入回收站。
+
+        只有确认本次返回包含完整项目列表（projects_complete）时才做差集判断，
+        避免把增量响应里缺失的 projectProfiles 误当成远端删除。
+        """
+        # 空的项目列表既可能是“真的删光了”，也可能是异常响应；宁可不下手，
+        # 也要避免一次坏响应把所有本地清单移进回收站。
+        if not snapshot.projects_complete or not snapshot.projects:
+            return
+        remote_ids = set(projects)
+        if snapshot.inbox_id:
+            remote_ids.add(snapshot.inbox_id)
+        current = tasks.read_tasks(self.vault_dir, read_only=self.read_only)
+        candidates: dict[str, str] = {}
+        for entry in current.get("lists", []):
+            project_id = str(entry.get("dida_project_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if project_id and name:
+                candidates[project_id] = name
+        for project_id, link in project_links.items():
+            name = str(link.get("list_name") or "").strip()
+            if project_id and name and project_id not in candidates:
+                candidates[project_id] = name
+        # 清单已经不在了：它的所有任务都随清单消失，包括本地已经缺失的任务链接，
+        # 不能让它们继续留在“本地缺失”里等待回写。
+        if not dry_run:
+            for external_id, link in task_links.items():
+                project_id = str(link.get("project_id") or "")
+                if not project_id or project_id in remote_ids:
+                    continue
+                if str(link.get("status") or "") == "remote_deleted":
+                    continue
+                self._mark_link_status(connection, external_id, "remote_deleted",
+                                       "remote_deleted")
+        for project_id in sorted(candidates):
+            if project_id in remote_ids:
+                continue
+            name = candidates[project_id]
+            if dry_run:
+                counts.projects_deleted += 1
+                continue
+            try:
+                latest = tasks.read_tasks(self.vault_dir, read_only=False)
+                entry = next((item for item in latest.get("lists", [])
+                              if str(item.get("name") or "") == name), None)
+                if entry is not None and not entry.get("synthetic"):
+                    result = tasks.delete_list(
+                        self.vault_dir,
+                        tasks.NamedPayload(name=name, revision=latest["revision"]),
+                        self.database, read_only=False,
+                    )
+                    removed = int(result.get("tasks") or 0)
+                else:
+                    result = task_notes.trash_list_folder(self.vault_dir, name)
+                    removed = int(result.get("count") or 0)
+                if entry is not None:
+                    counts.projects_deleted += 1
+                counts.remote_deleted += removed
+                # 这些任务是被远端清单删除带走的（包括本地已经缺失的）：
+                # 标记为已远端删除，避免下一次“本地删除回写”再发一次删除请求。
+                for external_id, link in task_links.items():
+                    if str(link.get("project_id") or "") != project_id:
+                        continue
+                    if str(link.get("status") or "") == "remote_deleted":
+                        continue
+                    self._mark_link_status(connection, external_id, "remote_deleted",
+                                           "remote_deleted")
+                self._delete_project_link(connection, project_id)
+            except Exception as error:  # 单个清单失败不中断整次同步
+                counts.errors += 1
+                warnings[f"project_delete_error_{type(error).__name__}"] += 1
 
     def _mark_link_status(self, connection, external_id: str, status: str, reason: str = "") -> None:
         connection.execute(
@@ -944,8 +1131,34 @@ class DidaSyncService:
                     if note is None:
                         if link is not None:
                             if str(link.get("status") or "") == "remote_deleted":
-                                # 已经回写/远端删除过，回收站里的笔记不再拉回来。
-                                counts.unchanged += 1
+                                # 任务重新出现在滴答：用户从滴答回收站恢复了它。
+                                if dry_run:
+                                    counts.restored += 1
+                                    continue
+                                folder = "" if list_name == task_notes.INBOX else list_name
+                                restored = task_trash.restore_by_dida_id(self.vault_dir, task.id)
+                                if restored is not None:
+                                    if restored.get("note") is None:
+                                        counts.errors += 1
+                                        warnings["restored_note_unreadable"] += 1
+                                        continue
+                                    fresh = task_notes.rewrite_task_note(
+                                        self.vault_dir, restored["note"], folder=folder,
+                                        title=mapped.title, values=mapped.values,
+                                        body=mapped.body,
+                                    )
+                                else:
+                                    # 本地回收站里没有副本（可能已彻底删除）：按远端重建。
+                                    fresh = task_notes.create_task_note(
+                                        self.vault_dir, folder, mapped.title, mapped.values,
+                                        body=mapped.body,
+                                    )
+                                notes_by_dida[task.id] = fresh
+                                self._save_link_synced(connection, mapped, fresh)
+                                links[task.id] = {"external_id": task.id}
+                                counts.restored += 1
+                                if mapped.values["done"]:
+                                    counts.completed += 1
                                 continue
                             counts.local_missing += 1
                             if not dry_run:
@@ -969,6 +1182,13 @@ class DidaSyncService:
                             counts.completed += 1
                         continue
 
+                    if link is not None and str(link.get("status") or "") == "remote_deleted":
+                        # 本地已恢复（或本来就在）且远端任务也回来了：重建同步基线。
+                        if not dry_run:
+                            self._save_link_synced(connection, mapped, note)
+                            links[task.id] = {"external_id": task.id}
+                        counts.restored += 1
+                        continue
                     note_body = task_notes.note_body(note)
                     content_changed = (
                         link is None or mapped.content_hash != str(link.get("last_remote_content_hash") or "")
@@ -998,7 +1218,15 @@ class DidaSyncService:
 
                     if not remote_changed and not local_changed:
                         # 两边都没动：即使字段有差异（例如用户点了“保留本地”），也不覆盖。
-                        counts.unchanged += 1
+                        # 如果之前是本地缺失、现在笔记又回来了，说明用户从本地回收站恢复，
+                        # 需要把链接从 local_missing 改回 synced。
+                        if str(link.get("status") or "") == "local_missing":
+                            if not dry_run:
+                                self._save_link_synced(connection, mapped, note)
+                                links[task.id] = {"external_id": task.id}
+                            counts.restored += 1
+                        else:
+                            counts.unchanged += 1
                         continue
                     if not remote_changed and local_changed:
                         counts.local_edits += 1
@@ -1039,6 +1267,13 @@ class DidaSyncService:
                     counts.errors += 1
                     warnings[f"task_error_{type(error).__name__}"] += 1
                     continue
+            if not dry_run:
+                # 先释放本连接上的读事务，随后删除清单会另开连接写配置/审计。
+                connection.commit()
+            self._apply_remote_project_deletions(
+                connection, snapshot, projects, project_links, links,
+                counts, warnings, dry_run,
+            )
             if not dry_run:
                 connection.commit()
         finished = _iso_now()
@@ -1210,6 +1445,13 @@ def create_dida_sync_router(service: DidaSyncService, data_lock: asyncio.Lock, *
         except Exception as error:
             raise _http_error(error) from None
 
+    @router.post("/restore")
+    async def restore(payload: DidaRestoreRequest):
+        try:
+            return await service.restore_tasks(payload.external_ids)
+        except Exception as error:
+            raise _http_error(error) from None
+
     @router.get("/conflicts")
     def conflicts(limit: int = Query(default=100, ge=1, le=200)):
         return {"conflicts": service.conflicts(limit)}
@@ -1227,6 +1469,6 @@ def create_dida_sync_router(service: DidaSyncService, data_lock: asyncio.Lock, *
 
 
 __all__ = [
-    "CredentialStore", "DidaSyncService", "DidaSyncSettingsUpdate", "DidaRunRequest",
-    "create_dida_sync_router", "dida_sync_loop", "run_dida_sync",
+    "CredentialStore", "DidaRestoreRequest", "DidaSyncService", "DidaSyncSettingsUpdate",
+    "DidaRunRequest", "create_dida_sync_router", "dida_sync_loop", "run_dida_sync",
 ]

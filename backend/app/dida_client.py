@@ -108,6 +108,9 @@ class RemoteSnapshot:
     tasks: tuple[RemoteTask, ...]
     deleted_ids: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    # 只有确认服务端返回了完整项目列表时，才能把“缺失的项目”当成远端删除；
+    # 增量响应里 projectProfiles 可能为 null，不能据此删本地清单。
+    projects_complete: bool = True
 
 
 class DidaProvider(Protocol):
@@ -115,6 +118,7 @@ class DidaProvider(Protocol):
     async def fetch_completed(self) -> tuple[RemoteTask, ...]: ...
     async def test_connection(self) -> dict[str, Any]: ...
     async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
+    async def restore_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def aclose(self) -> None: ...
 
 
@@ -324,7 +328,7 @@ class PrivateDidaProvider:
                 raise DidaError("invalid_response", "滴答返回了无法解析的内容") from None
         raise last or DidaError("network_error", "连接滴答失败")
 
-    async def _post_json(self, path: str, payload: dict[str, Any],
+    async def _post_json(self, path: str, payload: Any,
                          *, attempts: int = 3) -> Any:
         if not self.credentials.csrf_token:
             raise DidaError("csrf_required", "需要 _csrf_token 才能回写滴答")
@@ -392,6 +396,27 @@ class PrivateDidaProvider:
         errors = raw.get("id2error") if isinstance(raw, dict) else {}
         return {"ok": True, "errors": errors if isinstance(errors, dict) else {}}
 
+    async def restore_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]:
+        """从滴答回收站恢复任务：restore = [{fromProjectId, taskId, toProjectId}]。"""
+        cleaned = []
+        for item in entries:
+            task_id = str(item.get("taskId") or "").strip()
+            project_id = str(item.get("projectId") or "").strip()
+            if not task_id or not project_id:
+                continue
+            cleaned.append({
+                "fromProjectId": project_id,
+                "taskId": task_id,
+                "toProjectId": str(item.get("toProjectId") or project_id).strip(),
+            })
+        if not cleaned:
+            return {"ok": True, "etags": {}, "errors": {}}
+        raw = await self._post_json("/api/v2/trash/restore", cleaned)
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
     async def _snapshot_raw(self, checkpoint: int) -> dict[str, Any]:
         path = f"/api/v3/batch/check/{int(checkpoint)}"
         try:
@@ -426,9 +451,10 @@ class PrivateDidaProvider:
                 item_id = _as_str(item)
             if item_id:
                 deleted_ids.append(item_id)
+        projects_raw = raw.get("projectProfiles")
         projects = tuple(
             _project_from_raw(item)
-            for item in _as_list(raw.get("projectProfiles"))
+            for item in _as_list(projects_raw)
             if isinstance(item, dict) and _as_str(item.get("id"))
         )
         checkpoint_value = _as_int(raw.get("checkPoint", raw.get("checkpoint")))
@@ -438,6 +464,7 @@ class PrivateDidaProvider:
             projects=projects,
             tasks=tuple(tasks.values()),
             deleted_ids=tuple(dict.fromkeys(deleted_ids)),
+            projects_complete=isinstance(projects_raw, list),
         )
 
     async def fetch_completed(self) -> tuple[RemoteTask, ...]:

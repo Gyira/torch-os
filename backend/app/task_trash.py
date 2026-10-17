@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -156,6 +157,68 @@ def _cleanup_batch(path: Path, vault_dir: Path | str) -> None:
         parent = parent.parent
 
 
+def _validated_entry(vault_dir: Path | str, rel: Any) -> tuple[Path, str]:
+    """返回（回收站文件, 原始相对路径）；校验逻辑与彻底删除一致。"""
+    candidate = _validated_path(vault_dir, rel)
+    root = _vault_root(vault_dir).resolve()
+    relative = candidate.relative_to((root / task_notes.TRASH_DIR_REL).resolve())
+    original = PurePosixPath(*relative.parts[1:]).as_posix()
+    return candidate, original
+
+
+def restore_trash(vault_dir: Path | str, *, paths: list[str] | None = None) -> dict[str, Any]:
+    """把回收站里的任务笔记放回原路径；原位置已有同名文件时跳过。"""
+    root = _vault_root(vault_dir).resolve()
+    selected = [str(path) for path in (paths or []) if str(path or "").strip()]
+    restored = 0
+    restored_paths: list[str] = []
+    skipped: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = []
+    for rel in selected:
+        try:
+            source, original = _validated_entry(vault_dir, rel)
+        except ValueError as error:
+            skipped.append({"path": rel, "reason": str(error)})
+            continue
+        target = (root / original).resolve()
+        if target.exists():
+            skipped.append({"path": rel, "reason": "原位置已有同名文件"})
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, target)
+        except OSError as error:
+            errors.append({"path": rel, "reason": type(error).__name__})
+            continue
+        restored += 1
+        restored_paths.append(original)
+        _cleanup_batch(source, vault_dir)
+    return {"restored": restored, "restored_paths": restored_paths,
+            "skipped": skipped, "errors": errors}
+
+
+def restore_by_dida_id(vault_dir: Path | str, dida_id: Any) -> dict[str, Any] | None:
+    """按滴答任务 ID 从回收站恢复笔记；没有或恢复不了时返回 None。"""
+    wanted = str(dida_id or "").strip()
+    if not wanted:
+        return None
+    for item in list_trash(vault_dir):
+        if str(item.get("dida_id") or "") != wanted:
+            continue
+        result = restore_trash(vault_dir, paths=[item["trash_path"]])
+        if not result["restored"]:
+            return None
+        original = result["restored_paths"][0]
+        path = (_vault_root(vault_dir) / original).resolve()
+        note = None
+        try:
+            note = task_notes.read_task_note(vault_dir, path)
+        except Exception:
+            note = None
+        return {"item": item, "path": path, "relpath": original, "note": note}
+    return None
+
+
 def purge_trash(vault_dir: Path | str, *, paths: list[str] | None = None,
                 all_items: bool = False) -> dict[str, Any]:
     """真正删除回收站里的 .md 文件；绝不触碰任务目录本身。"""
@@ -189,4 +252,4 @@ def purge_trash(vault_dir: Path | str, *, paths: list[str] | None = None,
     return {"deleted": deleted, "skipped": skipped, "errors": errors}
 
 
-__all__ = ["list_trash", "purge_trash", "trash_root"]
+__all__ = ["list_trash", "purge_trash", "restore_by_dida_id", "restore_trash", "trash_root"]
