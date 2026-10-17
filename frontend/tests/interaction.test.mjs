@@ -848,12 +848,27 @@ test("task rows expose an open-document button and keep legacy tasks read-only",
     title: "写方案", done: false, date: "2026-10-11",
   });
   const options = {
-    today: "2026-10-11", lists: [],
+    today: "2026-10-11", lists: [], draggable: true,
     onOpenDocument: (task) => opened.push(task.path),
     onToggle: (task, done) => toggled.push([task.key, done]),
     actions: {},
   };
   const row = taskRow(base, options);
+  assert.equal(row.draggable, true);
+  const dragData = new Map();
+  await row.emit("dragstart", {
+    dataTransfer: {
+      types: ["application/x-torch-task-key"],
+      effectAllowed: "",
+      setData: (type, value) => dragData.set(type, value),
+      getData: (type) => dragData.get(type) || "",
+    },
+  });
+  assert.equal(dragData.get("application/x-torch-task-key"), "new");
+  assert.equal(hasClass(row, "is-dragging"), true);
+  await row.emit("dragend");
+  assert.equal(hasClass(row, "is-dragging"), false);
+
   const boxes = byClass(row, "task-check");
   assert.equal(boxes.length, 1);
   assert.equal(boxes[0].disabled, false);
@@ -866,6 +881,7 @@ test("task rows expose an open-document button and keep legacy tasks read-only",
 
   const legacy = taskRow({ ...base, key: "old", legacy: true, path: "00-System/任务（tasks）.md",
     title: "买菜" }, options);
+  assert.equal(legacy.draggable, false);
   const legacyBox = byClass(legacy, "task-check")[0];
   assert.equal(legacyBox.disabled, true);
   await legacyBox.emit("change");

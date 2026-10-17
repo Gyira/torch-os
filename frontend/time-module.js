@@ -7,7 +7,7 @@ import { $, state, api, jsonBody, toast, setStatus, confirmAction } from "./core
 import { shanghaiDay } from "./journal-model.js";
 import {
   INBOX, INBOX_HINT, priorityMeta, filterTasks, groupTasks, sortTasks, boardTitle,
-  defaultCalendarState,
+  defaultCalendarState, defaultTaskDate,
 } from "./tasks-model.js";
 import { renderTaskSidebar } from "./tasks-sidebar.js";
 import { renderTaskBoard, openSortMenu, paintAddTools } from "./tasks.js";
@@ -21,6 +21,7 @@ import {
   openListDialog, openCopyListDialog, openFolderDialog, openTagDialog, confirmDialog,
 } from "./tasks-dialogs.js";
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
+import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
 
 const VIEW_KEY = "torch-os:time-view";
 const SIDEBAR_KEY = "torch-os:time-sidebar";
@@ -207,6 +208,8 @@ export function initTimeModule() {
   });
   syncShowDone();
 
+  bindTaskDropTargets();
+
   // 外部（Obsidian）改完文件后自动重读：切回工作台/标签页可见时 + 每 30 秒一次；
   // revision 没变就不重画，避免打断正在进行的编辑或弹窗。
   const refreshFromDisk = () => {
@@ -315,6 +318,104 @@ function paintVaultNote() {
       toast(`有 ${warnings.length} 个任务笔记未能读取；打开 ${warnings[0].path} 检查 frontmatter。`, "warning");
     }
   }
+}
+
+/** 清掉拖放高亮（侧栏清单 + 四象限面板）。 */
+function clearTaskDropTargets() {
+  document.querySelectorAll(".is-drop-target").forEach((node) => node.classList.remove("is-drop-target"));
+}
+
+/** 侧栏这一行能作为哪个清单的投放目标；收集箱视图也作为收集箱清单目标。 */
+function sidebarListTarget(item) {
+  if (!item) return "";
+  const kind = item.dataset?.timeKind || "";
+  const id = item.dataset?.timeId || "";
+  if (kind === "list") return id;
+  if (kind === "view" && id === "inbox") return INBOX;
+  return "";
+}
+
+function taskByDragKey(key) {
+  if (!key) return null;
+  const task = (board?.tasks || []).find((item) => item.key === key);
+  return task && !task.legacy ? task : null;
+}
+
+function moveTaskByDrop(key, listName) {
+  const task = taskByDragKey(key);
+  if (!task || task.list_name === listName) return;
+  post("/api/time/tasks/update", { key: task.key, list_name: listName },
+    listName === INBOX ? "已移到收集箱。" : `已移到「${listName}」。`);
+}
+
+function reprioritizeTaskByDrop(key, priority) {
+  const task = taskByDragKey(key);
+  if (!task || task.priority === priority) return;
+  post("/api/time/tasks/update", { key: task.key, priority },
+    `已改为${priorityMeta(priority).label}。`);
+}
+
+/** 任务行拖到侧栏清单 / 四象限面板：事件委托在容器上，重画列表也不丢监听。 */
+function bindTaskDropTargets() {
+  const sidebar = $("#time-sidebar");
+  const quadrant = $("#time-quadrant-page");
+
+  const mark = (node) => {
+    clearTaskDropTargets();
+    if (node) node.classList.add("is-drop-target");
+  };
+
+  sidebar?.addEventListener("dragover", (event) => {
+    if (!isTaskDrag(event)) return;
+    const item = event.target.closest?.(".time-side-item");
+    const listName = sidebarListTarget(item);
+    if (!listName) { clearTaskDropTargets(); return; }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      try { event.dataTransfer.dropEffect = "move"; } catch { /* 某些浏览器/合成事件不允许改 */ }
+    }
+    mark(item.closest(".time-side-row") || item);
+  });
+  sidebar?.addEventListener("dragleave", (event) => {
+    if (!sidebar.contains(event.relatedTarget)) clearTaskDropTargets();
+  });
+  sidebar?.addEventListener("drop", (event) => {
+    if (!isTaskDrag(event)) return;
+    const item = event.target.closest?.(".time-side-item");
+    const listName = sidebarListTarget(item);
+    if (!listName) { clearTaskDropTargets(); return; }
+    event.preventDefault();
+    const key = readTaskDragKey(event);
+    clearTaskDropTargets();
+    moveTaskByDrop(key, listName);
+  });
+
+  quadrant?.addEventListener("dragover", (event) => {
+    if (!isTaskDrag(event)) return;
+    const panel = event.target.closest?.(".time-quad-panel");
+    const priority = panel?.dataset?.priority || "";
+    if (!priority) { clearTaskDropTargets(); return; }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      try { event.dataTransfer.dropEffect = "move"; } catch { /* 某些浏览器/合成事件不允许改 */ }
+    }
+    mark(panel);
+  });
+  quadrant?.addEventListener("dragleave", (event) => {
+    if (!quadrant.contains(event.relatedTarget)) clearTaskDropTargets();
+  });
+  quadrant?.addEventListener("drop", (event) => {
+    if (!isTaskDrag(event)) return;
+    const panel = event.target.closest?.(".time-quad-panel");
+    const priority = panel?.dataset?.priority || "";
+    if (!priority) { clearTaskDropTargets(); return; }
+    event.preventDefault();
+    const key = readTaskDragKey(event);
+    clearTaskDropTargets();
+    reprioritizeTaskByDrop(key, priority);
+  });
+
+  document.addEventListener("dragend", clearTaskDropTargets);
 }
 
 /** 打开任务文档：插件 iframe 里走宿主桥，浏览器里走 obsidian://。 */
@@ -465,10 +566,10 @@ function paintTools() {
 /** 视图变了就把添加栏默认值对齐：看板默认今天，清单/标签默认不带日期（该清单/该标签也预填上）。 */
 function syncPendingDefaults() {
   const selection = viewState.selection || { view: "today" };
-  const scoped = Boolean(selection.list || selection.tag);
   pending = {
     ...pending,
-    date: scoped ? "" : shanghaiDay(),
+    // 今天视图默认今天；收集箱/清单/标签等视图不预填日期（2026-10-17 用户规则）。
+    date: defaultTaskDate(selection, shanghaiDay()),
     list: selection.list || "",
     tags: selection.tag ? [selection.tag] : [],
   };
@@ -480,6 +581,7 @@ function taskOptions(selection, options = {}) {
     today: shanghaiDay(),
     lists: board?.lists || [],
     selection,
+    draggable: Boolean(options.draggable),
     ...(options.withSelection ? { multi, selectedKeys: picked, activeKey, onPick: onPickTask } : {}),
     onOpenDocument: (task) => openTask(task),
     onToggle: (task, done) => {
@@ -536,7 +638,7 @@ function paintBoard() {
     today,
     listOrder: (board?.lists || []).map((entry) => entry.name),
   });
-  renderTaskBoard($("#time-board"), groups, taskOptions(selection, { withSelection: true }));
+  renderTaskBoard($("#time-board"), groups, taskOptions(selection, { withSelection: true, draggable: true }));
 }
 
 /** 日历页：七种视图的状态（视图 / 锚点 / 档位 / 周起始 / 显示已完成）都记在本机。 */
@@ -567,7 +669,7 @@ function paintCalendar() {
 function paintQuadrant() {
   renderQuadrant($("#time-quadrant-page"), {
     tasks: board?.tasks || [],
-    taskOptions: taskOptions({}),
+    taskOptions: taskOptions({}, { draggable: true }),
   });
 }
 

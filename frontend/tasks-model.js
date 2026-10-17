@@ -87,6 +87,15 @@ export function filterTasks(tasks, view, options = {}) {
   return all.filter((task) => (showDone || !task.done) && task.date === today); // today（默认）
 }
 
+/**
+ * 添加栏的默认日期：只有「今天」视图预填今天；收集箱/清单/标签/已完成都不写日期。
+ * 这样收集箱任务不会因为默认日期而出现在今天视图；拖动清单只改清单、保留原日期。
+ */
+export function defaultTaskDate(selection = {}, today = "") {
+  if (selection.list || selection.tag) return "";
+  return (selection.view || "today") === "today" ? today : "";
+}
+
 /** 侧栏上的小计数（今天 / 收集箱 / 已完成）；today 可传，测试里别依赖运行当天。 */
 export function viewCounts(tasks, options = {}) {
   const all = Array.isArray(tasks) ? tasks : [];

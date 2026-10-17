@@ -7,6 +7,7 @@ import {
   GROUP_OPTIONS, SORT_OPTIONS, PRIORITIES, priorityMeta, relativeDay, dayOffset, timeLabel, taskColor,
 } from "./tasks-model.js";
 import { openPopover, openDatePicker, openTagPicker, openTimePicker } from "./tasks-picker.js";
+import { setTaskDragData } from "./tasks-drag.js";
 
 /** 一行任务的 DOM（任务板 / 日历页 / 四象限页共用，所以导出）。 */
 export function taskRow(task, options) {
@@ -18,6 +19,10 @@ export function taskRow(task, options) {
   row.dataset.taskKey = task.key;
   row.dataset.taskPath = task.path || "";
   row.tabIndex = 0;
+  // 任务行整行可拖；拖动勾选框/按钮/标签/改名输入框时不启动，避免抢掉它们自己的操作。
+  const draggable = Boolean(options.draggable) && !legacy;
+  row.draggable = draggable;
+  if (draggable) row.classList.add("is-draggable");
   if (selected) row.setAttribute("aria-selected", "true");
 
   // 多选模式：行首多一个选择框（旧任务只读，不参与批量）
@@ -142,6 +147,20 @@ export function taskRow(task, options) {
       options.onToggle(task, !task.done);
     }
   });
+  if (draggable) {
+    row.addEventListener("dragstart", (event) => {
+      if (event.target.closest?.("input, button, a, .task-rename")) {
+        event.preventDefault();
+        return;
+      }
+      if (!setTaskDragData(event.dataTransfer, task.key)) {
+        event.preventDefault();
+        return;
+      }
+      row.classList.add("is-dragging");
+    });
+    row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
+  }
 
   row.append(box, ...(legacyBadge ? [legacyBadge] : []), title, flags, tags, where,
              ...(openButton ? [openButton] : []), more);

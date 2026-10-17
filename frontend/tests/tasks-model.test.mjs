@@ -9,6 +9,7 @@ import {
   timeToMinutes, minutesToLabel, clockLabel, timeLabel, sortDayTasks, layoutBlocks,
   firstBusyHour, listColorMap, taskColor, shiftAnchor, calendarViewLabel, calendarTitle,
   CALENDAR_VIEWS, MULTIDAY_OPTIONS, MULTIWEEK_OPTIONS, defaultCalendarState,
+  defaultTaskDate,
 } from "../tasks-model.js";
 
 const TODAY = "2026-10-08";
@@ -42,6 +43,16 @@ test("dayOffset walks calendar days as plain strings", () => {
   assert.equal(relativeDay("2026-10-09", TODAY), "明天");
   assert.equal(relativeDay("2026-10-07", TODAY), "昨天");
   assert.equal(relativeDay("2026-10-20", TODAY), "10-20");
+});
+
+test("only the today view pre-fills today's date for new tasks", () => {
+  assert.equal(defaultTaskDate({ view: "today" }, TODAY), TODAY);
+  assert.equal(defaultTaskDate({}, TODAY), TODAY);                 // 默认今天视图
+  assert.equal(defaultTaskDate({ view: "inbox" }, TODAY), "");    // 收集箱不写日期
+  assert.equal(defaultTaskDate({ view: "done" }, TODAY), "");
+  assert.equal(defaultTaskDate({ list: "工作" }, TODAY), "");
+  assert.equal(defaultTaskDate({ list: "收集箱" }, TODAY), "");
+  assert.equal(defaultTaskDate({ tag: "重要" }, TODAY), "");
 });
 
 test("the three board views pick the right tasks", () => {

@@ -998,6 +998,12 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 /* ===== 任务选中态与多选批量（2026-10-08） ===== */
 .time-task.is-selected { background: var(--p-fill-strong); border-color: var(--p-line-strong); }
 .time-task.is-selected .task-title { color: var(--p-ink-strong); }
+/* 任务拖放（2026-10-17）：行拖到侧栏清单 / 四象限面板；拖动时给目标和源明确反馈。 */
+.time-task.is-draggable { cursor: grab; }
+.time-task.is-dragging { opacity: .45; cursor: grabbing; }
+.time-side-row.is-drop-target .time-side-item { background: var(--p-accent-soft); box-shadow: inset 0 0 0 1px var(--p-accent-line); }
+.time-quad-panel.is-drop-target { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.time-quad-panel.is-drop-target .time-quad-hint { color: var(--p-accent); }
 .task-select { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--p-accent-2); cursor: pointer; }
 #time-multi-btn.is-active { background: var(--p-fill-strong); color: var(--p-ink-strong); border-radius: 7px; padding: 4px 8px; text-decoration: none; }
 #time-show-done.is-active { background: var(--p-fill-strong); color: var(--p-ink-strong); border-radius: 7px; padding: 4px 8px; text-decoration: none; }
