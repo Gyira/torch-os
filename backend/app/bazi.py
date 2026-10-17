@@ -20,7 +20,7 @@ from .db import Database, utc_now
 SHANGHAI = ZoneInfo('Asia/Shanghai')
 ELEMENTS = ('金', '木', '水', '火', '土')
 STANDARD_MERIDIAN = 120.0
-MISSING_DEPENDENCY = '缺少排盘依赖 lunar-python：请在工程目录运行 scripts\\setup.ps1，或执行 pip install lunar-python==1.4.8 后重启本地服务。'
+MISSING_DEPENDENCY = '缺少排盘依赖 lunar-python：请双击仓库根目录的 安装.cmd 补齐依赖，然后重启本地服务。'
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bazi_profiles (
     id INTEGER PRIMARY KEY CHECK(id = 1),

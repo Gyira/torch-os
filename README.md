@@ -44,7 +44,7 @@
 | # | 做什么 | 靠什么 |
 |---|---|---|
 | 0 | 确认机器上有 Python 3.12 | `python --version`（没有就装，见下） |
-| 1 | 初始化环境：venv + 依赖 + `.env` + 示例数据 | `安装.cmd`（双击）或 `scripts\setup.ps1` |
+| 1 | 初始化环境：venv + 依赖 + `.env` + 示例数据 | 双击 `安装.cmd`（唯一的安装入口） |
 | 2 | 起本地服务 | `scripts\start.ps1` |
 | 3 | 把工作台装进 Obsidian（可选，但推荐） | `scripts\install-obsidian-plugin.ps1` |
 
@@ -63,51 +63,29 @@ winget install --id Python.Python.3.12 --source winget --scope user
 ```
 
 装完**新开一个终端**再验一次（PATH 要新会话才刷新）。已有别的 Python 也行，把后面命令里的 `python`
-换成 `py -3.12` 或解释器全路径即可。
+换成 `py -3.12` 或解释器全路径即可。图形安装器也依赖它——没装时双击 `安装.cmd` 会给出安装命令并打开下载页。
 
 ### 1. 初始化环境
 
-**不想敲命令**：克隆（或解压）之后，在资源管理器里打开仓库文件夹，**双击根目录的 `安装.cmd`**。
-它和下面第三条命令做的完全一样，只是自动带了 `-ExecutionPolicy Bypass`（省掉“在此系统上禁止运行脚本”），
-跑完会停下来等你按任意键，窗口不会一闪而过。想要参数（比如 `-SeedExamples`）就在终端里跑：
-`安装.cmd -SeedExamples`。
+先把仓库拿到本地：`git clone <本仓库地址>`，或下载 ZIP 解压。然后在资源管理器里打开仓库文件夹，
+**双击根目录的 `安装.cmd`**——这是唯一的安装入口，会打开图形安装器：
 
-```powershell
-git clone <本仓库地址>
-cd torch-os
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1
-```
+- 建 `.venv`，按 `requirements.lock.txt` 装依赖：先体检本机，版本已经对上就跳过，不重复安装、不重复走网络；
+- 缺依赖时逐条安装，日志就在窗口里；官方源失败可自动换清华镜像重试一次；
+- 顺手生成 `.env`；示例数据可选（已有库不会被删东西，只有同名文件会被覆盖）；
+- 可选：直接选一个 Obsidian 库，把插件装进去；
+- 装完点「启动工作台」，浏览器直接打开 `http://127.0.0.1:8765`。
 
-`setup.ps1` 一次做完四件事：建 `.venv`、按 `requirements.lock.txt` 装依赖、从 `.env.example` 生成 `.env`、
-把 `examples\vault` 的示例数据铺进 `data\vault`。**重复执行是安全的**：装依赖之前先体检一次本机
-（`scripts\check_deps.py`，只读、不联网），版本已经全对上就跳过 `pip install`，不让人重复安装、也不用再等网络。
+安装器只做安装，不碰你的笔记；不想选的步骤留空即可。**重复打开是安全的**：已完成的步骤会自动跳过，
+以后要补依赖、补示例数据、或者再装一个 Obsidian 库，重新双击 `安装.cmd`、只勾需要的项就行。
+安装器本体在 `scripts\install_gui.py`（只用标准库，依赖装好之前就能跑）。
 
-示例数据只在 `data\vault` **还不存在**时自动铺（起过一次服务它就会被创建）。已经有库、又想补一份示例数据，
-加开关再跑一次——它不会删任何东西，但同名的示例文件会覆盖：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1 -SeedExamples
-```
-
-它做的就是下面这几步，想逐步手动控制时用（效果一样）：
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe scripts\check_deps.py    # 体检：已装好会打印“已满足 30/30”
-.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-Copy-Item .env.example .env
-```
-
-体检那行只读、不联网，退出码 0 就说明本机已经装齐，**直接跳过 `pip install` 即可**；
-缺哪条它会指名道姓，pip 也只补缺的那些。
-
-> **国内网络注意**：pip 连 `files.pythonhosted.org` 很容易读超时（会卡一阵再报 `ReadTimeoutError`）。
-> 换镜像重跑即可，其它步骤不变：
-> ```powershell
-> .\.venv\Scripts\python.exe -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.lock.txt
-> ```
+想单独确认依赖装没装齐（只读、不联网，不装任何东西）：
+`.\.venv\Scripts\python.exe scripts\check_deps.py`。
 
 ### 2. 起服务
+
+用图形安装器装完的，直接点安装器里的「启动工作台」即可；手动启动用：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
@@ -115,14 +93,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
 
 打开 <http://127.0.0.1:8765>。默认只监听本机回环地址，不对外开放。
 
-### 3. 装进 Obsidian
+### 3. 装进 Obsidian（可选）
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plugin.ps1 -VaultPath "D:\Obsidian\我的知识库"
-```
+安装器里勾选「把工作台装进 Obsidian」，选择**库根目录**——有 `.obsidian` 文件夹的那一层。
+安装器只写两处：`.obsidian\plugins\torch\`（插件本体，外加预填了本机仓库路径的 `data.json`）
+和 `community-plugins.json`（预启用），不碰库里任何笔记。
 
-`-VaultPath` 填**库根目录**——有 `.obsidian` 文件夹的那一层。脚本只写两处：`.obsidian\plugins\torch\`
-（插件本体，外加预填了本机仓库路径的 `data.json`）和 `community-plugins.json`（预启用），不碰库里任何笔记。
+想再装进另一个库：重新打开 `安装.cmd`，只勾这一项、选那个库即可（其它步骤会自动跳过）。
 
 装完在 Obsidian 里：
 
@@ -139,11 +116,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plu
 | 现象 | 原因与处理 |
 |---|---|
 | `python` 弹出微软商店 / “Python was not found” | 只有商店别名，真身没装 → 回第 0 步；装完要新开终端 |
-| 双击报「禁止运行脚本」 | 那是直接双击了 `setup.ps1` → 双击根目录的 `安装.cmd`，它自带 `-ExecutionPolicy Bypass` |
-| pip 卡一阵后报 `ReadTimeoutError` | 到 pythonhosted 的网络不通 → 用上面的清华镜像重跑 |
-| 想确认依赖装没装齐 / 不想重复装 | `.\.venv\Scripts\python.exe scripts\check_deps.py` —— 不联网，逐条比对 `requirements.lock.txt` 并点名缺哪条 |
+| 双击 `安装.cmd` 提示找不到 Python | 图形安装器也需要 Python 3.12 → 按窗口里的 `winget` 命令装好，重新双击 |
+| 图形安装器里依赖装到一半失败（`ReadTimeoutError` 等） | 确认「自动换清华镜像重试」是勾着的，再点「开始安装」；仍失败就看窗口日志里的 pip 原始报错 |
+| 想确认依赖装没装齐 | `.\.venv\Scripts\python.exe scripts\check_deps.py` —— 不联网，逐条比对 `requirements.lock.txt` 并点名缺哪条 |
 | `No module named venv` | 用的是嵌入式/精简版 Python → 换 python.org 或 winget 的完整版 |
-| Obsidian 左侧没有图标 | 没完全重启；或 `-VaultPath` 填错一层；或处于限制模式 |
+| Obsidian 左侧没有图标 | 没完全重启；或选库时选错了一层（要选有 `.obsidian` 的根目录）；或处于限制模式 |
 | 打开视图提示连不上服务 | 第 1 步没做完（缺 `.venv`），或 8765 端口被别的程序占着 |
 
 - 数据默认落在 `data\`（数据库、Vault、导入、备份），整个目录都被 Git 忽略。
@@ -164,11 +141,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plu
 backend/app/       FastAPI 本地服务（任务、日记、记忆、目标、习惯、身体、天气、备份…）
 frontend/          原生 ES 模块前端（时间管理模块的日历七视图在 tasks-calendar*.js）
 obsidian-plugin/   把工作台内嵌进 Obsidian 的薄插件（免构建）
-scripts/           启动、安装、依赖体检、自检、发布自检、浏览器探针、校验
+scripts/           启动、图形安装器、依赖体检、自检、发布自检、浏览器探针、校验
 tests/             Python 行为测试（后端）
 frontend/tests/    前端模块与交互测试（Node 内置 test runner）
 examples/          全虚构的示例资料（QA 隔离工作台用它起步）
-安装.cmd           双击一键安装（等同 scripts\setup.ps1，免手敲、免执行策略报错）
+安装.cmd           双击打开图形安装器（唯一的安装入口）
 ```
 
 ## 开发与测试

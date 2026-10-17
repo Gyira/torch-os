@@ -28,7 +28,7 @@ try:
 except (AttributeError, ValueError):  # pragma: no cover - 老解释器/被重定向
     pass
 SKIP_DIRS = {".git", ".venv", "node_modules", "data", "__pycache__", ".test-data", "dist", "artifacts"}
-TEXT_SUFFIXES = {".py", ".js", ".mjs", ".md", ".html", ".css", ".json", ".yml", ".yaml", ".ps1", ".txt"}
+TEXT_SUFFIXES = {".py", ".js", ".mjs", ".md", ".html", ".css", ".json", ".yml", ".yaml", ".ps1", ".txt", ".cmd"}
 EXPECTED_FIRST = {
     "frontend/index.html": "<!doctype html>",
     "README.md": "# 薪火OS",
