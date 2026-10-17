@@ -389,18 +389,21 @@ html[data-torch-host="dsh"] {
 
 .embed-mode .sidebar{display:none}.embed-mode .main{max-width:none;padding:18px 22px 44px}
 .panel-nav{display:none}
-/* 顶部标签页导航（2026-10-05）：嵌入模式没有侧边栏，工作台/数字分身/第二大脑/设置
-   以顶部标签出现；与模块内导航（.module-nav）同一套视觉语言，吸顶跟随滚动。 */
-.embed-panel .panel-nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px;padding:6px;border:1px solid var(--p-line);border-radius:12px;background:var(--p-surface);position:sticky;top:0;z-index:8}
-.embed-panel .panel-nav-item{appearance:none;border:1px solid transparent;background:transparent;color:var(--p-ink-2);font:inherit;font-size:14px;padding:7px 14px;border-radius:9px;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
-.embed-panel .panel-nav-item:hover{background:var(--p-hover);color:var(--p-ink)}
-.embed-panel .panel-nav-item.active{background:var(--p-fill-strong);border-color:var(--p-line-strong);color:var(--p-ink-strong);font-weight:600}
+/* 顶部模块导航（2026-10-17）：浏览器直开和 Obsidian 面板统一收起左侧应用栏，
+   工作台/数字分身/第二大脑/设置以顶部标签出现；与模块内导航同一套视觉语言，吸顶。 */
+.top-nav-mode .sidebar{display:none}
+.top-nav-mode .main{max-width:none}
+.top-nav-mode:not(.embed-mode) .main{padding:24px 28px 48px}
+.top-nav-mode .panel-nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px;padding:6px;border:1px solid var(--p-line);border-radius:12px;background:var(--p-surface);position:sticky;top:0;z-index:8}
+.top-nav-mode .panel-nav-item{appearance:none;border:1px solid transparent;background:transparent;color:var(--p-ink-2);font:inherit;font-size:14px;padding:7px 14px;border-radius:9px;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.top-nav-mode .panel-nav-item:hover{background:var(--p-hover);color:var(--p-ink)}
+.top-nav-mode .panel-nav-item.active{background:var(--p-fill-strong);border-color:var(--p-line-strong);color:var(--p-ink-strong);font-weight:600}
 
 /* ── 0.95.0 工作台重构：模块内导航 + 今日流程 + 待办/习惯清单 ───────────── */
 .module-nav { display: flex; flex-wrap: wrap; gap: var(--p-space-2, 8px); margin: 0 0 18px; padding: 6px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); position: sticky; top: 8px; z-index: 6; }
 /* 菜单跟随滚动（2026-10-05 用户反馈）：模块内导航在顶部标签条下方吸顶，
    偏移量来自 app.js 实测写进 --panel-nav-h 的高度。 */
-.embed-panel .module-nav { top: calc(var(--panel-nav-h, 46px) + 8px); }
+.top-nav-mode .module-nav { top: calc(var(--panel-nav-h, 46px) + 8px); }
 /* 工作台不再摆大标题（2026-10-05 用户反馈）：直接从问候、待办开始，页面标题只在其它模块显示。 */
 body.view-workbench .topbar { display: none; }
 .module-nav-item { appearance: none; border: 1px solid transparent; background: transparent; color: var(--p-ink-2); font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 9px; cursor: pointer; }

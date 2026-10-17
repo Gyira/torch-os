@@ -51,8 +51,14 @@ class NodeDouble {
   setAttribute(key, value) { this.attributes[key] = value; }
   removeAttribute(key) { delete this.attributes[key]; }
   appendChild(node) { node.parent = this; this.children.push(node); }
-  // 标准 DOM 的 append(...nodes)：时间管理模块的渲染大量使用它（2026-10-08 起）。
+  // 标准 DOM 的 append/prepend(...nodes)：时间管理模块与顶部导航都会用。
   append(...nodes) { for (const node of nodes) this.appendChild(node); }
+  prepend(...nodes) {
+    for (const node of [...nodes].reverse()) {
+      node.parent = this;
+      this.children.unshift(node);
+    }
+  }
   replaceWith(node) {
     if (!this.parent) return;
     const index = this.parent.children.indexOf(this);
@@ -889,4 +895,14 @@ test("task rows expose an open-document button and keep legacy tasks read-only",
   assert.equal(byClass(legacy, "task-legacy-badge").length, 1);
   await byClass(legacy, "task-open")[0].emit("click");
   assert.deepEqual(opened, ["00-System/任务/写方案.md", "00-System/任务（tasks）.md"]);
+});
+
+test("standalone pages use the top module navigation instead of the outer sidebar", async () => {
+  const h = await harness();
+  await h.load("app.js");
+  assert.equal(h.context.document.documentElement.classList.contains("top-nav-mode"), true);
+  const main = h.getNode("#main-content");
+  assert.equal(byClass(main, "panel-nav").length, 1);
+  assert.deepEqual(byClass(main, "panel-nav-item").map((node) => node.dataset.view),
+    ["workbench", "identity", "brain", "settings"]);
 });
