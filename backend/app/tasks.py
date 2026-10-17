@@ -35,7 +35,7 @@ from .markdown_store import (
     load_note,
     section_bounds as _section_bounds,
 )
-from . import task_notes
+from . import task_notes, task_trash
 from .task_notes import INBOX, TASK_DIR_POSIX
 from .task_import import parse_checkboxes
 from .vault import managed_note_path, note_relative
@@ -127,6 +127,19 @@ class TaskBulk(BaseModel):
     def _unique_keys(self):
         if len(set(self.keys)) != len(self.keys):
             raise ValueError("批量操作里同一个任务不能出现两次")
+        return self
+
+
+class TrashDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    paths: list[str] = Field(default_factory=list, max_length=500)
+    all: bool = False
+
+    @model_validator(mode="after")
+    def _selected(self):
+        if not self.all and not self.paths:
+            raise ValueError("至少选择一个回收站条目")
         return self
 
 
@@ -1247,6 +1260,18 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     @router.post("/tasks/bulk")
     def tasks_bulk(payload: TaskBulk):
         return bulk_tasks(vault_dir, payload, database, read_only=read_only)
+
+    @router.get("/trash")
+    def trash_list():
+        return {"items": task_trash.list_trash(vault_dir)}
+
+    @router.post("/trash/delete")
+    def trash_delete(payload: TrashDelete):
+        _ensure_write(read_only, "彻底删除回收站任务")
+        result = task_trash.purge_trash(vault_dir, paths=payload.paths,
+                                        all_items=payload.all)
+        _audit(database, "task_trash_purged", {"count": result["deleted"]})
+        return result
 
     @router.post("/lists")
     def lists_create(payload: ListCreate):

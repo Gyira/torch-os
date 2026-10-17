@@ -22,6 +22,7 @@ import {
 } from "./tasks-dialogs.js";
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
 import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
+import { initTrashPage, loadTrash } from "./tasks-trash.js";
 
 const VIEW_KEY = "torch-os:time-view";
 const SIDEBAR_KEY = "torch-os:time-sidebar";
@@ -67,6 +68,7 @@ export function initTimeModule() {
   syncPendingDefaults();
   paintTools();
   paintBulkBar();
+  initTrashPage();
 
   // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限
   for (const button of document.querySelectorAll("[data-time-page]")) {
@@ -178,9 +180,9 @@ export function initTimeModule() {
   });
   $("#time-bulk-delete").addEventListener("click", () => {
     confirmDialog({
-      title: `删除选中的 ${picked.size} 项任务？`,
-      message: "删了就找不回来了（Obsidian 里还有文件历史）。",
-      onConfirm: () => bulkAction("delete", {}, (count) => `已删除 ${count} 项。`),
+      title: `把选中的 ${picked.size} 项任务移到回收站？`,
+      message: "文件会先移到 .torch-os/task-trash；需要时可以在“回收站”里彻底删除或从文件系统找回。",
+      onConfirm: () => bulkAction("delete", {}, (count) => `已把 ${count} 项移到回收站。`),
     });
   });
   $("#time-sort-btn").addEventListener("click", () => {
@@ -242,9 +244,11 @@ export function switchPage(next) {
   $("#time-habits-page").hidden = next !== "habits";
   $("#time-calendar-page").hidden = next !== "calendar";
   $("#time-quadrant-page").hidden = next !== "quadrant";
+  $("#time-trash-page").hidden = next !== "trash";
   if (next === "tasks") paintBoard();
   if (next === "calendar") paintCalendar();
   if (next === "quadrant") paintQuadrant();
+  if (next === "trash") loadTrash();
 }
 
 /** 工作台那边拿到 /api/workbench/today 后，把「今日完成度」喂给模块顶部的进度条。 */
@@ -607,7 +611,11 @@ function taskOptions(selection, options = {}) {
       },
       remove: async (task) => {
         if (task.legacy) return;
-        const ok = await confirmAction(`删除任务“${task.title}”？`, { confirmLabel: "删除" });
+        const ok = await confirmAction({
+          title: `把任务“${task.title}”移到回收站？`,
+          message: "只会移入 .torch-os/task-trash，不会立刻删除 md 文件。",
+          confirmLabel: "移到回收站",
+        });
         if (!ok) return;
         post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站（.torch-os/task-trash）。");
       },

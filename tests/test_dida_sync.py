@@ -194,7 +194,7 @@ def test_conflict_keeps_local_and_force_overwrites(tmp_path):
     assert client.get("/api/sync/dida/conflicts").json()["conflicts"] == []
 
 
-def test_completion_and_remote_delete_do_not_remove_local_note(tmp_path):
+def test_completion_and_remote_delete_move_note_to_trash(tmp_path):
     done = RemoteTask(**{
         **make_task().__dict__,
         "status": 2,
@@ -227,7 +227,16 @@ def test_completion_and_remote_delete_do_not_remove_local_note(tmp_path):
     )
     result = run_sync(client)
     assert result["counts"]["remote_deleted"] == 1
-    assert note["path"].exists()
+    assert not note["path"].exists()
+    assert scan(vault)[0] == []
+    trash = client.get("/api/time/trash").json()["items"]
+    assert len(trash) == 1
+    assert trash[0]["title"] == "买牛奶"
+    assert trash[0]["dida_id"] == "task-1"
+    # 同一条远端删除不会在每次同步时重复计数/移入。
+    again = run_sync(client)
+    assert again["counts"]["remote_deleted"] == 0
+    assert again["counts"]["unchanged"] == 1
 
 
 def test_local_update_preserves_dida_id_and_is_not_overwritten(tmp_path):
@@ -271,6 +280,45 @@ def test_list_rename_keeps_project_mapping(tmp_path):
     assert len(notes) == 1
     assert notes[0]["list_name"] == "生活"
     assert not (vault / "00-System" / "任务" / "工作").exists()
+
+
+def test_local_delete_goes_to_trash_and_only_purge_removes_file(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, _seen = make_client(tmp_path, snapshot)
+    configure(client)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    task = board["tasks"][0]
+    note_path = scan(vault)[0][0]["path"]
+    response = client.post("/api/time/tasks/delete", json={
+        "key": task["key"], "revision": board["revision"],
+    })
+    assert response.status_code == 200, response.text
+    assert not note_path.exists()
+    trash = client.get("/api/time/trash").json()["items"]
+    assert len(trash) == 1
+    assert trash[0]["title"] == "买牛奶"
+    assert trash[0]["original_path"].endswith(".md")
+    purged = client.post("/api/time/trash/delete",
+                         json={"paths": [trash[0]["trash_path"]]})
+    assert purged.status_code == 200, purged.text
+    assert purged.json()["deleted"] == 1
+    assert client.get("/api/time/trash").json()["items"] == []
+    assert not (vault / trash[0]["trash_path"]).exists()
+
+
+def test_trash_purge_rejects_paths_outside_the_trash(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, _vault, _seen = make_client(tmp_path, snapshot)
+    configure(client)
+    run_sync(client)
+    response = client.post("/api/time/trash/delete", json={"paths": ["../../outside.md"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deleted"] == 0
+    assert payload["skipped"]
 
 
 def test_read_only_blocks_run_but_allows_test(tmp_path):

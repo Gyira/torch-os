@@ -56,6 +56,7 @@
               <button type="button" class="time-rail-item" data-time-page="calendar" role="tab" aria-selected="false"><span aria-hidden="true">🗓</span>日历</button>
               <button type="button" class="time-rail-item" data-time-page="habits" role="tab" aria-selected="false"><span aria-hidden="true">✅</span>习惯打卡</button>
               <button type="button" class="time-rail-item" data-time-page="quadrant" role="tab" aria-selected="false"><span aria-hidden="true">▦</span>四象限</button>
+              <button type="button" class="time-rail-item" data-time-page="trash" role="tab" aria-selected="false"><span aria-hidden="true">🗑</span>回收站</button>
             </nav>
             <aside class="time-sidebar" id="time-sidebar" aria-label="任务侧边栏"><p class="field-help">正在读取任务…</p></aside>
             <div class="time-main" id="time-tasks-page">
@@ -100,6 +101,12 @@
             </section>
             <section class="time-page" id="time-calendar-page" hidden aria-label="日历"></section>
             <section class="time-page" id="time-quadrant-page" hidden aria-label="四象限"></section>
+            <section class="time-page" id="time-trash-page" hidden aria-label="回收站">
+              <header class="time-head"><h3>回收站</h3><span id="time-trash-count" class="meta" role="status"></span><button type="button" id="time-trash-refresh" class="text-button">刷新</button></header>
+              <p class="field-help">任务删除后会先移到这里（<code>.torch-os/task-trash</code>），包括滴答清单远端删除的任务。只有这里的“彻底删除”才会真正删除 md 文件。</p>
+              <p id="time-trash-status" class="status-message" role="status"></p>
+              <div id="time-trash-list"></div>
+            </section>
           </div>
           <aside class="workbench-side">
             <section class="weather-card" aria-label="时钟与五日天气">
@@ -307,7 +314,7 @@
               </form>
               <div id="dida-summary" class="panel" hidden></div>
               <div id="dida-conflicts" class="panel" hidden></div>
-              <p class="field-help">Phase 1 只拉取：不写回滴答；远端删除只计数，不删本地笔记；重复规则、提醒、附件暂不映射。冲突默认保留本地。</p>
+              <p class="field-help">Phase 1 只拉取：不写回滴答；远端删除会把本地笔记移入任务回收站；重复规则、提醒、附件暂不映射。冲突默认保留本地。</p>
             </article>
           </section>
           <section class="settings-section" data-settings-section="backup" aria-labelledby="settings-backup-heading" hidden>

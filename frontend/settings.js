@@ -97,6 +97,7 @@ const EVENT_LABELS = {
   backup_created: "创建备份", backup_restored_to_new_directory: "恢复为验证副本", source_reextracted: "资料重新提取",
   goal_created: "新建目标", goal_updated: "更新目标", goal_deleted: "删除目标",
   task_created: "新建任务", task_updated: "更新任务", task_deleted: "删除任务",
+  task_trash_purged: "彻底删除回收站任务",
   journal_saved: "保存日记", journal_task_created: "日记转任务", journal_exported: "日记快照导出",
   journal_bulk_exported: "日记全量导出", markdown_tasks_imported: "导入 Markdown 待办",
   study_subject_created: "新建学习科目", study_subject_updated: "更新学习科目",

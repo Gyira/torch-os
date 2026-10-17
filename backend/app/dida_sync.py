@@ -4,7 +4,7 @@
 - 把项目映射成清单、任务映射成 `type: task` 的 Markdown 笔记；
 - 本地在上次同步后改过的笔记不覆盖，冲突可查看/保留本地；
 - 凭据单独存放在当前库的 `.torch-os/dida-credentials.json`，不进 SQLite/备份；
-- 本阶段不向滴答写回，也不镜像远端删除。
+- 本阶段不向滴答写回；滴答远端删除会把本地笔记移入任务回收站。
 """
 
 from __future__ import annotations
@@ -600,6 +600,34 @@ class DidaSyncService:
         )
         connection.commit()
 
+    def _apply_remote_deletion(self, connection, external_id: str,
+                               note: dict[str, Any] | None,
+                               link: dict[str, Any] | None,
+                               counts: SyncCounts, warnings: Counter,
+                               dry_run: bool) -> None:
+        """滴答删除：第一次把本地笔记移入回收站；已处理过/已还原的不再重复。"""
+        status = str(link.get("status") or "") if link else ""
+        if link is not None and status == "remote_deleted":
+            counts.unchanged += 1
+            return
+        if note is not None:
+            if not dry_run:
+                try:
+                    task_notes.trash_note(self.vault_dir, note)
+                except Exception as error:
+                    counts.errors += 1
+                    warnings[f"trash_error_{type(error).__name__}"] += 1
+                    return
+            counts.remote_deleted += 1
+            if not dry_run and link is not None:
+                self._mark_link_status(connection, external_id, "remote_deleted",
+                                       "remote_deleted")
+            return
+        counts.remote_deleted += 1
+        if not dry_run and link is not None:
+            self._mark_link_status(connection, external_id, "remote_deleted",
+                                   "remote_deleted")
+
     def _mark_link_status(self, connection, external_id: str, status: str, reason: str = "") -> None:
         connection.execute(
             """UPDATE dida_task_links SET status = ?, conflict_reason = ?,
@@ -758,10 +786,10 @@ class DidaSyncService:
             for deleted_id in snapshot.deleted_ids:
                 if deleted_id in merged:
                     continue
-                counts.remote_deleted += 1
-                if not dry_run and deleted_id in links:
-                    self._mark_link_status(connection, deleted_id, "remote_deleted",
-                                           "remote_deleted")
+                self._apply_remote_deletion(
+                    connection, deleted_id, notes_by_dida.get(deleted_id),
+                    links.get(deleted_id), counts, warnings, dry_run,
+                )
             for task in sorted(merged.values(),
                                key=lambda item: (item.project_id, item.id)):
                 if not task.id:
@@ -769,10 +797,10 @@ class DidaSyncService:
                     warnings["invalid_task"] += 1
                     continue
                 if task.deleted or task.id in snapshot.deleted_ids:
-                    counts.remote_deleted += 1
-                    if not dry_run and task.id in links:
-                        self._mark_link_status(connection, task.id, "remote_deleted",
-                                               "remote_deleted")
+                    self._apply_remote_deletion(
+                        connection, task.id, notes_by_dida.get(task.id),
+                        links.get(task.id), counts, warnings, dry_run,
+                    )
                     continue
                 project_id = task.project_id or snapshot.inbox_id
                 list_name = project_to_list.get(project_id)
