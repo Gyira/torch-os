@@ -15,18 +15,24 @@ test("sync errors map to readable Chinese guidance", () => {
 test("sync counts omit zero noise and keep important anomalies", () => {
   const text = syncCountsText({
     created: 2, updated: 1, unchanged: 3, conflicts: 1, errors: 0, remote_deleted: 4,
-    projects_created: 0, projects_deleted: 2,
+    projects_created: 0, projects_deleted: 2, created_pushed: 2, updated_pushed: 3,
+    moved_pushed: 1,
   });
   assert.match(text, /新建 2/);
   assert.match(text, /冲突 1/);
   assert.match(text, /远端删除 4/);
   assert.match(text, /删除清单 2/);
+  assert.match(text, /回写新增 2/);
+  assert.match(text, /回写更新 3/);
+  assert.match(text, /回写移动 1/);
   assert.doesNotMatch(text, /错误 0/);
 });
 
 test("sync warnings explain what to do instead of leaking codes", () => {
   assert.match(syncWarningText("push_delete_error"), /_csrf_token/);
+  assert.match(syncWarningText("push_changes_csrf_required"), /_csrf_token/);
   assert.match(syncWarningText("project_delete_error_HTTPException"), /非任务文件/);
+  assert.match(syncWarningText("push_error_ETAG"), /回写/);
   assert.equal(syncWarningText("some_new_code"), "some_new_code");
 });
 

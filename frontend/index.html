@@ -296,6 +296,7 @@
                 <div class="form-grid">
                   <div class="field"><label class="check-label" for="dida-enabled"><input id="dida-enabled" type="checkbox" />启用定时同步</label></div>
                   <div class="field"><label class="check-label" for="dida-push-deletes"><input id="dida-push-deletes" type="checkbox" />本地删除同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机已删除的已同步任务（在回收站里，或已彻底清理但远端仍存在）都会在下一次推送时从滴答删除；滴答回收站可能可恢复。缺少 _csrf_token 时不会删除远端任务。</p></div>
+                  <div class="field"><label class="check-label" for="dida-push-changes"><input id="dida-push-changes" type="checkbox" />本地新增/修改同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机新建任务、改名、改清单、日期/时间、优先级、标签和完成状态会写回滴答：每次操作后立即尝试回写（250ms 防抖），后台每 15 秒再兜底检查一次；正文、重复规则、提醒、附件暂不回写。缺少 _csrf_token 时不会写回。</p></div>
                   <div class="field"><label for="dida-region">区域</label><select id="dida-region"><option value="dida365">滴答清单（中国）</option><option value="ticktick">TickTick（国际）</option></select></div>
                   <div class="field"><label for="dida-interval">同步间隔（分钟）</label><input id="dida-interval" type="number" min="5" max="1440" value="15" /></div>
                   <div class="field"><label for="dida-completed-days">已完成回看天数</label><input id="dida-completed-days" type="number" min="0" max="3650" value="30" /></div>

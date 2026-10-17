@@ -1021,3 +1021,8 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .workspace-info .meta { margin: 3px 0; overflow-wrap: anywhere; }
 .workspace-row .section-actions { flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 760px) { .workspace-row { display: block; } .workspace-row .section-actions { justify-content: flex-start; margin-top: 8px; } }
+
+/* 任务回收站：与滴答一致的勾选/批量恢复/彻底删除交互 */
+.trash-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 14px; }
+.trash-item-main { display: flex; align-items: flex-start; gap: 10px; }
+.trash-item-main > input { margin-top: 3px; width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--p-accent-2); }

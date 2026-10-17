@@ -37,8 +37,9 @@ function renderQuickState() {
     : !quickStatus.configured ? "请先到 设置 → 滴答同步 配置登录凭据"
     : running ? "正在从滴答清单同步…"
     : "从滴答清单拉取最新任务";
-  button.title = quickStatus?.push_deletes && !quickStatus?.csrf_set
-    ? `${title}（缺少 _csrf_token，本地删除不会写回滴答）`
+  button.title = ((quickStatus?.push_deletes || quickStatus?.push_changes)
+    && !quickStatus?.csrf_set)
+    ? `${title}（缺少 _csrf_token，本地删除/修改不会写回滴答）`
     : title;
 }
 
@@ -95,7 +96,7 @@ function renderStatus(status) {
     ["上次尝试", formatWhen(status.last_attempt_at)],
     ["上次错误", status.last_error_code ? syncErrorText(status.last_error_code) : "无"],
     ["上次结果", status.last_run_counts && Object.keys(status.last_run_counts).length ? syncCountsText(status.last_run_counts) : "还没有运行过"],
-    ["上次回写删除", status.last_push_at ? formatWhen(status.last_push_at) : "还没有"],
+    ["上次回写", status.last_push_at ? formatWhen(status.last_push_at) : "还没有"],
     ["回写错误", status.last_push_error_code ? syncErrorText(status.last_push_error_code) : "无"],
     ["冲突", String(status.conflicts || 0)],
     ["本地缺失", String(status.local_missing || 0)],
@@ -110,6 +111,7 @@ function renderStatus(status) {
   }
   if ($("#dida-enabled")) $("#dida-enabled").checked = Boolean(status.enabled);
   if ($("#dida-push-deletes")) $("#dida-push-deletes").checked = Boolean(status.push_deletes);
+  if ($("#dida-push-changes")) $("#dida-push-changes").checked = Boolean(status.push_changes);
   if ($("#dida-region")) $("#dida-region").value = status.region || "dida365";
   if ($("#dida-interval")) $("#dida-interval").value = String(status.interval_minutes || 15);
   if ($("#dida-completed-days")) $("#dida-completed-days").value = String(status.completed_days ?? 30);
@@ -139,8 +141,8 @@ function renderStatus(status) {
     setStatus("#dida-feedback", "当前运行环境不支持滴答同步。", "error");
   } else if (status.read_only) {
     setStatus("#dida-feedback", "当前库是只读模式：可以测试连接和预览，但不能写入任务笔记。", "warning");
-  } else if (status.push_deletes && !status.csrf_set) {
-    setStatus("#dida-feedback", "本地删除回写滴答需要 _csrf_token：请从浏览器 Cookie 里复制 _csrf_token 后保存。", "warning");
+  } else if ((status.push_deletes || status.push_changes) && !status.csrf_set) {
+    setStatus("#dida-feedback", "本地删除/修改写回滴答需要 _csrf_token：请从浏览器 Cookie 里复制 _csrf_token 后保存。", "warning");
   }
 }
 
@@ -185,6 +187,7 @@ function formPayload() {
     interval_minutes: Number($("#dida-interval")?.value),
     completed_days: Number($("#dida-completed-days")?.value),
     push_deletes: Boolean($("#dida-push-deletes")?.checked),
+    push_changes: Boolean($("#dida-push-changes")?.checked),
     timezone: $("#dida-timezone")?.value || "Asia/Shanghai",
     device_version: Number($("#dida-device-version")?.value),
     cookie: $("#dida-cookie")?.value || "",
@@ -267,11 +270,12 @@ async function runSync(dryRun = false, quick = false) {
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
     changed();
     await loadDidaSync();
-    const pushFailed = Array.isArray(result.warnings) && result.warnings.includes("push_delete_error");
+    const pushFailed = Array.isArray(result.warnings)
+      && result.warnings.some((warning) => String(warning).startsWith("push_"));
     setStatus(feedback,
       quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
         : dryRun ? "预览完成，没有写入任何文件。"
-        : pushFailed ? "任务已同步，但本地删除未能写回滴答；请到设置 → 滴答同步 检查 _csrf_token。"
+        : pushFailed ? "任务已同步，但部分本地修改/删除未能写回滴答；请到设置 → 滴答同步 检查 _csrf_token 或「回写错误」。"
         : "同步完成。",
       pushFailed ? "warning" : "success");
   } catch (error) {

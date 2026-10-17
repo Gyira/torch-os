@@ -30,10 +30,11 @@ from . import task_notes, task_trash, tasks
 from .db import Database, utc_now
 from .dida_client import (
     DidaCredentials, DidaError, DidaProvider, PrivateDidaProvider, RemoteProject,
-    RemoteSnapshot, RemoteTask, parse_cookie_input,
+    RemoteSnapshot, RemoteTask, parse_cookie_input, task_from_payload,
 )
 from .dida_mapping import (
-    MappedTask, map_task, material_matches, sanitize_list_name,
+    MappedTask, build_remote_task_payload, legacy_all_day_date, map_task,
+    material_matches, sanitize_list_name,
 )
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS dida_sync_settings (
     interval_minutes INTEGER NOT NULL DEFAULT 15 CHECK(interval_minutes BETWEEN 5 AND 1440),
     completed_days INTEGER NOT NULL DEFAULT 30 CHECK(completed_days BETWEEN 0 AND 3650),
     push_deletes INTEGER NOT NULL DEFAULT 1 CHECK(push_deletes IN (0, 1)),
+    push_changes INTEGER NOT NULL DEFAULT 1 CHECK(push_changes IN (0, 1)),
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     device_id TEXT NOT NULL DEFAULT '',
     device_version INTEGER NOT NULL DEFAULT 8000,
@@ -91,6 +93,8 @@ CREATE TABLE IF NOT EXISTS dida_task_links (
     pending_remote_content_hash TEXT NOT NULL DEFAULT '',
     pending_remote_etag TEXT NOT NULL DEFAULT '',
     pending_remote_modified TEXT NOT NULL DEFAULT '',
+    remote_payload_json TEXT NOT NULL DEFAULT '',
+    pending_remote_payload_json TEXT NOT NULL DEFAULT '',
     last_synced_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -171,6 +175,7 @@ class DidaSyncSettingsUpdate(BaseModel):
     interval_minutes: StrictInt = Field(default=15, ge=5, le=1440)
     completed_days: StrictInt = Field(default=30, ge=0, le=3650)
     push_deletes: StrictBool = True
+    push_changes: StrictBool = True
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     device_version: StrictInt = Field(default=8000, ge=1, le=99999)
     cookie: str | None = None
@@ -239,8 +244,11 @@ class SyncCounts:
     projects_created: int = 0
     projects_deleted: int = 0
     created: int = 0
+    created_pushed: int = 0
     restored: int = 0
     updated: int = 0
+    updated_pushed: int = 0
+    moved_pushed: int = 0
     completed: int = 0
     uncompleted: int = 0
     unchanged: int = 0
@@ -269,6 +277,7 @@ class DidaSyncService:
         self._run_guard = asyncio.Lock()
         self._push_guard = asyncio.Lock()
         self._push_backoff_until: datetime | None = None
+        self._local_push_backoff_until: datetime | None = None
         self.initialize()
 
     # ---------- 初始化 / 设置 ----------
@@ -281,12 +290,24 @@ class DidaSyncService:
             )}
             for name, declaration in (
                 ("push_deletes", "INTEGER NOT NULL DEFAULT 1"),
+                ("push_changes", "INTEGER NOT NULL DEFAULT 1"),
                 ("last_push_at", "TEXT"),
                 ("last_push_error_code", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if name not in columns:
                     connection.execute(
                         f"ALTER TABLE dida_sync_settings ADD COLUMN {name} {declaration}"
+                    )
+            task_columns = {row["name"] for row in connection.execute(
+                "PRAGMA table_info(dida_task_links)"
+            )}
+            for name, declaration in (
+                ("remote_payload_json", "TEXT NOT NULL DEFAULT ''"),
+                ("pending_remote_payload_json", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in task_columns:
+                    connection.execute(
+                        f"ALTER TABLE dida_task_links ADD COLUMN {name} {declaration}"
                     )
             connection.execute(
                 "INSERT OR IGNORE INTO dida_sync_settings(id, device_id, updated_at) VALUES (1, ?, ?)",
@@ -361,6 +382,7 @@ class DidaSyncService:
             "interval_minutes": interval,
             "completed_days": int(row.get("completed_days") or 0),
             "push_deletes": bool(row.get("push_deletes", 1)),
+            "push_changes": bool(row.get("push_changes", 1)),
             "timezone": row.get("timezone") or "Asia/Shanghai",
             "device_version": int(row.get("device_version") or 8000),
             "device_id_prefix": str(row.get("device_id") or "")[:6],
@@ -420,10 +442,11 @@ class DidaSyncService:
             connection.execute(
                 """UPDATE dida_sync_settings SET
                    enabled = ?, region = ?, interval_minutes = ?, completed_days = ?,
-                   push_deletes = ?, timezone = ?, device_version = ?, device_id = ?,
-                   updated_at = ? WHERE id = 1""",
+                   push_deletes = ?, push_changes = ?, timezone = ?, device_version = ?,
+                   device_id = ?, updated_at = ? WHERE id = 1""",
                 (1 if payload.enabled else 0, payload.region, payload.interval_minutes,
                  payload.completed_days, 1 if payload.push_deletes else 0,
+                 1 if payload.push_changes else 0,
                  payload.timezone, payload.device_version, device_id, _iso_now()),
             )
             connection.commit()
@@ -434,6 +457,7 @@ class DidaSyncService:
             "credentials_cleared": bool(payload.clear_credentials),
         })
         self._push_backoff_until = None
+        self._local_push_backoff_until = None
         return self._settings_public()
 
     def clear_credentials(self) -> dict[str, Any]:
@@ -613,6 +637,252 @@ class DidaSyncService:
                 self.database.audit("dida_sync_delete_pushed", {"count": len(success_ids)})
             return {"enabled": True, "deleted": len(success_ids), "errors": errors}
 
+    def _list_project_map(self) -> dict[str, str]:
+        """本地清单名 → 滴答项目 ID（收集箱也通过 project_links 映射）。"""
+        mapping: dict[str, str] = {}
+        with self.database.connect() as connection:
+            for row in connection.execute(
+                "SELECT list_name, project_id FROM dida_project_links WHERE source = ?",
+                (SOURCE,),
+            ):
+                name = str(row["list_name"] or "").strip()
+                project_id = str(row["project_id"] or "").strip()
+                if name and project_id:
+                    mapping[name] = project_id
+        state = tasks.read_tasks(self.vault_dir, read_only=self.read_only)
+        for entry in state.get("lists", []):
+            name = str(entry.get("name") or "").strip()
+            project_id = str(entry.get("dida_project_id") or "").strip()
+            if name and project_id:
+                mapping[name] = project_id
+        return mapping
+
+    def _local_push_candidates(self) -> tuple[list[dict[str, Any]],
+                                              list[dict[str, Any]], Counter]:
+        """扫描本地任务，找出需要回写的新建/修改；只读，不发请求。"""
+        warnings: Counter = Counter()
+        notes, scan_warnings = task_notes.scan_task_notes(self.vault_dir)
+        for _warning in scan_warnings:
+            warnings["scan_warning"] += 1
+        with self.database.connect() as connection:
+            links = self._load_links(connection)
+        project_by_list = self._list_project_map()
+        creates: list[dict[str, Any]] = []
+        updates: list[dict[str, Any]] = []
+        for note in notes:
+            list_name = str(note.get("list_name") or task_notes.INBOX)
+            project_id = project_by_list.get(list_name, "")
+            dida_id = str(note.get("dida_id") or "").strip()
+            if not dida_id:
+                if not project_id:
+                    continue
+                creates.append({
+                    "note": note,
+                    "project_id": project_id,
+                    "task_id": uuid.uuid4().hex[:24],
+                })
+                continue
+            link = links.get(dida_id)
+            if link is None:
+                continue
+            if str(link.get("status") or "") != "synced":
+                continue
+            local_changed = (
+                note["revision"] != str(link.get("last_local_revision") or "")
+                or note["relpath"] != str(link.get("relpath") or "")
+            )
+            if not local_changed:
+                continue
+            if not project_id:
+                project_id = str(link.get("project_id") or "")
+            if not project_id:
+                warnings["local_push_no_project"] += 1
+                continue
+            if not str(link.get("remote_payload_json") or ""):
+                # 旧链接还没有远端原始对象：先让下一次拉取补全，避免回写时丢掉
+                # 远端正文/清单项等未映射字段。
+                warnings["push_needs_pull"] += 1
+                continue
+            item = {"note": note, "link": link, "project_id": project_id}
+            old_project = str(link.get("project_id") or "")
+            if project_id and old_project and project_id != old_project:
+                item["move"] = {"taskId": dida_id, "fromProjectId": old_project,
+                                "toProjectId": project_id}
+            updates.append(item)
+        return creates, updates, warnings
+
+    def _apply_push_results(self, items: list[dict[str, Any]], result: dict[str, Any],
+                            counts: SyncCounts, warnings: Counter,
+                            target_tz: ZoneInfo, *, create: bool) -> str:
+        etags = result.get("etags") if isinstance(result, dict) else {}
+        errors = result.get("errors") if isinstance(result, dict) else {}
+        first_error = ""
+        with self.database.connect() as connection:
+            for item in items:
+                payload = item["payload"]
+                task_id = str(payload.get("id") or "")
+                code = str((errors or {}).get(task_id) or "")
+                if code:
+                    first_error = first_error or code
+                    counts.errors += 1
+                    warnings[f"push_error_{code}"] += 1
+                    continue
+                etag = str((etags or {}).get(task_id) or "")
+                if etag:
+                    payload["etag"] = etag
+                note = item["note"]
+                try:
+                    if create:
+                        values = {
+                            "date": note.get("date", ""),
+                            "time": note.get("time", ""),
+                            "priority": note.get("priority", "none"),
+                            "tags": note.get("tags", []),
+                            "done": note.get("done", False),
+                            "done_on": note.get("done_on", ""),
+                            "pinned": note.get("pinned", False),
+                            "created": note.get("created", ""),
+                            "dida_id": task_id,
+                        }
+                        fresh = task_notes.rewrite_task_note(
+                            self.vault_dir, note, folder=note.get("folder", ""),
+                            title=note.get("title", ""), values=values,
+                        )
+                        mapped = map_task(task_from_payload(payload), target_tz=target_tz,
+                                          list_name=note.get("list_name", task_notes.INBOX))
+                        self._save_link_synced(connection, mapped, fresh, payload)
+                        counts.created_pushed += 1
+                    else:
+                        mapped = map_task(task_from_payload(payload), target_tz=target_tz,
+                                          list_name=note.get("list_name", task_notes.INBOX))
+                        self._save_link_synced(connection, mapped, note, payload)
+                        counts.updated_pushed += 1
+                except Exception as error:  # 单条失败不中断其余回写
+                    counts.errors += 1
+                    warnings[f"push_apply_error_{type(error).__name__}"] += 1
+                    continue
+            connection.commit()
+        return first_error
+
+    async def push_local_changes(self, *, force: bool = False) -> dict[str, Any]:
+        """把本地新建/修改的任务写回滴答（需要 CSRF）。"""
+        if not self.supported or self.read_only:
+            return {"enabled": False, "counts": {}, "warnings": []}
+        row = self._row()
+        if not row.get("push_changes"):
+            return {"enabled": False, "counts": {}, "warnings": []}
+        cookie, csrf = self.credentials.load()
+        if not cookie:
+            return {"enabled": False, "counts": {}, "warnings": []}
+        if not csrf:
+            return {"enabled": True, "counts": {}, "warnings": ["push_changes_csrf_required"],
+                    "errors": [{"code": "csrf_required",
+                                "message": "需要 _csrf_token 才能回写滴答"}]}
+        if self._push_guard.locked():
+            return {"enabled": True, "counts": {}, "warnings": [], "skipped": "running"}
+        now = datetime.now(timezone.utc)
+        if (not force and self._local_push_backoff_until
+                and now < self._local_push_backoff_until):
+            return {"enabled": True, "counts": {}, "warnings": [], "skipped": "backoff"}
+        async with self._push_guard:
+            creates, updates, warnings = await run_in_threadpool(
+                self._local_push_candidates
+            )
+            if not creates and not updates:
+                return {"enabled": True, "counts": {}, "warnings": sorted(warnings)}
+            target_tz = _zone(str(row.get("timezone") or "Asia/Shanghai"))
+            counts = SyncCounts()
+            first_error = ""
+            provider: DidaProvider | None = None
+            try:
+                provider = self.build_provider()
+                if creates:
+                    payloads = []
+                    for item in creates:
+                        item["payload"] = build_remote_task_payload(
+                            item["note"], task_id=item["task_id"],
+                            project_id=item["project_id"], target_tz=target_tz,
+                            body=task_notes.note_body(item["note"]),
+                        )
+                        payloads.append(item["payload"])
+                    result = await provider.add_tasks(payloads)
+                    first_error = self._apply_push_results(
+                        creates, result, counts, warnings, target_tz, create=True
+                    ) or first_error
+                move_items = [item for item in updates if item.get("move")]
+                if move_items:
+                    move_result = await provider.move_tasks(
+                        [item["move"] for item in move_items]
+                    )
+                    move_errors = move_result.get("errors") if isinstance(move_result, dict) else {}
+                    failed_moves: set[str] = set()
+                    for item in move_items:
+                        code = str((move_errors or {}).get(item["move"]["taskId"]) or "")
+                        if code:
+                            failed_moves.add(item["move"]["taskId"])
+                            counts.errors += 1
+                            warnings[f"push_move_error_{code}"] += 1
+                    if failed_moves:
+                        first_error = first_error or "move_error"
+                        updates = [item for item in updates
+                                   if item.get("move", {}).get("taskId") not in failed_moves]
+                    counts.moved_pushed += len(move_items) - len(failed_moves)
+                if updates:
+                    payloads = []
+                    for item in updates:
+                        base: dict[str, Any] = {}
+                        raw = str(item["link"].get("remote_payload_json") or "")
+                        if raw:
+                            try:
+                                loaded = json.loads(raw)
+                                if isinstance(loaded, dict):
+                                    base = loaded
+                            except ValueError:
+                                base = {}
+                        if not base:
+                            base = {"etag": str(item["link"].get("last_remote_etag") or "")}
+                        payload = build_remote_task_payload(
+                            item["note"], task_id=str(item["note"].get("dida_id") or ""),
+                            project_id=item["project_id"], target_tz=target_tz,
+                            base=base,
+                        )
+                        etag = str(item["link"].get("last_remote_etag") or "")
+                        if etag:
+                            payload["etag"] = etag
+                        item["payload"] = payload
+                        payloads.append(payload)
+                    result = await provider.update_tasks(payloads)
+                    first_error = self._apply_push_results(
+                        updates, result, counts, warnings, target_tz, create=False
+                    ) or first_error
+            except DidaError as error:
+                first_error = first_error or error.code
+                counts.errors += len(creates) + len(updates)
+                warnings[f"push_error_{error.code}"] += 1
+            except Exception as error:  # 回写失败不应拖垮整次拉取
+                first_error = first_error or type(error).__name__
+                counts.errors += len(creates) + len(updates)
+                warnings[f"push_error_{type(error).__name__}"] += 1
+            finally:
+                if provider is not None:
+                    await provider.aclose()
+            self._local_push_backoff_until = (
+                datetime.now(timezone.utc) + timedelta(minutes=5)
+                if first_error else None
+            )
+            with self.database.connect() as connection:
+                connection.execute(
+                    """UPDATE dida_sync_settings SET last_push_at = ?,
+                       last_push_error_code = ?, updated_at = ? WHERE id = 1""",
+                    (_iso_now(), first_error, _iso_now()),
+                )
+                connection.commit()
+            self.database.audit("dida_local_push_completed", {
+                "counts": counts.as_dict(), "error": first_error,
+            })
+            return {"enabled": True, "counts": counts.as_dict(),
+                    "warnings": sorted(warnings), "error": first_error}
+
     async def restore_tasks(self, external_ids: list[str]) -> dict[str, Any]:
         """本地恢复任务后，把滴答回收站里对应的任务也恢复。"""
         if not self.supported:
@@ -771,7 +1041,8 @@ class DidaSyncService:
         )
         connection.commit()
 
-    def _save_link_synced(self, connection, mapped: MappedTask, note: dict[str, Any]) -> None:
+    def _save_link_synced(self, connection, mapped: MappedTask, note: dict[str, Any],
+                          remote_payload: dict[str, Any] | None = None) -> None:
         now = _iso_now()
         connection.execute(
             """INSERT INTO dida_task_links
@@ -800,6 +1071,14 @@ class DidaSyncService:
              mapped.title, mapped.list_name, note["revision"], mapped.remote_hash,
              mapped.content_hash, mapped.etag, mapped.modified, now, now, now),
         )
+        payload = remote_payload if remote_payload is not None else mapped.remote_raw
+        if payload is not None:
+            connection.execute(
+                """UPDATE dida_task_links SET remote_payload_json = ?,
+                   pending_remote_payload_json = ''
+                   WHERE source = ? AND external_id = ?""",
+                (json.dumps(payload, ensure_ascii=False), SOURCE, mapped.dida_id),
+            )
         connection.commit()
 
     def _save_link_conflict(self, connection, mapped: MappedTask,
@@ -834,6 +1113,12 @@ class DidaSyncService:
              local_list, revision, reason, now, mapped.title, mapped.remote_hash,
              mapped.content_hash, mapped.etag, mapped.modified, now, now),
         )
+        if mapped.remote_raw is not None:
+            connection.execute(
+                """UPDATE dida_task_links SET pending_remote_payload_json = ?
+                   WHERE source = ? AND external_id = ?""",
+                (json.dumps(mapped.remote_raw, ensure_ascii=False), SOURCE, mapped.dida_id),
+            )
         connection.commit()
 
     def _apply_remote_deletion(self, connection, external_id: str,
@@ -1209,6 +1494,30 @@ class DidaSyncService:
                                                          "existing_note_differs")
                         continue
 
+                    # 旧版全日任务日期差一天：即使本地还有其它未回写修改（比如勾选完成），
+                    # 也只修日期、保留其余本地字段，随后照常走本地改动回写。
+                    legacy_date = legacy_all_day_date(task)
+                    if (not dry_run and link is not None
+                            and str(link.get("status") or "") in {"synced", "local_missing"}
+                            and legacy_date and note["date"] == legacy_date
+                            and mapped.values["date"] != legacy_date):
+                        values = {
+                            "date": mapped.values["date"],
+                            "time": note.get("time", ""),
+                            "priority": note.get("priority", "none"),
+                            "tags": note.get("tags", []),
+                            "done": note.get("done", False),
+                            "done_on": note.get("done_on", ""),
+                            "pinned": note.get("pinned", False),
+                            "created": note.get("created", ""),
+                            "dida_id": note.get("dida_id", ""),
+                        }
+                        fresh = task_notes.rewrite_task_note(
+                            self.vault_dir, note, folder=note.get("folder", ""),
+                            title=note.get("title", ""), values=values,
+                        )
+                        notes_by_dida[task.id] = fresh
+                        note = fresh
                     local_changed = (
                         note["revision"] != str(link.get("last_local_revision") or "")
                         or note["relpath"] != str(link.get("relpath") or "")
@@ -1218,6 +1527,27 @@ class DidaSyncService:
 
                     if not remote_changed and not local_changed:
                         # 两边都没动：即使字段有差异（例如用户点了“保留本地”），也不覆盖。
+                        # 旧链接还没有远端原始对象时顺手补上，回写更新时可以保留未映射字段。
+                        if (not dry_run and mapped.remote_raw is not None
+                                and not str(link.get("remote_payload_json") or "")):
+                            self._save_link_synced(connection, mapped, note)
+                        # 例外：旧版全日任务把 UTC 日期直接截断，会差一天；如果本地日期
+                        # 正好是那个旧值，说明是映射 bug 而不是用户编辑，顺手修正。
+                        legacy_date = legacy_all_day_date(task)
+                        if (str(link.get("status") or "") == "synced"
+                                and legacy_date and note["date"] == legacy_date
+                                and mapped.values["date"] != legacy_date):
+                            if not dry_run:
+                                folder = "" if list_name == task_notes.INBOX else list_name
+                                fresh = task_notes.rewrite_task_note(
+                                    self.vault_dir, note, folder=folder,
+                                    title=mapped.title, values=mapped.values,
+                                )
+                                notes_by_dida[task.id] = fresh
+                                self._save_link_synced(connection, mapped, fresh)
+                                links[task.id] = {"external_id": task.id}
+                            counts.updated += 1
+                            continue
                         # 如果之前是本地缺失、现在笔记又回来了，说明用户从本地回收站恢复，
                         # 需要把链接从 local_missing 改回 synced。
                         if str(link.get("status") or "") == "local_missing":
@@ -1229,6 +1559,17 @@ class DidaSyncService:
                             counts.unchanged += 1
                         continue
                     if not remote_changed and local_changed:
+                        # 旧链接缺远端原始对象时先补上（不推进本地基线），
+                        # 这样后台回写才能保留正文/清单项等未映射字段。
+                        if (not dry_run and mapped.remote_raw is not None
+                                and not str(link.get("remote_payload_json") or "")):
+                            connection.execute(
+                                """UPDATE dida_task_links SET remote_payload_json = ?
+                                   WHERE source = ? AND external_id = ?""",
+                                (json.dumps(mapped.remote_raw, ensure_ascii=False),
+                                 SOURCE, task.id),
+                            )
+                            connection.commit()
                         counts.local_edits += 1
                         continue
                     if remote_changed and local_changed and not force:
@@ -1324,9 +1665,13 @@ class DidaSyncService:
                    last_remote_content_hash = pending_remote_content_hash,
                    last_remote_etag = pending_remote_etag,
                    last_remote_modified = pending_remote_modified,
+                   remote_payload_json = CASE
+                     WHEN pending_remote_payload_json != '' THEN pending_remote_payload_json
+                     ELSE remote_payload_json END,
                    pending_remote_title = '', pending_remote_hash = '',
                    pending_remote_content_hash = '', pending_remote_etag = '',
-                   pending_remote_modified = '', last_synced_at = ?, updated_at = ?
+                   pending_remote_modified = '', pending_remote_payload_json = '',
+                   last_synced_at = ?, updated_at = ?
                    WHERE source = ? AND external_id = ?""",
                 (note["revision"], note["relpath"], _iso_now(), _iso_now(),
                  SOURCE, dida_id),
@@ -1362,6 +1707,14 @@ async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
                     dry_run=dry_run, force=force, trigger=trigger,
                 )
             if not dry_run:
+                # 先回写本地新建/修改，再回写本地删除；两者都基于已合并的远端快照。
+                local_push = await service.push_local_changes(force=True)
+                for key, value in (local_push.get("counts") or {}).items():
+                    summary["counts"][key] = int(summary["counts"].get(key, 0)) + int(value or 0)
+                for warning in local_push.get("warnings") or []:
+                    summary["warnings"] = sorted(set([*summary.get("warnings", []), warning]))
+                    warning_counts = summary.setdefault("warning_counts", {})
+                    warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
                 push = await service.push_deletions(force=True)
                 summary["counts"]["deleted_pushed"] = int(push.get("deleted") or 0)
                 if push.get("errors"):
@@ -1380,10 +1733,11 @@ async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
 
 
 async def dida_sync_loop(service: DidaSyncService, data_lock: asyncio.Lock) -> None:
-    """每 60 秒检查一次；设置里的间隔按上次尝试时间计算。"""
+    """每 15 秒检查本地回写/删除；拉取间隔仍按设置里的同步间隔计算。"""
     while True:
         try:
             if not service._running:
+                await service.push_local_changes()
                 await service.push_deletions()
             if service.due():
                 await run_dida_sync(service, data_lock, trigger="scheduled")
@@ -1392,7 +1746,7 @@ async def dida_sync_loop(service: DidaSyncService, data_lock: asyncio.Lock) -> N
         except Exception:
             # run_dida_sync 已记录 last_error；循环不重复刷审计。
             pass
-        await asyncio.sleep(60)
+        await asyncio.sleep(15)
 
 
 def _http_error(error: Exception) -> HTTPException:

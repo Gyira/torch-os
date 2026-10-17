@@ -14,8 +14,9 @@ from backend.app.dida_client import (
     parse_cookie_input,
 )
 from backend.app.dida_mapping import (
-    build_body, clean_tags, html_to_markdown, map_task, material_matches,
-    priority_text, remote_hash, sanitize_list_name,
+    build_body, build_remote_task_payload, clean_tags, html_to_markdown,
+    legacy_all_day_date, map_task, material_matches, priority_text, remote_hash,
+    sanitize_list_name,
 )
 
 
@@ -55,6 +56,18 @@ def test_all_day_keeps_literal_date():
     task = make_task(is_all_day=True, due_date="2026-10-18T00:00:00+0000", start_date="")
     mapped = map_task(task, target_tz="Asia/Shanghai", list_name="生活")
     assert (mapped.values["date"], mapped.values["time"]) == ("2026-10-18", "")
+
+
+def test_all_day_uses_task_timezone_not_utc_date_prefix():
+    # 滴答上海时区的 10-18 全天任务存成 10-17T16:00Z；截取 UTC 字符串会差一天。
+    task = make_task(
+        is_all_day=True, time_zone="Asia/Shanghai",
+        start_date="2026-10-17T16:00:00.000+0000",
+        due_date="2026-10-17T16:00:00.000+0000",
+    )
+    mapped = map_task(task, target_tz="Asia/Shanghai", list_name="收集箱")
+    assert mapped.values["date"] == "2026-10-18"
+    assert legacy_all_day_date(task) == "2026-10-17"
 
 
 def test_floating_keeps_wall_clock():
@@ -98,6 +111,50 @@ def test_material_matches_ignores_pinned_and_optional_body():
     }
     assert material_matches(note, mapped)
     assert not material_matches(note, mapped, compare_body=True, note_body="不同的本地正文")
+
+
+def test_build_remote_payload_preserves_unmapped_remote_fields():
+    note = {
+        "title": "本地任务", "date": "2026-10-18", "time": "09:30-10:00",
+        "priority": "high", "tags": ["本地"], "done": False, "done_on": "",
+        "created": "2026-10-18", "pinned": False, "dida_id": "t1",
+    }
+    base = {
+        "id": "t1", "projectId": "p1", "etag": "e1",
+        "content": "<p>远端正文</p>", "items": [{"id": "i1"}],
+        "reminders": [{"x": 1}], "repeatFlag": "RRULE", "kind": "TEXT",
+        "modifiedTime": "2026-10-17T10:00:00.000+0000",
+    }
+    payload = build_remote_task_payload(
+        note, task_id="t1", project_id="p1",
+        target_tz="Asia/Shanghai", base=base,
+    )
+    assert payload["content"] == "<p>远端正文</p>"
+    assert payload["items"] == [{"id": "i1"}]
+    assert payload["reminders"] == [{"x": 1}]
+    assert payload["repeatFlag"] == "RRULE"
+    assert payload["etag"] == "e1"
+    assert payload["priority"] == 5
+    assert payload["status"] == 0
+    assert payload["startDate"] == "2026-10-18T01:30:00.000+0000"
+    assert payload["dueDate"] == "2026-10-18T02:00:00.000+0000"
+
+
+def test_build_remote_payload_create_all_day_uses_shanghai_midnight():
+    note = {
+        "title": "今天任务", "date": "2026-10-18", "time": "",
+        "priority": "none", "tags": [], "done": False, "done_on": "",
+        "created": "2026-10-18", "pinned": False, "dida_id": "",
+    }
+    payload = build_remote_task_payload(
+        note, task_id="new-id", project_id="inbox",
+        target_tz="Asia/Shanghai", body="第一行\n第二行",
+    )
+    assert payload["isAllDay"] is True
+    assert payload["startDate"] == "2026-10-17T16:00:00.000+0000"
+    assert payload["dueDate"] == payload["startDate"]
+    assert payload["content"].startswith("<p>第一行<br>第二行</p>")
+    assert payload["id"] == "new-id"
 
 
 def test_parse_cookie_input():
@@ -215,6 +272,32 @@ def test_client_restore_tasks_uses_web_payload():
         {"fromProjectId": "p1", "taskId": "t1", "toProjectId": "p1"}
     ]
     assert result["etags"] == {"t1": "etag-2"}
+    asyncio.run(provider.aclose())
+
+
+def test_client_move_tasks_uses_task_project_payload():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"id2etag": {}, "id2error": {}})
+
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(provider.move_tasks([{
+        "taskId": "t1", "fromProjectId": "p1", "toProjectId": "p2",
+    }]))
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v2/batch/taskProject"
+    assert seen["body"] == [{
+        "fromProjectId": "p1", "taskId": "t1", "toProjectId": "p2",
+    }]
+    assert result["errors"] == {}
     asyncio.run(provider.aclose())
 
 

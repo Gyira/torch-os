@@ -27,6 +27,9 @@ export function syncCountsText(counts = {}) {
   ];
   if (number("projects_created")) parts.push(`新清单 ${number("projects_created")}`);
   if (number("projects_deleted")) parts.push(`删除清单 ${number("projects_deleted")}`);
+  if (number("created_pushed")) parts.push(`回写新增 ${number("created_pushed")}`);
+  if (number("updated_pushed")) parts.push(`回写更新 ${number("updated_pushed")}`);
+  if (number("moved_pushed")) parts.push(`回写移动 ${number("moved_pushed")}`);
   if (number("restored")) parts.push(`恢复 ${number("restored")}`);
   if (number("completed")) parts.push(`完成 ${number("completed")}`);
   if (number("uncompleted")) parts.push(`取消完成 ${number("uncompleted")}`);
@@ -44,6 +47,9 @@ export function syncWarningText(code) {
   const text = String(code || "");
   const map = {
     push_delete_error: "本地删除未能写回滴答（常见原因是缺少 _csrf_token）；请到 设置 → 滴答同步 查看「回写错误」。",
+    push_changes_csrf_required: "本地新增/修改未能写回滴答：需要 _csrf_token，请到 设置 → 滴答同步 保存。",
+    local_push_no_project: "有本地任务所在清单尚未映射到滴答，已跳过写回。",
+    push_needs_pull: "有本地修改等待一次完整同步后再写回（先补全远端原始数据，避免覆盖正文）。",
     attachments_ignored: "附件暂不映射。",
     completed_filtered: "部分已完成任务超出回看范围，已跳过。",
     completed_truncated: "已完成任务超过 2000 条，超出部分已截断。",
@@ -60,6 +66,9 @@ export function syncWarningText(code) {
   if (text.startsWith("project_delete_error_")) return "有远端已删除的清单未能移入回收站，请检查清单目录里是否有非任务文件。";
   if (text.startsWith("task_error_")) return "有任务同步失败，其余任务不受影响。";
   if (text.startsWith("trash_error_")) return "有任务未能移入回收站，请稍后重试。";
+  if (text.startsWith("push_error_")) return "有本地修改未能写回滴答，请查看设置页的「回写错误」后重试。";
+  if (text.startsWith("push_move_error_")) return "有任务未能移动到滴答清单，请稍后重试。";
+  if (text.startsWith("push_apply_error_")) return "滴答已接受修改，但本地同步链接未能保存，请再同步一次。";
   return text;
 }
 

@@ -85,6 +85,8 @@ class RemoteTask:
     reminders: tuple[Any, ...]
     attachments: tuple[Any, ...]
     comment_count: int
+    # 服务端原始对象（用于本地修改回写时保留未映射字段）。
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,9 @@ class DidaProvider(Protocol):
     async def fetch_snapshot(self, checkpoint: int = 0) -> RemoteSnapshot: ...
     async def fetch_completed(self) -> tuple[RemoteTask, ...]: ...
     async def test_connection(self) -> dict[str, Any]: ...
+    async def add_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def update_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def move_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def restore_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def aclose(self) -> None: ...
@@ -217,7 +222,13 @@ def _task_from_raw(raw: dict[str, Any]) -> RemoteTask:
         reminders=reminders,
         attachments=attachments,
         comment_count=_as_int(raw.get("commentCount")),
+        raw=dict(raw),
     )
+
+
+def task_from_payload(payload: dict[str, Any]) -> RemoteTask:
+    """把回写时构造的任务对象当成远端响应解析，用于刷新链接基线。"""
+    return _task_from_raw(dict(payload))
 
 
 def _project_from_raw(raw: dict[str, Any]) -> RemoteProject:
@@ -375,6 +386,55 @@ class PrivateDidaProvider:
                 raise DidaError("invalid_response", "滴答返回了无法解析的内容") from None
         raise last or DidaError("network_error", "连接滴答失败")
 
+    async def _commit_tasks(self, *, add: list[dict[str, Any]] | None = None,
+                            update: list[dict[str, Any]] | None = None,
+                            delete: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        add = list(add or [])
+        update = list(update or [])
+        delete = list(delete or [])
+        if not add and not update and not delete:
+            return {"ok": True, "etags": {}, "errors": {}}
+        # 与网页端 task commit 的 envelope 保持一致。
+        raw = await self._post_json("/api/v2/batch/task", {
+            "add": add,
+            "update": update,
+            "delete": delete,
+            "addAttachments": [],
+            "updateAttachments": [],
+            "deleteAttachments": [],
+        })
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
+    async def add_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_tasks(add=tasks)
+
+    async def update_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_tasks(update=tasks)
+
+    async def move_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]:
+        """移动任务到另一个清单：taskProject = [{fromProjectId, taskId, toProjectId}]。"""
+        cleaned = [
+            {
+                "fromProjectId": str(item.get("fromProjectId") or "").strip(),
+                "taskId": str(item.get("taskId") or "").strip(),
+                "toProjectId": str(item.get("toProjectId") or "").strip(),
+            }
+            for item in entries
+            if str(item.get("taskId") or "").strip()
+            and str(item.get("fromProjectId") or "").strip()
+            and str(item.get("toProjectId") or "").strip()
+        ]
+        if not cleaned:
+            return {"ok": True, "etags": {}, "errors": {}}
+        raw = await self._post_json("/api/v2/batch/taskProject", cleaned)
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
     async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]:
         """批量删除任务：delete = [{taskId, projectId}]（网页端同款）。"""
         cleaned = [
@@ -382,19 +442,8 @@ class PrivateDidaProvider:
             for item in entries
             if str(item.get("taskId") or "").strip() and str(item.get("projectId") or "").strip()
         ]
-        if not cleaned:
-            return {"ok": True, "errors": {}}
-        # 与网页端 task commit 的 envelope 保持一致。
-        raw = await self._post_json("/api/v2/batch/task", {
-            "add": [],
-            "update": [],
-            "delete": cleaned,
-            "addAttachments": [],
-            "updateAttachments": [],
-            "deleteAttachments": [],
-        })
-        errors = raw.get("id2error") if isinstance(raw, dict) else {}
-        return {"ok": True, "errors": errors if isinstance(errors, dict) else {}}
+        result = await self._commit_tasks(delete=cleaned)
+        return {"ok": True, "errors": result["errors"]}
 
     async def restore_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]:
         """从滴答回收站恢复任务：restore = [{fromProjectId, taskId, toProjectId}]。"""
@@ -513,4 +562,5 @@ __all__ = [
     "DEFAULT_DEVICE_VERSION", "DEFAULT_REGION", "DidaCredentials", "DidaError",
     "DidaProvider", "PrivateDidaProvider", "RemoteChecklistItem", "RemoteProject",
     "RemoteSnapshot", "RemoteTask", "make_provider", "parse_cookie_input",
+    "task_from_payload",
 ]

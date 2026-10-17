@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -47,6 +48,7 @@ class MappedTask:
     etag: str
     modified: str
     warnings: tuple[str, ...] = ()
+    remote_raw: dict[str, Any] | None = None
 
     def material(self) -> dict[str, Any]:
         """用于和本地笔记比较的可见字段（不含正文）。"""
@@ -171,8 +173,20 @@ def map_time_fields(task: RemoteTask, target_tz: ZoneInfo) -> tuple[str, str, li
         return "", "", warnings
 
     if task.is_all_day:
+        # 滴答的全日任务按任务时区的本地午夜存成 UTC（例如上海 10-18 存成
+        # 2026-10-17T16:00Z）。直接截取 UTC 字符串会差一天，必须先在任务时区
+        # 里还原日期；不能再转到 target_tz，否则跨时区可能又移一天。
+        task_tz = _zone(task.time_zone)
+        due = _parse_datetime(due_raw, task_tz)
+        start = _parse_datetime(start_raw, task_tz)
+        chosen = due or start
+        if chosen is not None:
+            return chosen.astimezone(task_tz).date().isoformat(), "", warnings
         literal = due_raw or start_raw
-        return str(literal)[:10] if literal else "", "", warnings
+        if literal:
+            warnings.append("invalid_date")
+            return str(literal)[:10], "", warnings
+        return "", "", warnings
 
     if task.is_floating:
         start = _parse_wall(start_raw)
@@ -199,6 +213,14 @@ def map_time_fields(task: RemoteTask, target_tz: ZoneInfo) -> tuple[str, str, li
     if start and due and start.date() != due.date():
         warnings.append("multi_day_collapsed")
     return chosen.date().isoformat(), _time_label(chosen), warnings
+
+
+def legacy_all_day_date(task: RemoteTask) -> str:
+    """旧版全日任务日期（直接截取 UTC 字符串，会差一天）；仅用于修复存量笔记。"""
+    if not task.is_all_day:
+        return ""
+    raw = task.due_date or task.start_date
+    return str(raw)[:10] if raw else ""
 
 
 def _date_of(value: Any, target_tz: ZoneInfo) -> str:
@@ -392,6 +414,7 @@ def map_task(task: RemoteTask, *, target_tz: ZoneInfo | str, list_name: str) -> 
         etag=str(task.etag or ""),
         modified=str(task.modified_time or ""),
         warnings=tuple(dict.fromkeys(warnings)),
+        remote_raw=dict(task.raw) if task.raw else None,
     )
 
 
@@ -418,9 +441,140 @@ def now_date(tz: ZoneInfo | str = SHANGHAI) -> str:
     return datetime.now(zone).date().isoformat()
 
 
+PRIORITY_VALUES = {"none": 0, "low": 1, "medium": 3, "high": 5}
+
+
+def _dida_stamp(value: datetime, tz: ZoneInfo) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=tz)
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+
+
+def markdown_to_dida_html(markdown: str) -> str:
+    """轻量 Markdown → 滴答正文 HTML：保留段落和换行，不执行/保留原始标签。"""
+    text = str(markdown or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    blocks = re.split(r"\n{2,}", text)
+    parts: list[str] = []
+    for block in blocks:
+        lines = [html.escape(line.strip()) for line in block.split("\n") if line.strip()]
+        if lines:
+            parts.append("<p>" + "<br>".join(lines) + "</p>")
+    return "".join(parts)
+
+
+def build_remote_task_payload(note: dict[str, Any], *, task_id: str,
+                               project_id: str, target_tz: ZoneInfo | str,
+                               body: str = "", base: dict[str, Any] | None = None,
+                               now: datetime | None = None) -> dict[str, Any]:
+    """本地任务笔记 → 滴答 batch/task 的 add/update 对象。
+
+    update 时以最后一次远端原始对象为底稿，只覆盖本地支持的字段，
+    从而保留提醒、重复规则、附件、清单项等尚未映射的数据。
+    """
+    tz = target_tz if isinstance(target_tz, ZoneInfo) else _zone(target_tz)
+    tz_name = getattr(tz, "key", None) or str(target_tz or "Asia/Shanghai")
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    now_stamp = moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+
+    payload: dict[str, Any] = dict(base or {})
+    for key in (
+        "isDirty", "isNew", "syncStatus", "serverStartDate", "serverDueDate",
+        "childIds", "isMatrixNew", "isCalendarNew", "isTimelineNew", "isAgendaNew",
+        "pomodoroSummaries", "actions", "resources", "presetLabel", "collapsed",
+        "holidayHashCode", "deleted",
+    ):
+        payload.pop(key, None)
+
+    date_text = str(note.get("date") or "").strip()
+    time_text = str(note.get("time") or "").strip()
+    is_all_day = bool(date_text)
+    start_stamp = ""
+    due_stamp = ""
+    if not date_text and base is not None:
+        # 无日期任务保留远端原有的 isAllDay 标记（对无日期任务没有语义影响）。
+        is_all_day = bool(base.get("isAllDay", False))
+    if date_text:
+        try:
+            day = datetime.strptime(date_text, "%Y-%m-%d")
+        except ValueError:
+            day = None
+        if day is not None:
+            times = re.findall(r"(\d{1,2}:\d{2})", time_text)
+            if times:
+                is_all_day = False
+                start_at = datetime.strptime(f"{date_text} {times[0]}", "%Y-%m-%d %H:%M")
+                due_at = (datetime.strptime(f"{date_text} {times[1]}", "%Y-%m-%d %H:%M")
+                          if len(times) > 1 else None)
+                if due_at is not None:
+                    start_stamp = _dida_stamp(start_at, tz)
+                    due_stamp = _dida_stamp(due_at, tz)
+                else:
+                    due_stamp = _dida_stamp(start_at, tz)
+            else:
+                stamp = _dida_stamp(day, tz)
+                start_stamp = stamp
+                due_stamp = stamp
+
+    done = bool(note.get("done"))
+    completed_stamp = ""
+    if done:
+        done_on = str(note.get("done_on") or date_text or moment.astimezone(tz).date().isoformat())
+        try:
+            completed_at = datetime.strptime(f"{done_on} 12:00", "%Y-%m-%d %H:%M")
+        except ValueError:
+            completed_at = datetime.now(tz)
+        completed_stamp = _dida_stamp(completed_at, tz)
+
+    payload.update({
+        "id": str(task_id or "").strip(),
+        "projectId": str(project_id or "").strip(),
+        "title": str(note.get("title") or "").strip(),
+        "timeZone": tz_name,
+        "priority": PRIORITY_VALUES.get(str(note.get("priority") or "none"), 0),
+        "status": 2 if done else 0,
+        "tags": [str(tag) for tag in (note.get("tags") or []) if str(tag).strip()],
+        "isAllDay": is_all_day,
+        "isFloating": False,
+        "startDate": start_stamp,
+        "dueDate": due_stamp,
+        "completedTime": completed_stamp,
+        "modifiedTime": now_stamp,
+    })
+    if base is None:
+        payload.update({
+            "items": [],
+            "sortOrder": 0,
+            "createdTime": now_stamp,
+            "kind": "TEXT",
+            "repeatTaskId": str(task_id or "").strip(),
+            "reminders": [],
+            "exDate": [],
+            "attachments": [],
+            "commentCount": 0,
+            "focusSummaries": [],
+            "columnId": "",
+        })
+        content = markdown_to_dida_html(body)
+        if content:
+            payload["content"] = content
+        # 新建时没日期/没完成就不带这些键，和网页端的默认对象保持一致。
+        if not start_stamp:
+            payload.pop("startDate", None)
+        if not due_stamp:
+            payload.pop("dueDate", None)
+        if not done:
+            payload.pop("completedTime", None)
+    return payload
+
+
 __all__ = [
-    "MappedTask", "SHANGHAI", "clean_tags", "clean_title", "content_hash",
-    "html_to_markdown", "build_body", "map_task", "map_time_fields",
+    "MappedTask", "PRIORITY_VALUES", "SHANGHAI", "build_remote_task_payload",
+    "clean_tags", "clean_title", "content_hash", "html_to_markdown",
+    "build_body", "map_task", "map_time_fields", "markdown_to_dida_html",
     "material_matches", "normalize_text", "priority_text", "remote_hash",
     "sanitize_list_name",
 ]

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -38,16 +40,36 @@ def make_task(**overrides):
         deleted=0, repeat_flag="", reminders=(), attachments=(), comment_count=0,
     )
     values.update(overrides)
+    values["raw"] = {
+        "id": values["id"], "projectId": values["project_id"], "title": values["title"],
+        "content": values["content"], "dueDate": values["due_date"],
+        "startDate": values["start_date"], "isAllDay": values["is_all_day"],
+        "isFloating": values["is_floating"], "timeZone": values["time_zone"],
+        "priority": values["priority"], "status": values["status"],
+        "completedTime": values["completed_time"], "createdTime": values["created_time"],
+        "tags": list(values["tags"]), "items": [
+            {"id": item.id, "title": item.title, "status": item.status}
+            for item in values["items"]
+        ],
+        "kind": values["kind"], "etag": values["etag"],
+        "modifiedTime": values["modified_time"], "repeatFlag": values["repeat_flag"],
+        "reminders": list(values["reminders"]), "attachments": list(values["attachments"]),
+        "commentCount": values["comment_count"],
+    }
     return RemoteTask(**values)
 
 
 class FakeProvider:
-    def __init__(self, snapshot, completed=(), deleted=None, restored=None):
+    def __init__(self, snapshot, completed=(), deleted=None, restored=None,
+                 added=None, updated=None, moved=None):
         self.snapshot = snapshot
         self.completed = completed
         self.closed = False
         self.deleted = deleted if deleted is not None else []
         self.restored = restored if restored is not None else []
+        self.added = added if added is not None else []
+        self.updated = updated if updated is not None else []
+        self.moved = moved if moved is not None else []
 
     async def fetch_snapshot(self, checkpoint=0):
         return self.snapshot
@@ -58,6 +80,18 @@ class FakeProvider:
     async def test_connection(self):
         return {"ok": True, "task_count": len(self.snapshot.tasks),
                 "project_count": len(self.snapshot.projects), "latency_ms": 1}
+
+    async def add_tasks(self, tasks):
+        self.added.append(copy.deepcopy(tasks))
+        return {"ok": True, "etags": {t["id"]: "etag-new" for t in tasks}, "errors": {}}
+
+    async def update_tasks(self, tasks):
+        self.updated.append(copy.deepcopy(tasks))
+        return {"ok": True, "etags": {t["id"]: "etag-upd" for t in tasks}, "errors": {}}
+
+    async def move_tasks(self, entries):
+        self.moved.append(copy.deepcopy(entries))
+        return {"ok": True, "etags": {}, "errors": {}}
 
     async def delete_tasks(self, entries):
         self.deleted.append(entries)
@@ -71,21 +105,24 @@ class FakeProvider:
         self.closed = True
 
 
-def make_client(tmp_path: Path, snapshot: RemoteSnapshot, completed=(), *, read_only=False):
+def make_client(tmp_path: Path, snapshot: RemoteSnapshot, completed=(), *, read_only=False,
+                auto_push: bool | None = None):
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
-    seen = {"deleted": [], "restored": []}
+    seen = {"deleted": [], "restored": [], "added": [], "updated": [], "moved": []}
 
     def factory(credentials):
         seen["cookie"] = credentials.cookie
-        return FakeProvider(snapshot, completed, seen["deleted"], seen["restored"])
+        return FakeProvider(snapshot, completed, seen["deleted"], seen["restored"],
+                            seen["added"], seen["updated"], seen["moved"])
 
     app = create_app(
         Database(tmp_path / "dida.sqlite3"), vault,
         ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ=environ, env_file=tmp_path / ".env",
         dida_provider_factory=factory,
+        enable_dida_auto_push=auto_push,
     )
     client = TestClient(app)
     client.get("/")
@@ -400,6 +437,143 @@ def test_trash_purge_rejects_paths_outside_the_trash(tmp_path):
     assert payload["skipped"]
 
 
+def test_local_task_is_pushed_to_dida(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    response = client.post("/api/time/tasks", json={
+        "title": "本地新建", "list_name": "工作", "date": "2026-10-18",
+        "time": "09:30", "priority": "medium", "tags": ["本地"],
+        "revision": board["revision"],
+    })
+    assert response.status_code == 200, response.text
+
+    result = run_sync(client)
+    assert result["counts"]["created_pushed"] == 1
+    assert len(seen["added"]) == 1
+    payload = seen["added"][0][0]
+    assert payload["title"] == "本地新建"
+    assert payload["projectId"] == "proj-1"
+    assert payload["priority"] == 3
+    assert payload["tags"] == ["本地"]
+    assert payload["dueDate"] == "2026-10-18T01:30:00.000+0000"
+    note = next(item for item in scan(vault)[0] if item["title"] == "本地新建")
+    assert len(note["dida_id"]) == 24
+
+    again = run_sync(client)
+    assert again["counts"]["created_pushed"] == 0
+    assert len(seen["added"]) == 1
+
+
+def test_each_local_operation_triggers_auto_push(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    seen = {"deleted": [], "restored": [], "added": [], "updated": [], "moved": []}
+
+    def factory(_credentials):
+        return FakeProvider(snapshot, (), seen["deleted"], seen["restored"],
+                            seen["added"], seen["updated"], seen["moved"])
+
+    app = create_app(
+        Database(tmp_path / "dida.sqlite3"), vault,
+        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
+        security_environ={}, env_file=tmp_path / ".env",
+        dida_provider_factory=factory, enable_dida_auto_push=True,
+    )
+    # 用上下文管理器保持同一个事件循环，后台防抖任务才能像真实服务一样运行。
+    with TestClient(app) as client:
+        client.get("/")
+        configure(client, csrf=True)
+        run_sync(client)
+        board = client.get("/api/time/tasks").json()
+        response = client.post("/api/time/tasks", json={
+            "title": "自动回写", "list_name": "工作", "date": "2026-10-18",
+            "time": "", "priority": "none", "tags": [],
+            "revision": board["revision"],
+        })
+        assert response.status_code == 200, response.text
+
+        deadline = time.time() + 5
+        while time.time() < deadline and not seen["added"]:
+            time.sleep(0.1)
+    assert seen["added"], "auto push did not run after the local create"
+    assert seen["added"][0][0]["title"] == "自动回写"
+
+
+def test_local_task_edit_is_pushed_to_dida(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    task = board["tasks"][0]
+    response = client.post("/api/time/tasks/update", json={
+        "key": task["key"], "revision": board["revision"],
+        "title": "买酸奶", "list_name": task["list_name"],
+        "date": "2026-10-19", "time": "", "priority": "high",
+        "tags": ["本地修改"], "done": True, "day": "2026-10-18",
+    })
+    assert response.status_code == 200, response.text
+
+    result = run_sync(client)
+    assert result["counts"]["updated_pushed"] == 1
+    assert len(seen["updated"]) == 1
+    payload = seen["updated"][0][0]
+    assert payload["id"] == "task-1"
+    assert payload["title"] == "买酸奶"
+    assert payload["projectId"] == "proj-1"
+    assert payload["priority"] == 5
+    assert payload["status"] == 2
+    assert payload["tags"] == ["本地修改"]
+    assert payload["etag"] == "etag-1"
+    # 2026-10-19 全天（上海）按滴答约定存成前一天的 16:00Z。
+    assert payload["isAllDay"] is True
+    assert payload["dueDate"] == "2026-10-18T16:00:00.000+0000"
+    note = scan(vault)[0][0]
+    assert note["title"] == "买酸奶"
+    assert note["done"] is True
+
+    again = run_sync(client)
+    assert again["counts"]["updated_pushed"] == 0
+
+
+def test_local_task_move_is_pushed_to_dida(tmp_path):
+    other_project = make_project(id="proj-2", name="生活")
+    other_task = make_task(id="task-2", project_id="proj-2", title="第二任务")
+    snapshot = RemoteSnapshot(
+        checkpoint=1, inbox_id="inbox-1",
+        projects=(make_project(), other_project),
+        tasks=(make_task(), other_task),
+    )
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    task = next(item for item in board["tasks"] if item["title"] == "买牛奶")
+    response = client.post("/api/time/tasks/update", json={
+        "key": task["key"], "revision": board["revision"],
+        "title": task["title"], "list_name": "生活",
+        "date": task["date"], "time": task["time"], "priority": task["priority"],
+        "tags": task["tags"], "done": False, "day": "",
+    })
+    assert response.status_code == 200, response.text
+
+    result = run_sync(client)
+    assert result["counts"]["moved_pushed"] == 1
+    assert seen["moved"] == [[{
+        "taskId": "task-1", "fromProjectId": "proj-1", "toProjectId": "proj-2",
+    }]]
+    assert seen["updated"][0][0]["projectId"] == "proj-2"
+    note = next(item for item in scan(vault)[0] if item["title"] == "买牛奶")
+    assert note["list_name"] == "生活"
+
+
 def test_local_delete_is_pushed_to_dida_once(tmp_path):
     snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
                               projects=(make_project(),), tasks=(make_task(),))
@@ -531,6 +705,76 @@ def test_dida_restore_returns_trashed_note_to_its_folder(tmp_path):
     assert notes[0]["title"] == "买牛奶"
     assert notes[0]["list_name"] == "工作"
     assert client.get("/api/time/trash").json()["items"] == []
+
+
+def test_legacy_all_day_date_repair_keeps_local_completion_and_pushes(tmp_path):
+    all_day = make_task(
+        is_all_day=True, time_zone="Asia/Shanghai",
+        start_date="2026-10-17T16:00:00.000+0000",
+        due_date="2026-10-17T16:00:00.000+0000",
+    )
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(all_day,))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    task = board["tasks"][0]
+    # 模拟旧版留下的 10-17，同时在本地勾选完成（还没回写滴答）。
+    updated = client.post("/api/time/tasks/update", json={
+        "key": task["key"], "revision": board["revision"],
+        "title": task["title"], "list_name": task["list_name"],
+        "date": "2026-10-17", "time": "", "priority": "none",
+        "tags": [], "done": True, "day": "2026-10-18",
+    })
+    assert updated.status_code == 200, updated.text
+
+    result = run_sync(client)
+    assert result["counts"]["local_edits"] == 1
+    assert result["counts"]["updated_pushed"] == 1
+    assert seen["updated"]
+    payload = seen["updated"][0][0]
+    assert payload["isAllDay"] is True
+    assert payload["dueDate"] == "2026-10-17T16:00:00.000+0000"
+    assert payload["status"] == 2
+    note = scan(vault)[0][0]
+    assert note["date"] == "2026-10-18"
+    assert note["done"] is True
+
+
+def test_sync_repairs_legacy_all_day_off_by_one_date(tmp_path):
+    all_day = make_task(
+        is_all_day=True, time_zone="Asia/Shanghai",
+        start_date="2026-10-17T16:00:00.000+0000",
+        due_date="2026-10-17T16:00:00.000+0000",
+    )
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(all_day,))
+    client, vault, _seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    note = scan(vault)[0][0]
+    assert note["date"] == "2026-10-18"
+
+    # 模拟旧版映射留下的 10-17，并让链接基线认为本地也没改过。
+    path = note["path"]
+    text = path.read_text(encoding="utf-8").replace(
+        '日期: "2026-10-18"', '日期: "2026-10-17"'
+    )
+    path.write_text(text, encoding="utf-8", newline="")
+    legacy_note = task_notes.read_task_note(vault, path)
+    with sqlite3.connect(tmp_path / "dida.sqlite3") as connection:
+        connection.execute(
+            "UPDATE dida_task_links SET last_local_revision = ? WHERE external_id = ?",
+            (legacy_note["revision"], "task-1"),
+        )
+        connection.commit()
+
+    result = run_sync(client)
+    # 日期修复后本地笔记 revision 变化，会按“本地改动”再回写一次滴答。
+    assert result["counts"]["local_edits"] == 1
+    assert result["counts"]["updated_pushed"] == 1
+    assert scan(vault)[0][0]["date"] == "2026-10-18"
 
 
 def test_moved_note_is_not_treated_as_local_delete(tmp_path):

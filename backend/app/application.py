@@ -245,7 +245,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                runtime_label: str = 'personal', embedding_provider: Any = None,
                env_file: Path | None = None, workspace_registry: Path | None = None,
                vault_scoped: bool | None = None,
-               dida_provider_factory: Any = None) -> FastAPI:
+               dida_provider_factory: Any = None,
+               enable_dida_auto_push: bool | None = None) -> FastAPI:
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
@@ -276,6 +277,49 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     scheduler_service = SchedulerService(database)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
+    # 每一次本地任务/清单写操作后立即尝试回写滴答。250ms 防抖只合并同一批快速
+    # 操作；正常的一次点击/保存都会触发一次。测试和自定义 Provider 默认关闭，
+    # 避免后台任务干扰测试里的显式同步。
+    auto_push_enabled = (
+        enable_dida_auto_push
+        if enable_dida_auto_push is not None
+        else (runtime_label == "personal" and dida_provider_factory is None)
+    )
+    auto_push_state: dict[str, Any] = {"task": None}
+
+    async def _dida_auto_push() -> None:
+        await asyncio.sleep(0.25)
+        if not dida_service.supported:
+            return
+        try:
+            # 如果正好有一次同步/回写在跑，等它结束再补一次；最多等 10 秒，
+            # 剩下的交给后台 15 秒循环兜底。
+            for _ in range(20):
+                if dida_service._running:
+                    await asyncio.sleep(0.5)
+                    continue
+                result = await dida_service.push_local_changes()
+                if result.get("skipped") != "running":
+                    break
+                await asyncio.sleep(0.5)
+            await dida_service.push_deletions()
+        except Exception:
+            # 失败原因已由 service 记录到 last_push_error/审计；后台任务不再抛出。
+            pass
+
+    def schedule_dida_auto_push() -> None:
+        if (not auto_push_enabled or not dida_service.supported
+                or not dida_service.credentials.configured()):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        pending = auto_push_state.get("task")
+        if pending is not None and not pending.done():
+            pending.cancel()
+        auto_push_state["task"] = loop.create_task(_dida_auto_push())
+
     async def scheduler_loop() -> None:
         # Local-only draft generator: checks every minute, writes at most one
         # inbox row per kind and day, and never touches tasks or memories.
@@ -299,6 +343,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         try:
             yield
         finally:
+            pending_push = auto_push_state.get("task")
+            if pending_push is not None:
+                pending_push.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pending_push
             for task in tasks_to_stop:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -350,6 +399,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                 if not valid:
                     return JSONResponse({'detail':'会话已失效，请刷新工作台页面后重试'}, status_code=401)
         response = await call_next(request)
+        # 本地任务/清单的写操作完成后立即回写滴答（后台防抖任务，不阻塞响应）。
+        if (auto_push_enabled and response.status_code < 400
+                and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
+                and request.url.path.startswith('/api/time/')):
+            schedule_dida_auto_push()
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['Cache-Control'] = 'no-store'
