@@ -74,7 +74,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 `setup.ps1` 一次做完四件事：建 `.venv`、按 `requirements.lock.txt` 装依赖、从 `.env.example` 生成 `.env`、
-把 `examples\vault` 的示例数据铺进 `data\vault`。**重复执行是安全的。**
+把 `examples\vault` 的示例数据铺进 `data\vault`。**重复执行是安全的**：装依赖之前先体检一次本机
+（`scripts\check_deps.py`，只读、不联网），版本已经全对上就跳过 `pip install`，不让人重复安装、也不用再等网络。
 
 示例数据只在 `data\vault` **还不存在**时自动铺（起过一次服务它就会被创建）。已经有库、又想补一份示例数据，
 加开关再跑一次——它不会删任何东西，但同名的示例文件会覆盖：
@@ -87,9 +88,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1 -SeedExamp
 
 ```powershell
 python -m venv .venv
+.\.venv\Scripts\python.exe scripts\check_deps.py    # 体检：已装好会打印“已满足 30/30”
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 Copy-Item .env.example .env
 ```
+
+体检那行只读、不联网，退出码 0 就说明本机已经装齐，**直接跳过 `pip install` 即可**；
+缺哪条它会指名道姓，pip 也只补缺的那些。
 
 > **国内网络注意**：pip 连 `files.pythonhosted.org` 很容易读超时（会卡一阵再报 `ReadTimeoutError`）。
 > 换镜像重跑即可，其它步骤不变：
@@ -130,6 +135,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plu
 |---|---|
 | `python` 弹出微软商店 / “Python was not found” | 只有商店别名，真身没装 → 回第 0 步；装完要新开终端 |
 | pip 卡一阵后报 `ReadTimeoutError` | 到 pythonhosted 的网络不通 → 用上面的清华镜像重跑 |
+| 想确认依赖装没装齐 / 不想重复装 | `.\.venv\Scripts\python.exe scripts\check_deps.py` —— 不联网，逐条比对 `requirements.lock.txt` 并点名缺哪条 |
 | `No module named venv` | 用的是嵌入式/精简版 Python → 换 python.org 或 winget 的完整版 |
 | Obsidian 左侧没有图标 | 没完全重启；或 `-VaultPath` 填错一层；或处于限制模式 |
 | 打开视图提示连不上服务 | 第 1 步没做完（缺 `.venv`），或 8765 端口被别的程序占着 |
@@ -152,7 +158,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plu
 backend/app/       FastAPI 本地服务（任务、日记、记忆、目标、习惯、身体、天气、备份…）
 frontend/          原生 ES 模块前端（时间管理模块的日历七视图在 tasks-calendar*.js）
 obsidian-plugin/   把工作台内嵌进 Obsidian 的薄插件（免构建）
-scripts/           启动、安装、自检、发布自检、浏览器探针、校验
+scripts/           启动、安装、依赖体检、自检、发布自检、浏览器探针、校验
 tests/             Python 行为测试（后端）
 frontend/tests/    前端模块与交互测试（Node 内置 test runner）
 examples/          全虚构的示例资料（QA 隔离工作台用它起步）
