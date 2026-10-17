@@ -65,6 +65,7 @@ from .banner_stats import create_banner_stats_router
 from .journal_note import create_journal_note_router
 from .todo_note import create_todo_router
 from .tasks import create_tasks_router
+from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
@@ -243,7 +244,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                host: str = '127.0.0.1', security_environ: dict | None = None,
                runtime_label: str = 'personal', embedding_provider: Any = None,
                env_file: Path | None = None, workspace_registry: Path | None = None,
-               vault_scoped: bool | None = None) -> FastAPI:
+               vault_scoped: bool | None = None,
+               dida_provider_factory: Any = None) -> FastAPI:
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
@@ -265,6 +267,12 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     vault_read_only = read_only_enabled(security_environ)
     database.initialize()
     vault_dir.mkdir(parents=True, exist_ok=True)
+    data_lock = asyncio.Lock()
+    dida_service = DidaSyncService(
+        database, vault_dir, read_only=vault_read_only,
+        supported=(runtime_label == 'personal'),
+        provider_factory=dida_provider_factory,
+    )
     scheduler_service = SchedulerService(database)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
@@ -285,13 +293,16 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        task = asyncio.create_task(scheduler_loop())
+        tasks_to_stop = [asyncio.create_task(scheduler_loop())]
+        if dida_service.supported:
+            tasks_to_stop.append(asyncio.create_task(dida_sync_loop(dida_service, data_lock)))
         try:
             yield
         finally:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            for task in tasks_to_stop:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             with contextlib.suppress(Exception):
                 harness_service.close()
 
@@ -303,7 +314,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.state.vault_dir = vault_dir
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
-    app.state.data_lock = asyncio.Lock()
+    app.state.data_lock = data_lock
+    app.state.dida_sync_service = dida_service
     app.state.chat_lock = asyncio.Lock()
     app.mount('/assets', StaticFiles(directory=frontend), name='assets')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1','localhost','[::1]','testserver',host])
@@ -432,6 +444,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                                 'suggestions':True,
                                 'weather':True,
                                 'tasks':True,
+                                'dida_sync':runtime_label == 'personal',
                                 'restore_drill':True,
                 'semantic_search':database.embedding_provider is not None}}
 
@@ -809,6 +822,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                        dependencies=[Depends(journal_data_guard)])
     app.include_router(create_todo_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
+    # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
+    app.include_router(create_dida_sync_router(dida_service, data_lock))
     app.include_router(create_journal_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_habits_router(database), dependencies=[Depends(journal_data_guard)])

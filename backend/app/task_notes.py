@@ -55,7 +55,7 @@ QUOTE_AS_STRING = re.compile(r"^(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?:-\d{1,2}:\d
 RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL",
                   *(f"COM{index}" for index in range(1, 10)),
                   *(f"LPT{index}" for index in range(1, 10))}
-KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于", "置顶", "创建")
+KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于", "置顶", "创建", "dida_id")
 
 
 class TaskNoteFormatError(ValueError):
@@ -299,6 +299,7 @@ def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
         "tags": _tags_value(metadata.get("标签")),
         "pinned": _bool_text(metadata.get("置顶")),
         "created": _date_text(metadata.get("创建")),
+        "dida_id": _coerce_text(metadata.get("dida_id")),
         "metadata": metadata,
         "exists": True,
         "raw": loaded["raw"],
@@ -396,6 +397,9 @@ def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dic
         metadata["置顶"] = True
     if fields.get("created"):
         metadata["创建"] = str(fields["created"])
+    dida_id = str(fields.get("dida_id") or existing.get("dida_id") or "").strip()
+    if dida_id:
+        metadata["dida_id"] = dida_id
     for key, value in existing.items():
         if key not in KNOWN_KEYS:
             metadata[key] = value
@@ -421,6 +425,15 @@ def _compose(metadata: dict[str, Any], body_lines: list[str]) -> list[str]:
     return ["---", *block.rstrip("\n").split("\n"), "---", *body_lines]
 
 
+def _body_lines(body: str) -> list[str]:
+    """正文 → 行列表；空正文写一个空行，非空正文补齐末尾换行。"""
+    text = str(body or "")
+    lines = text.split("\n") if text else [""]
+    if text and not text.endswith("\n"):
+        lines.append("")
+    return lines
+
+
 def _write_new_note(path: Path, lines: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -443,6 +456,7 @@ def _fields_from(values: dict[str, Any]) -> dict[str, Any]:
         "done_on": _date_text(values.get("done_on")) if done else "",
         "pinned": _bool_text(values.get("pinned")),
         "created": _date_text(values.get("created")),
+        "dida_id": _coerce_text(values.get("dida_id")),
     }
 
 
@@ -458,9 +472,7 @@ def create_task_note(vault_dir: Path | str, folder: Any, title: str,
     stem, _numbered = unique_stem(target_dir, base)
     path = target_dir / f"{stem}.md"
     metadata = _build_metadata({}, cleaned, stem, fields)
-    body_lines = body.split("\n") if body else [""]
-    if body and not body.endswith("\n"):
-        body_lines.append("")
+    body_lines = _body_lines(body)
     lines = _compose(metadata, body_lines)
     for _attempt in range(50):
         try:
@@ -503,8 +515,9 @@ def _move_note_file(source: Path, target: Path) -> None:
 
 
 def rewrite_task_note(vault_dir: Path | str, note: dict[str, Any], *,
-                      folder: Any, title: str, values: dict[str, Any]) -> dict[str, Any]:
-    """更新/改名/移动一篇任务笔记；正文与未知字段保留。"""
+                      folder: Any, title: str, values: dict[str, Any],
+                      body: str | None = None) -> dict[str, Any]:
+    """更新/改名/移动一篇任务笔记；正文默认保留，传入 body 时替换。"""
     cleaned = normalize_title(title)
     if not cleaned or len(cleaned) > 200 or any(ord(character) < 32 for character in cleaned):
         raise HTTPException(422, "任务标题需要 1–200 个字符，且不能包含换行")
@@ -523,7 +536,8 @@ def rewrite_task_note(vault_dir: Path | str, note: dict[str, Any], *,
         stem = note["path"].stem
     target = target_dir / f"{stem}.md"
     metadata = _build_metadata(note["metadata"], cleaned, stem, fields)
-    lines = _compose(metadata, _as_body_lines(note))
+    body_lines = _as_body_lines(note) if body is None else _body_lines(body)
+    lines = _compose(metadata, body_lines)
     same_file = (target.parent.resolve() == note["path"].parent.resolve()
                  and target.name == note["path"].name)
     guarded_write(note, lines)

@@ -26,6 +26,7 @@ import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initIdentity, loadIdentity } from "./identity.js";
 import { initSecondBrain, loadNotes } from "./second-brain.js";
+import { initDidaSync } from "./dida-sync.js";
 
 const titles = NAV_LABELS;
 
@@ -318,6 +319,7 @@ initWorkspaces();
 initDataHandbook();
 initToolCatalog();
 initRestoreDrill();
+initDidaSync();
 applyNavOrder();
 renderPanelNav();
 // 对话统一交给 dsh（用户 2026-10-05 定调）：产品里不再有自己的对话页；
@@ -332,6 +334,11 @@ document.addEventListener("click", async (event) => {
   if (ask) askHarnessToCompose(ask.dataset.askQuestion || "");
 });
 document.addEventListener("data-changed", () => { if (state.view === "identity") { loadMemories(); loadProfile(); } });
+// 滴答同步完成后（可能在设置页触发）让工作台任务立即重读一次。
+document.addEventListener("torch:tasks-changed", () => {
+  if (state.view !== "workbench") return;
+  import("./time-module.js").then(({ loadTimeTasks }) => loadTimeTasks()).catch(() => {});
+});
 // 深链接与前进后退能去的地方：模块名、GO_TARGETS 里的旧名字，以及并进设置区的 help。
 // 0.96 把帮助移进设置后，门只认前两类，#help 会被静默忽略——探针因此在帮助步骤超时。
 const navigable = (view) => view === "help" || Object.hasOwn(titles, view) || Object.hasOwn(GO_TARGETS, view);

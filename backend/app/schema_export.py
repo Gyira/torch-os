@@ -26,7 +26,8 @@ GROUPS: dict[str, set[str]] = {
     '习惯与学习': {'habit_definitions', 'habit_entries', 'study_subjects', 'study_sessions'},
     '个人参考': {'bazi_profiles'},
     '建议与提醒': {'suggestions'},
-    '系统': {'audit_events', 'schema_migrations'},
+    '系统': {'audit_events', 'schema_migrations',
+             'dida_sync_settings', 'dida_task_links', 'dida_project_links'},
 }
 EXPORT_MEMBERS = [
     'memories.md/json', 'planning.md/json', 'growth.md/json', 'conversations.md/json',

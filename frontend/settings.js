@@ -107,6 +107,9 @@ const EVENT_LABELS = {
   planning_exported: "目标与任务导出", growth_exported: "习惯与学习导出",
   conversations_exported: "对话导出", export_bundle_created: "一键导出包",
   scheduler_report_created: "生成定时草稿", scheduler_loop_error: "调度循环错误",
+  dida_sync_completed: "滴答同步完成", dida_sync_failed: "滴答同步失败",
+  dida_sync_settings_updated: "更新滴答设置", dida_sync_credentials_cleared: "清除滴答凭据",
+  dida_sync_keep_local: "滴答冲突保留本地",
   wolai_notes_imported: "导入 Wolai 记录",
 };
 

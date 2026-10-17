@@ -6,10 +6,11 @@ export const changed = () => document.dispatchEvent(new CustomEvent("data-change
 
 /** Central API boundary: JSON errors are shown without rendering server HTML. */
 export async function api(path, options = {}) {
+  const { timeoutMs = 30000, ...requestOptions } = options;
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 30000);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...options.headers }, signal: controller.signal });
+    const response = await fetch(path, { ...requestOptions, headers: { "Content-Type": "application/json", ...requestOptions.headers }, signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 401) throw new Error("本地会话已失效，请刷新页面后再试。");

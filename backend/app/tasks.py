@@ -136,6 +136,7 @@ class ListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_LIST)
     color: str = Field(default="", max_length=9)
     folder: str = Field(default="", max_length=MAX_LIST)
+    dida_project_id: str = Field(default="", max_length=64)
     revision: str = Field(default="", max_length=64)
 
 
@@ -339,6 +340,7 @@ def defined_lists(loaded: dict[str, Any]) -> list[dict[str, Any]]:
                 "color": str(item.get("颜色") or "").strip(),
                 "folder": re.sub(r"\s+", " ", str(item.get("文件夹") or "").strip()),
                 "pinned": item.get("置顶") is True,
+                "dida_project_id": str(item.get("dida_project_id") or "").strip(),
                 "synthetic": False,
             })
     if INBOX not in seen:
@@ -486,6 +488,7 @@ def _note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
         "date": note["date"], "time": note["time"], "priority": note["priority"],
         "tags": list(note["tags"]), "done": note["done"], "done_on": note["done_on"],
         "pinned": note["pinned"], "created": note["created"],
+        "dida_id": note.get("dida_id", ""),
     }
     values.update(changes)
     return values
@@ -734,7 +737,8 @@ def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, 
     updated = task_notes.rewrite_task_note(
         vault_dir, note, folder=_folder_for_list(target), title=title,
         values={"date": date, "time": time, "priority": priority, "tags": tags,
-                "done": done, "done_on": done_on, "pinned": pinned, "created": note["created"]})
+                "done": done, "done_on": done_on, "pinned": pinned,
+                "created": note["created"], "dida_id": note.get("dida_id", "")})
     _audit(database, "task_updated", {"list": target, "moved": target != note["list_name"]})
     return {"revision": _revision_now(vault_dir), "task": _note_public(updated)}
 
@@ -759,7 +763,7 @@ def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Data
     target = _require_list(state, payload.list_name) if payload.list_name else note["list_name"]
     copy = task_notes.create_task_note(
         vault_dir, _folder_for_list(target), note["title"],
-        _note_values(note, done=False, done_on="", created=_today()),
+        _note_values(note, done=False, done_on="", created=_today(), dida_id=""),
         body=task_notes.note_body(note))
     _audit(database, "task_duplicated", {"list": target})
     return {"revision": _revision_now(vault_dir), "task": _note_public(copy)}
@@ -835,7 +839,7 @@ def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
             for note in picked:
                 task_notes.create_task_note(
                     vault_dir, _folder_for_list(note["list_name"]), note["title"],
-                    _note_values(note, done=False, done_on="", created=_today()),
+                    _note_values(note, done=False, done_on="", created=_today(), dida_id=""),
                     body=task_notes.note_body(note))
     except Exception:
         # 跨多个文件的写入没有文件系统事务；失败时刷新页面看真实状态，并留下审计。
@@ -868,6 +872,8 @@ def create_list(vault_dir: Path | str, payload: ListCreate, database: Database, 
     if folder_path.exists() and not folder_path.is_dir():
         raise HTTPException(409, f"任务目录里已经有同名文件“{name}”")
     entry: dict[str, Any] = {"名称": name, "颜色": _clean_color(payload.color) or "#3b82f6"}
+    if payload.dida_project_id:
+        entry["dida_project_id"] = payload.dida_project_id
     if folder:
         folders = [str(item) for item in (metadata.get("文件夹") or [])]
         if folder not in folders:
@@ -998,7 +1004,7 @@ def duplicate_list(vault_dir: Path | str, payload: ListDuplicate, database: Data
             vault_dir, copy_name, note["title"],
             _note_values(note, done=note["done"] and payload.scope == "all_keep",
                          done_on=note["done_on"] if payload.scope == "all_keep" else "",
-                         created=_today()),
+                         created=_today(), dida_id=""),
             body=task_notes.note_body(note))
         created += 1
     task_notes.task_folder(vault_dir, copy_name, create=True)
