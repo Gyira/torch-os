@@ -44,7 +44,7 @@
 | # | 做什么 | 靠什么 |
 |---|---|---|
 | 0 | 确认机器上有 Python 3.12 | `python --version`（没有就装，见下） |
-| 1 | 初始化环境：venv + 依赖 + `.env` + 示例数据 | `scripts\setup.ps1` |
+| 1 | 初始化环境：venv + 依赖 + `.env` + 示例数据 | `安装.cmd`（双击）或 `scripts\setup.ps1` |
 | 2 | 起本地服务 | `scripts\start.ps1` |
 | 3 | 把工作台装进 Obsidian（可选，但推荐） | `scripts\install-obsidian-plugin.ps1` |
 
@@ -66,6 +66,11 @@ winget install --id Python.Python.3.12 --source winget --scope user
 换成 `py -3.12` 或解释器全路径即可。
 
 ### 1. 初始化环境
+
+**不想敲命令**：克隆（或解压）之后，在资源管理器里打开仓库文件夹，**双击根目录的 `安装.cmd`**。
+它和下面第三条命令做的完全一样，只是自动带了 `-ExecutionPolicy Bypass`（省掉“在此系统上禁止运行脚本”），
+跑完会停下来等你按任意键，窗口不会一闪而过。想要参数（比如 `-SeedExamples`）就在终端里跑：
+`安装.cmd -SeedExamples`。
 
 ```powershell
 git clone <本仓库地址>
@@ -134,6 +139,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-obsidian-plu
 | 现象 | 原因与处理 |
 |---|---|
 | `python` 弹出微软商店 / “Python was not found” | 只有商店别名，真身没装 → 回第 0 步；装完要新开终端 |
+| 双击报「禁止运行脚本」 | 那是直接双击了 `setup.ps1` → 双击根目录的 `安装.cmd`，它自带 `-ExecutionPolicy Bypass` |
 | pip 卡一阵后报 `ReadTimeoutError` | 到 pythonhosted 的网络不通 → 用上面的清华镜像重跑 |
 | 想确认依赖装没装齐 / 不想重复装 | `.\.venv\Scripts\python.exe scripts\check_deps.py` —— 不联网，逐条比对 `requirements.lock.txt` 并点名缺哪条 |
 | `No module named venv` | 用的是嵌入式/精简版 Python → 换 python.org 或 winget 的完整版 |
@@ -162,6 +168,7 @@ scripts/           启动、安装、依赖体检、自检、发布自检、浏�
 tests/             Python 行为测试（后端）
 frontend/tests/    前端模块与交互测试（Node 内置 test runner）
 examples/          全虚构的示例资料（QA 隔离工作台用它起步）
+安装.cmd           双击一键安装（等同 scripts\setup.ps1，免手敲、免执行策略报错）
 ```
 
 ## 开发与测试

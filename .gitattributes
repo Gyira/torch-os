@@ -1,0 +1,4 @@
+# Windows 批处理必须 CRLF：LF 结尾的 .cmd 在 cmd.exe 里可能整行解析出错（标签/跳转最典型），
+# 而双击「安装.cmd」的人不会去查这个。固定住行尾，克隆到哪台机器都双击得动。
+*.cmd text eol=crlf
+*.bat text eol=crlf
