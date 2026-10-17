@@ -1,4 +1,4 @@
-// 数字分身：姓名 / 座右铭 / 三观。数据写在 Vault 的 01-Identity/identity.md，
+// 数字分身：姓名 / 座右铭 / 三观。数据写在 Vault 的 01-Identity/身份（identity）.md，
 // 这里只是它的一个表单；冲突时要求先重新读取，不覆盖别处的修改。
 import { $, api, jsonBody, setStatus, toast } from "./core.js";
 

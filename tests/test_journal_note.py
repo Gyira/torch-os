@@ -30,8 +30,8 @@ def note_file(tmp_path):
 
 
 def seed_day(client, tmp_path):
-    """一条完成的待办（写在 00-System/待办.md）+ 一条习惯打卡，让自动汇总有事实可写。"""
-    path = tmp_path / "vault" / "00-System" / "待办.md"
+    """一条完成的待办（写在 00-System/待办（todos）.md）+ 一条习惯打卡，让自动汇总有事实可写。"""
+    path = tmp_path / "vault" / "00-System" / "待办（todos）.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\ntype: todo\n---\n\n# 待办\n\n## 待办\n"
@@ -119,7 +119,7 @@ def test_read_only_vault_still_reads_but_refuses_writes(tmp_path):
 
 def test_vault_template_file_overrides_the_builtin_skeleton(tmp_path):
     client = make_client(tmp_path)
-    template = tmp_path / "vault" / "00-System" / "templates" / "日记模板.md"
+    template = tmp_path / "vault" / "00-System" / "templates" / "日记模板（journal-template）.md"
     template.parent.mkdir(parents=True)
     template.write_text(
         "---\ntype: template\nname: 日记模板\n---\n\n# {{date}}（{{weekday}}）· 我的模板\n\n## 我的固定段落\n",

@@ -23,15 +23,17 @@ from . import workbench
 from .activity import list_day_activity
 from .db import Database, utc_now
 from .journal import validate_day
+from .vault import managed_note_path
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 JOURNAL_DIR = Path("02-Life", "journal")
-TEMPLATE_REL = Path("00-System", "templates", "日记模板.md")
+TEMPLATE_REL = Path("00-System", "templates", "日记模板（journal-template）.md")
+TEMPLATE_LEGACY_REL = Path("00-System", "templates", "日记模板.md")
 MAX_NOTE_BYTES = 200_000
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 STATE_LABELS = {"done": "已完成", "skipped": "主动休息", "unrecorded": "未记录"}
 
-# 与 `00-System/templates/日记模板.md` 同形的内置骨架（Vault 里没有模板文件时的兜底）。
+# 与 `00-System/templates/日记模板（journal-template）.md` 同形的内置骨架（Vault 里没有模板文件时的兜底）。
 # 结构参照用户 wolai 的「2026.10.05（第41周，周一）」页，做了精简（去掉影视娱乐/卫生细格）。
 DEFAULT_TEMPLATE = """---
 type: journal
@@ -138,7 +140,9 @@ def render_skeleton(vault_dir: Path | str, day: str) -> str:
     """模板文件优先（{{date}}/{{weekday}} 占位替换），缺失时用内置骨架；
     模板自己的 front matter 一律剥掉，笔记固定用 ``type: journal`` + ``date``。"""
     try:
-        template = (Path(vault_dir) / TEMPLATE_REL).read_text(encoding="utf-8")
+        template = managed_note_path(
+            vault_dir, TEMPLATE_REL.as_posix(), TEMPLATE_LEGACY_REL.as_posix()
+        ).read_text(encoding="utf-8")
     except OSError:
         template = DEFAULT_TEMPLATE
     parsed = date.fromisoformat(day)

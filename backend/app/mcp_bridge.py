@@ -118,7 +118,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     'identity': {
         'path': '/api/tools/identity',
-        'description': '我是谁：姓名、座右铭、三观与自由补充（来自 Vault 的 01-Identity/identity.md，用户自己写下的内容；空字段就是还没写）。',
+        'description': '我是谁：姓名、座右铭、三观与自由补充（来自 Vault 的 01-Identity/身份（identity）.md，用户自己写下的内容；空字段就是还没写）。',
         'properties': {},
         'required': [],
     },

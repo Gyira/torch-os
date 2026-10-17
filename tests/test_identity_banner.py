@@ -1,4 +1,4 @@
-"""工作台横幅：identity.md 的 mottos/heroes/overlay/focal/mode 读写与 hero 图片端点。"""
+"""工作台横幅：身份（identity）.md 的 mottos/heroes/overlay/focal/mode 读写与 hero 图片端点。"""
 
 from fastapi.testclient import TestClient
 
@@ -18,7 +18,7 @@ def make_client(tmp_path):
 
 
 def identity_path(tmp_path):
-    return tmp_path / "vault" / "01-Identity" / "identity.md"
+    return tmp_path / "vault" / "01-Identity" / "身份（identity）.md"
 
 
 def seed_identity(tmp_path):
@@ -83,7 +83,7 @@ def test_banner_write_updates_only_banner_fields_and_preserves_the_rest(tmp_path
 
 
 def test_banner_font_round_trips_and_survives_a_profile_write(tmp_path):
-    """字体（2026-10-05）：写回 identity.md、可清回默认、非法值 422，且不被档案表单冲掉。"""
+    """字体（2026-10-05）：写回 身份（identity）.md、可清回默认、非法值 422，且不被档案表单冲掉。"""
     client = make_client(tmp_path)
     seed_identity(tmp_path)
     revision = client.get("/api/identity").json()["revision"]
@@ -119,7 +119,7 @@ def test_banner_font_round_trips_and_survives_a_profile_write(tmp_path):
 
 
 def test_read_drops_a_hand_written_unsafe_font(tmp_path):
-    """手写进 identity.md 的怪字体读回来当空——前端只会拿到安全的字体栈。"""
+    """手写进 身份（identity）.md 的怪字体读回来当空——前端只会拿到安全的字体栈。"""
     client = make_client(tmp_path)
     path = identity_path(tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)

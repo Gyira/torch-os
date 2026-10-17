@@ -1,8 +1,8 @@
-"""Markdown-first todos: `00-System/待办.md` is the data, the workbench is the front.
+"""Markdown-first todos: `00-System/待办（todos）.md` is the data, the workbench is the front.
 
 用户定案（2026-10-05）：能用 Markdown 语法实现的功能尽量用 md，vault 文件是数据本体。
 
-- `00-System/待办.md`：`## 待办` 小节 = 待办清单（`- [ ]`，勾选时行尾追 ` ✅ YYYY-MM-DD`）；
+- `00-System/待办（todos）.md`：`## 待办` 小节 = 待办清单（`- [ ]`，勾选时行尾追 ` ✅ YYYY-MM-DD`）；
   `## 每日必做` 小节 = 长期清单的**定义**。
 - 每日必做的勾选状态写进**当天的日记**（`02-Life/journal/YYYY-MM-DD.md` 的 `## 每日必做`
   小节）——历史天然按天留存；产品只做镜像与勾选，绝不改用户已写的行。
@@ -33,15 +33,21 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from .db import Database, utc_now
 from .journal import validate_day
 from .task_import import FENCE, HEADING, LIST_FENCE, _mask_comments, parse_checkboxes
-from .vault import MAX_NOTE_BYTES, safe_note_path
+from .vault import MAX_NOTE_BYTES, managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-TODO_REL = Path("00-System", "待办.md")
+TODO_REL = Path("00-System", "待办（todos）.md")
+TODO_LEGACY_REL = Path("00-System", "待办.md")
 TODOS_HEADING = "待办"
 DAILY_HEADING = "每日必做"
 MAX_TITLE = 200
 CHECKBOX_DATE = re.compile(r"\s*✅\s*(\d{4}-\d{2}-\d{2})\s*$")
+
+
+def _todo_path(vault_dir: Path | str) -> Path:
+    """现行文件名优先；旧库里的 `待办.md` 继续读写（不自动改名）。"""
+    return managed_note_path(vault_dir, TODO_REL.as_posix(), TODO_LEGACY_REL.as_posix())
 
 SKELETON = """---
 type: todo
@@ -259,7 +265,7 @@ def _format_line(title: str, *, checked: bool, day: str | None) -> str:
 
 def read_todo_note(vault_dir: Path | str) -> dict[str, Any]:
     """Parse the todo note: everything plus the 每日必做 master definition."""
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     items = _parse_items(loaded)
     todos = [item for item in items if item["section"] != DAILY_HEADING]
@@ -267,7 +273,7 @@ def read_todo_note(vault_dir: Path | str) -> dict[str, Any]:
     return {
         "exists": loaded["exists"],
         "revision": loaded["revision"],
-        "path": TODO_REL.as_posix(),
+        "path": note_relative(path, vault_dir),
         "todos": todos,
         "daily_master": daily_master,
     }
@@ -304,7 +310,7 @@ def add_todo(vault_dir: Path | str, payload: TodoAdd, *, read_only: bool = False
     title = payload.title.strip()
     if not title or len(title) > MAX_TITLE or any(ord(char) < 32 for char in title):
         raise HTTPException(422, f"待办标题需要 1–{MAX_TITLE} 个字符，且不能包含换行")
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     expected = payload.revision.strip()
     if loaded["exists"] and expected != loaded["revision"]:
@@ -338,7 +344,7 @@ def toggle_todo(vault_dir: Path | str, payload: TodoToggle, day: str, *,
         ensure_vault_writable(read_only, "勾选待办")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     if not loaded["exists"]:
         raise HTTPException(409, "待办文件不存在，请先添加一条待办")
@@ -356,7 +362,7 @@ def delete_todo(vault_dir: Path | str, payload: TodoDelete, *, read_only: bool =
         ensure_vault_writable(read_only, "删除待办")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     if not loaded["exists"]:
         raise HTTPException(409, "待办文件不存在")
@@ -379,7 +385,7 @@ def rename_todo(vault_dir: Path | str, payload: TodoRename, *,
     title = payload.title.strip()
     if not title or len(title) > MAX_TITLE or any(ord(char) < 32 for char in title):
         raise HTTPException(422, f"待办标题需要 1–{MAX_TITLE} 个字符，且不能包含换行")
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     if not loaded["exists"]:
         raise HTTPException(409, "待办文件不存在")
@@ -411,7 +417,7 @@ def reorder_todos(vault_dir: Path | str, payload: TodoReorder, *,
         ensure_vault_writable(read_only, "调整待办顺序")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TODO_REL.as_posix())
+    path = _todo_path(vault_dir)
     loaded = _load(path)
     if not loaded["exists"]:
         raise HTTPException(409, "待办文件不存在")

@@ -45,7 +45,7 @@ class NodeDouble {
 
 const memory = {
   id: 7, kind: "fact", status: "active", title: "虚构记忆",
-  content: "虚构内容用于离线测试。", source_path: "01-Identity/identity.md",
+  content: "虚构内容用于离线测试。", source_path: "01-Identity/身份（identity）.md",
   updated_at: "2026-10-04T04:00:00+00:00",
 };
 const usageWithRows = {

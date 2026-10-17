@@ -13,7 +13,7 @@ values: 诚实、健康、专注、对家人好。
 banner_mode: quote
 ---
 
-（示例档案 · 全虚构。）这份文件演示 `01-Identity/identity.md` 的写法：
+（示例档案 · 全虚构。）这份文件演示 `01-Identity/身份（identity）.md` 的写法：
 
 - `name` 会出现在工作台问候语里（「晚上好，林小舟」）；
 - `mottos` 是横幅上轮播的座右铭（也可以放 `heroes` 图片，见 `identity` 相关设置）；

@@ -1,5 +1,5 @@
 // 横幅编辑器：✎ 按钮或双击横幅打开；改座右铭 / 图片列表 / 遮罩 / 焦点 / 模式 / 字体。
-// 保存走 PUT /api/identity/banner——只动 identity.md 的横幅字段，正文与其它字段原样保留。
+// 保存走 PUT /api/identity/banner——只动 身份（identity）.md 的横幅字段，正文与其它字段原样保留。
 import { $, api, jsonBody, setStatus, toast } from "./core.js";
 import { normalizeBanner, imageSrc, backdropVars, safeFont, firstFontName, BANNER_FONT_GROUPS } from "./banner.js";
 
@@ -14,7 +14,7 @@ function lines(value) {
 }
 
 /** 字体下拉：候选表来自 banner.js（照 Apex 的字体栈清单）；
- *  不在候选里的历史值（手写在 identity.md 里的）保留成一个额外选项，不悄悄丢掉。 */
+ *  不在候选里的历史值（手写在 身份（identity）.md 里的）保留成一个额外选项，不悄悄丢掉。 */
 function buildFontOptions(select, current) {
   select.replaceChildren();
   const known = new Set([""]);
@@ -104,7 +104,7 @@ export function initBannerEditor(onSaved) {
   const dialog = $("#banner-dialog");
   const open = async () => {
     if (dialog.open) return; // 双击与按钮同时触发时不重复打开
-    // 打开时当场重取 identity.md 的当前版本：拿到准确 revision（防 409）与最新字段。
+    // 打开时当场重取 身份（identity）.md 的当前版本：拿到准确 revision（防 409）与最新字段。
     try {
       const identity = await api("/api/identity");
       source = { revision: String(identity?.revision || ""), banner: normalizeBanner(identity) };
@@ -128,7 +128,7 @@ export function initBannerEditor(onSaved) {
     if (!source) return;
     const button = $("#banner-save");
     button.disabled = true;
-    setStatus("#banner-feedback", "正在写回 identity.md…");
+    setStatus("#banner-feedback", "正在写回 身份（identity）.md…");
     try {
       await api("/api/identity/banner", jsonBody("PUT", {
         mottos: lines($("#banner-mottos").value),
@@ -146,7 +146,7 @@ export function initBannerEditor(onSaved) {
         revision: source.revision,
       }));
       dialog.close();
-      toast("横幅已保存（写回 identity.md）。");
+      toast("横幅已保存（写回 身份（identity）.md）。");
       await onSaved?.();
     } catch (error) {
       setStatus("#banner-feedback", `${error.message}${error.status === 409 ? " 请关闭后重新打开编辑器。" : ""}`, "error");

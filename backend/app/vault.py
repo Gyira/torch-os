@@ -38,6 +38,25 @@ def safe_note_path(vault_dir: Path, relative: str) -> Path:
     return path
 
 
+def managed_note_path(vault_dir: Path | str, relative: str, legacy: str | None = None) -> Path:
+    """定位产品托管的笔记：优先现行文件名；旧文件名还在时继续用它（只读兜底，不自动改名）。
+
+    2026-10-17 起个人数据改用「中文（english）.md」命名。升级前已经存在的 `任务.md` 这类文件
+    必须继续能读写——否则一次改名就等于让用户以为数据丢了。新库只会创建新名字的文件。
+    """
+    current = safe_note_path(Path(vault_dir), relative)
+    if legacy and not current.exists():
+        previous = safe_note_path(Path(vault_dir), legacy)
+        if previous.exists():
+            return previous
+    return current
+
+
+def note_relative(path: Path, vault_dir: Path | str) -> str:
+    """给界面/接口返回的相对路径（用实际命中的文件，兼容旧命名）。"""
+    return path.relative_to(Path(vault_dir).resolve()).as_posix()
+
+
 def parse_text(text: str) -> tuple[dict[str, Any], str]:
     text = text.removeprefix('\ufeff').replace('\r\n', '\n')
     metadata: dict[str, Any] = {}

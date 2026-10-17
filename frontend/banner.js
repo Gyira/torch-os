@@ -1,5 +1,5 @@
 // 工作台横幅（照 Apex Dashboard 的 banner，2026-10-05）：引言/统计双模式、多图轮换、
-// 焦点构图、遮罩深浅。数据全在 01-Identity/identity.md（mottos/heroes/hero_overlay/
+// 焦点构图、遮罩深浅。数据全在 01-Identity/身份（identity）.md（mottos/heroes/hero_overlay/
 // hero_focal/banner_mode）——编辑走 banner-editor.js。
 // 纯函数 + 一个应用函数，无 core.js 依赖，node 直测友好。
 

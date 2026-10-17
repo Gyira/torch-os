@@ -75,7 +75,7 @@ def tool_catalog() -> dict[str, Any]:
          'summary': 'Vault 只读体检：检查篇数与各类问题计数（不返回具体路径）',
          'reads_text': False, 'parameters': []},
         {'name': 'identity', 'method': 'GET', 'path': '/api/tools/identity',
-         'summary': '我是谁：姓名、座右铭、三观与自由补充（来自 Vault 的 01-Identity/identity.md，是用户自己写下的内容）',
+         'summary': '我是谁：姓名、座右铭、三观与自由补充（来自 Vault 的 01-Identity/身份（identity）.md，是用户自己写下的内容）',
          'reads_text': True, 'parameters': []},
     ]
     return {

@@ -43,7 +43,7 @@ def test_write_then_read_round_trips_and_keeps_markdown_readable(tmp_path):
         name="阿泽", motto="先完成，再完美", worldview="世界是概率的",
         lifeview="把日子过成可复盘的", values="诚实、节制、长期", notes="随手补充"))
     assert written["exists"] is True and written["name"] == "阿泽"
-    path = vault / "01-Identity" / "identity.md"
+    path = vault / "01-Identity" / "身份（identity）.md"
     text = path.read_text(encoding="utf-8")
     assert text.startswith("---") and "name: 阿泽" in text and "随手补充" in text
 
@@ -95,4 +95,4 @@ def test_read_only_vault_refuses_writes(tmp_path):
                                                           "lifeview": "", "values": "", "notes": "",
                                                           "revision": saved.json()["revision"]})
     assert blocked.status_code == 409
-    assert Path(vault / "01-Identity" / "identity.md").read_text(encoding="utf-8").find("阿泽") > 0
+    assert Path(vault / "01-Identity" / "身份（identity）.md").read_text(encoding="utf-8").find("阿泽") > 0

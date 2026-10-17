@@ -819,7 +819,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.include_router(create_schema_router(database))
     # Read-only tools for agents (today, memories, goals, habits, learning, journal, profile, vault).
     app.include_router(create_tools_router(database, vault_dir))
-    # Identity lives in the Vault (`01-Identity/identity.md`): Markdown is the source of truth.
+    # Identity lives in the Vault (`01-Identity/身份（identity）.md`): Markdown is the source of truth.
     app.include_router(create_identity_router(vault_dir, read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
     # Workbench: one read of everything today; the polish step is opt-in and calls the model.

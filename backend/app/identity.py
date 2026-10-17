@@ -1,7 +1,7 @@
 """Identity: the user's own name, motto and three views, kept in the Vault.
 
 Markdown is the source of truth (项目书 §7.3 puts identity under `01-Identity/`),
-so `01-Identity/identity.md` is a normal note the user can edit in Obsidian and
+so `01-Identity/身份（identity）.md` is a normal note the user can edit in Obsidian and
 dsh can read through the vault tools. The app only offers a structured form on
 top of the same file: front matter carries the short fields, the body carries
 free notes. Writing is atomic, respects the vault read-only switch and requires
@@ -22,10 +22,16 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .db import utc_now
-from .vault import safe_note_path
+from .vault import managed_note_path, note_relative, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-IDENTITY_RELATIVE = "01-Identity/identity.md"
+IDENTITY_RELATIVE = "01-Identity/身份（identity）.md"
+IDENTITY_LEGACY_RELATIVE = "01-Identity/identity.md"
+
+
+def _identity_path(vault_dir: Path | str) -> Path:
+    """现行文件名优先；旧库里的 `identity.md` 继续读写（不自动改名）。"""
+    return managed_note_path(vault_dir, IDENTITY_RELATIVE, IDENTITY_LEGACY_RELATIVE)
 TEXT_FIELDS = ("name", "motto", "worldview", "lifeview", "values", "notes")
 MAX_FIELD = 4_000
 
@@ -81,10 +87,10 @@ def _split_front_matter(text: str) -> tuple[dict[str, Any], str]:
 
 def read_identity(vault_dir: Path | str) -> dict[str, Any]:
     """Read the identity note; a missing file is an empty identity, not an error."""
-    path = safe_note_path(Path(vault_dir), IDENTITY_RELATIVE)
+    path = _identity_path(vault_dir)
     if not path.is_file():
         return {
-            "path": IDENTITY_RELATIVE,
+            "path": note_relative(path, vault_dir),
             "exists": False,
             "revision": "",
             "updated_at": None,
@@ -132,7 +138,7 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
     if center_stat not in ("streak", "percent"):
         center_stat = "streak"
     return {
-        "path": IDENTITY_RELATIVE,
+        "path": note_relative(path, vault_dir),
         "exists": True,
         "revision": _revision(raw),
         "updated_at": metadata.get("updated_at"),
@@ -159,7 +165,7 @@ def write_identity(vault_dir: Path | str, payload: IdentityWrite, *, read_only: 
         ensure_vault_writable(read_only, "编辑个人档案")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), IDENTITY_RELATIVE)
+    path = _identity_path(vault_dir)
     current = path.read_bytes() if path.is_file() else None
     expected = payload.revision.strip()
     if current is not None and expected != _revision(current):
@@ -201,7 +207,7 @@ HERO_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 class BannerWrite(BaseModel):
-    """工作台横幅（2026-10-05）：座右铭、图片列表、遮罩深浅、焦点、模式与字体——都写回 identity.md。"""
+    """工作台横幅（2026-10-05）：座右铭、图片列表、遮罩深浅、焦点、模式与字体——都写回 身份（identity）.md。"""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -251,12 +257,12 @@ class BannerWrite(BaseModel):
 
 def write_banner(vault_dir: Path | str, payload: BannerWrite, *,
                  read_only: bool = False) -> dict[str, Any]:
-    """只更新 identity.md 里横幅相关的 front-matter 键；其余键与正文原样保留。"""
+    """只更新 身份（identity）.md 里横幅相关的 front-matter 键；其余键与正文原样保留。"""
     try:
         ensure_vault_writable(read_only, "编辑工作台横幅")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), IDENTITY_RELATIVE)
+    path = _identity_path(vault_dir)
     current = path.read_bytes() if path.is_file() else None
     expected = payload.revision.strip()
     if current is not None and expected != _revision(current):
@@ -310,7 +316,7 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
 
     @router.get("/identity/hero")
     def identity_hero(i: int = Query(default=0, ge=0, le=11)):
-        """工作台横幅图片：只服务 identity.md 里配置的那些，路径受保险库沙箱约束。"""
+        """工作台横幅图片：只服务 身份（identity）.md 里配置的那些，路径受保险库沙箱约束。"""
         from fastapi.responses import FileResponse
 
         heroes = read_identity(vault_dir).get("heroes") or []

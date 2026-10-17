@@ -1,4 +1,4 @@
-"""时间管理模块的任务本体（2026-10-08）：`00-System/任务.md` 的解析与外科写入。
+"""时间管理模块的任务本体（2026-10-08）：`00-System/任务（tasks）.md` 的解析与外科写入。
 
 钉子：只改目标行 / 文件在别处改过 409 / 只读 409 而读 200 / 标记解析不吞用户写的字 /
 清单不存在 422 / 清单与标签定义来自 front-matter。
@@ -60,7 +60,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def tasks_file(tmp_path):
-    return tmp_path / "vault" / "00-System" / "任务.md"
+    return tmp_path / "vault" / "00-System" / "任务（tasks）.md"
 
 
 def seed(tmp_path, text=SAMPLE):
@@ -666,3 +666,21 @@ def test_time_survives_duplicate_move_and_bulk(tmp_path):
     payload = board(client)
     clone = [t for t in payload["tasks"] if t["title"] == "买菜" and t["list_name"] == "收集箱 副本"]
     assert clone and clone[0]["time"] == "18:30"
+
+
+def test_legacy_task_file_keeps_working(tmp_path):
+    """改名前的 `00-System/任务.md` 不能被当成“没有任务”——读写都要继续落在旧文件上。"""
+    client = make_client(tmp_path)
+    legacy = tmp_path / "vault" / "00-System" / "任务.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(SAMPLE, encoding="utf-8")
+
+    payload = board(client)
+    assert payload["path"] == "00-System/任务.md"  # 命中的是旧文件
+    assert find(payload, "买菜")["date"] == "2026-10-06"
+
+    created = client.post("/api/time/tasks", json={
+        "title": "旧文件里新增", "list_name": "收集箱", "priority": "none"})
+    assert created.status_code == 200, created.text
+    assert "旧文件里新增" in legacy.read_text(encoding="utf-8")
+    assert not tasks_file(tmp_path).exists()  # 不凭空多出一份新文件

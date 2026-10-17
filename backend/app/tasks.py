@@ -1,4 +1,4 @@
-"""时间管理模块的任务本体：`00-System/任务.md`（2026-10-08，用户点名的“时间管理工具模块”）。
+"""时间管理模块的任务本体：`00-System/任务（tasks）.md`（2026-10-08，用户点名的“时间管理工具模块”）。
 
 沿用「今日待办」那套 Markdown-first 纪律（见 `todo_note.py` 的模块说明）：**文件是数据本体**，
 产品只做前台与外科手术式写回——按 key 定位 → 校验该行原文未变 → 只重写这一行 → 原子替换
@@ -56,17 +56,24 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from .db import Database, utc_now
 from .task_import import parse_checkboxes
 from .todo_note import _guarded_write, _heading_line, _section_bounds  # 同一套外科手术协议
-from .vault import MAX_NOTE_BYTES, safe_note_path
+from .vault import MAX_NOTE_BYTES, managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-TASKS_REL = Path("00-System", "任务.md")
+TASKS_REL = Path("00-System", "任务（tasks）.md")
+TASKS_LEGACY_REL = Path("00-System", "任务.md")
 TASKS_TITLE = "任务"
 INBOX = "收集箱"
 MAX_TITLE = 200
 MAX_LIST = 40
 MAX_TAGS = 12
 MAX_TAG_NAME = 24
+
+
+def _tasks_path(vault_dir: Path | str) -> Path:
+    """现行文件名优先；旧库里的 `任务.md` 继续读写（不自动改名）。"""
+    return managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_LEGACY_REL.as_posix())
+
 
 PRIORITY_MARK = {"high": "⏫", "medium": "🔼", "low": "🔽"}
 MARK_PRIORITY = {mark: name for name, mark in PRIORITY_MARK.items()}
@@ -411,7 +418,7 @@ def read_tasks(vault_dir: Path | str) -> dict[str, Any]:
     标签 = front-matter 里的定义（有颜色/置顶）+ 任务行里用到的（还没定义过）——
     这样第 1 轮里“在添加栏打一个新标签”就能立刻出现在侧栏，不用先写定义。
     """
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     tasks = parse_tasks(loaded)
     listed = defined_tags(loaded)
@@ -431,7 +438,7 @@ def read_tasks(vault_dir: Path | str) -> dict[str, Any]:
     return {
         "exists": loaded["exists"],
         "revision": loaded["revision"],
-        "path": TASKS_REL.as_posix(),
+        "path": note_relative(path, vault_dir),
         "lists": defined_lists(loaded),
         "folders": folders,
         "tags": listed + [{"name": name, "color": "", "pinned": False} for name in used],
@@ -490,7 +497,7 @@ def create_task(vault_dir: Path | str, payload: TaskCreate, database: Database, 
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
     title = _clean_title(payload.title)
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     _check_revision(loaded, payload.revision)
     if loaded["exists"]:
@@ -517,7 +524,7 @@ def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, 
         ensure_vault_writable(read_only, "修改任务")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     if not loaded["exists"]:
         raise HTTPException(409, "任务文件还不存在，请刷新后重试")
@@ -559,7 +566,7 @@ def delete_task(vault_dir: Path | str, payload: TaskKeyPayload, database: Databa
         ensure_vault_writable(read_only, "删除任务")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     if not loaded["exists"]:
         raise HTTPException(409, "任务文件还不存在，请刷新后重试")
@@ -580,7 +587,7 @@ def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Data
         ensure_vault_writable(read_only, "创建任务副本")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     if not loaded["exists"]:
         raise HTTPException(409, "任务文件还不存在，请刷新后重试")
@@ -757,7 +764,7 @@ def _load_for_structure(vault_dir: Path | str, revision: str, action: str,
         ensure_vault_writable(read_only, action)
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     _check_revision(loaded, revision)
     return path, loaded
@@ -1063,7 +1070,7 @@ def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
         ensure_vault_writable(read_only, label)
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = safe_note_path(Path(vault_dir), TASKS_REL.as_posix())
+    path = _tasks_path(vault_dir)
     loaded = _load_tasks(path)
     if not loaded["exists"]:
         raise HTTPException(409, "任务文件还不存在，请刷新后重试")

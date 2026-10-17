@@ -52,7 +52,7 @@ def test_router_payload_reports_our_own_numbers(tmp_path):
     write_note(tmp_path, TODAY)
     write_note(tmp_path, shift(TODAY, -1))
     (tmp_path / "vault" / "00-System").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "vault" / "00-System" / "待办.md").write_text(
+    (tmp_path / "vault" / "00-System" / "待办（todos）.md").write_text(
         "---\ntype: todo\n---\n\n## 待办\n"
         f"- [ ] 还没做\n- [x] 做完了 ✅ {TODAY}\n\n## 每日必做\n- [ ] 喝水\n",
         encoding="utf-8")

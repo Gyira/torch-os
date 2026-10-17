@@ -26,7 +26,7 @@ def make_client(tmp_path):
 
 
 def write_todo_note(tmp_path, *, todos=(), daily=()):
-    """Seed 00-System/待办.md（数据本体）。todos 项为 (title, done, 完成日期|None)。"""
+    """Seed 00-System/待办（todos）.md（数据本体）。todos 项为 (title, done, 完成日期|None)。"""
     lines = ["---", "type: todo", "---", "", "# 待办", "", "## 待办", ""]
     for title, done, on in todos:
         suffix = f" ✅ {on}" if done and on else ""
@@ -34,7 +34,7 @@ def write_todo_note(tmp_path, *, todos=(), daily=()):
     lines += ["", "## 每日必做", ""]
     for title in daily:
         lines.append(f"- [ ] {title}")
-    path = tmp_path / "vault" / "00-System" / "待办.md"
+    path = tmp_path / "vault" / "00-System" / "待办（todos）.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -155,7 +155,7 @@ def test_draft_is_local_and_polish_falls_back_without_a_model(tmp_path):
 
 
 def test_the_todo_file_drives_the_day_list(tmp_path):
-    """清单只看 00-System/待办.md：未完成 + 今天勾完的；更早勾完的不占列表；
+    """清单只看 00-System/待办（todos）.md：未完成 + 今天勾完的；更早勾完的不占列表；
     手动打勾（没有 ✅ 日期）视为今天完成；SQLite 任务不再上工作台。"""
     client = make_client(tmp_path)
     old_task = client.post("/api/tasks", json={"title": "只在目标页出现的旧任务"}).json()
@@ -170,7 +170,7 @@ def test_the_todo_file_drives_the_day_list(tmp_path):
     payload = client.get("/api/workbench/today").json()
     assert [todo["title"] for todo in payload["todos"]] == ["今天的待办", "手动打勾没有日期的"]
     # 文件是本体：更早完成的那条还在文件里，只是不进今日列表。
-    text = (tmp_path / "vault" / "00-System" / "待办.md").read_text(encoding="utf-8")
+    text = (tmp_path / "vault" / "00-System" / "待办（todos）.md").read_text(encoding="utf-8")
     assert "很久以前就完成的" in text
 
 

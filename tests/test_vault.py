@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from backend.app.db import Database
-from backend.app.vault import parse_markdown, scan_vault
+from backend.app.vault import managed_note_path, note_relative, parse_markdown, scan_vault
 
 
 def test_parse_markdown_frontmatter(tmp_path: Path):
@@ -23,3 +23,22 @@ def test_scan_vault_is_incremental(tmp_path: Path):
     assert first["changed"] == 1
     assert second["changed"] == 0
     assert len(db.list_memories("candidate")) == 1
+
+
+def test_managed_note_path_keeps_old_files_working(tmp_path: Path):
+    """2026-10-17 改名成「中文（english）.md」后，旧库里的 `任务.md` 必须继续被读写。"""
+    current_rel = "00-System/任务（tasks）.md"
+    legacy_rel = "00-System/任务.md"
+    legacy = tmp_path / legacy_rel
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("旧文件", encoding="utf-8")
+    assert managed_note_path(tmp_path, current_rel, legacy_rel) == legacy  # 只有旧文件 → 用旧的
+    assert note_relative(legacy, tmp_path) == legacy_rel
+
+    current = tmp_path / current_rel
+    current.write_text("新文件", encoding="utf-8")
+    assert managed_note_path(tmp_path, current_rel, legacy_rel) == current  # 两个都在 → 用新的
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert managed_note_path(empty, current_rel, legacy_rel) == empty / current_rel  # 全新库 → 新名字

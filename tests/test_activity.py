@@ -56,7 +56,7 @@ def test_lists_today_changes_by_mtime_newest_first(tmp_path):
 def test_restricted_directories_never_show_up(tmp_path):
     app, _ = make_app(tmp_path)
     vault = tmp_path / "vault"
-    write(vault / "00-System" / "待办.md", "- [ ] 买菜", mtime=stamp(TODAY, 20))
+    write(vault / "00-System" / "待办（todos）.md", "- [ ] 买菜", mtime=stamp(TODAY, 20))
     write(vault / ".obsidian" / "workspace.json", "{}", mtime=stamp(TODAY, 20))
     assert list_day_activity(app.state.database, vault, TODAY) == []
 
