@@ -84,5 +84,17 @@ export function applyNavOrder() {
     const sublist = sublists.find((item) => item.dataset.sublist === key);
     if (sublist) parent.appendChild(sublist);
   }
+  // 浏览器/Obsidian 都用顶部模块导航；设置里的顺序调整也要同步到它。
+  const topButtons = typeof document.querySelectorAll === "function"
+    ? Array.from(document.querySelectorAll(".panel-nav-item")) : [];
+  if (topButtons.length) {
+    const topParent = topButtons[0].parentElement;
+    if (topParent) {
+      for (const key of order) {
+        const button = topButtons.find((item) => item.dataset.view === key);
+        if (button) topParent.appendChild(button);
+      }
+    }
+  }
   return order;
 }

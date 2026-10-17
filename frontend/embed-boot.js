@@ -2,11 +2,16 @@
 // or the wrong theme.
 const bootParams = (location.search || '').split(/[?&]/);
 const embedded = bootParams.includes('embed=1');
+const embeddedPanel = bootParams.includes('panel=1');
 if (embedded) {
   document.documentElement.classList.add('embed-mode');
 }
-if (bootParams.includes('panel=1')) {
+if (embeddedPanel) {
   document.documentElement.classList.add('embed-panel');
+}
+// 浏览器直开时也采用和内嵌一样的「顶部模块导航」外壳：不再占一层左侧栏，任务区域更宽。
+if (!embedded || embeddedPanel) {
+  document.documentElement.classList.add('top-nav-mode');
 }
 
 // 首帧主题：宿主在 iframe URL 上给的 ?theme= 优先（dsh 面板切页时即时生效）；

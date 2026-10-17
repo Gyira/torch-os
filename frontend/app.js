@@ -14,7 +14,7 @@ import { initProfile, loadProfile } from "./profile.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initVaultAudit } from "./vault-audit.js";
 import { initHelp } from "./help.js";
-import { NAV_LABELS, applyNavOrder } from "./nav-order.js";
+import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
 import { initBazi, loadBazi } from "./bazi.js";
 import { initThemeBridge } from "./theme-bridge.js";
 import { initShareImport } from "./share-import.js";
@@ -79,23 +79,30 @@ if (embedPanel) {
   document.documentElement.classList.add("embed-panel");
   if (document.body?.classList) document.body.classList.add("embed-panel");
 }
+// 浏览器直开也使用顶部模块导航（不再占左侧应用栏）；内嵌面板同样如此。
+// dsh 的 embed=1 不带 panel 时由宿主提供导航，不叠加这条顶栏。
+const topNavMode = !embedMode || embedPanel;
+if (topNavMode) {
+  document.documentElement.classList.add("top-nav-mode");
+  if (document.body?.classList) document.body.classList.add("top-nav-mode");
+}
 // 主题：嵌在 dsh 面板里就跟随 dsh（宿主 token 由 theme-bridge 接收），
 // 独立打开时跟随系统明暗。首帧提示已由 embed-boot.js 同步应用。
 initThemeBridge();
-/** dsh 右侧栏工作台：窄面板里的紧凑页面切换条（复用同一套 hash 路由）。 */
+/** 顶部模块导航：浏览器直开和 Obsidian/dsh 面板共用（复用同一套 hash 路由）。 */
 function renderPanelNav() {
-  if (!embedPanel) return;
+  if (!topNavMode) return;
   const main = $("#main-content");
   if (!main) return;
   const nav = document.createElement("nav");
   nav.className = "panel-nav";
   nav.setAttribute("aria-label", "工作台页面");
-  for (const [view, label] of Object.entries(titles)) {
+  for (const view of currentNavOrder()) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "panel-nav-item";
     button.dataset.view = view;
-    button.textContent = label;
+    button.textContent = titles[view] || view;
     button.addEventListener("click", () => { switchView(view); });
     nav.appendChild(button);
   }
@@ -220,8 +227,8 @@ function renderModuleNav(view) {
   const bar = $("#module-nav");
   if (!bar) return;
   const module = MODULES[view];
-  // 独立打开时左侧栏就是两级菜单，页内那条栏不再重复出现；嵌入模式侧栏被隐藏，才用它兜底。
-  if (!embedMode || !module || module.ownNav || !module.panes.length) {
+  // 顶层应用侧栏已经统一收起（浏览器和 Obsidian 都是顶部导航），模块内分区改由这条顶栏承载。
+  if (!module || module.ownNav || !module.panes.length) {
     bar.hidden = true;
     bar.replaceChildren();
     return;
