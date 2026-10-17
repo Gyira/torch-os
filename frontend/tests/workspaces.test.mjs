@@ -42,7 +42,8 @@ const listing = {
   note: "换工作区就是换文件夹；重启服务后生效。",
 };
 
-async function harness({ capabilities = { workspaces: true }, listing: payload = listing, saved = null, activated = null } = {}) {
+async function harness({ capabilities = { workspaces: true }, listing: payload = listing, saved = null,
+                        activated = null, config = {} } = {}) {
   const nodes = new Map();
   const requests = [];
   const documentListeners = new Map();
@@ -63,7 +64,7 @@ async function harness({ capabilities = { workspaces: true }, listing: payload =
       return true;
     },
   };
-  const state = { view: "settings", config: { capabilities } };
+  const state = { view: "settings", config: { capabilities, ...config } };
   const core = new vm.SyntheticModule(
     ["$", "state", "api", "escapeHtml", "jsonBody", "setStatus", "toast", "confirmAction"],
     function () {
@@ -157,4 +158,18 @@ test("without the capability the panel stays inert", async () => {
   assert.equal(h.requests.length, 0);
   assert.equal(h.getNode("#workspace-new").disabled, true);
   assert.match(h.getNode("#workspace-support").textContent, /尚未支持工作区设置/);
+});
+
+test("a vault-scoped instance hides the workspace switcher", async () => {
+  const h = await harness({
+    capabilities: { workspaces: false },
+    config: { vault_scoped: true, vault_name: "我的 Obsidian 库" },
+  });
+  h.namespace.initWorkspaces();
+  await h.namespace.loadWorkspaces();
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.getNode("#workspace-card").hidden, true);
+  assert.equal(h.getNode("#vault-scoped-card").hidden, false);
+  assert.match(h.getNode("#vault-scoped-text").textContent, /我的 Obsidian 库/);
+  assert.match(h.getNode("#vault-scoped-text").textContent, /打开另一个库/);
 });

@@ -1,47 +1,23 @@
-"""时间管理模块的任务本体：`00-System/任务（tasks）.md`（2026-10-08，用户点名的“时间管理工具模块”）。
+"""时间管理模块的任务：新任务一篇笔记，旧复选框任务原地只读共存（2026-10-17）。
 
-沿用「今日待办」那套 Markdown-first 纪律（见 `todo_note.py` 的模块说明）：**文件是数据本体**，
-产品只做前台与外科手术式写回——按 key 定位 → 校验该行原文未变 → 只重写这一行 → 原子替换
-（tmp + os.replace）；文件在别处（Obsidian）被改过就 409，让界面刷新后重来。
+数据本体分两层：
 
-文件结构：
+- **新任务** = `00-System/任务/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
+  清单来自文件夹；改名/换清单就是改文件名/移动文件；正文原样保留。
+- **旧任务** = `00-System/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
+  （可在 Obsidian 里直接修改这份文件）。产品不自动迁移旧行。
 
-```markdown
----
-type: tasks
-清单:
-  - 名称: 收集箱
-    颜色: "#3b82f6"
-  - 名称: 客户A
-    颜色: "#ef4444"
-    文件夹: 工作
-    置顶: true
-标签:
-  - 名称: 重要
-    颜色: "#ef4444"
----
+清单/标签/逻辑文件夹定义仍在 `任务（tasks）.md` 的 front matter（兼容旧文件名 `任务.md`）。
+旧任务只允许被清单/标签这类结构性操作（改名、复制、删除清单，改/删标签）连带改写；
+单个任务与批量的按 key 写操作只作用于新笔记，旧 key 一律 409。
 
-# 任务
-
-## 收集箱
-- [ ] 给客户回邮件 📌 ⏫ 📅 2026-10-09 #重要 ➕ 2026-10-02 ✅ 2026-10-05
-```
-
-- 一个清单 = 一个 `## <清单名>` 小节；文件夹是清单定义上的一个字段（逻辑分组，不是真目录）。
-- 任务行沿用 Obsidian Tasks 插件的通用标记：`📅 日期`（哪天显示）、`⏰ 时间`（可选，`HH:MM` 或
-  `HH:MM-HH:MM`，2026-10-11 随日历视图加入）、`⏫高/🔼中/🔽低`（缺省=无优先级）、
-  `#标签`、`✅ 完成日`、`➕ 创建日`、`📌 置顶`。不认识的符号留在标题里，绝不吞掉用户写的字。
-- 清单 / 文件夹 / 标签的增删改也写这个文件：定义住在 front matter（这一段由产品托管），
-  正文只动受影响的行（重命名清单换 `## 标题`；重命名/删除标签改任务行里的 `#标签`）。
-- 批量动作（`/api/time/tasks/bulk`）：delete / move / tag / date / priority / pin / duplicate —— 一次写回。
-
-`00-System` 在 `vault.EXCLUDED_DIRECTORIES` 里（有意为之）：任务文件不进资料库索引、不参与记忆提取。
+所有 Markdown 写入沿用 `markdown_store` 的「先比对、再临时文件 + os.replace」协议；
+board 的 revision 是「配置文件 + 全部任务笔记」的复合修订号，任何一处被别处改过就 409。
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -50,16 +26,17 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .db import Database, utc_now
 from .markdown_store import (
     guarded_write as _guarded_write,
     heading_line as _heading_line,
     load_note,
-    revision as _revision,
     section_bounds as _section_bounds,
 )
+from . import task_notes
+from .task_notes import INBOX, TASK_DIR_POSIX
 from .task_import import parse_checkboxes
 from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -67,18 +44,10 @@ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TASKS_REL = Path("00-System", "任务（tasks）.md")
 TASKS_LEGACY_REL = Path("00-System", "任务.md")
-TASKS_TITLE = "任务"
-INBOX = "收集箱"
 MAX_TITLE = 200
 MAX_LIST = 40
 MAX_TAGS = 12
 MAX_TAG_NAME = 24
-
-
-def _tasks_path(vault_dir: Path | str) -> Path:
-    """现行文件名优先；旧库里的 `任务.md` 继续读写（不自动改名）。"""
-    return managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_LEGACY_REL.as_posix())
-
 
 PRIORITY_MARK = {"high": "⏫", "medium": "🔼", "low": "🔽"}
 MARK_PRIORITY = {mark: name for name, mark in PRIORITY_MARK.items()}
@@ -91,23 +60,12 @@ DONE_RE = re.compile(r"(?:^|\s)✅\s*(\d{4}-\d{2}-\d{2})(?=\s|$)")
 CREATED_RE = re.compile(r"(?:^|\s)➕\s*(\d{4}-\d{2}-\d{2})(?=\s|$)")
 PIN_RE = re.compile(r"(?:^|\s)📌(?=\s|$)")
 TAG_RE = re.compile(r"(?:^|\s)#([^\s#]+)")
-# 复选框标记与 todo_note 的 `- [ ] ` 同源；这里只要把标记从行首剥掉。
 CHECKBOX_PREFIX = re.compile(r"^\s*[-*+]\s*\[[ xX]\]\s*")
 
-SKELETON = """---
-type: tasks
-清单:
-  - 名称: 收集箱
-    颜色: "#3b82f6"
-标签: []
----
-
-# 任务
-
-## 收集箱
-"""
-
 TaskKey = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+# ===== 请求模型 =====
 
 
 class TaskCreate(BaseModel):
@@ -126,7 +84,6 @@ class TaskUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     key: TaskKey
-    line: int = Field(default=0, ge=0)
     revision: str = Field(default="", max_length=64)
     title: str = Field(default="", max_length=MAX_TITLE)
     list_name: str = Field(default="", max_length=MAX_LIST)
@@ -136,14 +93,13 @@ class TaskUpdate(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=MAX_TAGS)
     pinned: bool | None = None
     done: bool | None = None
-    day: str = Field(default="", max_length=10)  # 完成日期（缺省=今天，上海时区）
+    day: str = Field(default="", max_length=10)
 
 
 class TaskKeyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     key: TaskKey
-    line: int = Field(default=0, ge=0)
     revision: str = Field(default="", max_length=64)
 
 
@@ -151,445 +107,27 @@ class TaskDuplicate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     key: TaskKey
-    line: int = Field(default=0, ge=0)
     revision: str = Field(default="", max_length=64)
     list_name: str = Field(default="", max_length=MAX_LIST)
 
 
-def _today() -> str:
-    return datetime.now(SHANGHAI).date().isoformat()
+class TaskBulk(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    keys: list[TaskKey] = Field(min_length=1, max_length=200)
+    action: str = Field(max_length=10)
+    list_name: str = Field(default="", max_length=MAX_LIST)
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS)
+    date: str = Field(default="", max_length=10)
+    priority: str = Field(default="", max_length=10)
+    pinned: bool = True
+    revision: str = Field(default="", max_length=64)
 
-def _audit(database: Database, event_type: str, details: dict[str, Any]) -> None:
-    with database.connect() as connection:
-        connection.execute(
-            "INSERT INTO audit_events(event_type, detail_json, created_at) VALUES (?, ?, ?)",
-            (event_type, json.dumps(details, ensure_ascii=False), utc_now()),
-        )
-
-
-def _clean_date(value: str, field: str) -> str:
-    """日期只校验格式——注意不能复用日记的 validate_day：它拦未来日期，而任务就是要排到未来。"""
-    text = (value or "").strip()
-    if not text:
-        return ""
-    try:
-        datetime.strptime(text, "%Y-%m-%d")
-    except ValueError as error:
-        raise HTTPException(422, f"{field}要写成 YYYY-MM-DD") from error
-    return text
-
-
-def _clean_time(value: str) -> str:
-    """时间只认 `HH:MM` 或 `HH:MM-HH:MM`（24 小时制）；空串 = 没有时间（进日历的「全天」区）。"""
-    text = re.sub(r"\s+", "", str(value or "").strip())
-    if not text:
-        return ""
-    match = TIME_VALUE_RE.match(text)
-    if match is None:
-        raise HTTPException(422, "时间要写成 HH:MM 或 HH:MM-HH:MM（24 小时制）")
-    start = f"{int(match.group(1)):02d}:{match.group(2)}"
-    if match.group(3) is None:
-        return start
-    end = f"{int(match.group(3)):02d}:{match.group(4)}"
-    if end <= start:
-        raise HTTPException(422, "结束时间要晚于开始时间")
-    return f"{start}-{end}"
-
-
-def _normalize_time_text(raw: str) -> str:
-    """解析已有任务行里的时间：宽容版——认不出来就返回空（调用方把原文留在标题里）。"""
-    match = TIME_VALUE_RE.match(re.sub(r"\s+", "", raw or ""))
-    if match is None:
-        return ""
-    start = f"{int(match.group(1)):02d}:{match.group(2)}"
-    if match.group(3) is None:
-        return start
-    end = f"{int(match.group(3)):02d}:{match.group(4)}"
-    return f"{start}-{end}" if end > start else start
-
-
-def _clean_priority(value: str) -> str:
-    text = (value or "").strip().lower() or "none"
-    if text not in PRIORITIES:
-        raise HTTPException(422, "优先级只能是 high/medium/low/none")
-    return text
-
-
-def _clean_tags(values: list[str] | None) -> list[str]:
-    cleaned: list[str] = []
-    for raw in values or []:
-        name = re.sub(r"\s+", "", str(raw or "")).lstrip("#").strip()
-        if not name:
-            continue
-        if len(name) > MAX_TAG_NAME or any(char in name for char in "#\n"):
-            raise HTTPException(422, f"标签名最多 {MAX_TAG_NAME} 个字，且不能带 #")
-        if name not in cleaned:
-            cleaned.append(name)
-    return cleaned[:MAX_TAGS]
-
-
-def _clean_title(value: str) -> str:
-    title = re.sub(r"\s+", " ", str(value or "").strip())
-    if not title or len(title) > MAX_TITLE or any(ord(char) < 32 for char in title):
-        raise HTTPException(422, f"任务标题需要 1–{MAX_TITLE} 个字符，且不能包含换行")
-    return title
-
-
-def _load_tasks(path: Path) -> dict[str, Any]:
-    return load_note(path, too_large="任务文件过大，已停止编辑",
-                     bad_encoding="任务文件不是 UTF-8 编码，暂不能编辑")
-
-
-def _front_matter(loaded: dict[str, Any]) -> dict[str, Any]:
-    if not loaded["exists"] or loaded["body_start"] == 0:
-        return {}
-    block = "\n".join(loaded["lines"][1:loaded["body_start"] - 1])
-    try:
-        data = yaml.safe_load(block) or {}
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def defined_lists(loaded: dict[str, Any]) -> list[dict[str, Any]]:
-    """front-matter 里的清单定义（缺字段补默认值；收集箱永远在内置兜底里）。"""
-    raw = _front_matter(loaded).get("清单") or []
-    entries: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    if isinstance(raw, list):
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            name = re.sub(r"\s+", " ", str(item.get("名称") or "").strip())
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            entries.append({
-                "name": name,
-                "color": str(item.get("颜色") or "").strip(),
-                "folder": re.sub(r"\s+", " ", str(item.get("文件夹") or "").strip()),
-                "pinned": item.get("置顶") is True,
-            })
-    if INBOX not in seen:
-        entries.insert(0, {"name": INBOX, "color": "#3b82f6", "folder": "", "pinned": False})
-    return entries
-
-
-def defined_tags(loaded: dict[str, Any]) -> list[dict[str, Any]]:
-    raw = _front_matter(loaded).get("标签") or []
-    entries: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, dict):
-                name = re.sub(r"\s+", "", str(item.get("名称") or "").strip()).lstrip("#")
-                color, pinned = str(item.get("颜色") or "").strip(), item.get("置顶") is True
-            else:
-                name = re.sub(r"\s+", "", str(item or "").strip()).lstrip("#")
-                color, pinned = "", False
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            entries.append({"name": name, "color": color, "pinned": pinned})
-    return entries
-
-
-def _extract_tags(text: str) -> tuple[str, list[str]]:
-    """剥出 `#标签`；纯数字的 `#1` 更像标题（“给 #1 issue 加”）——留着不动。"""
-    tags: list[str] = []
-    pieces: list[str] = []
-    last = 0
-    for match in TAG_RE.finditer(text):
-        name = match.group(1)
-        if name.isdigit():
-            continue
-        pieces.append(text[last:match.start()])
-        last = match.end()
-        if name not in tags:
-            tags.append(name)
-    pieces.append(text[last:])
-    return "".join(pieces), tags
-
-
-def split_task_text(text: str) -> tuple[str, dict[str, Any]]:
-    """把一行的标题与标记拆开；不认识的符号留在标题里（绝不吞用户写的字）。"""
-    rest = text
-    meta: dict[str, Any] = {"date": "", "time": "", "done_on": "", "created": "", "priority": "none",
-                            "tags": [], "pinned": False}
-    for pattern, key in ((DATE_RE, "date"), (DONE_RE, "done_on"), (CREATED_RE, "created")):
-        match = pattern.search(rest)
-        if match:
-            meta[key] = match.group(1)
-            rest = pattern.sub(" ", rest, count=1)
-    time_match = TIME_RE.search(rest)
-    if time_match:
-        normalized = _normalize_time_text(time_match.group(1))
-        if normalized:  # 认不出来的（如 ⏰ 25:99）留在标题里，不吞
-            meta["time"] = normalized
-            rest = TIME_RE.sub(" ", rest, count=1)
-    if PIN_RE.search(rest):
-        meta["pinned"] = True
-        rest = PIN_RE.sub(" ", rest, count=1)
-    for mark, name in MARK_PRIORITY.items():
-        if re.search(rf"(?:^|\s){re.escape(mark)}(?=\s|$)", rest):
-            meta["priority"] = name
-            rest = re.sub(rf"(?:^|\s){re.escape(mark)}(?=\s|$)", " ", rest, count=1)
-            break
-    rest, tags = _extract_tags(rest)
-    meta["tags"] = tags
-    return re.sub(r"\s+", " ", rest).strip(), meta
-
-
-def format_task_line(title: str, *, done: bool, done_on: str = "", date: str = "", time: str = "",
-                     priority: str = "none", tags: list[str] | None = None,
-                     pinned: bool = False, created: str = "") -> str:
-    """一行任务的规范写法：标题在前，标记按固定顺序跟在后面（空值的标记不写）。"""
-    parts = [f"- [{'x' if done else ' '}] {title}"]
-    if pinned:
-        parts.append("📌")
-    if PRIORITY_MARK.get(priority):
-        parts.append(PRIORITY_MARK[priority])
-    if date:
-        parts.append(f"📅 {date}")
-    if time:
-        parts.append(f"⏰ {time}")
-    parts.extend(f"#{name}" for name in tags or [])
-    if created:
-        parts.append(f"➕ {created}")
-    if done and done_on:
-        parts.append(f"✅ {done_on}")
-    return " ".join(parts)
-
-
-def parse_tasks(loaded: dict[str, Any]) -> list[dict[str, Any]]:
-    """整份文件的复选框 → 任务字典（清单名取自所在 `## 小节`）。"""
-    if not loaded["exists"]:
-        return []
-    body = "\n".join(loaded["lines"][loaded["body_start"]:])
-    items, _warnings = parse_checkboxes(body)
-    tasks: list[dict[str, Any]] = []
-    for item in items:
-        raw = item["description"]
-        without_box = CHECKBOX_PREFIX.sub("", raw)
-        title, meta = split_task_text(without_box)
-        if not title:
-            continue
-        heading = str(item.get("heading") or "")
-        section = heading.split(" / ")[-1] if heading else ""
-        tasks.append({
-            "key": item["key"],
-            "line": loaded["body_start"] + item["line"],
-            "list_name": section or INBOX,
-            "title": title,
-            "done": bool(item["checked"]),
-            "done_on": meta["done_on"],
-            "date": meta["date"],
-            "time": meta["time"],
-            "priority": meta["priority"],
-            "tags": meta["tags"],
-            "pinned": meta["pinned"],
-            "created": meta["created"],
-            "raw": raw,
-        })
-    return tasks
-
-
-def read_tasks(vault_dir: Path | str) -> dict[str, Any]:
-    """任务板面的全部数据：清单/标签定义 + 任务（过滤、分组、排序交给前端纯函数做）。
-
-    标签 = front-matter 里的定义（有颜色/置顶）+ 任务行里用到的（还没定义过）——
-    这样第 1 轮里“在添加栏打一个新标签”就能立刻出现在侧栏，不用先写定义。
-    """
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    tasks = parse_tasks(loaded)
-    listed = defined_tags(loaded)
-    known = {entry["name"] for entry in listed}
-    used = sorted({name for task in tasks for name in task["tags"] if name not in known})
-    raw_folders = _front_matter(loaded).get("文件夹") or []
-    folders: list[str] = []
-    if isinstance(raw_folders, list):
-        for item in raw_folders:
-            name = re.sub(r"\s+", " ", str(item or "").strip())
-            if name and name not in folders:
-                folders.append(name)
-    # 清单上写了、但还没登记进 文件夹 列表的（手写文件时会有）：补进来，别让它们凭空消失。
-    for entry in defined_lists(loaded):
-        if entry["folder"] and entry["folder"] not in folders:
-            folders.append(entry["folder"])
-    return {
-        "exists": loaded["exists"],
-        "revision": loaded["revision"],
-        "path": note_relative(path, vault_dir),
-        "lists": defined_lists(loaded),
-        "folders": folders,
-        "tags": listed + [{"name": name, "color": "", "pinned": False} for name in used],
-        "tasks": tasks,
-    }
-
-
-def _locate(tasks: list[dict[str, Any]], key: str) -> dict[str, Any]:
-    for task in tasks:
-        if task["key"] == key:
-            return task
-    raise HTTPException(409, "这条任务已不在文件里（可能已在 Obsidian 中被改动），请刷新后重试")
-
-
-def _assert_line(loaded: dict[str, Any], task: dict[str, Any]) -> None:
-    lines = loaded["lines"]
-    index = task["line"] - 1
-    if index < 0 or index >= len(lines) or lines[index] != task["raw"]:
-        raise HTTPException(409, "文件内容已变化，请刷新后重试")
-
-
-def _check_revision(loaded: dict[str, Any], expected: str) -> None:
-    expected = expected.strip()
-    if loaded["exists"] and expected and expected != loaded["revision"]:
-        raise HTTPException(409, "任务文件已在别处修改：请刷新后重试")
-    if not loaded["exists"] and expected:
-        raise HTTPException(409, "任务文件已被删除：请刷新后重试")
-
-
-def _list_insert_point(lines: list[str], name: str) -> int:
-    """新任务插到清单小节的**最上面**（照参考图：新加的排最前）；没有这个小节就在末尾补一个。"""
-    heading_index = _heading_line(lines, 0, name)
-    if heading_index < 0:
-        while lines and not lines[-1].strip():
-            lines.pop()
-        lines.extend(["", f"## {name}", ""])
-        heading_index = len(lines) - 2
-    return heading_index + 1
-
-
-def _known_lists(loaded: dict[str, Any]) -> set[str]:
-    return {entry["name"] for entry in defined_lists(loaded)}
-
-
-def _require_list(loaded: dict[str, Any], name: str) -> str:
-    target = name.strip() or INBOX
-    if target not in _known_lists(loaded):
-        raise HTTPException(422, f"清单“{target}”不存在；清单的增删改在下一轮开放")
-    return target
-
-
-def create_task(vault_dir: Path | str, payload: TaskCreate, database: Database, *,
-                read_only: bool = False) -> dict[str, Any]:
-    try:
-        ensure_vault_writable(read_only, "新增任务")
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    title = _clean_title(payload.title)
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    _check_revision(loaded, payload.revision)
-    if loaded["exists"]:
-        lines = list(loaded["lines"])
-    else:
-        lines = SKELETON.replace("\n", loaded["newline"]).split(loaded["newline"])
-        loaded = {**loaded, "lines": lines}
-    target = _require_list(loaded, payload.list_name)
-    insert_at = _list_insert_point(lines, target)
-    line = format_task_line(
-        title, done=False, date=_clean_date(payload.date, "日期"), time=_clean_time(payload.time),
-        priority=_clean_priority(payload.priority), tags=_clean_tags(payload.tags),
-        created=_today())
-    lines.insert(insert_at, line)
-    raw = _guarded_write(loaded, lines)
-    _audit(database, "task_added", {"list": target, "title": title})
-    return {"revision": _revision(raw), "task": {"title": title, "list_name": target, "line": insert_at + 1}}
-
-
-def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, *,
-                read_only: bool = False) -> dict[str, Any]:
-    """改一条任务：标题/清单/日期/优先级/标签/置顶/完成——只传要改的字段。"""
-    try:
-        ensure_vault_writable(read_only, "修改任务")
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    if not loaded["exists"]:
-        raise HTTPException(409, "任务文件还不存在，请刷新后重试")
-    _check_revision(loaded, payload.revision)
-    tasks = parse_tasks(loaded)
-    task = _locate(tasks, payload.key)
-    _assert_line(loaded, task)
-
-    title = _clean_title(payload.title) if payload.title else task["title"]
-    date = _clean_date(payload.date, "日期") if "date" in payload.model_fields_set else task["date"]
-    time = _clean_time(payload.time) if "time" in payload.model_fields_set else task["time"]
-    priority = _clean_priority(payload.priority) if payload.priority else task["priority"]
-    tags = _clean_tags(payload.tags) if payload.tags is not None else task["tags"]
-    pinned = payload.pinned if payload.pinned is not None else task["pinned"]
-    done = payload.done if payload.done is not None else task["done"]
-    done_on = task["done_on"]
-    if done and not done_on:
-        done_on = _clean_date(payload.day, "完成日期") or _today()
-    if not done:
-        done_on = ""
-    target = _require_list(loaded, payload.list_name or task["list_name"])
-
-    lines = list(loaded["lines"])
-    new_line = format_task_line(title, done=done, done_on=done_on, date=date, time=time,
-                                priority=priority, tags=tags, pinned=pinned, created=task["created"])
-    lines[task["line"] - 1] = new_line
-    moved = target != task["list_name"]
-    if moved:
-        del lines[task["line"] - 1]
-        lines.insert(_list_insert_point(lines, target), new_line)
-    raw = _guarded_write(loaded, lines)
-    _audit(database, "task_updated", {"list": target, "title": title, "moved": moved})
-    return {"revision": _revision(raw), "task": {"title": title, "list_name": target, "done": done}}
-
-
-def delete_task(vault_dir: Path | str, payload: TaskKeyPayload, database: Database, *,
-                read_only: bool = False) -> dict[str, Any]:
-    try:
-        ensure_vault_writable(read_only, "删除任务")
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    if not loaded["exists"]:
-        raise HTTPException(409, "任务文件还不存在，请刷新后重试")
-    _check_revision(loaded, payload.revision)
-    task = _locate(parse_tasks(loaded), payload.key)
-    _assert_line(loaded, task)
-    lines = list(loaded["lines"])
-    del lines[task["line"] - 1]
-    raw = _guarded_write(loaded, lines)
-    _audit(database, "task_deleted", {"list": task["list_name"], "title": task["title"]})
-    return {"revision": _revision(raw), "deleted": True}
-
-
-def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Database, *,
-                   read_only: bool = False) -> dict[str, Any]:
-    """创建副本：同一清单里复制一条（未完成状态、今天为创建日，标题与标签照抄）。"""
-    try:
-        ensure_vault_writable(read_only, "创建任务副本")
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    if not loaded["exists"]:
-        raise HTTPException(409, "任务文件还不存在，请刷新后重试")
-    _check_revision(loaded, payload.revision)
-    task = _locate(parse_tasks(loaded), payload.key)
-    _assert_line(loaded, task)
-    target = _require_list(loaded, payload.list_name or task["list_name"])
-    lines = list(loaded["lines"])
-    insert_at = _list_insert_point(lines, target)
-    line = format_task_line(task["title"], done=False, date=task["date"], time=task["time"],
-                            priority=task["priority"], tags=task["tags"],
-                            pinned=task["pinned"], created=_today())
-    lines.insert(insert_at, line)
-    raw = _guarded_write(loaded, lines)
-    _audit(database, "task_duplicated", {"list": target, "title": task["title"]})
-    return {"revision": _revision(raw), "task": {"title": task["title"], "list_name": target}}
-
-
-# ===== 清单 / 文件夹 / 标签（第 2 轮）：结构定义住在 front matter，产品托管这一段 2026-10-08 =====
+    @model_validator(mode="after")
+    def _unique_keys(self):
+        if len(set(self.keys)) != len(self.keys):
+            raise ValueError("批量操作里同一个任务不能出现两次")
+        return self
 
 
 class ListCreate(BaseModel):
@@ -616,7 +154,6 @@ class ListDuplicate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=MAX_LIST)
-    # 照滴答的三个范围：只复制未完成 / 全部保留完成状态 / 全部不保留完成状态
     scope: str = "undone"
     revision: str = Field(default="", max_length=64)
 
@@ -654,6 +191,88 @@ class TagUpdate(BaseModel):
     revision: str = Field(default="", max_length=64)
 
 
+# ===== 通用校验 =====
+
+
+def _today() -> str:
+    return datetime.now(SHANGHAI).date().isoformat()
+
+
+def _audit(database: Database, event_type: str, details: dict[str, Any]) -> None:
+    with database.connect() as connection:
+        connection.execute(
+            "INSERT INTO audit_events(event_type, detail_json, created_at) VALUES (?, ?, ?)",
+            (event_type, json.dumps(details, ensure_ascii=False), utc_now()),
+        )
+
+
+def _clean_date(value: str, field: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError as error:
+        raise HTTPException(422, f"{field}要写成 YYYY-MM-DD") from error
+    return text
+
+
+def _clean_time(value: str) -> str:
+    text = re.sub(r"\s+", "", str(value or "").strip())
+    if not text:
+        return ""
+    match = TIME_VALUE_RE.match(text)
+    if match is None:
+        raise HTTPException(422, "时间要写成 HH:MM 或 HH:MM-HH:MM（24 小时制）")
+    start = f"{int(match.group(1)):02d}:{match.group(2)}"
+    if match.group(3) is None:
+        return start
+    end = f"{int(match.group(3)):02d}:{match.group(4)}"
+    if end <= start:
+        raise HTTPException(422, "结束时间要晚于开始时间")
+    return f"{start}-{end}"
+
+
+def _normalize_time_text(raw: str) -> str:
+    match = TIME_VALUE_RE.match(re.sub(r"\s+", "", raw or ""))
+    if match is None:
+        return ""
+    start = f"{int(match.group(1)):02d}:{match.group(2)}"
+    if match.group(3) is None:
+        return start
+    end = f"{int(match.group(3)):02d}:{match.group(4)}"
+    return f"{start}-{end}" if end > start else start
+
+
+def _clean_priority(value: str) -> str:
+    text = (value or "").strip().lower() or "none"
+    if text not in PRIORITIES:
+        raise HTTPException(422, "优先级只能是 high/medium/low/none")
+    return text
+
+
+def _clean_tags(values: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for raw in values or []:
+        name = re.sub(r"\s+", "", str(raw or "")).lstrip("#").strip()
+        if not name:
+            continue
+        if len(name) > MAX_TAG_NAME or any(char in name for char in "#\n"):
+            raise HTTPException(422, f"标签名最多 {MAX_TAG_NAME} 个字，且不能带 #")
+        if name not in cleaned:
+            cleaned.append(name)
+    if len(cleaned) > MAX_TAGS:
+        raise HTTPException(422, f"一个任务最多 {MAX_TAGS} 个标签")
+    return cleaned
+
+
+def _clean_title(value: str) -> str:
+    title = re.sub(r"\s+", " ", str(value or "").strip())
+    if not title or len(title) > MAX_TITLE or any(ord(char) < 32 for char in title):
+        raise HTTPException(422, f"任务标题需要 1–{MAX_TITLE} 个字符，且不能包含换行")
+    return title
+
+
 def _clean_color(value: str | None) -> str:
     text = (value or "").strip()
     if text and not re.fullmatch(r"#[0-9a-fA-F]{6}", text):
@@ -668,8 +287,270 @@ def _clean_name(value: str, *, what: str = "名称", limit: int = MAX_LIST) -> s
     return name
 
 
+def _clean_list_name(value: str) -> str:
+    name = _clean_name(value, what="清单名")
+    return task_notes.clean_list_name(name)
+
+
+def _ensure_write(read_only: bool, action: str) -> None:
+    try:
+        ensure_vault_writable(read_only, action)
+    except VaultReadOnlyError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+# ===== 旧复选框任务的解析（保持旧格式兼容） =====
+
+
+def _tasks_path(vault_dir: Path | str) -> Path:
+    return managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_LEGACY_REL.as_posix())
+
+
+def _load_tasks(path: Path) -> dict[str, Any]:
+    return load_note(path, too_large="任务文件过大，已停止编辑",
+                     bad_encoding="任务文件不是 UTF-8 编码，暂不能编辑")
+
+
+def _front_matter(loaded: dict[str, Any]) -> dict[str, Any]:
+    if not loaded["exists"] or loaded["body_start"] == 0:
+        return {}
+    block = "\n".join(loaded["lines"][1:loaded["body_start"] - 1])
+    try:
+        data = yaml.safe_load(block) or {}
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def defined_lists(loaded: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = _front_matter(loaded).get("清单") or []
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            name = re.sub(r"\s+", " ", str(item.get("名称") or "").strip())
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            entries.append({
+                "name": name,
+                "color": str(item.get("颜色") or "").strip(),
+                "folder": re.sub(r"\s+", " ", str(item.get("文件夹") or "").strip()),
+                "pinned": item.get("置顶") is True,
+                "synthetic": False,
+            })
+    if INBOX not in seen:
+        entries.insert(0, {"name": INBOX, "color": "#3b82f6", "folder": "",
+                           "pinned": False, "synthetic": False})
+    return entries
+
+
+def defined_tags(loaded: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = _front_matter(loaded).get("标签") or []
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                name = re.sub(r"\s+", "", str(item.get("名称") or "").strip()).lstrip("#")
+                color, pinned = str(item.get("颜色") or "").strip(), item.get("置顶") is True
+            else:
+                name = re.sub(r"\s+", "", str(item or "").strip()).lstrip("#")
+                color, pinned = "", False
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            entries.append({"name": name, "color": color, "pinned": pinned})
+    return entries
+
+
+def _extract_tags(text: str) -> tuple[str, list[str]]:
+    tags: list[str] = []
+    pieces: list[str] = []
+    last = 0
+    for match in TAG_RE.finditer(text):
+        name = match.group(1)
+        if name.isdigit():
+            continue
+        pieces.append(text[last:match.start()])
+        last = match.end()
+        if name not in tags:
+            tags.append(name)
+    pieces.append(text[last:])
+    return "".join(pieces), tags
+
+
+def split_task_text(text: str) -> tuple[str, dict[str, Any]]:
+    rest = text
+    meta: dict[str, Any] = {"date": "", "time": "", "done_on": "", "created": "", "priority": "none",
+                            "tags": [], "pinned": False}
+    for pattern, key in ((DATE_RE, "date"), (DONE_RE, "done_on"), (CREATED_RE, "created")):
+        match = pattern.search(rest)
+        if match:
+            meta[key] = match.group(1)
+            rest = pattern.sub(" ", rest, count=1)
+    time_match = TIME_RE.search(rest)
+    if time_match:
+        normalized = _normalize_time_text(time_match.group(1))
+        if normalized:
+            meta["time"] = normalized
+            rest = TIME_RE.sub(" ", rest, count=1)
+    if PIN_RE.search(rest):
+        meta["pinned"] = True
+        rest = PIN_RE.sub(" ", rest, count=1)
+    for mark, name in MARK_PRIORITY.items():
+        if re.search(rf"(?:^|\s){re.escape(mark)}(?=\s|$)", rest):
+            meta["priority"] = name
+            rest = re.sub(rf"(?:^|\s){re.escape(mark)}(?=\s|$)", " ", rest, count=1)
+            break
+    rest, tags = _extract_tags(rest)
+    meta["tags"] = tags
+    return re.sub(r"\s+", " ", rest).strip(), meta
+
+
+def format_task_line(title: str, *, done: bool, done_on: str = "", date: str = "", time: str = "",
+                     priority: str = "none", tags: list[str] | None = None,
+                     pinned: bool = False, created: str = "") -> str:
+    parts = [f"- [{'x' if done else ' '}] {title}"]
+    if pinned:
+        parts.append("📌")
+    if PRIORITY_MARK.get(priority):
+        parts.append(PRIORITY_MARK[priority])
+    if date:
+        parts.append(f"📅 {date}")
+    if time:
+        parts.append(f"⏰ {time}")
+    parts.extend(f"#{name}" for name in tags or [])
+    if created:
+        parts.append(f"➕ {created}")
+    if done and done_on:
+        parts.append(f"✅ {done_on}")
+    return " ".join(parts)
+
+
+def _parse_legacy_tasks(loaded: dict[str, Any], config_rel: str) -> list[dict[str, Any]]:
+    """配置里的复选框行 → 只读旧任务（保留内部 line/raw 供结构操作使用）。"""
+    if not loaded["exists"]:
+        return []
+    body = "\n".join(loaded["lines"][loaded["body_start"]:])
+    items, _warnings = parse_checkboxes(body)
+    tasks: list[dict[str, Any]] = []
+    for item in items:
+        raw = item["description"]
+        without_box = CHECKBOX_PREFIX.sub("", raw)
+        title, meta = split_task_text(without_box)
+        if not title:
+            continue
+        heading = str(item.get("heading") or "")
+        section = heading.split(" / ")[-1] if heading else ""
+        tasks.append({
+            "key": item["key"],
+            "line": loaded["body_start"] + item["line"],
+            "raw": raw,
+            "path": config_rel,
+            "legacy": True,
+            "list_name": section or INBOX,
+            "title": title,
+            "done": bool(item["checked"]),
+            "done_on": meta["done_on"],
+            "date": meta["date"],
+            "time": meta["time"],
+            "priority": meta["priority"],
+            "tags": meta["tags"],
+            "pinned": meta["pinned"],
+            "created": meta["created"],
+        })
+    return tasks
+
+
+def _public_task(task: dict[str, Any]) -> dict[str, Any]:
+    return {key: task[key] for key in (
+        "key", "path", "legacy", "title", "list_name", "done", "done_on", "date",
+        "time", "priority", "tags", "pinned", "created")}
+
+
+def _note_public(note: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": note["key"], "path": note["relpath"], "legacy": False,
+        "title": note["title"], "list_name": note["list_name"], "done": note["done"],
+        "done_on": note["done_on"], "date": note["date"], "time": note["time"],
+        "priority": note["priority"], "tags": list(note["tags"]), "pinned": note["pinned"],
+        "created": note["created"],
+    }
+
+
+def _note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    values = {
+        "date": note["date"], "time": note["time"], "priority": note["priority"],
+        "tags": list(note["tags"]), "done": note["done"], "done_on": note["done_on"],
+        "pinned": note["pinned"], "created": note["created"],
+    }
+    values.update(changes)
+    return values
+
+
+# ===== 状态、修订、定位 =====
+
+
+def _read_state(vault_dir: Path | str) -> dict[str, Any]:
+    path = _tasks_path(vault_dir)
+    loaded = _load_tasks(path)
+    notes, warnings = task_notes.scan_task_notes(vault_dir)
+    config_rel = note_relative(path, vault_dir)
+    legacy = _parse_legacy_tasks(loaded, config_rel)
+    return {
+        "path": path, "loaded": loaded, "notes": notes, "warnings": warnings,
+        "config_rel": config_rel, "legacy": legacy,
+        "revision": task_notes.board_revision(loaded.get("revision", ""), notes),
+    }
+
+
+def _check_revision(expected: str, actual: str) -> None:
+    if (expected or "").strip() and expected.strip() != actual:
+        raise HTTPException(409, "任务文件已在别处修改：请刷新后重试")
+
+
+def _revision_now(vault_dir: Path | str) -> str:
+    return _read_state(vault_dir)["revision"]
+
+
+def _require_note(state: dict[str, Any], key: str) -> dict[str, Any]:
+    for note in state["notes"]:
+        if note["key"] == key:
+            return note
+    if any(task["key"] == key for task in state["legacy"]):
+        raise HTTPException(409, "旧任务仍保存在 任务（tasks）.md，请在 Obsidian 中修改（应用内只读）")
+    raise HTTPException(409, "这条任务已不在文件里（可能已在 Obsidian 中被改动），请刷新后重试")
+
+
+def _all_list_names(state: dict[str, Any]) -> set[str]:
+    names = {entry["name"] for entry in defined_lists(state["loaded"])}
+    names.add(INBOX)
+    for task in [*state["legacy"], *state["notes"]]:
+        names.add(task["list_name"])
+    return names
+
+
+def _require_list(state: dict[str, Any], value: str) -> str:
+    target = re.sub(r"\s+", " ", str(value or "").strip()) or INBOX
+    if target.casefold() == INBOX.casefold():
+        return INBOX
+    if target not in _all_list_names(state):
+        raise HTTPException(422, f"清单“{target}”不存在；先创建清单，或把任务放进收集箱")
+    task_notes.clean_list_name(target)  # 新任务要能落进文件夹；失败是 422
+    return target
+
+
+def _folder_for_list(name: str) -> str:
+    return "" if name.casefold() == INBOX.casefold() else name
+
+
+# ===== 配置文件的读写 =====
+
+
 def _entries(metadata: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    """把 清单/标签 的条目统一成字典形态（也容忍手写的字符串写法）。"""
     raw = metadata.get(key) or []
     entries: list[dict[str, Any]] = []
     if isinstance(raw, list):
@@ -678,6 +559,11 @@ def _entries(metadata: dict[str, Any], key: str) -> list[dict[str, Any]]:
                 entries.append(dict(item))
             elif str(item or "").strip():
                 entries.append({"名称": re.sub(r"\s+", " ", str(item).strip())})
+    # 收集箱是内置清单；任何结构写回都把这条定义补齐，避免新库里
+    # 「收集箱」只存在于读模型的兜底里、复制/编辑它时找不到定义。
+    if key == "清单" and not any(
+            str(entry.get("名称") or "").strip() == INBOX for entry in entries):
+        entries.insert(0, {"名称": INBOX, "颜色": "#3b82f6"})
     return entries
 
 
@@ -686,50 +572,36 @@ def _find_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | No
                  if str(entry.get("名称") or "").strip() == name), None)
 
 
-def _replace_front_matter(loaded: dict[str, Any], metadata: dict[str, Any]) -> list[str]:
-    """重写 front matter（结构定义由产品托管），**正文逐字保留**。"""
-    body = list(loaded["lines"][loaded["body_start"]:]) if loaded["exists"] else []
-    block = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n")
-    return ["---", *block, "---", *body]
-
-
 def _base_metadata(loaded: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(_front_matter(loaded)) if loaded["exists"] else {}
     metadata.setdefault("type", "tasks")
     return metadata
 
 
-def _ensure_section(lines: list[str], name: str) -> int:
-    """确保有 `## name` 小节，返回它的标题行下标。"""
-    heading = _heading_line(lines, 0, name)
-    if heading >= 0:
-        return heading
-    while lines and not lines[-1].strip():
-        lines.pop()
-    lines.extend(["", f"## {name}", ""])
-    return len(lines) - 2
+def _config_body(loaded: dict[str, Any]) -> list[str]:
+    return list(loaded["lines"][loaded["body_start"]:]) if loaded["exists"] else []
 
 
-def _remove_section(lines: list[str], name: str) -> bool:
-    heading = _heading_line(lines, 0, name)
-    if heading < 0:
-        return False
-    _content_start, insert_at = _section_bounds(lines, 0, heading)
-    del lines[heading:insert_at]
-    return True
+def _full_config(metadata: dict[str, Any], body: list[str]) -> list[str]:
+    block = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n")
+    return ["---", *block, "---", *body]
 
 
-def _unique_name(existing: set[str], base: str) -> str:
-    if base not in existing:
+def _write_config(loaded: dict[str, Any], metadata: dict[str, Any], body: list[str]) -> bytes:
+    return _guarded_write(loaded, _full_config(metadata, body))
+
+
+def _unique_list_name(existing: set[str], base: str) -> str:
+    folded = {name.casefold() for name in existing}
+    if base.casefold() not in folded:
         return base
     index = 2
-    while f"{base} {index}" in existing:
+    while f"{base} {index}".casefold() in folded:
         index += 1
     return f"{base} {index}"
 
 
-def _rewrite_tag(lines: list[str], source: str, target: str | None) -> int:
-    """把任务行里的 `#source` 换成 `#target`（target=None 表示删掉）；只动复选框行。"""
+def _replace_tag(lines: list[str], source: str, target: str | None) -> int:
     token = re.compile(rf"(?<=\s)#{re.escape(source)}(?=\s|$)")
     changed = 0
     for index, line in enumerate(lines):
@@ -741,71 +613,317 @@ def _rewrite_tag(lines: list[str], source: str, target: str | None) -> int:
     return changed
 
 
-def _load_for_structure(vault_dir: Path | str, revision: str, action: str,
-                        read_only: bool) -> tuple[Path, dict[str, Any]]:
+def _config_lines_with_section(metadata: dict[str, Any], body: list[str],
+                               source: str, new_name: str,
+                               copied: list[str]) -> list[str]:
+    lines = _full_config(metadata, body)
+    heading = _heading_line(lines, 0, source)
+    block = [f"## {new_name}", "", *copied, ""]
+    if heading >= 0:
+        lines[heading:heading] = block
+    else:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines.extend(["", *block])
+    return lines
+
+
+def _config_lines_without_section(metadata: dict[str, Any], body: list[str],
+                                  name: str) -> list[str]:
+    lines = _full_config(metadata, body)
+    heading = _heading_line(lines, 0, name)
+    if heading >= 0:
+        _content_start, insert_at = _section_bounds(lines, 0, heading)
+        del lines[heading:insert_at]
+    return lines
+
+
+# ===== 读板面 =====
+
+
+def read_tasks(vault_dir: Path | str, *, read_only: bool = False) -> dict[str, Any]:
+    state = _read_state(vault_dir)
+    loaded = state["loaded"]
+    lists = defined_lists(loaded)
+    known = {entry["name"] for entry in lists}
+    observed_lists: set[str] = {INBOX}
+    for task in [*state["legacy"], *state["notes"]]:
+        observed_lists.add(task["list_name"])
+    for name in sorted(observed_lists - known):
+        lists.append({"name": name, "color": "", "folder": "", "pinned": False, "synthetic": True})
+
+    tags = defined_tags(loaded)
+    known_tags = {entry["name"] for entry in tags}
+    used = sorted({name for task in [*state["legacy"], *state["notes"]]
+                   for name in task["tags"] if name not in known_tags})
+    folders = [str(item) for item in (_front_matter(loaded).get("文件夹") or [])]
+    cleaned_folders: list[str] = []
+    for item in folders:
+        name = re.sub(r"\s+", " ", str(item or "").strip())
+        if name and name not in cleaned_folders:
+            cleaned_folders.append(name)
+    for entry in lists:
+        if entry["folder"] and entry["folder"] not in cleaned_folders:
+            cleaned_folders.append(entry["folder"])
+
+    tasks = [_public_task(task) for task in state["legacy"]]
+    tasks.extend(_note_public(note) for note in state["notes"])
+    return {
+        "exists": loaded["exists"],
+        "revision": state["revision"],
+        "path": state["config_rel"],
+        "vault_name": Path(vault_dir).name,
+        "task_dir": TASK_DIR_POSIX,
+        "read_only": read_only,
+        "legacy_tasks": len(state["legacy"]),
+        "lists": lists,
+        "folders": cleaned_folders,
+        "tags": tags + [{"name": name, "color": "", "pinned": False} for name in used],
+        "tasks": tasks,
+        "warnings": state["warnings"],
+    }
+
+
+# ===== 新任务 CRUD =====
+
+
+def create_task(vault_dir: Path | str, payload: TaskCreate, database: Database, *,
+                read_only: bool = False) -> dict[str, Any]:
+    _ensure_write(read_only, "新增任务")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    target = _require_list(state, payload.list_name)
+    title = _clean_title(payload.title)
+    values = {
+        "date": _clean_date(payload.date, "日期"),
+        "time": _clean_time(payload.time),
+        "priority": _clean_priority(payload.priority),
+        "tags": _clean_tags(payload.tags),
+        "done": False,
+        "done_on": "",
+        "pinned": False,
+        "created": _today(),
+    }
     try:
-        ensure_vault_writable(read_only, action)
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    _check_revision(loaded, revision)
-    return path, loaded
+        note = task_notes.create_task_note(vault_dir, _folder_for_list(target), title, values)
+    except HTTPException:
+        raise
+    _audit(database, "task_added", {"list": target})
+    return {"revision": _revision_now(vault_dir), "task": _note_public(note)}
+
+
+def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, *,
+                read_only: bool = False) -> dict[str, Any]:
+    _ensure_write(read_only, "修改任务")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    note = _require_note(state, payload.key)
+    title = _clean_title(payload.title) if payload.title else note["title"]
+    date = _clean_date(payload.date, "日期") if "date" in payload.model_fields_set else note["date"]
+    time = _clean_time(payload.time) if "time" in payload.model_fields_set else note["time"]
+    priority = _clean_priority(payload.priority) if payload.priority else note["priority"]
+    tags = _clean_tags(payload.tags) if payload.tags is not None else list(note["tags"])
+    pinned = payload.pinned if payload.pinned is not None else note["pinned"]
+    done = payload.done if payload.done is not None else note["done"]
+    done_on = note["done_on"]
+    if done and not done_on:
+        done_on = _clean_date(payload.day, "完成日期") or _today()
+    if not done:
+        done_on = ""
+    target = _require_list(state, payload.list_name) if payload.list_name else note["list_name"]
+    updated = task_notes.rewrite_task_note(
+        vault_dir, note, folder=_folder_for_list(target), title=title,
+        values={"date": date, "time": time, "priority": priority, "tags": tags,
+                "done": done, "done_on": done_on, "pinned": pinned, "created": note["created"]})
+    _audit(database, "task_updated", {"list": target, "moved": target != note["list_name"]})
+    return {"revision": _revision_now(vault_dir), "task": _note_public(updated)}
+
+
+def delete_task(vault_dir: Path | str, payload: TaskKeyPayload, database: Database, *,
+                read_only: bool = False) -> dict[str, Any]:
+    _ensure_write(read_only, "删除任务")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    note = _require_note(state, payload.key)
+    task_notes.trash_note(vault_dir, note)
+    _audit(database, "task_deleted", {"list": note["list_name"]})
+    return {"revision": _revision_now(vault_dir), "deleted": True}
+
+
+def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Database, *,
+                   read_only: bool = False) -> dict[str, Any]:
+    _ensure_write(read_only, "创建任务副本")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    note = _require_note(state, payload.key)
+    target = _require_list(state, payload.list_name) if payload.list_name else note["list_name"]
+    copy = task_notes.create_task_note(
+        vault_dir, _folder_for_list(target), note["title"],
+        _note_values(note, done=False, done_on="", created=_today()),
+        body=task_notes.note_body(note))
+    _audit(database, "task_duplicated", {"list": target})
+    return {"revision": _revision_now(vault_dir), "task": _note_public(copy)}
+
+
+# ===== 批量动作 =====
+
+
+def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
+               read_only: bool = False) -> dict[str, Any]:
+    labels = {"delete": "批量删除任务", "move": "批量移动任务", "tag": "批量打标签",
+              "date": "批量改日期", "priority": "批量改优先级", "pin": "批量置顶/取消置顶",
+              "duplicate": "批量创建副本"}
+    label = labels.get(payload.action)
+    if label is None:
+        raise HTTPException(422, "批量动作只能是 delete / move / tag / date / priority / pin / duplicate")
+    _ensure_write(read_only, label)
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    by_key = {note["key"]: note for note in state["notes"]}
+    legacy_keys = {task["key"] for task in state["legacy"]}
+    picked: list[dict[str, Any]] = []
+    for key in payload.keys:
+        note = by_key.get(key)
+        if note is None:
+            if key in legacy_keys:
+                raise HTTPException(409, "旧任务仍保存在 任务（tasks）.md，请在 Obsidian 中修改（应用内只读）")
+            raise HTTPException(409, "选中的任务里有已经不在文件里的（可能已在 Obsidian 中改过），请刷新后重试")
+        picked.append(note)
+
+    target = ""
+    tags: list[str] = []
+    if payload.action in {"move"}:
+        target = _require_list(state, payload.list_name)
+    elif payload.action == "tag":
+        tags = _clean_tags(payload.tags)
+        if not tags:
+            raise HTTPException(422, "要打的标签不能为空")
+    elif payload.action == "date":
+        date = _clean_date(payload.date, "日期")
+    elif payload.action == "priority":
+        if not payload.priority:
+            raise HTTPException(422, "批量改优先级要给出优先级")
+        priority = _clean_priority(payload.priority)
+
+    try:
+        if payload.action == "delete":
+            batch = task_notes.new_trash_batch(vault_dir)
+            for note in picked:
+                task_notes.trash_note(vault_dir, note, batch=batch)
+        elif payload.action == "move":
+            for note in picked:
+                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(target),
+                                             title=note["title"], values=_note_values(note))
+        elif payload.action == "tag":
+            for note in picked:
+                merged = list(dict.fromkeys([*note["tags"], *tags]))
+                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                                             title=note["title"], values=_note_values(note, tags=merged))
+        elif payload.action == "date":
+            for note in picked:
+                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                                             title=note["title"], values=_note_values(note, date=date))
+        elif payload.action == "priority":
+            for note in picked:
+                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                                             title=note["title"], values=_note_values(note, priority=priority))
+        elif payload.action == "pin":
+            for note in picked:
+                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                                             title=note["title"], values=_note_values(note, pinned=payload.pinned))
+        else:  # duplicate
+            for note in picked:
+                task_notes.create_task_note(
+                    vault_dir, _folder_for_list(note["list_name"]), note["title"],
+                    _note_values(note, done=False, done_on="", created=_today()),
+                    body=task_notes.note_body(note))
+    except Exception:
+        # 跨多个文件的写入没有文件系统事务；失败时刷新页面看真实状态，并留下审计。
+        _audit(database, "tasks_bulk_failed",
+               {"action": payload.action, "count": len(picked), "list": target or None})
+        raise
+
+    _audit(database, f"tasks_bulk_{payload.action}",
+           {"count": len(picked), "list": target or None, "tags": tags})
+    return {"revision": _revision_now(vault_dir), "count": len(picked), "action": payload.action}
+
+
+# ===== 清单 =====
 
 
 def create_list(vault_dir: Path | str, payload: ListCreate, database: Database, *,
                 read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "新增清单", read_only)
-    name = _clean_name(payload.name, what="清单名")
+    _ensure_write(read_only, "新增清单")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    name = _clean_list_name(payload.name)
+    if name.casefold() == INBOX.casefold():
+        raise HTTPException(422, "收集箱是内置清单，不能重复创建")
     folder = _clean_name(payload.folder, what="文件夹名") if payload.folder.strip() else ""
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
-    if _find_entry(entries, name):
+    if any(str(entry.get("名称") or "").casefold() == name.casefold() for entry in entries):
         raise HTTPException(422, f"已经有叫“{name}”的清单了")
-    entry = {"名称": name, "颜色": _clean_color(payload.color) or "#3b82f6"}
+    folder_path = task_notes.task_folder(vault_dir, name)
+    if folder_path.exists() and not folder_path.is_dir():
+        raise HTTPException(409, f"任务目录里已经有同名文件“{name}”")
+    entry: dict[str, Any] = {"名称": name, "颜色": _clean_color(payload.color) or "#3b82f6"}
     if folder:
-        if folder not in [str(item) for item in (metadata.get("文件夹") or [])]:
-            metadata.setdefault("文件夹", []).append(folder)
+        folders = [str(item) for item in (metadata.get("文件夹") or [])]
+        if folder not in folders:
+            metadata["文件夹"] = [*folders, folder]
         entry["文件夹"] = folder
     entries.append(entry)
     metadata["清单"] = entries
-    lines = _replace_front_matter(loaded, metadata)
-    _ensure_section(lines, name)
-    raw = _guarded_write(loaded, lines)
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
+    try:
+        folder_path.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise HTTPException(409, f"清单定义已保存，但建不了文件夹：{error}") from error
     _audit(database, "list_created", {"name": name, "folder": folder})
-    return {"revision": _revision(raw), "list": {"name": name, "folder": folder}}
+    return {"revision": _revision_now(vault_dir), "list": {"name": name, "folder": folder}}
 
 
 def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, *,
                 read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "修改清单", read_only)
+    _ensure_write(read_only, "修改清单")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="清单名")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
     entry = _find_entry(entries, name)
     if entry is None:
         raise HTTPException(422, f"没有叫“{name}”的清单")
-    lines = list(loaded["lines"]) if loaded["exists"] else []
-    new_name = _clean_name(payload.new_name, what="清单名") if payload.new_name.strip() else ""
-    if new_name and new_name != name:
-        if _find_entry(entries, new_name):
+    old_name = name
+    new_name = _clean_list_name(payload.new_name) if payload.new_name.strip() else ""
+    rename = bool(new_name and new_name != name)
+    if rename:
+        if name.casefold() == INBOX.casefold():
+            raise HTTPException(422, "收集箱不能改名")
+        if new_name.casefold() == INBOX.casefold():
+            raise HTTPException(422, "不能把清单改名为收集箱")
+        if any(str(item.get("名称") or "").casefold() == new_name.casefold()
+               for item in entries if item is not entry):
             raise HTTPException(422, f"已经有叫“{new_name}”的清单了")
-        heading = _heading_line(lines, 0, name)
-        if heading >= 0:
-            lines[heading] = f"## {new_name}"
+    color = _clean_color(payload.color) if payload.color is not None else None
+    folder = (_clean_name(payload.folder, what="文件夹名")
+              if payload.folder is not None and payload.folder.strip() else
+              ("" if payload.folder is not None else None))
+    # 所有校验通过后再改 entry / 文件夹，避免校验失败留下半改状态。
+    if rename:
         entry["名称"] = new_name
         name = new_name
     if payload.color is not None:
-        color = _clean_color(payload.color)
         if color:
             entry["颜色"] = color
         else:
             entry.pop("颜色", None)
     if payload.folder is not None:
-        folder = _clean_name(payload.folder, what="文件夹名") if payload.folder.strip() else ""
         if folder:
-            if folder not in [str(item) for item in (metadata.get("文件夹") or [])]:
-                metadata.setdefault("文件夹", []).append(folder)
+            folders = [str(item) for item in (metadata.get("文件夹") or [])]
+            if folder not in folders:
+                metadata["文件夹"] = [*folders, folder]
             entry["文件夹"] = folder
         else:
             entry.pop("文件夹", None)
@@ -815,96 +933,137 @@ def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, 
         else:
             entry.pop("置顶", None)
     metadata["清单"] = entries
-    # 正文可能改过一行（重命名时的 `## 标题`），所以直接把改过的 lines 写回。
-    raw = _write_lines(loaded, lines or (loaded["lines"] if loaded["exists"] else []), metadata)
+    lines = _full_config(metadata, _config_body(state["loaded"]))
+    if rename:
+        heading = _heading_line(lines, 0, old_name)
+        if heading >= 0:
+            lines[heading] = f"## {new_name}"
+    renamed_folder = False
+    if rename:
+        renamed_folder = task_notes.rename_list_folder(vault_dir, old_name, new_name)
+    try:
+        _guarded_write(state["loaded"], lines)
+    except Exception:
+        if renamed_folder:
+            try:
+                task_notes.rename_list_folder(vault_dir, new_name, old_name)
+            except Exception:
+                pass
+        raise
     _audit(database, "list_updated", {"name": name})
-    return {"revision": _revision(raw), "list": {"name": name}}
+    return {"revision": _revision_now(vault_dir), "list": {"name": name}}
 
 
 def duplicate_list(vault_dir: Path | str, payload: ListDuplicate, database: Database, *,
                    read_only: bool = False) -> dict[str, Any]:
-    """复制清单（照滴答）：只复制未完成 / 全部保留完成状态 / 全部不保留完成状态。"""
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "复制清单", read_only)
+    _ensure_write(read_only, "复制清单")
     if payload.scope not in ("undone", "all_keep", "all_reset"):
         raise HTTPException(422, "复制范围只能是 undone / all_keep / all_reset")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="清单名")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
     source = _find_entry(entries, name)
     if source is None:
         raise HTTPException(422, f"没有叫“{name}”的清单")
-    copy_name = _unique_name({str(entry.get("名称")) for entry in entries}, f"{name} 副本")
-    tasks = [task for task in parse_tasks(loaded) if task["list_name"] == name]
+    existing_names = {str(entry.get("名称")) for entry in entries}
+    copy_name = _clean_list_name(_unique_list_name(existing_names, f"{name} 副本"))
+
+    note_copies = [note for note in state["notes"] if note["list_name"] == name]
+    legacy_copies = [task for task in state["legacy"] if task["list_name"] == name]
     if payload.scope == "undone":
-        tasks = [task for task in tasks if not task["done"]]
-    copied = [
-        format_task_line(task["title"], done=task["done"] and payload.scope == "all_keep",
-                         done_on=task["done_on"] if payload.scope == "all_keep" else "",
-                         date=task["date"], time=task["time"], priority=task["priority"],
-                         tags=task["tags"], pinned=task["pinned"], created=_today())
-        for task in tasks
+        note_copies = [note for note in note_copies if not note["done"]]
+        legacy_copies = [task for task in legacy_copies if not task["done"]]
+
+    copied_lines = [
+        format_task_line(
+            task["title"], done=task["done"] and payload.scope == "all_keep",
+            done_on=task["done_on"] if payload.scope == "all_keep" else "",
+            date=task["date"], time=task["time"], priority=task["priority"],
+            tags=task["tags"], pinned=task["pinned"], created=_today())
+        for task in legacy_copies
     ]
-    lines = list(loaded["lines"]) if loaded["exists"] else []
-    if _heading_line(lines, 0, name) < 0:
-        lines = _replace_front_matter(loaded, metadata)
-        _ensure_section(lines, name)
-    heading = _heading_line(lines, 0, name)
-    block = [f"## {copy_name}", ""] if not copied else [f"## {copy_name}", *copied, ""]
-    # 副本插在原清单**前面**（照滴答：正文与侧栏顺序一致）
-    lines[heading:heading] = block
-    # 定义也插在原清单前面（侧栏顺序与正文一致：副本在上，照滴答）
-    entries.insert(entries.index(source), {"名称": copy_name, "颜色": source.get("颜色", "#3b82f6"),
-                                           **({"文件夹": source["文件夹"]} if source.get("文件夹") else {})})
+    copy_entry = {"名称": copy_name, "颜色": source.get("颜色", "#3b82f6"),
+                  **({"文件夹": source["文件夹"]} if source.get("文件夹") else {})}
+    entries.insert(entries.index(source), copy_entry)
     metadata["清单"] = entries
-    # 注意：正文里已经插好了副本小节（lines），必须连正文一起写回，不能只重建 front matter。
-    raw = _write_lines(loaded, lines, metadata)
-    _audit(database, "list_duplicated", {"name": name, "copy": copy_name, "scope": payload.scope,
-                                         "tasks": len(copied)})
-    return {"revision": _revision(raw), "list": {"name": copy_name, "tasks": len(copied)}}
+    lines = _config_lines_with_section(metadata, _config_body(state["loaded"]),
+                                       name, copy_name, copied_lines)
+    _guarded_write(state["loaded"], lines)
+
+    created = 0
+    for note in note_copies:
+        task_notes.create_task_note(
+            vault_dir, copy_name, note["title"],
+            _note_values(note, done=note["done"] and payload.scope == "all_keep",
+                         done_on=note["done_on"] if payload.scope == "all_keep" else "",
+                         created=_today()),
+            body=task_notes.note_body(note))
+        created += 1
+    task_notes.task_folder(vault_dir, copy_name, create=True)
+    _audit(database, "list_duplicated", {"name": name, "copy": copy_name,
+                                         "scope": payload.scope,
+                                         "tasks": created + len(copied_lines)})
+    return {"revision": _revision_now(vault_dir),
+            "list": {"name": copy_name, "tasks": created + len(copied_lines)}}
 
 
 def delete_list(vault_dir: Path | str, payload: NamedPayload, database: Database, *,
                 read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "删除清单", read_only)
+    _ensure_write(read_only, "删除清单")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="清单名")
-    if name == INBOX:
+    if name.casefold() == INBOX.casefold():
         raise HTTPException(422, "收集箱不能删除")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
     entry = _find_entry(entries, name)
     if entry is None:
         raise HTTPException(422, f"没有叫“{name}”的清单")
-    removed = sum(1 for task in parse_tasks(loaded) if task["list_name"] == name)
+    removed = sum(1 for task in state["legacy"] if task["list_name"] == name)
+    removed += sum(1 for note in state["notes"] if note["list_name"] == name)
+    batch = task_notes.new_trash_batch(vault_dir)
+    if state["path"].is_file():
+        task_notes.copy_to_trash(vault_dir, state["path"], batch)
+    task_notes.trash_list_folder(vault_dir, name, batch=batch)
     entries.remove(entry)
     metadata["清单"] = entries
-    lines = _replace_front_matter(loaded, metadata)
-    _remove_section(lines, name)
-    raw = _guarded_write(loaded, lines)
+    lines = _config_lines_without_section(metadata, _config_body(state["loaded"]), name)
+    _guarded_write(state["loaded"], lines)
     _audit(database, "list_deleted", {"name": name, "tasks": removed})
-    return {"revision": _revision(raw), "deleted": name, "tasks": removed}
+    return {"revision": _revision_now(vault_dir), "deleted": name, "tasks": removed,
+            "trash": task_notes.task_relative(batch, vault_dir)}
+
+
+# ===== 逻辑文件夹（不是磁盘目录） =====
 
 
 def create_folder(vault_dir: Path | str, payload: NamedPayload, database: Database, *,
                   read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "新增文件夹", read_only)
+    _ensure_write(read_only, "新增文件夹")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="文件夹名")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     folders = [str(item) for item in (metadata.get("文件夹") or [])]
     if name in folders:
         raise HTTPException(422, f"已经有叫“{name}”的文件夹了")
-    folders.append(name)
-    metadata["文件夹"] = folders
-    raw = _guarded_write(loaded, _replace_front_matter(loaded, metadata))
+    metadata["文件夹"] = [*folders, name]
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
     _audit(database, "folder_created", {"name": name})
-    return {"revision": _revision(raw), "folder": name}
+    return {"revision": _revision_now(vault_dir), "folder": name}
 
 
 def update_folder(vault_dir: Path | str, payload: FolderUpdate, database: Database, *,
                   read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "重命名文件夹", read_only)
+    _ensure_write(read_only, "重命名文件夹")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="文件夹名")
     new_name = _clean_name(payload.new_name, what="文件夹名")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     folders = [str(item) for item in (metadata.get("文件夹") or [])]
     if name not in folders:
         raise HTTPException(422, f"没有叫“{name}”的文件夹")
@@ -917,17 +1076,18 @@ def update_folder(vault_dir: Path | str, payload: FolderUpdate, database: Databa
         if str(entry.get("文件夹") or "") == name:
             entry["文件夹"] = new_name
     metadata["清单"] = entries
-    raw = _guarded_write(loaded, _replace_front_matter(loaded, metadata))
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
     _audit(database, "folder_renamed", {"name": name, "new_name": new_name})
-    return {"revision": _revision(raw), "folder": new_name}
+    return {"revision": _revision_now(vault_dir), "folder": new_name}
 
 
 def delete_folder(vault_dir: Path | str, payload: NamedPayload, database: Database, *,
                   read_only: bool = False) -> dict[str, Any]:
-    """解散文件夹：里面的清单回到根级（不连坐删清单）。"""
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "删除文件夹", read_only)
+    _ensure_write(read_only, "解散文件夹")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="文件夹名")
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     folders = [str(item) for item in (metadata.get("文件夹") or [])]
     if name not in folders:
         raise HTTPException(422, f"没有叫“{name}”的文件夹")
@@ -938,52 +1098,76 @@ def delete_folder(vault_dir: Path | str, payload: NamedPayload, database: Databa
         if str(entry.get("文件夹") or "") == name:
             entry.pop("文件夹", None)
     metadata["清单"] = entries
-    raw = _guarded_write(loaded, _replace_front_matter(loaded, metadata))
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
     _audit(database, "folder_deleted", {"name": name})
-    return {"revision": _revision(raw), "deleted": name}
+    return {"revision": _revision_now(vault_dir), "deleted": name}
+
+
+# ===== 标签 =====
 
 
 def create_tag(vault_dir: Path | str, payload: TagCreate, database: Database, *,
                read_only: bool = False) -> dict[str, Any]:
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "新增标签", read_only)
+    _ensure_write(read_only, "新增标签")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
     if _find_entry(entries, name):
         raise HTTPException(422, f"已经有叫“{name}”的标签了")
-    entry = {"名称": name}
+    entry: dict[str, Any] = {"名称": name}
     color = _clean_color(payload.color)
     if color:
         entry["颜色"] = color
     entries.append(entry)
     metadata["标签"] = entries
-    raw = _guarded_write(loaded, _replace_front_matter(loaded, metadata))
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
     _audit(database, "tag_created", {"name": name})
-    return {"revision": _revision(raw), "tag": {"name": name}}
+    return {"revision": _revision_now(vault_dir), "tag": {"name": name}}
+
+
+def _rewrite_note_tags(vault_dir: Path | str, note: dict[str, Any],
+                       old: str, new: str | None) -> bool:
+    tags: list[str] = []
+    for tag in note["tags"]:
+        replacement = new if tag == old else tag
+        if replacement and replacement not in tags:
+            tags.append(replacement)
+    if tags == note["tags"]:
+        return False
+    task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                                 title=note["title"], values=_note_values(note, tags=tags))
+    return True
 
 
 def update_tag(vault_dir: Path | str, payload: TagUpdate, database: Database, *,
                read_only: bool = False) -> dict[str, Any]:
-    """改标签：重命名会同步改写所有任务行里的 `#旧名`；颜色/置顶写进定义。"""
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "修改标签", read_only)
-    name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
-    metadata = _base_metadata(loaded)
+    _ensure_write(read_only, "修改标签")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    old_name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
+    name = old_name
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
     entry = _find_entry(entries, name)
     if entry is None:
         entry = {"名称": name}
         entries.append(entry)
     new_name = _clean_name(payload.new_name, what="标签名", limit=MAX_TAG_NAME) if payload.new_name.strip() else ""
-    lines = list(loaded["lines"]) if loaded["exists"] else []
+    rename = bool(new_name and new_name != old_name)
+    if rename and _find_entry(entries, new_name):
+        raise HTTPException(422, f"已经有叫“{new_name}”的标签了")
+    color = _clean_color(payload.color) if payload.color is not None else None
     renamed = 0
-    if new_name and new_name != name:
-        if _find_entry(entries, new_name):
-            raise HTTPException(422, f"已经有叫“{new_name}”的标签了")
-        renamed = _rewrite_tag(lines, name, new_name)
+    if rename:
+        for note in state["notes"]:
+            if old_name in note["tags"]:
+                if _rewrite_note_tags(vault_dir, note, old_name, new_name):
+                    renamed += 1
         entry["名称"] = new_name
         name = new_name
     if payload.color is not None:
-        color = _clean_color(payload.color)
         if color:
             entry["颜色"] = color
         else:
@@ -994,141 +1178,49 @@ def update_tag(vault_dir: Path | str, payload: TagUpdate, database: Database, *,
         else:
             entry.pop("置顶", None)
     metadata["标签"] = entries
-    # 重命名时正文里的 `#旧名` 已经在 lines 里改好了；没重命名就是原样正文。一次原子替换写回。
-    raw = _write_lines(loaded, lines, metadata)
-    _audit(database, "tag_updated", {"name": name, "renamed_tasks": renamed})
-    return {"revision": _revision(raw), "tag": {"name": name, "renamed_tasks": renamed}}
-
-
-def _write_lines(loaded: dict[str, Any], body_lines: list[str], metadata: dict[str, Any]) -> bytes:
-    """front matter 用 metadata 重写 + 正文用改过的 body_lines 写回（同一次原子替换）。"""
-    body = list(body_lines[loaded["body_start"]:]) if loaded["exists"] else list(body_lines)
-    block = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n")
-    return _guarded_write(loaded, ["---", *block, "---", *body])
+    lines = _full_config(metadata, _config_body(state["loaded"]))
+    legacy_renamed = _replace_tag(lines, old_name, name) if rename else 0
+    _guarded_write(state["loaded"], lines)
+    _audit(database, "tag_updated", {"name": name, "renamed_tasks": renamed + legacy_renamed})
+    return {"revision": _revision_now(vault_dir),
+            "tag": {"name": name, "renamed_tasks": renamed + legacy_renamed}}
 
 
 def delete_tag(vault_dir: Path | str, payload: NamedPayload, database: Database, *,
                read_only: bool = False) -> dict[str, Any]:
-    """删标签：定义移除，并且把所有任务行里的 `#标签` 去掉（照滴答）。"""
-    path, loaded = _load_for_structure(vault_dir, payload.revision, "删除标签", read_only)
+    _ensure_write(read_only, "删除标签")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
-    metadata = _base_metadata(loaded)
+    metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
     entry = _find_entry(entries, name)
     if entry is not None:
         entries.remove(entry)
     metadata["标签"] = entries
-    lines = list(loaded["lines"]) if loaded["exists"] else []
-    stripped = _rewrite_tag(lines, name, None)
-    raw = _write_lines(loaded, lines, metadata)
-    _audit(database, "tag_deleted", {"name": name, "tasks": stripped})
-    return {"revision": _revision(raw), "deleted": name, "tasks": stripped}
+    touched = 0
+    for note in state["notes"]:
+        if name in note["tags"]:
+            if _rewrite_note_tags(vault_dir, note, name, None):
+                touched += 1
+    lines = _full_config(metadata, _config_body(state["loaded"]))
+    legacy = _replace_tag(lines, name, None)
+    _guarded_write(state["loaded"], lines)
+    _audit(database, "tag_deleted", {"name": name, "tasks": touched + legacy})
+    return {"revision": _revision_now(vault_dir), "deleted": name, "tasks": touched + legacy}
 
 
-class TaskBulk(BaseModel):
-    """批量操作（2026-10-08）：一次写回处理多条，避免 N 次改文件、N 次版本号抖动。"""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    keys: list[TaskKey] = Field(min_length=1, max_length=200)
-    # delete / move / tag / date / priority / pin / duplicate
-    action: str = Field(max_length=10)
-    list_name: str = Field(default="", max_length=MAX_LIST)
-    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS)
-    date: str = Field(default="", max_length=10)      # date：改到哪一天（空 = 清除日期）
-    priority: str = Field(default="", max_length=10)  # priority：high/medium/low/none
-    pinned: bool = True                               # pin：true 置顶 / false 取消置顶
-    revision: str = Field(default="", max_length=64)
-
-
-def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
-               read_only: bool = False) -> dict[str, Any]:
-    """批量删除 / 移动 / 打标签：定位到的行一次改完，再整份写回（同一套原子替换协议）。"""
-    label = {"delete": "批量删除任务", "move": "批量移动任务", "tag": "批量打标签",
-             "date": "批量改日期", "priority": "批量改优先级", "pin": "批量置顶/取消置顶",
-             "duplicate": "批量创建副本"}.get(payload.action)
-    if label is None:
-        raise HTTPException(422, "批量动作只能是 delete / move / tag / date / priority / pin / duplicate")
-    try:
-        ensure_vault_writable(read_only, label)
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    path = _tasks_path(vault_dir)
-    loaded = _load_tasks(path)
-    if not loaded["exists"]:
-        raise HTTPException(409, "任务文件还不存在，请刷新后重试")
-    _check_revision(loaded, payload.revision)
-    tasks = parse_tasks(loaded)
-    picked: list[dict[str, Any]] = []
-    for key in payload.keys:
-        task = next((item for item in tasks if item["key"] == key), None)
-        if task is None:
-            raise HTTPException(409, "选中的任务里有已经不在文件里的（可能已在 Obsidian 中改过），请刷新后重试")
-        picked.append(task)
-    # 从下往上改，行号才不会互相挤
-    picked.sort(key=lambda item: item["line"], reverse=True)
-
-    def rewritten(task, **changes):
-        fields = {"date": task["date"], "time": task["time"], "priority": task["priority"],
-                  "tags": task["tags"], "pinned": task["pinned"]}
-        fields.update(changes)
-        return format_task_line(task["title"], done=task["done"], done_on=task["done_on"],
-                                created=task["created"], **fields)
-
-    lines = list(loaded["lines"])
-    if payload.action == "delete":
-        for task in picked:
-            del lines[task["line"] - 1]
-    elif payload.action == "move":
-        target = _require_list(loaded, payload.list_name)
-        for task in picked:
-            line = rewritten(task)
-            del lines[task["line"] - 1]
-            lines.insert(_list_insert_point(lines, target), line)
-    elif payload.action == "tag":
-        tags = _clean_tags(payload.tags)
-        if not tags:
-            raise HTTPException(422, "要打的标签不能为空")
-        for task in picked:
-            merged = list(dict.fromkeys([*task["tags"], *tags]))
-            lines[task["line"] - 1] = rewritten(task, tags=merged)
-    elif payload.action == "date":
-        date = _clean_date(payload.date, "日期")   # 空串 = 清除日期
-        for task in picked:
-            lines[task["line"] - 1] = rewritten(task, date=date)
-    elif payload.action == "priority":
-        if not payload.priority:
-            raise HTTPException(422, "批量改优先级要给出优先级")
-        priority = _clean_priority(payload.priority)
-        for task in picked:
-            lines[task["line"] - 1] = rewritten(task, priority=priority)
-    elif payload.action == "pin":
-        for task in picked:
-            lines[task["line"] - 1] = rewritten(task, pinned=payload.pinned)
-    else:  # duplicate：不改原有的行，只在各自清单最上面插一条副本
-        inserts: list[tuple[int, str]] = []
-        for task in picked:
-            copy = format_task_line(task["title"], done=False, date=task["date"], time=task["time"],
-                                    priority=task["priority"], tags=task["tags"],
-                                    pinned=task["pinned"], created=_today())
-            inserts.append((_list_insert_point(lines, task["list_name"]), copy))
-        for position, line in sorted(inserts, key=lambda item: item[0], reverse=True):
-            lines.insert(position, line)
-
-    raw = _guarded_write(loaded, lines)
-    _audit(database, f"tasks_bulk_{payload.action}",
-           {"count": len(picked), "list": payload.list_name, "tags": payload.tags})
-    return {"revision": _revision(raw), "count": len(picked), "action": payload.action}
+# ===== 路由器 =====
 
 
 def create_tasks_router(vault_dir: Path | str, database: Database, *,
                         read_only: bool = False, prefix: str = "/api") -> APIRouter:
-    # 前缀用 /api/time：`/api/tasks` 已经被“数字分身 → 目标与任务”那套 SQLite 任务占用了。
+    # `/api/tasks` 已被“数字分身 → 目标与任务”的 SQLite 任务占用，时间管理统一走 /api/time。
     router = APIRouter(prefix=f"{prefix}/time", tags=["time-tasks"])
 
     @router.get("/tasks")
     def tasks_read():
-        return read_tasks(vault_dir)
+        return read_tasks(vault_dir, read_only=read_only)
 
     @router.post("/tasks")
     def tasks_create(payload: TaskCreate):
@@ -1150,7 +1242,6 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     def tasks_bulk(payload: TaskBulk):
         return bulk_tasks(vault_dir, payload, database, read_only=read_only)
 
-    # ---- 清单 / 文件夹 / 标签（第 2 轮）----
     @router.post("/lists")
     def lists_create(payload: ListCreate):
         return create_list(vault_dir, payload, database, read_only=read_only)

@@ -686,7 +686,9 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 /* ===== 时间管理模块（2026-10-08，替换「今日待办」） =====
    结构：.time-module = 左侧按钮栏 | 二级侧边栏（只有任务页）| 主区；
    颜色只用 --p-* 调色板（theme-tokens 守卫会拦硬编码色）。 */
-.time-module { display: flex; align-items: stretch; min-height: 460px; padding: 0; }
+/* 任务页与月历页统一起始高度（2026-10-17 用户要求）：月历内容在桌面宽度下约 579px；
+   任务少时模块保持这个高度，任务多到放不下时由每行自适应行高继续把模块撑高，不压扁/截断行。 */
+.time-module { display: flex; align-items: stretch; min-height: 580px; padding: 0; }
 .time-module .time-rail { flex: 0 0 78px; display: flex; flex-direction: column; gap: 4px; padding: 12px 8px; border-right: 1px solid var(--p-line); background: var(--p-surface-2); }
 .time-rail-item { display: flex; flex-direction: column; align-items: center; gap: 3px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--p-ink-3); font-size: 12px; padding: 9px 2px; }
 .time-rail-item span { font-size: 17px; line-height: 1; }
@@ -734,20 +736,33 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .task-title { flex: 1 1 auto; min-width: 0; color: var(--p-ink); font-size: 14px; overflow-wrap: anywhere; }
 .time-task.is-done .task-title { color: var(--p-ink-faint); text-decoration: line-through; }
 .task-rename { flex: 1 1 auto; min-width: 0; border: 1px solid var(--p-focus-ring-strong); border-radius: 6px; padding: 3px 6px; font-size: 14px; background: var(--p-surface); color: var(--p-ink); }
-.task-flags { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.task-flags { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; font-size: 12px; }
 .task-flag { font-size: 12px; }
 .task-flag.prio-high { color: var(--p-err-ink); }
 .task-flag.prio-medium { color: var(--p-warn-ink); }
 .task-flag.prio-low { color: var(--p-info); }
 .task-flag.prio-none { color: var(--p-ink-faint); }
 .task-pin { font-size: 11px; }
-.task-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.task-tags { flex: 0 1 auto; min-width: 0; overflow: hidden; display: flex; gap: 4px; flex-wrap: wrap; }
 .task-tag-chip { border: 0; background: var(--p-chip); color: var(--p-ink-3); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
 .task-tag-chip:hover { background: var(--p-fill-strong); color: var(--p-ink); }
 .task-tag-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--tag-color, var(--p-ink-faint)); display: inline-block; }
-.task-meta { flex: 0 0 auto; color: var(--p-ink-5); font-size: 11px; white-space: nowrap; }
-.task-more { border: 0; background: transparent; color: var(--p-ink-4); padding: 0 4px; opacity: 0; font-size: 14px; }
+.task-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--p-ink-5); font-size: 11px; white-space: nowrap; }
+.task-more { flex: 0 0 auto; border: 0; background: transparent; color: var(--p-ink-4); padding: 5px 7px; border-radius: 6px; opacity: 0; font-size: 14px; }
 .time-task:hover .task-more, .task-more:focus-visible { opacity: 1; }
+.task-more:hover { background: var(--p-hover); color: var(--p-ink); }
+/* 打开文档是任务行上的主要操作：给足点击面积，并常驻可见（触屏/窄面板也能点到）。
+   标签与元信息可收缩/截断，避免把右侧按钮挤出可见区域。 */
+.task-open { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-height: 28px; padding: 3px 9px; border: 1px solid var(--p-line); border-radius: 7px; background: var(--p-surface-2); color: var(--p-ink-3); font-size: 12px; line-height: 1; white-space: nowrap; opacity: .85; cursor: pointer; }
+.task-open:hover { background: var(--p-hover); border-color: var(--p-line-strong); color: var(--p-ink); }
+.time-task:hover .task-open, .task-open:focus-visible { opacity: 1; }
+.task-legacy-badge { flex: 0 0 auto; border: 1px solid var(--p-line); border-radius: 5px; padding: 0 4px; color: var(--p-ink-4); font-size: 11px; line-height: 16px; }
+.time-task.is-legacy .task-check { cursor: not-allowed; }
+.time-task.is-legacy .task-title { color: var(--p-ink-3); }
+.time-task.is-legacy { background: var(--p-fill-soft, transparent); }
+.task-check:disabled { cursor: not-allowed; opacity: 0.55; }
+.time-item.is-legacy { opacity: 0.78; }
+.time-item.is-legacy .time-item-check { cursor: not-allowed; }
 .time-popover { position: fixed; z-index: 40; min-width: 190px; max-width: 280px; max-height: 72vh; overflow: auto; background: var(--p-surface); border: 1px solid var(--p-line-2); border-radius: 11px; box-shadow: 0 10px 30px var(--p-shadow); padding: 6px; }
 .time-popover-row { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--p-ink); font-size: 13px; padding: 7px 8px; border-radius: 7px; text-align: left; }
 .time-popover-row:hover { background: var(--p-hover); }

@@ -638,8 +638,9 @@ const byText = (root, text) => walk(root).filter((node) => node.textContent === 
 
 function calendarTask(overrides = {}) {
   return {
-    key: "k", line: 1, list_name: "收集箱", title: "任务", done: false, done_on: "",
-    date: "2026-10-11", time: "", priority: "none", tags: [], pinned: false, created: "",
+    key: "k", path: "00-System/任务/任务.md", legacy: false, list_name: "收集箱",
+    title: "任务", done: false, done_on: "", date: "2026-10-11", time: "",
+    priority: "none", tags: [], pinned: false, created: "",
     ...overrides,
   };
 }
@@ -835,4 +836,41 @@ test("agenda lists the next days with times and an all-day row", async () => {
   assert.equal(byText(container, "14:00-15:30").length, 1);
   await byClass(container, "time-agenda-add")[0].emit("click");
   assert.deepEqual(added, ["2026-10-11"]);
+});
+
+test("task rows expose an open-document button and keep legacy tasks read-only", async () => {
+  const { load } = await harness();
+  const { taskRow } = (await load("tasks.js")).namespace;
+  const opened = [];
+  const toggled = [];
+  const base = calendarTask({
+    key: "new", path: "00-System/任务/写方案.md", legacy: false,
+    title: "写方案", done: false, date: "2026-10-11",
+  });
+  const options = {
+    today: "2026-10-11", lists: [],
+    onOpenDocument: (task) => opened.push(task.path),
+    onToggle: (task, done) => toggled.push([task.key, done]),
+    actions: {},
+  };
+  const row = taskRow(base, options);
+  const boxes = byClass(row, "task-check");
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0].disabled, false);
+  await boxes[0].emit("change");
+  assert.deepEqual(toggled, [["new", false]]);
+  const open = byClass(row, "task-open");
+  assert.equal(open.length, 1);
+  await open[0].emit("click");
+  assert.deepEqual(opened, ["00-System/任务/写方案.md"]);
+
+  const legacy = taskRow({ ...base, key: "old", legacy: true, path: "00-System/任务（tasks）.md",
+    title: "买菜" }, options);
+  const legacyBox = byClass(legacy, "task-check")[0];
+  assert.equal(legacyBox.disabled, true);
+  await legacyBox.emit("change");
+  assert.deepEqual(toggled, [["new", false]]);   // 旧任务不触发完成写操作
+  assert.equal(byClass(legacy, "task-legacy-badge").length, 1);
+  await byClass(legacy, "task-open")[0].emit("click");
+  assert.deepEqual(opened, ["00-System/任务/写方案.md", "00-System/任务（tasks）.md"]);
 });

@@ -20,6 +20,7 @@ import {
 import {
   openListDialog, openCopyListDialog, openFolderDialog, openTagDialog, confirmDialog,
 } from "./tasks-dialogs.js";
+import { isObsidianHost, openTaskDocument } from "./task-open.js";
 
 const VIEW_KEY = "torch-os:time-view";
 const SIDEBAR_KEY = "torch-os:time-sidebar";
@@ -129,9 +130,10 @@ export function initTimeModule() {
   $("#time-bulk-clear").addEventListener("click", exitMulti);
   $("#time-bulk-all").addEventListener("click", () => {
     const selection = viewState.selection || { view: "today" };
+    // 旧任务是只读的：不进入批量选择（也避免全选后点了才发现被后端拒绝）。
     const visible = filterTasks(board?.tasks || [], selection.view || "today", {
       today: shanghaiDay(), list: selection.list || "", tag: selection.tag || "",
-    });
+    }).filter((task) => !task.legacy);
     const all = visible.length > 0 && visible.every((task) => picked.has(task.key));
     picked.clear();
     if (!all) for (const task of visible) picked.add(task.key);
@@ -268,12 +270,59 @@ export async function loadTimeTasks({ silent = false } = {}) {
   // 自动重读：文件没变（revision 相同）就不重画，避免打断正在进行的操作。
   if (silent && board && next.revision === board.revision) return;
   board = next;
+  const keys = new Set((next.tasks || []).map((task) => task.key));
+  if (activeKey && !keys.has(activeKey)) activeKey = "";
+  for (const key of [...picked]) if (!keys.has(key)) picked.delete(key);
   setStatus("#time-status", "");
+  paintVaultNote();
   paintSidebar();
   paintBoard();
+  paintBulkBar();
   // 正好停在日历 / 四象限页时，数据变了也要跟着重画
   if (!$( "#time-calendar-page").hidden) paintCalendar();
   if (!$("#time-quadrant-page").hidden) paintQuadrant();
+}
+
+let warningSignature = "";
+
+/** 当前任务库 + 旧任务只读提示。 */
+function paintVaultNote() {
+  const node = $("#time-vault-note");
+  if (!node) return;
+  if (!board) {
+    node.hidden = true;
+    return;
+  }
+  const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
+  const bits = [
+    `${source}：${board.vault_name || "当前库"}`,
+    `新任务保存为 ${board.task_dir || "00-System/任务"}/…md`,
+  ];
+  if (board.legacy_tasks) {
+    bits.push(`旧任务 ${board.legacy_tasks} 条（仍在总文件中，只读）`);
+  }
+  if (board.read_only) bits.push("只读模式");
+  node.textContent = bits.join(" · ");
+  node.hidden = false;
+  const warnings = Array.isArray(board.warnings) ? board.warnings : [];
+  node.title = warnings.length
+    ? `有 ${warnings.length} 个任务笔记未能读取：` + warnings.map((item) => `${item.path}（${item.reason}）`).join("；")
+    : "";
+  const signature = JSON.stringify(warnings);
+  if (signature !== warningSignature) {
+    warningSignature = signature;
+    if (warnings.length) {
+      toast(`有 ${warnings.length} 个任务笔记未能读取；打开 ${warnings[0].path} 检查 frontmatter。`, "warning");
+    }
+  }
+}
+
+/** 打开任务文档：插件 iframe 里走宿主桥，浏览器里走 obsidian://。 */
+function openTask(task) {
+  if (!task) return;
+  if (!openTaskDocument(task, board)) {
+    setStatus("#time-status", "没有可打开的任务文档；刷新后重试。", "warning");
+  }
 }
 
 /** 换视图（侧栏点选、置顶瓦片、标签 chip 都走这里）。 */
@@ -351,7 +400,8 @@ function listAction(action, entry) {
   if (action === "delete") {
     confirmDialog({
       title: `删除清单「${entry.name}」？`,
-      message: "清单里的任务会一起删掉；对方清单里沒有的任务不受影响。删了就找不回来了（Obsidian 里还有文件历史）。",
+      message: "新任务笔记会移到当前库的 .torch-os/task-trash（清单定义与原任务文件同时备份）；"
+        + "这个清单里的旧任务行也会从 任务（tasks）.md 移除。可在文件系统回收站里找回。",
       onConfirm: async () => {
         if (viewState.selection?.list === entry.name) selectView({ view: "today" });
         await post("/api/time/lists/delete", { name: entry.name }, "清单已删除。");
@@ -431,21 +481,33 @@ function taskOptions(selection, options = {}) {
     lists: board?.lists || [],
     selection,
     ...(options.withSelection ? { multi, selectedKeys: picked, activeKey, onPick: onPickTask } : {}),
-    onToggle: (task, done) => patch(task, { done }),
-    onRename: (task, title) => patch(task, { title }),
+    onOpenDocument: (task) => openTask(task),
+    onToggle: (task, done) => {
+      if (task.legacy) return;
+      patch(task, { done });
+    },
+    onRename: (task, title) => {
+      if (task.legacy) return;
+      patch(task, { title });
+    },
     onSelectTag: (tag) => selectView({ tag }),
     actions: {
+      openDocument: (task) => openTask(task),
       setDate: (task, date) => patch(task, { date }),
       setTime: (task, time) => patch(task, { time }),
       setPriority: (task, priority) => patch(task, { priority }),
       setTags: (task, tags) => patch(task, { tags }),
       setPinned: (task, pinned) => patch(task, { pinned }),
       move: (task, list) => patch(task, { list_name: list }),
-      duplicate: (task) => post("/api/time/tasks/duplicate", { key: task.key, line: task.line }, "已创建副本。"),
+      duplicate: (task) => {
+        if (task.legacy) return;
+        post("/api/time/tasks/duplicate", { key: task.key }, "已创建副本。");
+      },
       remove: async (task) => {
+        if (task.legacy) return;
         const ok = await confirmAction(`删除任务“${task.title}”？`, { confirmLabel: "删除" });
         if (!ok) return;
-        post("/api/time/tasks/delete", { key: task.key, line: task.line }, "任务已删除。");
+        post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站（.torch-os/task-trash）。");
       },
     },
   };
@@ -511,6 +573,7 @@ function paintQuadrant() {
 
 /** 单击一行：多选模式下是加/取消，普通模式下是「选中这一条」（再点一次取消）。 */
 function onPickTask(task) {
+  if (task.legacy) return;   // 旧任务只读，不参与选中/批量
   if (multi) {
     if (picked.has(task.key)) picked.delete(task.key);
     else picked.add(task.key);
@@ -568,7 +631,11 @@ async function bulkAction(action, payload = {}, message) {
 }
 
 async function patch(task, changes) {
-  return post("/api/time/tasks/update", { key: task.key, line: task.line, ...changes });
+  if (task.legacy) {
+    toast("旧任务仍在 任务（tasks）.md，应用内只读；请在 Obsidian 里修改。", "warning");
+    return false;
+  }
+  return post("/api/time/tasks/update", { key: task.key, ...changes });
 }
 
 /** 写操作「POST → 重载 → 提示」。返回 false = 没保存成功（快速添加据此把弹窗留着，别让内容白填）。 */

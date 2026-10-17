@@ -11,16 +11,17 @@ import { openPopover, openDatePicker, openTagPicker, openTimePicker } from "./ta
 /** 一行任务的 DOM（任务板 / 日历页 / 四象限页共用，所以导出）。 */
 export function taskRow(task, options) {
   const { today, lists, multi = false, selectedKeys = new Set(), activeKey = "" } = options;
+  const legacy = Boolean(task.legacy);
   const selected = multi ? selectedKeys.has(task.key) : activeKey === task.key;
   const row = document.createElement("li");
-  row.className = `time-task${task.done ? " is-done" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}`;
+  row.className = `time-task${task.done ? " is-done" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}${legacy ? " is-legacy" : ""}`;
   row.dataset.taskKey = task.key;
-  row.dataset.taskLine = String(task.line);
+  row.dataset.taskPath = task.path || "";
   row.tabIndex = 0;
   if (selected) row.setAttribute("aria-selected", "true");
 
-  // 多选模式：行首多一个选择框（勾选状态由外层维护）
-  if (multi) {
+  // 多选模式：行首多一个选择框（旧任务只读，不参与批量）
+  if (multi && !legacy) {
     const select = document.createElement("input");
     select.type = "checkbox";
     select.className = "task-select";
@@ -34,14 +35,30 @@ export function taskRow(task, options) {
   box.type = "checkbox";
   box.className = "task-check";
   box.checked = Boolean(task.done);
-  box.setAttribute("aria-label", `${task.done ? "取消完成" : "完成"}：${task.title}`);
-  box.addEventListener("change", () => options.onToggle(task, box.checked));
+  box.disabled = legacy;
+  box.setAttribute("aria-label", legacy ? `旧任务只读：${task.title}`
+    : `${task.done ? "取消完成" : "完成"}：${task.title}`);
+  if (legacy) box.title = "旧任务仍在 任务（tasks）.md，应用内只读；可在 Obsidian 里修改";
+  box.addEventListener("change", () => {
+    if (legacy) return;
+    options.onToggle(task, box.checked);
+  });
 
   const title = document.createElement("span");
   title.className = "task-title";
   title.textContent = task.title;
-  title.title = "双击可以改字";
-  title.addEventListener("dblclick", () => startRename(title, task, options));
+  title.title = legacy
+    ? "旧任务：在 任务（tasks）.md 中编辑（应用内只读）"
+    : "双击可以改字";
+  if (!legacy) title.addEventListener("dblclick", () => startRename(title, task, options));
+
+  let legacyBadge = null;
+  if (legacy) {
+    legacyBadge = document.createElement("span");
+    legacyBadge.className = "task-legacy-badge";
+    legacyBadge.textContent = "旧";
+    legacyBadge.title = "旧任务仍在 任务（tasks）.md，应用内只读；可在 Obsidian 里修改";
+  }
 
   const flags = document.createElement("span");
   flags.className = "task-flags";
@@ -95,6 +112,20 @@ export function taskRow(task, options) {
     openTaskMenu(more, task, options);
   });
 
+  let openButton = null;
+  if (task.path && options.onOpenDocument) {
+    openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "task-open";
+    openButton.textContent = "📄 文档";
+    openButton.title = legacy ? "打开总任务文件（旧任务在 Obsidian 里编辑）" : "打开任务文档";
+    openButton.setAttribute("aria-label", `${legacy ? "打开总任务文件" : "打开文档"}：${task.title}`);
+    openButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      options.onOpenDocument(task);
+    });
+  }
+
   // 单击整行 = 选中它（多选模式下是加/取消）；点到勾选框、按钮、标签这些交互件时不动选中态。
   row.addEventListener("click", (event) => {
     if (event.target.closest("input, button, a")) return;
@@ -105,13 +136,15 @@ export function taskRow(task, options) {
     openTaskMenu(row, task, options);
   });
   row.addEventListener("keydown", (event) => {
+    if (legacy) return;
     if (event.key === "Enter" && event.target === row) {
       event.preventDefault();
       options.onToggle(task, !task.done);
     }
   });
 
-  row.append(box, title, flags, tags, where, more);
+  row.append(box, ...(legacyBadge ? [legacyBadge] : []), title, flags, tags, where,
+             ...(openButton ? [openButton] : []), more);
   return row;
 }
 
@@ -204,8 +237,16 @@ function menuGroup(layer, label) {
  * 「移动到」在菜单里就地展开清单树，不再套一层子菜单（更少点击）。
  */
 export function openTaskMenu(anchor, task, options) {
-  const { lists = [], tags = [], today, actions } = options;
+  const { lists = [], tags = [], today, actions = {} } = options;
   openPopover(anchor, (layer, close) => {
+    if (task.path && actions.openDocument) {
+      menuRow(layer, task.legacy ? "📄 打开总任务文件" : "📄 打开文档", () => {
+        close();
+        actions.openDocument(task);
+      });
+    }
+    // 旧任务只在 Obsidian 的总文件里编辑；应用内不提供任何写入入口。
+    if (task.legacy) return;
     menuGroup(layer, "日期");
     const quick = document.createElement("div");
     quick.className = "time-popover-quick";
@@ -364,26 +405,31 @@ export function paintAddTools(labels) {
  */
 function taskItem(task, options, shape) {
   const { colors = {}, onToggle } = options;
+  const legacy = Boolean(task.legacy);
   const item = document.createElement("div");
-  item.className = `time-item time-${shape}${task.done ? " is-done" : ""}`;
+  item.className = `time-item time-${shape}${task.done ? " is-done" : ""}${legacy ? " is-legacy" : ""}`;
   item.dataset.taskKey = task.key;
+  item.dataset.taskPath = task.path || "";
   const color = taskColor(task, colors);
   if (color) item.style.setProperty("--item-color", color);
-  item.title = [task.title, timeLabel(task.time), task.list_name].filter(Boolean).join(" · ");
+  item.title = [task.title, timeLabel(task.time), task.list_name, legacy ? "旧任务（只读）" : ""]
+    .filter(Boolean).join(" · ");
 
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "time-item-check";
   box.checked = Boolean(task.done);
-  box.setAttribute("aria-label", `${task.done ? "取消完成" : "完成"}：${task.title}`);
-  box.addEventListener("change", () => onToggle?.(task, box.checked));
+  box.disabled = legacy;
+  box.setAttribute("aria-label", legacy ? `旧任务只读：${task.title}`
+    : `${task.done ? "取消完成" : "完成"}：${task.title}`);
+  box.addEventListener("change", () => { if (!legacy) onToggle?.(task, box.checked); });
   box.addEventListener("click", (event) => event.stopPropagation());
 
   const title = document.createElement("span");
   title.className = "time-item-title";
   title.textContent = task.title;
-  title.title = "双击可以改字";
-  title.addEventListener("dblclick", () => startRename(title, task, options));
+  title.title = legacy ? "旧任务：应用内只读" : "双击可以改字";
+  if (!legacy) title.addEventListener("dblclick", () => startRename(title, task, options));
 
   const time = timeLabel(task.time);
   const when = document.createElement("span");

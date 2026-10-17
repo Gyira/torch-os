@@ -2,8 +2,9 @@
 // 日历七种视图那批纯函数在文件后半段（2026-10-11）：周/多日/多周日期串、时间换算与摆放、翻页。
 // 无 DOM 依赖，node 直测友好（照 almanac.js / weather.js 的形态）。
 // 数据形状见 backend/app/tasks.py：
-//   task = { key, line, list_name, title, done, done_on, date, priority, tags, pinned, created }
+//   task = { key, path, legacy, list_name, title, done, done_on, date, time, priority, tags, pinned, created }
 //   priority: "high" | "medium" | "low" | "none"
+// 新任务没有 line（一篇笔记一个文件）；同一时间/日期下的稳定顺序用 path + title。
 import { shanghaiDay } from "./journal-model.js";
 
 export const INBOX = "收集箱";
@@ -168,6 +169,11 @@ function sortRank(task) {
   return 3;
 }
 
+/** 同值时的稳定顺序：笔记按路径，旧任务按 key（它们共享同一份总文件路径）。 */
+function stableOrder(task) {
+  return `${task.path || ""}\u0000${task.key || ""}\u0000${task.title || ""}`;
+}
+
 /** 排序：置顶永远在最前，其次按选定的字段；order="old" 从旧到新，"new" 从新到旧。 */
 export function sortTasks(tasks, sortBy, order = "old") {
   const direction = order === "new" ? -1 : 1;
@@ -188,7 +194,7 @@ export function sortTasks(tasks, sortBy, order = "old") {
       if (!right) return -1;
       return left.localeCompare(right, "zh") * direction;
     }
-    return (a.line || 0) - (b.line || 0);
+    return stableOrder(a).localeCompare(stableOrder(b), "zh");
   });
 }
 
@@ -385,16 +391,17 @@ export function timeLabel(text) {
     : clockLabel(span.start);
 }
 
-/** 同一天里的排序：没时间的（全天）在前，然后按开始时间、文件里的先后。 */
+/** 同一天里的排序：没时间的（全天）在前，然后按开始时间、路径/标题稳定顺序。 */
 export function sortDayTasks(tasks = []) {
   return [...(Array.isArray(tasks) ? tasks : [])].sort((a, b) => {
     const left = timeToMinutes(a.time);
     const right = timeToMinutes(b.time);
-    if (!left && !right) return (a.line || 0) - (b.line || 0);
+    const tie = stableOrder(a).localeCompare(stableOrder(b), "zh");
+    if (!left && !right) return tie;
     if (!left) return -1;
     if (!right) return 1;
     if (left.start !== right.start) return left.start - right.start;
-    return (a.line || 0) - (b.line || 0);
+    return tie;
   });
 }
 

@@ -65,6 +65,7 @@
                 <button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="true">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="workbench-refresh" class="text-button">刷新</button>
               </header>
               <p id="time-board-hint" class="field-help" hidden></p>
+              <p id="time-vault-note" class="meta" hidden></p>
               <div class="time-bulk" id="time-bulk" hidden role="group" aria-label="批量操作">
                 <span id="time-bulk-count" class="meta" role="status">已选 0 项</span>
                 <button type="button" id="time-bulk-all" class="text-button">全选</button>
@@ -321,7 +322,11 @@
             </article>
           </section>
           <section class="settings-section" data-settings-section="obsidian" aria-labelledby="settings-obsidian-heading" hidden>
-            <article class="settings-card">
+            <article class="settings-card" id="vault-scoped-card" hidden>
+              <div class="settings-card-head"><div><span class="eyebrow">OBSIDIAN SCOPED</span><h2 tabindex="-1">当前由 Obsidian 库承载</h2><p id="vault-scoped-text"></p></div></div>
+              <p class="field-help">切换库 = 在 Obsidian 里打开另一个库；工作台会自动使用那个库自己的 <code>.torch-os</code> 数据，不需要在这里切工作区，也不会和其它库混在一起。</p>
+            </article>
+            <article class="settings-card" id="vault-status-card">
               <div class="settings-card-head"><div><span class="eyebrow">OBSIDIAN VAULT</span><h2 id="settings-obsidian-heading" tabindex="-1">Obsidian 库连接</h2><p>把工作台指向你的 Obsidian 库；默认只读——扫描与检索照常，任何写入都会被拒绝。</p></div><div class="section-actions"><button id="vault-preview-scan" class="text-button" disabled>只读扫描预览</button><button id="vault-onboarding" class="text-button" disabled>生成演练报告</button></div></div>
               <div id="vault-connection-body" class="panel">正在读取当前 Vault…</div>
               <p id="vault-connection-status" class="status-message" role="status"></p>
@@ -338,7 +343,7 @@
               <p id="vault-connection-support" class="meta" role="status" hidden></p>
               <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 分享导入 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
             </article>
-            <article class="settings-card">
+            <article class="settings-card" id="workspace-card">
               <div class="settings-card-head"><div><span class="eyebrow">WORKSPACES</span><h2 id="settings-workspaces-heading" tabindex="-1">工作区（用户文件夹）</h2><p>换用户就是换文件夹：一个文件夹 = 一个人的 Obsidian 库 + 应用数据。切换会写入本地 <code>.env</code>（<code>DATA_DIR</code>、<code>VAULT_DIR</code>、读写模式），重启本地服务后生效。</p></div><div class="section-actions"><button id="workspace-new" class="text-button" type="button" disabled>新建工作区</button></div></div>
               <div id="workspace-list" class="panel workspace-list">正在读取工作区…</div>
               <p id="workspace-note" class="field-help"></p>

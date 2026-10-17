@@ -162,20 +162,27 @@ export function renderTaskSidebar(container, options) {
     label: "清单管理", collapsed: collapsed.lists, onToggle: () => onToggleGroup("lists"),
     hint: `${lists.length} 个`, onAdd: onAddList, addLabel: "添加清单",
   });
-  const pushList = (host, entry) => item(host, {
-    id: entry.name, icon: iconHtml(entry), label: entry.name,
-    count: listCounts[entry.name] || 0, active: selection.list === entry.name, kind: "list",
-    onClick: () => onSelect({ list: entry.name }),
-    actions: [
+  const pushList = (host, entry) => {
+    // synthetic = 在 Obsidian 里手工建出来、还没登记定义的目录：可见、可筛选，
+    // 但不提供改名/复制/删除（这些动作需要写配置定义）。快速添加仍然可用。
+    const actions = [
       { icon: "＋", title: "在这个清单里加任务", onClick: () => onQuickAdd(entry.name) },
-      { icon: "…", title: "清单操作", onClick: (anchor) => openRowMenu(anchor, [
+    ];
+    if (!entry.synthetic) {
+      actions.push({ icon: "…", title: "清单操作", onClick: (anchor) => openRowMenu(anchor, [
         { label: "编辑", onClick: () => onListAction("edit", entry) },
         { label: entry.pinned ? "取消置顶" : "置顶", onClick: () => onListAction("pin", entry) },
         { label: "复制", onClick: () => onListAction("duplicate", entry) },
         { label: "删除", onClick: () => onListAction("delete", entry) },
-      ]) },
-    ],
-  });
+      ]) });
+    }
+    item(host, {
+      id: entry.name, icon: iconHtml(entry), label: entry.name,
+      count: listCounts[entry.name] || 0, active: selection.list === entry.name, kind: "list",
+      onClick: () => onSelect({ list: entry.name }),
+      actions,
+    });
+  };
   for (const tree of listTree(lists, folders)) {
     if (!tree.folder) {
       for (const entry of tree.lists) pushList(listBody, entry);
