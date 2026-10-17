@@ -114,6 +114,7 @@ class DidaProvider(Protocol):
     async def fetch_snapshot(self, checkpoint: int = 0) -> RemoteSnapshot: ...
     async def fetch_completed(self) -> tuple[RemoteTask, ...]: ...
     async def test_connection(self) -> dict[str, Any]: ...
+    async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def aclose(self) -> None: ...
 
 
@@ -322,6 +323,74 @@ class PrivateDidaProvider:
             except ValueError:
                 raise DidaError("invalid_response", "滴答返回了无法解析的内容") from None
         raise last or DidaError("network_error", "连接滴答失败")
+
+    async def _post_json(self, path: str, payload: dict[str, Any],
+                         *, attempts: int = 3) -> Any:
+        if not self.credentials.csrf_token:
+            raise DidaError("csrf_required", "需要 _csrf_token 才能回写滴答")
+        headers = self._headers()
+        headers["Content-Type"] = "application/json"
+        last: DidaError | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self._client.post(
+                    f"{self.host}{path}", json=payload, headers=headers
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as error:
+                last = DidaError("network_error", f"连接滴答失败：{type(error).__name__}")
+                if attempt < attempts:
+                    await asyncio.sleep(self._backoff(attempt))
+                    continue
+                raise last from None
+            status = response.status_code
+            if status in (401, 403):
+                raise DidaError("write_forbidden",
+                                "滴答拒绝写入（登录失效、CSRF 或账号权限不足）",
+                                status=status)
+            if status == 429:
+                retry_after = self._retry_after(response)
+                last = DidaError("rate_limited", "滴答限流，请稍后再试",
+                                 retry_after=retry_after, status=status)
+                if attempt < attempts:
+                    await asyncio.sleep(retry_after or self._backoff(attempt))
+                    continue
+                raise last
+            if status >= 500:
+                last = DidaError(f"http_{status}", "滴答服务暂时不可用", status=status)
+                if attempt < attempts:
+                    await asyncio.sleep(self._backoff(attempt))
+                    continue
+                raise last
+            if status >= 400:
+                raise DidaError(f"http_{status}", f"滴答接口返回 {status}", status=status)
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise DidaError("invalid_response", "滴答返回内容过大")
+            try:
+                return response.json()
+            except ValueError:
+                raise DidaError("invalid_response", "滴答返回了无法解析的内容") from None
+        raise last or DidaError("network_error", "连接滴答失败")
+
+    async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]:
+        """批量删除任务：delete = [{taskId, projectId}]（网页端同款）。"""
+        cleaned = [
+            {"taskId": str(item.get("taskId") or ""), "projectId": str(item.get("projectId") or "")}
+            for item in entries
+            if str(item.get("taskId") or "").strip() and str(item.get("projectId") or "").strip()
+        ]
+        if not cleaned:
+            return {"ok": True, "errors": {}}
+        # 与网页端 task commit 的 envelope 保持一致。
+        raw = await self._post_json("/api/v2/batch/task", {
+            "add": [],
+            "update": [],
+            "delete": cleaned,
+            "addAttachments": [],
+            "updateAttachments": [],
+            "deleteAttachments": [],
+        })
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "errors": errors if isinstance(errors, dict) else {}}
 
     async def _snapshot_raw(self, checkpoint: int) -> dict[str, Any]:
         path = f"/api/v3/batch/check/{int(checkpoint)}"

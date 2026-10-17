@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 
 import httpx
@@ -158,6 +159,49 @@ def test_client_bad_cookie_not_retried():
         asyncio.run(provider.fetch_snapshot())
     assert error.value.code == "bad_cookie"
     assert calls["count"] == 1
+    asyncio.run(provider.aclose())
+
+
+def test_client_delete_tasks_uses_csrf_and_web_envelope():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["csrf"] = request.headers.get("x-csrftoken")
+        seen["cookie"] = request.headers.get("cookie")
+        seen["body"] = request.content.decode()
+        return httpx.Response(200, json={"id2etag": {}, "id2error": {}})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport)
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=client,
+    )
+    result = asyncio.run(provider.delete_tasks([{"taskId": "t1", "projectId": "p1"}]))
+    assert result["errors"] == {}
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v2/batch/task"
+    assert seen["csrf"] == "csrf-1"
+    assert "t=abc" in seen["cookie"] and "_csrf_token=csrf-1" in seen["cookie"]
+    body = json.loads(seen["body"])
+    assert body["delete"] == [{"taskId": "t1", "projectId": "p1"}]
+    assert body["add"] == [] and body["update"] == []
+    asyncio.run(provider.aclose())
+
+
+def test_client_delete_requires_csrf():
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500)
+        )),
+    )
+    with pytest.raises(DidaError) as error:
+        asyncio.run(provider.delete_tasks([{"taskId": "t1", "projectId": "p1"}]))
+    assert error.value.code == "csrf_required"
     asyncio.run(provider.aclose())
 
 

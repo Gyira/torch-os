@@ -181,7 +181,7 @@ export function initTimeModule() {
   $("#time-bulk-delete").addEventListener("click", () => {
     confirmDialog({
       title: `把选中的 ${picked.size} 项任务移到回收站？`,
-      message: "文件会先移到 .torch-os/task-trash；需要时可以在“回收站”里彻底删除或从文件系统找回。",
+      message: "文件会先移到 .torch-os/task-trash；如果开启了滴答回写，已同步任务会在下一次推送时从滴答删除。",
       onConfirm: () => bulkAction("delete", {}, (count) => `已把 ${count} 项移到回收站。`),
     });
   });
@@ -613,7 +613,7 @@ function taskOptions(selection, options = {}) {
         if (task.legacy) return;
         const ok = await confirmAction({
           title: `把任务“${task.title}”移到回收站？`,
-          message: "只会移入 .torch-os/task-trash，不会立刻删除 md 文件。",
+          message: "只会移入 .torch-os/task-trash，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
           confirmLabel: "移到回收站",
         });
         if (!ok) return;

@@ -37,6 +37,8 @@ function renderStatus(status) {
     ["上次尝试", formatWhen(status.last_attempt_at)],
     ["上次错误", status.last_error_code ? syncErrorText(status.last_error_code) : "无"],
     ["上次结果", status.last_run_counts && Object.keys(status.last_run_counts).length ? syncCountsText(status.last_run_counts) : "还没有运行过"],
+    ["上次回写删除", status.last_push_at ? formatWhen(status.last_push_at) : "还没有"],
+    ["回写错误", status.last_push_error_code ? syncErrorText(status.last_push_error_code) : "无"],
     ["冲突", String(status.conflicts || 0)],
     ["本地缺失", String(status.local_missing || 0)],
     ["远端已删除", String(status.remote_deleted || 0)],
@@ -49,6 +51,7 @@ function renderStatus(status) {
       `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
   }
   if ($("#dida-enabled")) $("#dida-enabled").checked = Boolean(status.enabled);
+  if ($("#dida-push-deletes")) $("#dida-push-deletes").checked = Boolean(status.push_deletes);
   if ($("#dida-region")) $("#dida-region").value = status.region || "dida365";
   if ($("#dida-interval")) $("#dida-interval").value = String(status.interval_minutes || 15);
   if ($("#dida-completed-days")) $("#dida-completed-days").value = String(status.completed_days ?? 30);
@@ -76,6 +79,8 @@ function renderStatus(status) {
     setStatus("#dida-feedback", "当前运行环境不支持滴答同步。", "error");
   } else if (status.read_only) {
     setStatus("#dida-feedback", "当前库是只读模式：可以测试连接和预览，但不能写入任务笔记。", "warning");
+  } else if (status.push_deletes && !status.csrf_set) {
+    setStatus("#dida-feedback", "本地删除回写滴答需要 _csrf_token：请从浏览器 Cookie 里复制 _csrf_token 后保存。", "warning");
   }
 }
 
@@ -118,6 +123,7 @@ function formPayload() {
     region: $("#dida-region")?.value || "dida365",
     interval_minutes: Number($("#dida-interval")?.value),
     completed_days: Number($("#dida-completed-days")?.value),
+    push_deletes: Boolean($("#dida-push-deletes")?.checked),
     timezone: $("#dida-timezone")?.value || "Asia/Shanghai",
     device_version: Number($("#dida-device-version")?.value),
     cookie: $("#dida-cookie")?.value || "",
@@ -130,7 +136,11 @@ async function saveSettings(event) {
   if (busy) return;
   const payload = formPayload();
   const status = await api("/api/sync/dida/status").catch(() => null);
-  const check = validateSyncForm({ ...payload, cookie_set: Boolean(status?.cookie_set) });
+  const check = validateSyncForm({
+    ...payload,
+    cookie_set: Boolean(status?.cookie_set),
+    csrf_set: Boolean(status?.csrf_set),
+  });
   if (!check.ok) {
     setStatus("#dida-feedback", check.message, "error");
     return;

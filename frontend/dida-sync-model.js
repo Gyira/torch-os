@@ -10,6 +10,8 @@ export function syncErrorText(code) {
     invalid_response: "滴答返回格式异常，接口可能已变化。",
     unsupported: "当前运行环境不支持滴答同步。",
     sync_running: "已经有一次同步在进行。",
+    csrf_required: "回写滴答需要 _csrf_token。",
+    write_forbidden: "滴答拒绝写入（CSRF 或账号权限不足）。",
     http_404: "滴答接口不存在，可能已变更。",
     http_500: "滴答服务暂时不可用。",
   };
@@ -29,6 +31,7 @@ export function syncCountsText(counts = {}) {
   if (number("local_edits")) parts.push(`本地改动 ${number("local_edits")}`);
   if (number("conflicts")) parts.push(`冲突 ${number("conflicts")}`);
   if (number("remote_deleted")) parts.push(`远端删除 ${number("remote_deleted")}`);
+  if (number("deleted_pushed")) parts.push(`回写删除 ${number("deleted_pushed")}`);
   if (number("local_missing")) parts.push(`本地缺失 ${number("local_missing")}`);
   if (number("errors")) parts.push(`错误 ${number("errors")}`);
   return parts.join(" · ");

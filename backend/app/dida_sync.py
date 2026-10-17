@@ -4,7 +4,7 @@
 - 把项目映射成清单、任务映射成 `type: task` 的 Markdown 笔记；
 - 本地在上次同步后改过的笔记不覆盖，冲突可查看/保留本地；
 - 凭据单独存放在当前库的 `.torch-os/dida-credentials.json`，不进 SQLite/备份；
-- 本阶段不向滴答写回；滴答远端删除会把本地笔记移入任务回收站。
+- 默认拉取；可选把本地删除回写滴答（需要 CSRF）；滴答远端删除会把本地笔记移入任务回收站。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from starlette.concurrency import run_in_threadpool
 
-from . import task_notes, tasks
+from . import task_notes, task_trash, tasks
 from .db import Database, utc_now
 from .dida_client import (
     DidaCredentials, DidaError, DidaProvider, PrivateDidaProvider, RemoteProject,
@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS dida_sync_settings (
     region TEXT NOT NULL DEFAULT 'dida365' CHECK(region IN ('dida365', 'ticktick')),
     interval_minutes INTEGER NOT NULL DEFAULT 15 CHECK(interval_minutes BETWEEN 5 AND 1440),
     completed_days INTEGER NOT NULL DEFAULT 30 CHECK(completed_days BETWEEN 0 AND 3650),
+    push_deletes INTEGER NOT NULL DEFAULT 1 CHECK(push_deletes IN (0, 1)),
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     device_id TEXT NOT NULL DEFAULT '',
     device_version INTEGER NOT NULL DEFAULT 8000,
@@ -63,6 +64,8 @@ CREATE TABLE IF NOT EXISTS dida_sync_settings (
     last_run_warnings_json TEXT NOT NULL DEFAULT '[]',
     last_run_started_at TEXT,
     last_run_finished_at TEXT,
+    last_push_at TEXT,
+    last_push_error_code TEXT NOT NULL DEFAULT '',
     last_checkpoint INTEGER,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
@@ -167,6 +170,7 @@ class DidaSyncSettingsUpdate(BaseModel):
     region: str = Field(default="dida365", max_length=16)
     interval_minutes: StrictInt = Field(default=15, ge=5, le=1440)
     completed_days: StrictInt = Field(default=30, ge=0, le=3650)
+    push_deletes: StrictBool = True
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     device_version: StrictInt = Field(default=8000, ge=1, le=99999)
     cookie: str | None = None
@@ -255,6 +259,8 @@ class DidaSyncService:
         self.credentials = CredentialStore(Path(database.path).parent)
         self._running = False
         self._run_guard = asyncio.Lock()
+        self._push_guard = asyncio.Lock()
+        self._push_backoff_until: datetime | None = None
         self.initialize()
 
     # ---------- 初始化 / 设置 ----------
@@ -262,6 +268,18 @@ class DidaSyncService:
     def initialize(self) -> None:
         with self.database.connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {row["name"] for row in connection.execute(
+                "PRAGMA table_info(dida_sync_settings)"
+            )}
+            for name, declaration in (
+                ("push_deletes", "INTEGER NOT NULL DEFAULT 1"),
+                ("last_push_at", "TEXT"),
+                ("last_push_error_code", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE dida_sync_settings ADD COLUMN {name} {declaration}"
+                    )
             connection.execute(
                 "INSERT OR IGNORE INTO dida_sync_settings(id, device_id, updated_at) VALUES (1, ?, ?)",
                 (uuid.uuid4().hex, _iso_now()),
@@ -334,6 +352,7 @@ class DidaSyncService:
             "region": row.get("region") or "dida365",
             "interval_minutes": interval,
             "completed_days": int(row.get("completed_days") or 0),
+            "push_deletes": bool(row.get("push_deletes", 1)),
             "timezone": row.get("timezone") or "Asia/Shanghai",
             "device_version": int(row.get("device_version") or 8000),
             "device_id_prefix": str(row.get("device_id") or "")[:6],
@@ -346,6 +365,8 @@ class DidaSyncService:
             "last_run_counts": last_counts if isinstance(last_counts, dict) else {},
             "last_run_warnings": warnings if isinstance(warnings, list) else [],
             "last_run_finished_at": row.get("last_run_finished_at"),
+            "last_push_at": row.get("last_push_at"),
+            "last_push_error_code": row.get("last_push_error_code") or "",
             "checkpoint": row.get("last_checkpoint"),
             "consecutive_failures": int(row.get("consecutive_failures") or 0),
             "conflicts": counts["conflict"],
@@ -391,11 +412,11 @@ class DidaSyncService:
             connection.execute(
                 """UPDATE dida_sync_settings SET
                    enabled = ?, region = ?, interval_minutes = ?, completed_days = ?,
-                   timezone = ?, device_version = ?, device_id = ?, updated_at = ?
-                   WHERE id = 1""",
+                   push_deletes = ?, timezone = ?, device_version = ?, device_id = ?,
+                   updated_at = ? WHERE id = 1""",
                 (1 if payload.enabled else 0, payload.region, payload.interval_minutes,
-                 payload.completed_days, payload.timezone, payload.device_version,
-                 device_id, _iso_now()),
+                 payload.completed_days, 1 if payload.push_deletes else 0,
+                 payload.timezone, payload.device_version, device_id, _iso_now()),
             )
             connection.commit()
         self.database.audit("dida_sync_settings_updated", {
@@ -404,6 +425,7 @@ class DidaSyncService:
             "interval_minutes": payload.interval_minutes,
             "credentials_cleared": bool(payload.clear_credentials),
         })
+        self._push_backoff_until = None
         return self._settings_public()
 
     def clear_credentials(self) -> dict[str, Any]:
@@ -440,6 +462,112 @@ class DidaSyncService:
             return await provider.test_connection()
         finally:
             await provider.aclose()
+
+    def _pending_delete_entries(self) -> list[dict[str, Any]]:
+        """回收站里已同步、且还没回写删除的任务。"""
+        if not self.supported or self.read_only:
+            return []
+        row = self._row()
+        if not row.get("push_deletes"):
+            return []
+        cookie, _csrf = self.credentials.load()
+        if not cookie:
+            return []
+        items = task_trash.list_trash(self.vault_dir)
+        if not items:
+            return []
+        with self.database.connect() as connection:
+            links = self._load_links(connection)
+        entries: list[dict[str, Any]] = []
+        for item in items:
+            dida_id = str(item.get("dida_id") or "")
+            if not dida_id:
+                continue
+            link = links.get(dida_id)
+            if link is None or str(link.get("status") or "") == "remote_deleted":
+                continue
+            project_id = str(link.get("project_id") or "")
+            if not project_id:
+                continue
+            entries.append({"taskId": dida_id, "projectId": project_id, "item": item})
+        return entries
+
+    async def push_deletions(self, *, force: bool = False) -> dict[str, Any]:
+        """把 torch-os 回收站里的已同步任务删除回滴答（需要 CSRF）。"""
+        row = self._row()
+        if not self.supported:
+            return {"enabled": False, "deleted": 0, "errors": []}
+        if self.read_only:
+            return {"enabled": False, "deleted": 0, "errors": []}
+        if not row.get("push_deletes"):
+            return {"enabled": False, "deleted": 0, "errors": []}
+        now = datetime.now(timezone.utc)
+        if not force and self._push_backoff_until and now < self._push_backoff_until:
+            return {"enabled": True, "deleted": 0, "skipped": "backoff", "errors": []}
+        if self._push_guard.locked():
+            return {"enabled": True, "deleted": 0, "skipped": "running", "errors": []}
+        async with self._push_guard:
+            entries = await run_in_threadpool(self._pending_delete_entries)
+            if not entries:
+                return {"enabled": True, "deleted": 0, "errors": []}
+            _cookie, csrf = self.credentials.load()
+            if not csrf:
+                with self.database.connect() as connection:
+                    connection.execute(
+                        "UPDATE dida_sync_settings SET last_push_at = ?, "
+                        "last_push_error_code = 'csrf_required', updated_at = ? WHERE id = 1",
+                        (_iso_now(), _iso_now()),
+                    )
+                    connection.commit()
+                self._push_backoff_until = datetime.now(timezone.utc) + timedelta(minutes=5)
+                return {"enabled": True, "deleted": 0,
+                        "errors": [{"code": "csrf_required",
+                                    "message": "需要 _csrf_token 才能回写滴答"}]}
+            provider: DidaProvider | None = None
+            try:
+                provider = self.build_provider()
+                result = await provider.delete_tasks([
+                    {"taskId": entry["taskId"], "projectId": entry["projectId"]}
+                    for entry in entries
+                ])
+            except DidaError as error:
+                self._push_backoff_until = now + timedelta(minutes=5)
+                with self.database.connect() as connection:
+                    connection.execute(
+                        "UPDATE dida_sync_settings SET last_push_at = ?, "
+                        "last_push_error_code = ?, updated_at = ? WHERE id = 1",
+                        (_iso_now(), error.code, _iso_now()),
+                    )
+                    connection.commit()
+                return {"enabled": True, "deleted": 0,
+                        "errors": [{"code": error.code, "message": error.message}]}
+            finally:
+                if provider is not None:
+                    await provider.aclose()
+            raw_errors = result.get("errors") if isinstance(result, dict) else {}
+            errors: list[dict[str, str]] = []
+            success_ids: set[str] = set()
+            for entry in entries:
+                code = str((raw_errors or {}).get(entry["taskId"]) or "")
+                if code and code not in {"NOT_EXISTED", "DELETED", "NOT_EXIST", "NOT_FOUND"}:
+                    errors.append({"taskId": entry["taskId"], "code": code})
+                else:
+                    success_ids.add(entry["taskId"])
+            if success_ids:
+                with self.database.connect() as connection:
+                    for dida_id in success_ids:
+                        self._mark_link_status(connection, dida_id, "remote_deleted",
+                                               "deleted_by_local")
+                    connection.execute(
+                        "UPDATE dida_sync_settings SET last_push_at = ?, "
+                        "last_push_error_code = ?, updated_at = ? WHERE id = 1",
+                        (_iso_now(), errors[0]["code"] if errors else "", _iso_now()),
+                    )
+                    connection.commit()
+            self._push_backoff_until = datetime.now(timezone.utc) + timedelta(minutes=5) if errors else None
+            if success_ids:
+                self.database.audit("dida_sync_delete_pushed", {"count": len(success_ids)})
+            return {"enabled": True, "deleted": len(success_ids), "errors": errors}
 
     def due(self, now: datetime | None = None) -> bool:
         if not self.supported or self.read_only or self._running:
@@ -815,6 +943,10 @@ class DidaSyncService:
                 try:
                     if note is None:
                         if link is not None:
+                            if str(link.get("status") or "") == "remote_deleted":
+                                # 已经回写/远端删除过，回收站里的笔记不再拉回来。
+                                counts.unchanged += 1
+                                continue
                             counts.local_missing += 1
                             if not dry_run:
                                 self._mark_link_status(connection, task.id, "local_missing",
@@ -995,6 +1127,11 @@ async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
                     dry_run=dry_run, force=force, trigger=trigger,
                 )
             if not dry_run:
+                push = await service.push_deletions(force=True)
+                summary["counts"]["deleted_pushed"] = int(push.get("deleted") or 0)
+                if push.get("errors"):
+                    summary["warnings"] = sorted(set([*summary.get("warnings", []), "push_delete_error"]))
+                    summary.setdefault("warning_counts", {})["push_delete_error"] = len(push["errors"])
                 service.mark_success(summary)
             return summary
         except Exception as error:
@@ -1011,6 +1148,8 @@ async def dida_sync_loop(service: DidaSyncService, data_lock: asyncio.Lock) -> N
     """每 60 秒检查一次；设置里的间隔按上次尝试时间计算。"""
     while True:
         try:
+            if not service._running:
+                await service.push_deletions()
             if service.due():
                 await run_dida_sync(service, data_lock, trigger="scheduled")
         except asyncio.CancelledError:
@@ -1032,6 +1171,8 @@ def _http_error(error: Exception) -> HTTPException:
             "invalid_region": 422,
             "sync_running": 409,
             "unsupported": 409,
+            "csrf_required": 409,
+            "write_forbidden": 409,
             "rate_limited": 429,
             "network_error": 502,
             "invalid_response": 502,

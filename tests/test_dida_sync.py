@@ -41,10 +41,11 @@ def make_task(**overrides):
 
 
 class FakeProvider:
-    def __init__(self, snapshot, completed=()):
+    def __init__(self, snapshot, completed=(), deleted=None):
         self.snapshot = snapshot
         self.completed = completed
         self.closed = False
+        self.deleted = deleted if deleted is not None else []
 
     async def fetch_snapshot(self, checkpoint=0):
         return self.snapshot
@@ -56,6 +57,10 @@ class FakeProvider:
         return {"ok": True, "task_count": len(self.snapshot.tasks),
                 "project_count": len(self.snapshot.projects), "latency_ms": 1}
 
+    async def delete_tasks(self, entries):
+        self.deleted.append(entries)
+        return {"ok": True, "errors": {}}
+
     async def aclose(self):
         self.closed = True
 
@@ -64,11 +69,11 @@ def make_client(tmp_path: Path, snapshot: RemoteSnapshot, completed=(), *, read_
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
-    seen = {}
+    seen = {"deleted": []}
 
     def factory(credentials):
         seen["cookie"] = credentials.cookie
-        return FakeProvider(snapshot, completed)
+        return FakeProvider(snapshot, completed, seen["deleted"])
 
     app = create_app(
         Database(tmp_path / "dida.sqlite3"), vault,
@@ -319,6 +324,64 @@ def test_trash_purge_rejects_paths_outside_the_trash(tmp_path):
     payload = response.json()
     assert payload["deleted"] == 0
     assert payload["skipped"]
+
+
+def test_local_delete_is_pushed_to_dida_once(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    task = board["tasks"][0]
+    response = client.post("/api/time/tasks/delete", json={
+        "key": task["key"], "revision": board["revision"],
+    })
+    assert response.status_code == 200, response.text
+    result = run_sync(client)
+    assert result["counts"]["deleted_pushed"] == 1
+    assert seen["deleted"] == [[{"taskId": "task-1", "projectId": "proj-1"}]]
+    assert client.get("/api/sync/dida/status").json()["last_push_error_code"] == ""
+    again = run_sync(client)
+    assert again["counts"]["deleted_pushed"] == 0
+    assert len(seen["deleted"]) == 1
+
+
+def test_push_delete_disabled_does_not_call_dida(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    settings = client.put("/api/sync/dida/settings", json={
+        "enabled": False, "region": "dida365", "interval_minutes": 15,
+        "completed_days": 30, "push_deletes": False, "timezone": "Asia/Shanghai",
+        "device_version": 8000,
+    })
+    assert settings.status_code == 200, settings.text
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    client.post("/api/time/tasks/delete", json={
+        "key": board["tasks"][0]["key"], "revision": board["revision"],
+    })
+    run_sync(client)
+    assert seen["deleted"] == []
+
+
+def test_push_delete_without_csrf_reports_error(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=False)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    client.post("/api/time/tasks/delete", json={
+        "key": board["tasks"][0]["key"], "revision": board["revision"],
+    })
+    result = run_sync(client)
+    assert result["counts"]["deleted_pushed"] == 0
+    assert "push_delete_error" in result["warnings"]
+    assert client.get("/api/sync/dida/status").json()["last_push_error_code"] == "csrf_required"
+    assert seen["deleted"] == []
 
 
 def test_read_only_blocks_run_but_allows_test(tmp_path):
