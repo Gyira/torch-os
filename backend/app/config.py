@@ -24,6 +24,8 @@ DB_PATH = DATA_DIR / "torch_os.sqlite3"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
+# 插件按库启动的后端实例：库就是工作区，禁止在界面里再切库。
+VAULT_SCOPED = os.getenv("TORCH_VAULT_SCOPED", "").strip().lower() in {"1", "true", "yes", "on"}
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "local")
 MODEL_BASE_URL = os.getenv("MODEL_BASE_URL", "").rstrip("/")
 MODEL_NAME = os.getenv("MODEL_NAME", "")

@@ -1,4 +1,4 @@
-﻿# 薪火OS · Obsidian 插件安装器（0.99.0）
+﻿# 薪火OS · Obsidian 插件安装器（0.99.1）
 # 把仓库里的 obsidian-plugin/ 复制进指定 vault 的 .obsidian/plugins/torch/，
 # 首次安装时预置 data.json（本机仓库路径），并把 torch 加进 community-plugins.json（预启用）。
 # 只写这两类文件，不碰 vault 里的任何笔记。

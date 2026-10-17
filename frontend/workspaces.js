@@ -49,8 +49,22 @@ function renderList(payload) {
 }
 
 function syncControls() {
+  const scoped = state.config?.vault_scoped === true;
   const enabled = available();
-  const disabled = busy || !enabled;
+  const disabled = busy || !enabled || scoped;
+  const card = $("#workspace-card");
+  if (card) card.hidden = scoped;
+  const scopedCard = $("#vault-scoped-card");
+  if (scopedCard) {
+    scopedCard.hidden = !scoped;
+    if (scoped) {
+      const text = $("#vault-scoped-text");
+      if (text) {
+        text.textContent = `当前由 Obsidian 库承载：${state.config?.vault_name || "当前库"}。`
+          + "在插件里打开另一个库，就会切到那个库自己的工作区。";
+      }
+    }
+  }
   ["#workspace-name", "#workspace-folder", "#workspace-read-only"].forEach((selector) => {
     const node = $(selector);
     if (node) node.disabled = disabled;
@@ -64,7 +78,7 @@ function syncControls() {
   });
   const support = $("#workspace-support");
   if (support) {
-    support.hidden = enabled;
+    support.hidden = enabled || scoped;
     support.textContent = state.config
       ? "当前运行的服务尚未支持工作区设置。请更新并重启本地服务，再刷新页面。"
       : "正在检查服务能力；若未恢复，请到设置页重新检查本地服务。";

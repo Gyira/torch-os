@@ -1,14 +1,14 @@
-"""时间管理模块的任务本体（2026-10-08）：`00-System/任务（tasks）.md` 的解析与外科写入。
+"""时间管理任务：新任务一任务一笔记，旧复选框任务原地只读共存。"""
 
-钉子：只改目标行 / 文件在别处改过 409 / 只读 409 而读 200 / 标记解析不吞用户写的字 /
-清单不存在 422 / 清单与标签定义来自 front-matter。
-"""
+from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
+from backend.app import task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
@@ -49,9 +49,11 @@ type: tasks
 
 
 def make_client(tmp_path, *, read_only=False):
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
     app = create_app(
-        Database(tmp_path / "tasks.sqlite3"), tmp_path / "vault",
+        Database(tmp_path / "tasks.sqlite3"), vault,
         ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ=environ, env_file=tmp_path / ".env")
     client = TestClient(app)
@@ -59,12 +61,20 @@ def make_client(tmp_path, *, read_only=False):
     return client
 
 
-def tasks_file(tmp_path):
+def config_file(tmp_path):
     return tmp_path / "vault" / "00-System" / "任务（tasks）.md"
 
 
-def seed(tmp_path, text=SAMPLE):
-    path = tasks_file(tmp_path)
+def legacy_file(tmp_path):
+    return tmp_path / "vault" / "00-System" / "任务.md"
+
+
+def note_dir(tmp_path):
+    return tmp_path / "vault" / "00-System" / "任务"
+
+
+def seed(tmp_path, text=SAMPLE, *, legacy_name=False):
+    path = legacy_file(tmp_path) if legacy_name else config_file(tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
@@ -76,611 +86,482 @@ def board(client):
     return response.json()
 
 
-def find(payload, title):
-    return next(task for task in payload["tasks"] if task["title"] == title)
+def find(payload, title, *, legacy=None):
+    rows = [task for task in payload["tasks"] if task["title"] == title]
+    if legacy is not None:
+        rows = [task for task in rows if task["legacy"] is legacy]
+    assert rows, f"没有找到任务：{title}"
+    return rows[0]
 
 
-def test_read_parses_markers_lists_and_tags(tmp_path):
+def post(client, path, payload):
+    return client.post(path, json=payload)
+
+
+def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    assert payload["exists"] is True
-    assert [entry["name"] for entry in payload["lists"]] == ["收集箱", "心愿清单", "客户A"]
-    assert next(e for e in payload["lists"] if e["name"] == "客户A")["folder"] == "工作"
-    assert next(e for e in payload["lists"] if e["name"] == "心愿清单")["pinned"] is True
-    assert [tag["name"] for tag in payload["tags"]] == ["重要"]
 
-    shopping = find(payload, "买菜")
+    assert payload["legacy_tasks"] == 4
+    assert payload["path"] == "00-System/任务（tasks）.md"
+    assert payload["vault_name"] == "vault"
+    assert payload["task_dir"] == "00-System/任务"
+    shopping = find(payload, "买菜", legacy=True)
+    assert shopping["path"] == "00-System/任务（tasks）.md"
     assert shopping["list_name"] == "收集箱" and shopping["date"] == "2026-10-06"
     assert shopping["priority"] == "high" and shopping["tags"] == ["重要"]
-    assert shopping["created"] == "2026-10-01" and shopping["done"] is False
+    assert find(payload, "写周报", legacy=True)["done"] is True
+    assert all(task["title"] != "围栏里的不算" for task in payload["tasks"])
 
-    weekly = find(payload, "写周报")
-    assert weekly["done"] is True and weekly["done_on"] == "2026-10-05"
-
-    plain = find(payload, "没标记的任务")
-    assert plain["priority"] == "none" and plain["tags"] == [] and plain["date"] == ""
-
-    beach = find(payload, "去一次海边")
-    assert beach["list_name"] == "心愿清单" and beach["pinned"] is True
-    assert all(task["title"] != "围栏里的不算" for task in payload["tasks"])  # 围栏里的不算
-
-
-def test_unknown_symbols_stay_in_the_title(tmp_path):
-    """不认识的符号留在标题里，绝不吞用户写的字。"""
-    client = make_client(tmp_path)
-    seed(tmp_path, SAMPLE.replace("- [ ] 没标记的任务", "- [ ] 给 #1 issue 加个 🐛 标记"))
-    payload = board(client)
-    assert any(task["title"] == "给 #1 issue 加个 🐛 标记" for task in payload["tasks"])
-
-
-def test_create_appends_to_the_section_top_and_keeps_the_rest(tmp_path):
-    client = make_client(tmp_path)
-    path = seed(tmp_path)
-    before = path.read_bytes()
-
-    created = client.post("/api/time/tasks", json={
-        "title": "写方案", "list_name": "收集箱", "date": TODAY, "priority": "medium",
-        "tags": ["重要", "工作"], "revision": board(client)["revision"]})
+    created = post(client, "/api/time/tasks", {
+        "title": "写方案", "date": TODAY, "revision": payload["revision"]})
     assert created.status_code == 200, created.text
+    body = created.json()["task"]
+    assert body["legacy"] is False
+    assert body["path"] == "00-System/任务/写方案.md"
+    assert (note_dir(tmp_path) / "写方案.md").is_file()
+
+    payload = board(client)
+    assert payload["legacy_tasks"] == 4
+    assert find(payload, "写方案")["legacy"] is False
+
+    stale = post(client, "/api/time/tasks/update", {
+        "key": shopping["key"], "title": "不能改", "revision": payload["revision"]})
+    assert stale.status_code == 409 and "旧任务" in stale.json()["detail"]
+    deleted = post(client, "/api/time/tasks/delete", {
+        "key": shopping["key"], "revision": payload["revision"]})
+    assert deleted.status_code == 409
+    bulk = post(client, "/api/time/tasks/bulk", {
+        "keys": [shopping["key"]], "action": "delete", "revision": payload["revision"]})
+    assert bulk.status_code == 409
+
+
+def test_create_notes_folders_and_validation(tmp_path):
+    client = make_client(tmp_path)
+    payload = board(client)
+    created = post(client, "/api/time/tasks", {
+        "title": "第一条任务", "priority": "medium", "tags": ["重要", "工作"],
+        "date": TODAY, "time": "7:05", "revision": payload["revision"]})
+    assert created.status_code == 200, created.text
+    path = note_dir(tmp_path) / "第一条任务.md"
+    assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert "## 收集箱\n- [ ] 写方案 🔼 " in text
-    assert f"📅 {TODAY}" in text and "#重要 #工作" in text and f"➕ {TODAY}" in text
-    assert "## 心愿清单" in text and "去一次海边" in text       # 其它小节原样
-    assert len(path.read_bytes()) > len(before)
+    assert "type: task" in text
+    assert f'日期: "{TODAY}"' in text and '时间: "07:05"' in text
+    assert "优先级: medium" in text and "标签:" in text
+    assert "标题" not in text
 
-    # 没写清单 → 落到收集箱；日期/优先级缺省 = 空/无
-    client.post("/api/time/tasks", json={"title": "随手记一条", "revision": board(client)["revision"]})
     payload = board(client)
-    assert find(payload, "随手记一条")["list_name"] == "收集箱"
-    assert find(payload, "随手记一条")["priority"] == "none"
-
-
-def test_create_makes_the_file_when_missing(tmp_path):
-    client = make_client(tmp_path)
-    created = client.post("/api/time/tasks", json={"title": "第一条任务"})
-    assert created.status_code == 200, created.text
-    text = tasks_file(tmp_path).read_text(encoding="utf-8")
-    assert "type: tasks" in text and "## 收集箱" in text and "第一条任务" in text
-    assert board(client)["tasks"][0]["title"] == "第一条任务"
-
-
-def test_update_only_touches_that_line(tmp_path):
-    client = make_client(tmp_path)
-    path = seed(tmp_path)
+    second = post(client, "/api/time/tasks", {"title": "第一条任务", "revision": payload["revision"]})
+    assert second.status_code == 200
+    assert (note_dir(tmp_path) / "第一条任务 2.md").is_file()
     payload = board(client)
-    task = find(payload, "买菜")
+    duplicates = [task for task in payload["tasks"] if task["title"] == "第一条任务"]
+    assert len(duplicates) == 2
 
-    other_line = [line for line in path.read_text(encoding="utf-8").splitlines()
-                  if line == "- [ ] 没标记的任务"][0]
-
-    updated = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "title": "买菜和水果",
-        "date": "2026-10-09", "priority": "low", "tags": ["家务"],
-        "revision": payload["revision"]})
-    assert updated.status_code == 200, updated.text
     payload = board(client)
-    changed = find(payload, "买菜和水果")
-    assert changed["date"] == "2026-10-09" and changed["priority"] == "low"
-    assert changed["tags"] == ["家务"] and changed["created"] == "2026-10-01"  # 创建日保留
-    assert [line for line in path.read_text(encoding="utf-8").splitlines()
-            if line == other_line]  # 别的行一个字节都没动
+    listed = post(client, "/api/time/lists", {"name": "工作", "color": "#22c55e",
+                                              "revision": payload["revision"]})
+    assert listed.status_code == 200, listed.text
+    assert (note_dir(tmp_path) / "工作").is_dir()
+    payload = board(client)
+    assert next(item for item in payload["lists"] if item["name"] == "工作")["synthetic"] is False
+    in_list = post(client, "/api/time/tasks", {
+        "title": "清单任务", "list_name": "工作", "revision": payload["revision"]})
+    assert in_list.status_code == 200, in_list.text
+    assert (note_dir(tmp_path) / "工作" / "清单任务.md").is_file()
+
+    payload = board(client)
+    assert post(client, "/api/time/tasks", {
+        "title": "x", "list_name": "不存在", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks", {
+        "title": "坏时间", "time": "25:99", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks", {
+        "title": "坏日期", "date": "2026-02-30", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks", {
+        "title": "坏优先级", "priority": "urgent", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks", {
+        "title": "   ", "revision": payload["revision"]}).status_code == 422
 
 
-def test_toggle_stamps_and_clears_the_done_date(tmp_path):
+def test_update_rename_move_done_and_conflicts(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    task = find(payload, "买菜")
+    created = post(client, "/api/time/tasks", {
+        "title": "晨跑", "date": "2026-10-20", "time": "07:05", "revision": payload["revision"]})
+    assert created.status_code == 200, created.text
+    path = note_dir(tmp_path) / "晨跑.md"
+    path.write_text(path.read_text(encoding="utf-8") + "我的训练计划\n", encoding="utf-8")
 
-    done = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "done": True, "revision": payload["revision"]})
+    payload = board(client)
+    task = find(payload, "晨跑")
+    renamed = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "title": "晨跑训练", "revision": payload["revision"]})
+    assert renamed.status_code == 200, renamed.text
+    assert not path.exists()
+    renamed_path = note_dir(tmp_path) / "晨跑训练.md"
+    assert renamed_path.is_file() and "我的训练计划" in renamed_path.read_text(encoding="utf-8")
+
+    payload = board(client)
+    task = find(payload, "晨跑训练")
+    moved = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "list_name": "心愿清单", "revision": payload["revision"]})
+    assert moved.status_code == 200, moved.text
+    moved_path = note_dir(tmp_path) / "心愿清单" / "晨跑训练.md"
+    assert moved_path.is_file() and not renamed_path.exists()
+    payload = board(client)
+    assert find(payload, "晨跑训练")["list_name"] == "心愿清单"
+
+    task = find(payload, "晨跑训练")
+    done = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "done": True, "revision": payload["revision"]})
     assert done.status_code == 200, done.text
     payload = board(client)
-    task = find(payload, "买菜")
+    task = find(payload, "晨跑训练")
     assert task["done"] is True and task["done_on"] == TODAY
-    assert f"✅ {TODAY}" in tasks_file(tmp_path).read_text(encoding="utf-8")
-
-    undone = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "done": False, "revision": payload["revision"]})
-    assert undone.status_code == 200, undone.text
-    payload = board(client)
-    assert find(payload, "买菜")["done_on"] == ""
-    assert "✅" not in [line for line in tasks_file(tmp_path).read_text(encoding="utf-8").splitlines()
-                        if "买菜" in line][0]
-
-
-def test_move_between_lists_and_duplicate(tmp_path):
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    payload = board(client)
-    task = find(payload, "买菜")
-
-    moved = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "list_name": "心愿清单",
-        "revision": payload["revision"]})
-    assert moved.status_code == 200, moved.text
-    assert find(board(client), "买菜")["list_name"] == "心愿清单"
+    undone = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "done": False, "revision": payload["revision"]})
+    assert undone.status_code == 200
+    assert find(board(client), "晨跑训练")["done_on"] == ""
 
     payload = board(client)
-    task = find(payload, "买菜")
-    copied = client.post("/api/time/tasks/duplicate", json={
-        "key": task["key"], "line": task["line"], "revision": payload["revision"]})
-    assert copied.status_code == 200, copied.text
-    titles = [item["title"] for item in board(client)["tasks"]]
-    assert titles.count("买菜") == 2
-    clone = [item for item in board(client)["tasks"] if item["title"] == "买菜" and not item["done"]]
-    # 副本插在清单最上面（新加的都排最前），所以 created=今天 的那条在前面
-    assert len(clone) == 2 and clone[0]["created"] == TODAY
-    assert clone[1]["created"] == "2026-10-01"  # 原任务不动
-
-
-def test_delete_removes_only_that_line(tmp_path):
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    payload = board(client)
-    task = find(payload, "没标记的任务")
-    removed = client.post("/api/time/tasks/delete", json={
-        "key": task["key"], "line": task["line"], "revision": payload["revision"]})
-    assert removed.status_code == 200, removed.text
-    titles = [item["title"] for item in board(client)["tasks"]]
-    assert "没标记的任务" not in titles and "买菜" in titles
-
-
-def test_conflicts_and_unknown_lists_are_rejected(tmp_path):
-    client = make_client(tmp_path)
-    path = seed(tmp_path)
-    payload = board(client)
-    task = find(payload, "买菜")
-
-    # 文件在别处被改过 → 409
-    path.write_text(path.read_text(encoding="utf-8") + "\n- [ ] 别处加的\n", encoding="utf-8")
-    stale = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "title": "改名",
-        "revision": payload["revision"]})
+    task = find(payload, "晨跑训练")
+    stale = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "title": "x", "revision": "deadbeefdeadbeef"})
     assert stale.status_code == 409
+    # 别处改了正文 → 复合 revision 变化，写被拒。
+    moved_path.write_text(moved_path.read_text(encoding="utf-8") + "外部修改\n", encoding="utf-8")
+    external = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "title": "x", "revision": payload["revision"]})
+    assert external.status_code == 409
 
-    # 未知清单 → 422；未知 key → 409；空标题 → 422
-    fresh = board(client)
-    bad_list = client.post("/api/time/tasks", json={
-        "title": "x", "list_name": "不存在的清单", "revision": fresh["revision"]})
-    assert bad_list.status_code == 422 and "清单" in bad_list.json()["detail"]
-    ghost = client.post("/api/time/tasks/delete", json={"key": "0" * 64, "revision": fresh["revision"]})
-    assert ghost.status_code == 409
-    empty = client.post("/api/time/tasks", json={"title": "   ", "revision": fresh["revision"]})
-    assert empty.status_code == 422
-
-
-def test_read_only_vault_refuses_writes_but_still_reads(tmp_path):
-    client = make_client(tmp_path, read_only=True)
-    seed(tmp_path)
-    assert board(client)["exists"] is True
     payload = board(client)
-    task = find(payload, "买菜")
-    blocked = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "title": "改名", "revision": payload["revision"]})
-    assert blocked.status_code == 409
-    assert client.post("/api/time/tasks", json={"title": "新任务", "revision": payload["revision"]}).status_code == 409
+    task = find(payload, "晨跑训练")
+    cleared = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "date": "", "time": "", "revision": payload["revision"]})
+    assert cleared.status_code == 200
+    task = find(board(client), "晨跑训练")
+    assert task["date"] == "" and task["time"] == ""
 
 
-def test_writes_land_in_the_audit_log(tmp_path):
+def test_duplicate_and_delete_are_soft(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
+    created = post(client, "/api/time/tasks", {"title": "写方案", "tags": ["重要"]})
+    assert created.status_code == 200
+    path = note_dir(tmp_path) / "写方案.md"
+    path.write_text(path.read_text(encoding="utf-8") + "正文要留下\n", encoding="utf-8")
     payload = board(client)
-    task = find(payload, "买菜")
-    client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "title": "买菜（改）", "revision": payload["revision"]})
-    client.post("/api/time/tasks", json={"title": "新任务", "revision": board(client)["revision"]})
-    with Database(tmp_path / "tasks.sqlite3").connect() as connection:
-        events = [row[0] for row in connection.execute(
-            "SELECT event_type FROM audit_events ORDER BY id")]
-    assert "task_updated" in events and "task_added" in events
-
-
-def test_create_and_edit_lists(tmp_path):
-    """清单：新增（可挂文件夹）、重命名（定义与小节标题一起改）、改色、置顶。"""
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    revision = board(client)["revision"]
-
-    created = client.post("/api/time/lists", json={
-        "name": "客户C", "color": "#ef4444", "folder": "工作", "revision": revision})
-    assert created.status_code == 200, created.text
-    payload = board(client)
-    entry = next(item for item in payload["lists"] if item["name"] == "客户C")
-    assert entry["color"] == "#ef4444" and entry["folder"] == "工作"
-    assert payload["folders"] == ["工作"]
-    assert "## 客户C" in tasks_file(tmp_path).read_text(encoding="utf-8")
-
-    assert client.post("/api/time/lists", json={
-        "name": "客户C", "revision": payload["revision"]}).status_code == 422
-
-    renamed = client.post("/api/time/lists/update", json={
-        "name": "客户C", "new_name": "客户D", "color": "#22c55e", "pinned": True,
-        "folder": "", "revision": payload["revision"]})
-    assert renamed.status_code == 200, renamed.text
-    payload = board(client)
-    entry = next(item for item in payload["lists"] if item["name"] == "客户D")
-    assert entry["color"] == "#22c55e" and entry["pinned"] is True and entry["folder"] == ""
-    text = tasks_file(tmp_path).read_text(encoding="utf-8")
-    assert "## 客户D" in text and "## 客户C" not in text
-
-
-def test_duplicate_list_scopes_and_placement(tmp_path):
-    """复制清单：三个范围；副本叫「XX 副本」并插在原清单上方（定义与正文都如此）。"""
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    payload = board(client)
-    task = find(payload, "没标记的任务")
-    client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "done": True, "revision": payload["revision"]})
-
-    payload = board(client)
-    copied = client.post("/api/time/lists/duplicate", json={
-        "name": "收集箱", "scope": "undone", "revision": payload["revision"]})
+    task = find(payload, "写方案")
+    copied = post(client, "/api/time/tasks/duplicate", {
+        "key": task["key"], "revision": payload["revision"]})
     assert copied.status_code == 200, copied.text
+    copy_path = note_dir(tmp_path) / "写方案 2.md"
+    assert copy_path.is_file() and "正文要留下" in copy_path.read_text(encoding="utf-8")
+    payload = board(client)
+    assert find(payload, "写方案", legacy=False)["created"] == TODAY
+
+    copy = next(item for item in payload["tasks"] if item["path"] == "00-System/任务/写方案 2.md")
+    removed = post(client, "/api/time/tasks/delete", {
+        "key": copy["key"], "revision": payload["revision"]})
+    assert removed.status_code == 200, removed.text
+    assert not copy_path.exists()
+    trash = list((tmp_path / "vault" / ".torch-os" / "task-trash").rglob("*.md"))
+    assert any(item.name == "写方案 2.md" for item in trash)
+
+    payload = board(client)
+    legacy = find(payload, "买菜", legacy=True)
+    assert post(client, "/api/time/tasks/duplicate", {
+        "key": legacy["key"], "revision": payload["revision"]}).status_code == 409
+
+
+def test_list_rename_moves_folder_and_legacy_heading(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    created = post(client, "/api/time/tasks", {
+        "title": "新海边", "list_name": "心愿清单", "revision": payload["revision"]})
+    assert created.status_code == 200, created.text
+    assert (note_dir(tmp_path) / "心愿清单" / "新海边.md").is_file()
+
+    payload = board(client)
+    renamed = post(client, "/api/time/lists/update", {
+        "name": "心愿清单", "new_name": "旅行", "color": "#0ea5e9", "pinned": False,
+        "revision": payload["revision"]})
+    assert renamed.status_code == 200, renamed.text
+    assert (note_dir(tmp_path) / "旅行" / "新海边.md").is_file()
+    assert not (note_dir(tmp_path) / "心愿清单").exists()
+    text = config_file(tmp_path).read_text(encoding="utf-8")
+    assert "## 旅行" in text and "## 心愿清单" not in text
+    payload = board(client)
+    entry = next(item for item in payload["lists"] if item["name"] == "旅行")
+    assert entry["color"] == "#0ea5e9"
+    assert find(payload, "新海边")["list_name"] == "旅行"
+    assert find(payload, "去一次海边", legacy=True)["list_name"] == "旅行"
+
+
+def test_duplicate_list_copies_notes_and_legacy_lines(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    post(client, "/api/time/tasks", {"title": "新买菜", "list_name": "收集箱",
+                                    "revision": payload["revision"]})
+    payload = board(client)
+    duplicated = post(client, "/api/time/lists/duplicate", {
+        "name": "收集箱", "scope": "all_keep", "revision": payload["revision"]})
+    assert duplicated.status_code == 200, duplicated.text
     payload = board(client)
     names = [item["name"] for item in payload["lists"]]
-    assert names.index("收集箱 副本") < names.index("收集箱")  # 定义插在原清单前面
-    copy_tasks = [item for item in payload["tasks"] if item["list_name"] == "收集箱 副本"]
-    assert copy_tasks and all(item["done"] is False for item in copy_tasks)
-    text = tasks_file(tmp_path).read_text(encoding="utf-8")
-    # 比完整标题（带换行）：'## 收集箱' 是 '## 收集箱 副本' 的前缀，不比整行会假相等
+    assert names.index("收集箱 副本") < names.index("收集箱")
+    copy_tasks = [task for task in payload["tasks"] if task["list_name"] == "收集箱 副本"]
+    assert {task["title"] for task in copy_tasks} == {"买菜", "写周报", "没标记的任务", "新买菜"}
+    assert any(task["done"] for task in copy_tasks)
+    assert (note_dir(tmp_path) / "收集箱 副本" / "新买菜.md").is_file()
+    text = config_file(tmp_path).read_text(encoding="utf-8")
     assert text.index("## 收集箱 副本\n") < text.index("## 收集箱\n")
 
     payload = board(client)
-    client.post("/api/time/lists/duplicate", json={
-        "name": "收集箱", "scope": "all_keep", "revision": payload["revision"]})
-    kept = [item for item in board(client)["tasks"] if item["list_name"] == "收集箱 副本 2"]
-    assert any(item["done"] for item in kept)
-
+    reset = post(client, "/api/time/lists/duplicate", {
+        "name": "收集箱", "scope": "undone", "revision": payload["revision"]})
+    assert reset.status_code == 200
     payload = board(client)
-    client.post("/api/time/lists/duplicate", json={
-        "name": "收集箱", "scope": "all_reset", "revision": payload["revision"]})
-    reset = [item for item in board(client)["tasks"] if item["list_name"] == "收集箱 副本 3"]
-    assert reset and all(item["done"] is False and item["done_on"] == "" for item in reset)
+    reset_tasks = [task for task in payload["tasks"] if task["list_name"] == "收集箱 副本 2"]
+    assert reset_tasks and all(not task["done"] for task in reset_tasks)
+    assert all(task["title"] != "写周报" for task in reset_tasks)
 
-    bad = client.post("/api/time/lists/duplicate", json={
-        "name": "收集箱", "scope": "whatever", "revision": board(client)["revision"]})
-    assert bad.status_code == 422
+    invalid = post(client, "/api/time/lists/duplicate", {
+        "name": "收集箱", "scope": "nope", "revision": payload["revision"]})
+    assert invalid.status_code == 422
 
 
-def test_delete_list_removes_its_tasks_but_never_the_inbox(tmp_path):
+def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    client.post("/api/time/lists", json={"name": "临时清单", "revision": payload["revision"]})
+    post(client, "/api/time/lists", {"name": "临时清单", "revision": payload["revision"]})
     payload = board(client)
-    client.post("/api/time/tasks", json={"title": "临时任务", "list_name": "临时清单",
-                                        "revision": payload["revision"]})
+    post(client, "/api/time/tasks", {"title": "临时任务", "list_name": "临时清单",
+                                    "revision": payload["revision"]})
+    folder = note_dir(tmp_path) / "临时清单"
+    assert folder.is_dir()
 
     payload = board(client)
-    removed = client.post("/api/time/lists/delete", json={
+    (folder / "附件.txt").write_text("别删我", encoding="utf-8")
+    blocked = post(client, "/api/time/lists/delete", {
         "name": "临时清单", "revision": payload["revision"]})
-    assert removed.status_code == 200 and removed.json()["tasks"] == 1
+    assert blocked.status_code == 409
+
+    (folder / "附件.txt").unlink()
+    payload = board(client)
+    removed = post(client, "/api/time/lists/delete", {
+        "name": "临时清单", "revision": payload["revision"]})
+    assert removed.status_code == 200, removed.text
+    data = removed.json()
+    assert data["tasks"] == 1 and data["trash"].startswith(".torch-os/task-trash/")
+    assert not folder.exists()
     payload = board(client)
     assert all(item["name"] != "临时清单" for item in payload["lists"])
-    assert all(item["title"] != "临时任务" for item in payload["tasks"])
-    assert "临时清单" not in tasks_file(tmp_path).read_text(encoding="utf-8")
+    assert all(task["title"] != "临时任务" for task in payload["tasks"])
+    trash = tmp_path / "vault" / data["trash"]
+    assert any(item.name == "任务（tasks）.md" for item in trash.rglob("*"))
+    assert any(item.name == "临时任务.md" for item in trash.rglob("*"))
 
-    assert client.post("/api/time/lists/delete", json={
+    payload = board(client)
+    assert post(client, "/api/time/lists/delete", {
         "name": "收集箱", "revision": payload["revision"]}).status_code == 422
 
 
-def test_folders_can_be_created_renamed_and_dissolved(tmp_path):
+def test_logical_folders_stay_separate_from_task_directories(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    client.post("/api/time/folders", json={"name": "工作", "revision": payload["revision"]})
+    post(client, "/api/time/folders", {"name": "工作", "revision": payload["revision"]})
     payload = board(client)
-    client.post("/api/time/lists", json={"name": "客户D", "folder": "工作",
-                                        "revision": payload["revision"]})
-
+    post(client, "/api/time/lists", {"name": "客户D", "folder": "工作",
+                                    "revision": payload["revision"]})
     payload = board(client)
-    renamed = client.post("/api/time/folders/update", json={
+    renamed = post(client, "/api/time/folders/update", {
         "name": "工作", "new_name": "事业", "revision": payload["revision"]})
     assert renamed.status_code == 200, renamed.text
     payload = board(client)
     assert payload["folders"] == ["事业"]
-    assert next(e for e in payload["lists"] if e["name"] == "客户D")["folder"] == "事业"
+    assert next(item for item in payload["lists"] if item["name"] == "客户D")["folder"] == "事业"
+    assert (note_dir(tmp_path) / "客户D").is_dir()
 
-    dissolved = client.post("/api/time/folders/delete", json={
+    payload = board(client)
+    dissolved = post(client, "/api/time/folders/delete", {
         "name": "事业", "revision": payload["revision"]})
     assert dissolved.status_code == 200
     payload = board(client)
     assert payload["folders"] == []
-    assert next(e for e in payload["lists"] if e["name"] == "客户D")["folder"] == ""
-    assert any(item["title"] for item in payload["tasks"])  # 清单没被连坐删掉
+    assert next(item for item in payload["lists"] if item["name"] == "客户D")["folder"] == ""
 
 
-def test_tags_create_rename_and_delete_rewrite_task_lines(tmp_path):
-    """标签：建定义、重命名同步改任务行里的 #旧名、删除把任务行里的标签去掉。"""
+def test_tags_update_notes_and_legacy_lines(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    created = client.post("/api/time/tags", json={
-        "name": "工作", "color": "#3b82f6", "revision": payload["revision"]})
-    assert created.status_code == 200, created.text
-
+    post(client, "/api/time/tasks", {"title": "新任务", "tags": ["重要"],
+                                    "revision": payload["revision"]})
     payload = board(client)
-    renamed = client.post("/api/time/tags/update", json={
-        "name": "工作", "new_name": "事业", "revision": payload["revision"]})
-    assert renamed.status_code == 200, renamed.text
-    assert any(tag["name"] == "事业" for tag in board(client)["tags"])
-
-    payload = board(client)
-    updated = client.post("/api/time/tags/update", json={
+    renamed = post(client, "/api/time/tags/update", {
         "name": "重要", "new_name": "要紧", "pinned": True, "revision": payload["revision"]})
-    assert updated.status_code == 200 and updated.json()["tag"]["renamed_tasks"] == 1
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["tag"]["renamed_tasks"] == 2  # 一行旧任务 + 一篇笔记
     payload = board(client)
-    assert find(payload, "买菜")["tags"] == ["要紧"]
+    assert find(payload, "买菜", legacy=True)["tags"] == ["要紧"]
+    assert find(payload, "新任务")["tags"] == ["要紧"]
     assert next(tag for tag in payload["tags"] if tag["name"] == "要紧")["pinned"] is True
+    assert "#要紧" in config_file(tmp_path).read_text(encoding="utf-8")
+    note_text = (note_dir(tmp_path) / "新任务.md").read_text(encoding="utf-8")
+    assert "要紧" in note_text and "重要" not in note_text
 
     payload = board(client)
-    deleted = client.post("/api/time/tags/delete", json={
+    deleted = post(client, "/api/time/tags/delete", {
         "name": "要紧", "revision": payload["revision"]})
-    assert deleted.status_code == 200 and deleted.json()["tasks"] == 1
+    assert deleted.status_code == 200 and deleted.json()["tasks"] == 2
     payload = board(client)
-    assert find(payload, "买菜")["tags"] == []
-    assert all(tag["name"] != "要紧" for tag in payload["tags"])
-    assert "#要紧" not in tasks_file(tmp_path).read_text(encoding="utf-8")
+    assert find(payload, "新任务")["tags"] == []
+    assert find(payload, "买菜", legacy=True)["tags"] == []
+    assert "#要紧" not in config_file(tmp_path).read_text(encoding="utf-8")
 
 
-def test_structure_writes_respect_revision_and_read_only(tmp_path):
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    assert client.post("/api/time/lists", json={
-        "name": "X", "revision": "deadbeefdeadbeef"}).status_code == 409
-
-    readonly = make_client(tmp_path / "ro", read_only=True)
-    seed(tmp_path / "ro")
-    payload = board(readonly)
-    assert readonly.post("/api/time/lists", json={
-        "name": "X", "revision": payload["revision"]}).status_code == 409
-    assert readonly.post("/api/time/tags", json={
-        "name": "X", "revision": payload["revision"]}).status_code == 409
-
-
-def test_bulk_delete_move_and_tag(tmp_path):
-    """批量：删除 / 移动到别的清单 / 打标签——一次写回处理多条。"""
+def test_bulk_actions_only_touch_new_notes(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
     payload = board(client)
-    keys = [find(payload, "买菜")["key"], find(payload, "没标记的任务")["key"]]
+    for title in ("批量甲", "批量乙"):
+        post(client, "/api/time/tasks", {"title": title, "revision": payload["revision"]})
+        payload = board(client)
 
-    tagged = client.post("/api/time/tasks/bulk", json={
+    keys = [find(payload, "批量甲")["key"], find(payload, "批量乙")["key"]]
+    tagged = post(client, "/api/time/tasks/bulk", {
         "keys": keys, "action": "tag", "tags": ["批量", "重要"], "revision": payload["revision"]})
     assert tagged.status_code == 200, tagged.text
-    assert tagged.json()["count"] == 2
     payload = board(client)
-    assert find(payload, "买菜")["tags"] == ["重要", "批量"]      # 原有标签保留，新的追加
-    assert find(payload, "没标记的任务")["tags"] == ["批量", "重要"]  # 两个标签都打上（顺序按传参）
+    assert find(payload, "批量甲")["tags"] == ["批量", "重要"]
 
-    # 键 = 行内容 + 行号算出来的：写过一次就变了，所以每次操作前重新取
-    keys = [find(payload, "买菜")["key"], find(payload, "没标记的任务")["key"]]
-    moved = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "move", "list_name": "心愿清单", "revision": payload["revision"]})
-    assert moved.status_code == 200, moved.text
-    payload = board(client)
-    assert find(payload, "买菜")["list_name"] == "心愿清单"
-    assert find(payload, "没标记的任务")["list_name"] == "心愿清单"
-    assert find(payload, "写周报")["list_name"] == "收集箱"        # 没选的不动
-
-    payload = board(client)
-    keys = [find(payload, "买菜")["key"], find(payload, "没标记的任务")["key"]]
-    deleted = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "delete", "revision": payload["revision"]})
-    assert deleted.status_code == 200 and deleted.json()["count"] == 2
-    titles = [task["title"] for task in board(client)["tasks"]]
-    assert "买菜" not in titles and "没标记的任务" not in titles
-    assert "写周报" in titles
-
-
-def test_bulk_rejects_bad_actions_stale_keys_and_empty_tags(tmp_path):
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    payload = board(client)
-    task = find(payload, "买菜")
-
-    bad = client.post("/api/time/tasks/bulk", json={
-        "keys": [task["key"]], "action": "explode", "revision": payload["revision"]})
-    assert bad.status_code == 422
-    empty = client.post("/api/time/tasks/bulk", json={
-        "keys": [task["key"]], "action": "tag", "tags": [], "revision": payload["revision"]})
-    assert empty.status_code == 422
-    ghost = client.post("/api/time/tasks/bulk", json={
-        "keys": ["0" * 64], "action": "delete", "revision": payload["revision"]})
-    assert ghost.status_code == 409
-    stale = client.post("/api/time/tasks/bulk", json={
-        "keys": [task["key"]], "action": "delete", "revision": "deadbeefdeadbeef"})
-    assert stale.status_code == 409
-    unknown_list = client.post("/api/time/tasks/bulk", json={
-        "keys": [task["key"]], "action": "move", "list_name": "没这个清单",
-        "revision": payload["revision"]})
-    assert unknown_list.status_code == 422
-
-
-def test_bulk_date_priority_pin_and_duplicate(tmp_path):
-    """批量：改日期 / 改优先级 / 置顶与取消置顶 / 创建副本。"""
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    payload = board(client)
-    keys = [find(payload, "买菜")["key"], find(payload, "去一次海边")["key"]]
-
-    dated = client.post("/api/time/tasks/bulk", json={
+    keys = [find(payload, "批量甲")["key"], find(payload, "批量乙")["key"]]
+    dated = post(client, "/api/time/tasks/bulk", {
         "keys": keys, "action": "date", "date": "2026-11-11", "revision": payload["revision"]})
-    assert dated.status_code == 200, dated.text
+    assert dated.status_code == 200
     payload = board(client)
-    assert find(payload, "买菜")["date"] == "2026-11-11"
-    assert find(payload, "去一次海边")["date"] == "2026-11-11"
-    assert find(payload, "写周报")["date"] == ""          # 没选的不动
+    assert {find(payload, title)["date"] for title in ("批量甲", "批量乙")} == {"2026-11-11"}
 
-    keys = [find(payload, "买菜")["key"], find(payload, "去一次海边")["key"]]
-    cleared = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "date", "date": "", "revision": payload["revision"]})
-    assert cleared.status_code == 200
-    payload = board(client)
-    assert find(payload, "买菜")["date"] == ""            # 空 = 清除
-
-    keys = [find(payload, "买菜")["key"], find(payload, "写周报")["key"]]
-    prioritized = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "priority", "priority": "medium", "revision": payload["revision"]})
+    keys = [find(payload, title)["key"] for title in ("批量甲", "批量乙")]
+    prioritized = post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "priority", "priority": "low", "revision": payload["revision"]})
     assert prioritized.status_code == 200
     payload = board(client)
-    assert find(payload, "买菜")["priority"] == "medium"
-    assert find(payload, "写周报")["priority"] == "medium"
-    assert find(payload, "没标记的任务")["priority"] == "none"
+    assert {find(payload, title)["priority"] for title in ("批量甲", "批量乙")} == {"low"}
 
-    keys = [find(payload, "买菜")["key"]]
-    pinned = client.post("/api/time/tasks/bulk", json={
+    keys = [find(payload, title)["key"] for title in ("批量甲", "批量乙")]
+    pinned = post(client, "/api/time/tasks/bulk", {
         "keys": keys, "action": "pin", "pinned": True, "revision": payload["revision"]})
     assert pinned.status_code == 200
     payload = board(client)
-    assert find(payload, "买菜")["pinned"] is True
-    assert find(payload, "去一次海边")["pinned"] is True   # 它本来就置顶，没被连累
+    assert all(find(payload, title)["pinned"] for title in ("批量甲", "批量乙"))
 
-    keys = [find(payload, "买菜")["key"]]
-    unpinned = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "pin", "pinned": False, "revision": payload["revision"]})
-    assert unpinned.status_code == 200
-    assert find(board(client), "买菜")["pinned"] is False
-
+    keys = [find(payload, title)["key"] for title in ("批量甲", "批量乙")]
+    moved = post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "move", "list_name": "心愿清单", "revision": payload["revision"]})
+    assert moved.status_code == 200
     payload = board(client)
-    keys = [find(payload, "买菜")["key"], find(payload, "去一次海边")["key"]]
-    copied = client.post("/api/time/tasks/bulk", json={
+    assert {find(payload, title)["list_name"] for title in ("批量甲", "批量乙")} == {"心愿清单"}
+
+    keys = [find(payload, title)["key"] for title in ("批量甲", "批量乙")]
+    copied = post(client, "/api/time/tasks/bulk", {
         "keys": keys, "action": "duplicate", "revision": payload["revision"]})
     assert copied.status_code == 200 and copied.json()["count"] == 2
     payload = board(client)
-    assert [t["title"] for t in payload["tasks"]].count("买菜") == 2
-    clones = [t for t in payload["tasks"] if t["title"] == "买菜" and not t["done"]]
-    assert clones[0]["created"] == TODAY                  # 副本是新造的
-    assert any(t["title"] == "去一次海边" and t["list_name"] == "心愿清单" for t in payload["tasks"])
+    assert len([task for task in payload["tasks"] if task["title"] == "批量甲"]) == 2
 
-    # 优先级缺参数要 422，别静悄悄清成"无"
-    bad = client.post("/api/time/tasks/bulk", json={
-        "keys": [find(payload, "买菜")["key"]], "action": "priority", "revision": payload["revision"]})
-    assert bad.status_code == 422
+    legacy = find(payload, "买菜", legacy=True)
+    assert post(client, "/api/time/tasks/bulk", {
+        "keys": [legacy["key"]], "action": "delete", "revision": payload["revision"]}).status_code == 409
+    assert post(client, "/api/time/tasks/bulk", {
+        "keys": keys + keys, "action": "delete", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "explode", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "priority", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "move", "list_name": "不存在", "revision": payload["revision"]}).status_code == 422
 
-
-def test_time_marker_parses_normalizes_and_stays_in_line(tmp_path):
-    """⏰ 时间（2026-10-11，日历视图那一轮）：解析两种写法；认不出来的留在标题里。"""
-    client = make_client(tmp_path)
-    seed(tmp_path, SAMPLE
-         .replace("- [x] 写周报 ✅ 2026-10-05 ➕ 2026-09-28",
-                  "- [x] 写周报 ⏰ 09:00-10:30 ✅ 2026-10-05 ➕ 2026-09-28")
-         .replace("- [ ] 没标记的任务", "- [ ] 没标记的任务\n- [ ] 晚上散步 ⏰ 9:05\n- [ ] 怪时间 ⏰ 25:99"))
     payload = board(client)
-    assert find(payload, "写周报")["time"] == "09:00-10:30"
-    assert find(payload, "晚上散步")["time"] == "09:05"          # 1 位小时补零
-    assert find(payload, "买菜")["time"] == ""                   # 没写时间的还是空
-    # 认不出来的时间不吞：整段留在标题里，行一个字节不动
-    assert find(payload, "怪时间 ⏰ 25:99")["time"] == ""
-    assert "- [ ] 怪时间 ⏰ 25:99" in tasks_file(tmp_path).read_text(encoding="utf-8")
+    keys = [find(payload, "批量甲")["key"]]
+    deleted = post(client, "/api/time/tasks/bulk", {
+        "keys": keys, "action": "delete", "revision": payload["revision"]})
+    assert deleted.status_code == 200
 
 
-def test_time_create_update_clear_and_validate(tmp_path):
-    client = make_client(tmp_path)
-    path = seed(tmp_path)
+def test_read_only_and_audit(tmp_path):
+    readonly = make_client(tmp_path, read_only=True)
+    seed(tmp_path)
+    payload = board(readonly)
+    assert payload["read_only"] is True
+    assert find(payload, "买菜", legacy=True)
+    assert post(readonly, "/api/time/tasks", {
+        "title": "新任务", "revision": payload["revision"]}).status_code == 409
+    assert post(readonly, "/api/time/lists", {
+        "name": "X", "revision": payload["revision"]}).status_code == 409
+
+    client = make_client(tmp_path / "writable")
     payload = board(client)
+    post(client, "/api/time/tasks", {"title": "审计任务", "revision": payload["revision"]})
+    payload = board(client)
+    task = find(payload, "审计任务")
+    post(client, "/api/time/tasks/update", {
+        "key": task["key"], "done": True, "revision": payload["revision"]})
+    with Database(tmp_path / "writable" / "tasks.sqlite3").connect() as connection:
+        events = [row[0] for row in connection.execute(
+            "SELECT event_type FROM audit_events ORDER BY id")]
+    assert "task_added" in events and "task_updated" in events
 
-    created = client.post("/api/time/tasks", json={
-        "title": "晨跑", "list_name": "收集箱", "date": TODAY, "time": "7:05",
-        "revision": payload["revision"]})
+
+def test_legacy_file_compatibility_and_no_auto_migration(tmp_path):
+    client = make_client(tmp_path)
+    legacy = seed(tmp_path, legacy_name=True)
+    before = legacy.read_bytes()
+    payload = board(client)
+    assert payload["path"] == "00-System/任务.md"
+    assert find(payload, "买菜", legacy=True)
+
+    created = post(client, "/api/time/tasks", {
+        "title": "旧文件里的新任务", "revision": payload["revision"]})
     assert created.status_code == 200, created.text
-    assert "📅 " + TODAY + " ⏰ 07:05" in path.read_text(encoding="utf-8")
-
+    assert (note_dir(tmp_path) / "旧文件里的新任务.md").is_file()
+    assert legacy.read_bytes() == before          # 不自动迁移、不改旧文件
+    assert not config_file(tmp_path).exists()     # 也不凭空造新配置
     payload = board(client)
-    task = find(payload, "晨跑")
-    assert task["time"] == "07:05"
-
-    # 改时间（区间）→ 只动这一行
-    updated = client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "time": "07:05-08:00",
-        "revision": payload["revision"]})
-    assert updated.status_code == 200, updated.text
-    payload = board(client)
-    assert find(payload, "晨跑")["time"] == "07:05-08:00"
-    assert "- [ ] 没标记的任务" in path.read_text(encoding="utf-8")   # 别的行没动
-
-    # 只改日期不乱动时间（没传 time 的字段就不碰）
-    task = find(payload, "晨跑")
-    client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "date": "2026-10-20",
-        "revision": payload["revision"]})
-    assert find(board(client), "晨跑")["time"] == "07:05-08:00"
-
-    # 清除时间：显式传空串
-    payload = board(client)
-    task = find(payload, "晨跑")
-    client.post("/api/time/tasks/update", json={
-        "key": task["key"], "line": task["line"], "time": "",
-        "revision": payload["revision"]})
-    assert find(board(client), "晨跑")["time"] == ""
-    assert "⏰" not in [line for line in path.read_text(encoding="utf-8").splitlines()
-                        if "晨跑" in line][0]
-
-    # 非法写法 422
-    payload = board(client)
-    for bad in ["25:00", "14:60", "abc", "14:00-14:00", "15:00-14:00"]:
-        response = client.post("/api/time/tasks", json={
-            "title": "坏时间", "time": bad, "revision": payload["revision"]})
-        assert response.status_code == 422, f"{bad} 应该 422：{response.text}"
+    assert find(payload, "旧文件里的新任务")["legacy"] is False
+    assert find(payload, "买菜", legacy=True)
 
 
-def test_time_survives_duplicate_move_and_bulk(tmp_path):
-    """时间字段在复制、移动、批量改写里都不能丢（这些路径都会重写整行）。"""
+def test_synthetic_lists_and_warnings(tmp_path):
     client = make_client(tmp_path)
-    seed(tmp_path, SAMPLE.replace("- [ ] 买菜 📅 2026-10-06 ⏫ #重要 ➕ 2026-10-01",
-                                  "- [ ] 买菜 📅 2026-10-06 ⏰ 18:30 ⏫ #重要 ➕ 2026-10-01"))
-    payload = board(client)
-    task = find(payload, "买菜")
-    assert task["time"] == "18:30"
-
-    # 单个副本
-    duplicated = client.post("/api/time/tasks/duplicate", json={
-        "key": task["key"], "line": task["line"], "revision": payload["revision"]})
-    assert duplicated.status_code == 200, duplicated.text
-    payload = board(client)
-    assert [t["time"] for t in payload["tasks"] if t["title"] == "买菜"] == ["18:30", "18:30"]
-
-    # 批量置顶（会重写整行）
-    keys = [t["key"] for t in payload["tasks"] if t["title"] == "买菜"]
-    pinned = client.post("/api/time/tasks/bulk", json={
-        "keys": keys, "action": "pin", "pinned": True, "revision": payload["revision"]})
-    assert pinned.status_code == 200, pinned.text
-    payload = board(client)
-    assert [t["time"] for t in payload["tasks"] if t["title"] == "买菜"] == ["18:30", "18:30"]
-
-    # 批量移动（跨清单重写）
-    keys = [t["key"] for t in payload["tasks"] if t["title"] == "买菜"]
-    moved = client.post("/api/time/tasks/bulk", json={
-        "keys": keys[:1], "action": "move", "list_name": "心愿清单", "revision": payload["revision"]})
-    assert moved.status_code == 200, moved.text
-    payload = board(client)
-    assert all(t["time"] == "18:30" for t in payload["tasks"] if t["title"] == "买菜")
-
-    # 复制清单也带上时间
-    copied = client.post("/api/time/lists/duplicate", json={
-        "name": "收集箱", "scope": "all_keep", "revision": payload["revision"]})
-    assert copied.status_code == 200, copied.text
-    payload = board(client)
-    clone = [t for t in payload["tasks"] if t["title"] == "买菜" and t["list_name"] == "收集箱 副本"]
-    assert clone and clone[0]["time"] == "18:30"
-
-
-def test_legacy_task_file_keeps_working(tmp_path):
-    """改名前的 `00-System/任务.md` 不能被当成“没有任务”——读写都要继续落在旧文件上。"""
-    client = make_client(tmp_path)
-    legacy = tmp_path / "vault" / "00-System" / "任务.md"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text(SAMPLE, encoding="utf-8")
+    root = note_dir(tmp_path)
+    (root / "自由清单").mkdir(parents=True)
+    (root / "自由清单" / "手工任务.md").write_text(
+        "---\ntype: task\n日期: 2026-10-17\n---\n手工正文\n", encoding="utf-8")
+    (root / "坏任务.md").write_text("---\ntype: task\n标题: [\n---\n", encoding="utf-8")
+    (root / "随手记.md").write_text("---\ntype: note\n---\n不是任务\n", encoding="utf-8")
 
     payload = board(client)
-    assert payload["path"] == "00-System/任务.md"  # 命中的是旧文件
-    assert find(payload, "买菜")["date"] == "2026-10-06"
+    task = find(payload, "手工任务")
+    assert task["legacy"] is False and task["list_name"] == "自由清单"
+    entry = next(item for item in payload["lists"] if item["name"] == "自由清单")
+    assert entry["synthetic"] is True
+    assert any("坏任务.md" in warning["path"] for warning in payload["warnings"])
+    assert all(item["title"] != "随手记" for item in payload["tasks"])
 
-    created = client.post("/api/time/tasks", json={
-        "title": "旧文件里新增", "list_name": "收集箱", "priority": "none"})
-    assert created.status_code == 200, created.text
-    assert "旧文件里新增" in legacy.read_text(encoding="utf-8")
-    assert not tasks_file(tmp_path).exists()  # 不凭空多出一份新文件
+    # 用同名清单“收养”已有目录
+    payload = board(client)
+    adopted = post(client, "/api/time/lists", {
+        "name": "自由清单", "revision": payload["revision"]})
+    assert adopted.status_code == 200, adopted.text
+    payload = board(client)
+    assert next(item for item in payload["lists"] if item["name"] == "自由清单")["synthetic"] is False
+    assert find(payload, "手工任务")["list_name"] == "自由清单"

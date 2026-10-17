@@ -225,16 +225,34 @@ def local_answer(evidence: list[dict], cloud_available: bool = False) -> str:
     return '\n'.join(lines)
 
 
+def vault_identity(vault_dir: Path | str) -> str:
+    """Stable, non-secret identifier for a Vault path (shared with the Obsidian plugin).
+
+    Windows paths are case-insensitive, so both this helper and the plugin
+    lower-case them before hashing.  The health endpoint only exposes this
+    digest, never the absolute path.
+    """
+    resolved = Path(vault_dir).resolve().as_posix()
+    if os.name == 'nt':
+        resolved = resolved.lower()
+    return hashlib.sha256(resolved.encode('utf-8')).hexdigest()[:16]
+
+
 def create_app(database: Database | None = None, vault_dir: Path | None = None,
                gateway: ModelGateway | None = None, *, session_token: str | None = None,
                host: str = '127.0.0.1', security_environ: dict | None = None,
                runtime_label: str = 'personal', embedding_provider: Any = None,
-               env_file: Path | None = None, workspace_registry: Path | None = None) -> FastAPI:
+               env_file: Path | None = None, workspace_registry: Path | None = None,
+               vault_scoped: bool | None = None) -> FastAPI:
     if database is None or vault_dir is None:
-        from .config import DB_PATH, VAULT_DIR, HOST
+        from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
         vault_dir = vault_dir or VAULT_DIR
         host = HOST
+        if vault_scoped is None:
+            vault_scoped = VAULT_SCOPED
+    if vault_scoped is None:
+        vault_scoped = False
     security = validate_runtime_config(host, database.path.parent, vault_dir, environ=security_environ)
     if embedding_provider is not None:
         database.embedding_provider = embedding_provider
@@ -284,6 +302,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.state.gateway = gateway
     app.state.vault_dir = vault_dir
     app.state.runtime_label = runtime_label
+    app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = asyncio.Lock()
     app.state.chat_lock = asyncio.Lock()
     app.mount('/assets', StaticFiles(directory=frontend), name='assets')
@@ -351,7 +370,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
 
     @app.get('/api/health')
     def health():
-        return {'status':'ok','service':'torch-os','version':APP_VERSION,'runtime_label':runtime_label}
+        return {'status':'ok','service':'torch-os','version':APP_VERSION,'runtime_label':runtime_label,
+                'vault_id':vault_identity(vault_dir), 'vault_name':Path(vault_dir).name,
+                'vault_scoped':bool(vault_scoped)}
 
     @app.get('/api/nav')
     def nav_manifest():
@@ -366,7 +387,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                 'provider':state.get('provider'), 'cloud_enabled':gateway.configured,
                 'state':'configured' if gateway.configured else 'local', 'default_mode':'local',
                 'vault_dir':str(vault_dir), 'timezone':'Asia/Shanghai', 'version':APP_VERSION,
-                'runtime_label':runtime_label,
+                'runtime_label':runtime_label, 'vault_name':Path(vault_dir).name,
+                'vault_scoped':bool(vault_scoped),
                 'embedding_provider':getattr(database.embedding_provider, 'name', None),
                 'capabilities':{'link_audit':True,'habits':True,'learning':True,
                     'identity':True,'workbench':True,'workbench_polish':True,
@@ -399,8 +421,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                                 'bazi':bazi_dependency_available(),
                                 'conversation_extract':True,
                                 'share_import':True,
-                                'vault_connection':True,
-                                'workspaces':runtime_label == 'personal',
+                                'vault_connection':not vault_scoped,
+                                'workspaces':runtime_label == 'personal' and not vault_scoped,
                                 'schema_export':True,
                                 'tools':True,
                                 'mcp_bridge':True,
@@ -494,6 +516,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     @app.post('/api/vault/connection')
     async def update_vault_connection(payload: VaultConnectionUpdate):
         """Persist the vault path and read-only mode to the local .env; restart applies it."""
+        if vault_scoped:
+            raise HTTPException(409, '当前实例由 Obsidian 库承载，不能在界面里切换库；请在 Obsidian 里打开另一个库。')
         if runtime_label != 'personal':
             raise HTTPException(409, '隔离验收环境不允许修改 Vault 连接')
         try:
@@ -834,7 +858,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     workspace_options = {} if workspace_registry is None else {'registry_path': workspace_registry}
     app.include_router(create_workspaces_router(
         data_dir=database.path.parent, vault_dir=vault_dir, read_only=vault_read_only,
-        env_path=env_path, database=database, runtime_label=runtime_label, **workspace_options))
+        env_path=env_path, database=database, runtime_label=runtime_label,
+        vault_scoped=bool(vault_scoped), **workspace_options))
     suggestion_service = SuggestionService(database, vault_dir)
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_profile_router(database, vault_dir, app.state.data_lock, APP_VERSION))

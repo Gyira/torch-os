@@ -309,7 +309,10 @@ export async function loadSettings() {
   }
   const statusRows = [
     // Read-only capabilities also gate controls when the UI is newer than a running service.
-    ["工作区", environment === "qa" ? "隔离验收工作区（强制本地模式）" : environment === "personal" ? "个人工作区" : "尚未确认"],
+    ["工作区", environment === "qa" ? "隔离验收工作区（强制本地模式）"
+      : config.status === "fulfilled" && config.value.vault_scoped
+        ? `Obsidian 库：${config.value.vault_name || "当前库"}`
+        : environment === "personal" ? "个人工作区" : "尚未确认"],
     ["本地服务", healthy ? "已连接" : health.status === "rejected" ? health.reason.message : "服务状态异常"],
     ["版本", health.status === "fulfilled" ? health.value.version || "未报告" : "未读取"],
     ["语义检索", config.status === "fulfilled" ? (config.value.capabilities?.semantic_search ? `已启用（${config.value.embedding_provider || "本地向量"}）` : "词法检索（未启用本地向量）") : "未读取"],

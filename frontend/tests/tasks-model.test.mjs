@@ -15,8 +15,9 @@ const TODAY = "2026-10-08";
 
 function task(overrides = {}) {
   return {
-    key: "k", line: 1, list_name: "收集箱", title: "任务", done: false, done_on: "",
-    date: "", priority: "none", tags: [], pinned: false, created: "2026-10-01",
+    key: "k", path: "00-System/任务/任务.md", legacy: false, list_name: "收集箱",
+    title: "任务", done: false, done_on: "", date: "", priority: "none", tags: [],
+    pinned: false, created: "2026-10-01",
     ...overrides,
   };
 }
@@ -116,8 +117,11 @@ test("sorting keeps pinned tasks on top and honours the direction", () => {
     task({ title: "无" }), task({ title: "高", priority: "high" }), task({ title: "低", priority: "low" }),
   ], "priority", "old");
   assert.deepEqual(byPriority.map((item) => item.title), ["高", "低", "无"]);
-  // 同年同月同日生：按文件里的先后稳定排序
-  const same = sortTasks([task({ title: "第二条", line: 9 }), task({ title: "第一条", line: 3 })], "time", "old");
+  // 同年同月同日生：按笔记路径稳定排序（旧任务看 key/title）
+  const same = sortTasks([
+    task({ title: "第二条", path: "00-System/任务/b.md" }),
+    task({ title: "第一条", path: "00-System/任务/a.md" }),
+  ], "time", "old");
   assert.deepEqual(same.map((item) => item.title), ["第一条", "第二条"]);
 });
 

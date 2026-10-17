@@ -163,10 +163,14 @@ def describe_workspaces(entries: list[dict[str, Any]], *, data_dir: Path, vault_
 
 def create_workspaces_router(*, data_dir: Path, vault_dir: Path, read_only: bool,
                              env_path: Path, database: Database, runtime_label: str,
+                             vault_scoped: bool = False,
                              registry_path: Path = REGISTRY_PATH) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["workspaces"])
 
     def guard_writable() -> None:
+        if vault_scoped:
+            raise HTTPException(409, "当前实例由 Obsidian 库承载，不能切换工作区；"
+                                     "在 Obsidian 里打开另一个库即可使用那里的工作区。")
         if runtime_label != "personal":
             raise HTTPException(409, "隔离验收环境不允许管理工作区")
 

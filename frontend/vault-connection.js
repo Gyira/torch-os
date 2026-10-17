@@ -47,12 +47,26 @@ function renderConnection(payload) {
 }
 
 function syncControls() {
+  const scoped = state.config?.vault_scoped === true;
   const enabled = available();
-  const disabled = busy || !enabled;
-  // 有「工作区」能力时，路径切换统一走工作区（DATA_DIR 与 VAULT_DIR 必须一起换）；
-  // 这里只保留只读展示、扫描预览与演练报告，避免“只换 Vault”把两个人的索引混在一起。
+  const disabled = busy || !enabled || scoped;
+  // 插件按库启动的实例里，整个工作台已经绑定到当前 Obsidian 库：
+  // 不允许再通过 .env 切库/切工作区，页面上也不显示这些入口。
+  const statusCard = $("#vault-status-card");
+  if (statusCard) statusCard.hidden = scoped;
   const legacyForm = $("#vault-connect-card");
-  if (legacyForm) legacyForm.hidden = state.config?.capabilities?.workspaces === true;
+  if (legacyForm) legacyForm.hidden = scoped || state.config?.capabilities?.workspaces === true;
+  const scopedCard = $("#vault-scoped-card");
+  if (scopedCard) {
+    scopedCard.hidden = !scoped;
+    if (scoped) {
+      const text = $("#vault-scoped-text");
+      if (text) {
+        text.textContent = `当前由 Obsidian 库承载：${state.config?.vault_name || "当前库"}。`
+          + "切换库 = 在 Obsidian 里打开另一个库。";
+      }
+    }
+  }
   ["#vault-path", "#vault-read-only"].forEach((selector) => { const node = $(selector); if (node) node.disabled = disabled; });
   const save = $("#vault-save");
   if (save) save.disabled = disabled;
@@ -62,7 +76,7 @@ function syncControls() {
   if (report) report.disabled = disabled;
   const support = $("#vault-connection-support");
   if (support) {
-    support.hidden = enabled;
+    support.hidden = enabled || scoped;
     support.textContent = state.config
       ? "当前运行的服务尚未支持 Vault 连接设置。请更新并重启本地服务，再刷新页面。"
       : "正在检查服务能力；若未恢复，请到设置页重新检查本地服务。";

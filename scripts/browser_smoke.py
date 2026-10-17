@@ -819,6 +819,9 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                 weather: document.querySelector('#workbench-weather').innerText.includes('°'),
                 # 时间管理模块（2026-10-08 起替换「今日待办」）：任务行 + 模块侧栏；习惯打卡已进模块内页。
                 tasks: document.querySelectorAll('#time-board .time-task').length,
+                taskOpenButtons: document.querySelectorAll('#time-board .task-open').length,
+                legacyBadges: document.querySelectorAll('#time-board .task-legacy-badge').length,
+                vaultNote: (document.querySelector('#time-vault-note')?.textContent || '').slice(0, 160),
                 moduleSide: document.querySelectorAll('#time-sidebar .time-side-item').length,
                 daily: document.querySelectorAll('#time-habits-list .habit-check').length,
                 noSuggestions: document.querySelector('#suggestion-list') === null,

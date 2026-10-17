@@ -12,3 +12,13 @@
   border: 0;
   background: var(--background-primary);
 }
+
+.torch-view .torch-offline {
+  margin: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  line-height: 1.6;
+}
