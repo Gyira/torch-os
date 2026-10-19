@@ -16,6 +16,7 @@ from backend.app.db import Database
 from backend.app.dida_client import (
     RemoteChecklistItem, RemoteProject, RemoteSnapshot, RemoteTask,
 )
+from backend.app.dida_sync import DidaSyncService
 from backend.app.model_gateway import ModelGateway
 
 COOKIE = "supersecret-token"
@@ -61,7 +62,8 @@ def make_task(**overrides):
 
 class FakeProvider:
     def __init__(self, snapshot, completed=(), deleted=None, restored=None,
-                 added=None, updated=None, moved=None):
+                 added=None, updated=None, moved=None,
+                 projects_added=None, projects_updated=None, projects_deleted=None):
         self.snapshot = snapshot
         self.completed = completed
         self.closed = False
@@ -70,6 +72,12 @@ class FakeProvider:
         self.added = added if added is not None else []
         self.updated = updated if updated is not None else []
         self.moved = moved if moved is not None else []
+        self.projects_added = projects_added if projects_added is not None else []
+        self.projects_updated = projects_updated if projects_updated is not None else []
+        self.projects_deleted = projects_deleted if projects_deleted is not None else []
+        self.project_errors_by_name: dict[str, str] = {}
+        self.project_no_etag: set[str] = set()
+        self.project_etags = True
 
     async def fetch_snapshot(self, checkpoint=0):
         return self.snapshot
@@ -101,6 +109,34 @@ class FakeProvider:
         self.restored.append(entries)
         return {"ok": True, "etags": {}, "errors": {}}
 
+    async def add_projects(self, projects):
+        self.projects_added.append(copy.deepcopy(projects))
+        etags = {}
+        errors = {}
+        for project in projects:
+            code = self.project_errors_by_name.get(project.get("name", ""))
+            if code:
+                errors[project["id"]] = code
+            elif self.project_etags and project["id"] not in self.project_no_etag:
+                etags[project["id"]] = "etag-project"
+        return {"ok": True, "etags": etags, "errors": errors}
+
+    async def update_projects(self, projects):
+        self.projects_updated.append(copy.deepcopy(projects))
+        etags = {}
+        errors = {}
+        for project in projects:
+            code = self.project_errors_by_name.get(project.get("name", ""))
+            if code:
+                errors[project["id"]] = code
+            elif project["id"] not in self.project_no_etag:
+                etags[project["id"]] = "etag-project-upd"
+        return {"ok": True, "etags": etags, "errors": errors}
+
+    async def delete_projects(self, project_ids):
+        self.projects_deleted.append(list(project_ids))
+        return {"ok": True, "etags": {}, "errors": {}}
+
     async def aclose(self):
         self.closed = True
 
@@ -110,12 +146,24 @@ def make_client(tmp_path: Path, snapshot: RemoteSnapshot, completed=(), *, read_
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
-    seen = {"deleted": [], "restored": [], "added": [], "updated": [], "moved": []}
+    seen = {"snapshot": snapshot,
+            "deleted": [], "restored": [], "added": [], "updated": [], "moved": [],
+            "projects_added": [], "projects_updated": [], "projects_deleted": [],
+            "project_errors_by_name": {}, "project_no_etag": set(),
+            "project_etags": True}
 
     def factory(credentials):
         seen["cookie"] = credentials.cookie
-        return FakeProvider(snapshot, completed, seen["deleted"], seen["restored"],
-                            seen["added"], seen["updated"], seen["moved"])
+        provider = FakeProvider(
+            seen["snapshot"], completed, seen["deleted"], seen["restored"],
+            seen["added"], seen["updated"], seen["moved"],
+            seen["projects_added"], seen["projects_updated"],
+            seen["projects_deleted"],
+        )
+        provider.project_errors_by_name = seen["project_errors_by_name"]
+        provider.project_no_etag = seen["project_no_etag"]
+        provider.project_etags = seen["project_etags"]
+        return provider
 
     app = create_app(
         Database(tmp_path / "dida.sqlite3"), vault,
@@ -838,3 +886,250 @@ def test_read_only_blocks_run_but_allows_test(tmp_path):
     response = client.post("/api/sync/dida/run", json={"dry_run": False})
     assert response.status_code == 409
     assert not (vault / "00-System" / "任务").exists()
+
+
+def _create_list(client, name, color="#22c55e"):
+    board = client.get("/api/time/tasks").json()
+    response = client.post("/api/time/lists", json={
+        "name": name, "color": color, "revision": board["revision"],
+    })
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _find_list(client, name):
+    board = client.get("/api/time/tasks").json()
+    return next(item for item in board["lists"] if item["name"] == name)
+
+
+def test_empty_local_list_is_created_remotely_immediately(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(), tasks=())
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    _create_list(client, "新清单")
+    result = run_sync(client)
+    assert result["counts"]["projects_created_pushed"] == 1
+    assert len(seen["projects_added"]) == 1
+    payload = seen["projects_added"][0][0]
+    assert payload["name"] == "新清单"
+    assert payload["color"] == "#22c55e"
+    assert payload["kind"] == "TASK"
+    assert payload["viewMode"] == "list"
+    assert len(payload["id"]) == 24
+    assert _find_list(client, "新清单")["dida_project_id"] == payload["id"]
+    again = run_sync(client)
+    assert again["counts"].get("projects_created_pushed", 0) == 0
+    assert len(seen["projects_added"]) == 1
+
+
+def test_local_list_and_its_tasks_are_pushed_in_one_cycle(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(), tasks=())
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    _create_list(client, "新清单")
+    board = client.get("/api/time/tasks").json()
+    created = client.post("/api/time/tasks", json={
+        "title": "新任务", "list_name": "新清单", "revision": board["revision"],
+    })
+    assert created.status_code == 200, created.text
+    result = run_sync(client)
+    assert result["counts"]["projects_created_pushed"] == 1
+    assert result["counts"]["created_pushed"] == 1
+    project_id = seen["projects_added"][0][0]["id"]
+    assert seen["added"][0][0]["projectId"] == project_id
+    assert _find_list(client, "新清单")["dida_project_id"] == project_id
+
+
+def test_local_list_rename_is_pushed_using_synced_name(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    renamed = client.post("/api/time/lists/update", json={
+        "name": "工作", "new_name": "生活", "revision": board["revision"],
+    })
+    assert renamed.status_code == 200, renamed.text
+    result = run_sync(client)
+    assert result["counts"]["projects_renamed_pushed"] == 1
+    assert seen["projects_updated"] == [[{
+        "id": "proj-1", "name": "生活", "color": "#3b82f6",
+    }]]
+    again = run_sync(client)
+    assert again["counts"].get("projects_renamed_pushed", 0) == 0
+    assert len(seen["projects_updated"]) == 1
+
+
+def test_sanitized_remote_name_does_not_trigger_rename(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(name="工作/家"),),
+                              tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    assert _find_list(client, "工作-家")["dida_project_id"] == "proj-1"
+    result = run_sync(client)
+    assert result["counts"].get("projects_renamed_pushed", 0) == 0
+    assert seen["projects_updated"] == []
+
+
+def test_deleting_local_list_deletes_remote_project_without_task_deletes(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    deleted = client.post("/api/time/lists/delete", json={
+        "name": "工作", "revision": board["revision"],
+    })
+    assert deleted.status_code == 200, deleted.text
+    result = run_sync(client)
+    assert result["counts"]["projects_deleted_pushed"] == 1
+    assert result["counts"]["deleted_pushed"] == 0
+    assert seen["projects_deleted"] == [["proj-1"]]
+    assert seen["deleted"] == []
+
+
+def test_list_delete_respects_push_deletes_off(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    settings = client.put("/api/sync/dida/settings", json={
+        "enabled": False, "push_deletes": False, "csrf_token": "csrf-secret",
+    })
+    assert settings.status_code == 200, settings.text
+    board = client.get("/api/time/tasks").json()
+    client.post("/api/time/lists/delete", json={
+        "name": "工作", "revision": board["revision"],
+    })
+    result = run_sync(client)
+    assert result["counts"].get("projects_deleted_pushed", 0) == 0
+    assert seen["projects_deleted"] == []
+
+
+def test_list_delete_works_when_push_changes_off(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=(make_task(),))
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    settings = client.put("/api/sync/dida/settings", json={
+        "enabled": False, "push_changes": False, "csrf_token": "csrf-secret",
+    })
+    assert settings.status_code == 200, settings.text
+    run_sync(client)
+    board = client.get("/api/time/tasks").json()
+    client.post("/api/time/lists/delete", json={
+        "name": "工作", "revision": board["revision"],
+    })
+    result = run_sync(client)
+    assert result["counts"]["projects_deleted_pushed"] == 1
+    assert seen["projects_deleted"] == [["proj-1"]]
+
+
+def test_stale_snapshot_does_not_delete_locally_created_project(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(make_project(),), tasks=())
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    _create_list(client, "新清单")
+    run_sync(client)
+    project_id = _find_list(client, "新清单")["dida_project_id"]
+    assert project_id
+    assert (vault / "00-System" / "任务" / "新清单").is_dir()
+
+    result = run_sync(client)  # 快照仍不含新项目
+    assert result["counts"].get("projects_deleted", 0) == 0
+    assert "project_seen_pending" in result["warnings"]
+    assert (vault / "00-System" / "任务" / "新清单").is_dir()
+
+    seen["snapshot"] = RemoteSnapshot(
+        checkpoint=2, inbox_id="inbox-1",
+        projects=(make_project(), make_project(id=project_id, name="新清单")),
+        tasks=(),
+    )
+    run_sync(client)  # 完整快照确认后解除保护
+
+    seen["snapshot"] = RemoteSnapshot(
+        checkpoint=3, inbox_id="inbox-1",
+        projects=(make_project(),), tasks=(),
+    )
+    result = run_sync(client)
+    assert result["counts"]["projects_deleted"] == 1
+    assert not (vault / "00-System" / "任务" / "新清单").exists()
+
+
+def test_one_list_create_failure_does_not_block_others(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(), tasks=())
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    seen["project_errors_by_name"]["失败清单"] = "EXCEED_QUOTA"
+    _create_list(client, "失败清单")
+    _create_list(client, "正常清单")
+    board = client.get("/api/time/tasks").json()
+    client.post("/api/time/tasks", json={
+        "title": "能推的任务", "list_name": "正常清单", "revision": board["revision"],
+    })
+    result = run_sync(client)
+    assert result["counts"]["projects_created_pushed"] == 1
+    assert result["counts"]["created_pushed"] == 1
+    assert result["counts"]["errors"] >= 1
+    assert "project_push_error_EXCEED_QUOTA" in result["warnings"]
+    assert _find_list(client, "正常清单")["dida_project_id"]
+
+
+def test_initialize_migrates_project_links_and_baselines_synced_name(tmp_path):
+    database = Database(tmp_path / "migrate.sqlite3")
+    with database.connect() as connection:
+        connection.executescript("""
+        CREATE TABLE dida_project_links (
+            source TEXT NOT NULL DEFAULT 'dida_web',
+            project_id TEXT NOT NULL,
+            list_name TEXT NOT NULL,
+            color TEXT NOT NULL DEFAULT '',
+            closed INTEGER NOT NULL DEFAULT 0,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(source, project_id)
+        );
+        """)
+        connection.execute(
+            """INSERT INTO dida_project_links
+               (source, project_id, list_name, color, closed, last_seen_at, created_at)
+               VALUES ('dida_web', 'proj-old', '工作', '#3b82f6', 0, 'now', 'now')"""
+        )
+        connection.commit()
+    DidaSyncService(database, tmp_path / "vault")
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT synced_name, remote_seen FROM dida_project_links "
+            "WHERE project_id = 'proj-old'"
+        ).fetchone()
+    assert row["synced_name"] == "工作"
+    assert row["remote_seen"] == 1
+
+
+def test_project_create_without_etag_still_attaches(tmp_path):
+    snapshot = RemoteSnapshot(checkpoint=1, inbox_id="inbox-1",
+                              projects=(), tasks=())
+    client, vault, seen = make_client(tmp_path, snapshot)
+    configure(client, csrf=True)
+    run_sync(client)
+    seen["project_etags"] = False
+    _create_list(client, "无确认清单")
+    result = run_sync(client)
+    assert result["counts"]["projects_created_pushed"] == 1
+    assert "project_create_unconfirmed" in result["warnings"]
+    assert _find_list(client, "无确认清单")["dida_project_id"]
+    again = run_sync(client)
+    assert again["counts"].get("projects_created_pushed", 0) == 0

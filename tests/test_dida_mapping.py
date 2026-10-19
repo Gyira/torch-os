@@ -301,6 +301,91 @@ def test_client_move_tasks_uses_task_project_payload():
     asyncio.run(provider.aclose())
 
 
+def test_client_add_projects_uses_batch_project_envelope():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["csrf"] = request.headers.get("x-csrftoken")
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"id2etag": {"a" * 24: "e1"}, "id2error": {}})
+
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    project = {"id": "a" * 24, "name": "新清单", "color": "#3b82f6",
+               "kind": "TASK", "viewMode": "list"}
+    result = asyncio.run(provider.add_projects([project]))
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/v2/batch/project"
+    assert seen["csrf"] == "csrf-1"
+    assert seen["body"] == {"add": [project], "update": [], "delete": []}
+    assert result["etags"] == {"a" * 24: "e1"}
+    asyncio.run(provider.aclose())
+
+
+def test_client_update_projects_sends_id_name_color():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"id2etag": {"p1": "e2"}, "id2error": {}})
+
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(provider.update_projects([
+        {"id": "p1", "name": "改名后", "color": "#ff0000"},
+    ]))
+    assert seen["path"] == "/api/v2/batch/project"
+    assert seen["body"]["update"] == [
+        {"id": "p1", "name": "改名后", "color": "#ff0000"}
+    ]
+    assert result["etags"] == {"p1": "e2"}
+    asyncio.run(provider.aclose())
+
+
+def test_client_delete_projects_sends_bare_ids_and_keeps_errors():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={
+            "id2etag": {}, "id2error": {"p2": "NOT_EXISTED"},
+        })
+
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", csrf_token="csrf-1",
+                        device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = asyncio.run(provider.delete_projects(["p1", "p2"]))
+    assert seen["path"] == "/api/v2/batch/project"
+    assert seen["body"] == {"add": [], "update": [], "delete": ["p1", "p2"]}
+    assert result["errors"] == {"p2": "NOT_EXISTED"}
+    asyncio.run(provider.aclose())
+
+
+def test_client_project_write_requires_csrf():
+    provider = PrivateDidaProvider(
+        DidaCredentials(region="dida365", cookie="abc", device_id="dev-1"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500)
+        )),
+    )
+    with pytest.raises(DidaError) as error:
+        asyncio.run(provider.add_projects([{"id": "p1", "name": "清单"}]))
+    assert error.value.code == "csrf_required"
+    asyncio.run(provider.aclose())
+
+
 def test_client_delete_requires_csrf():
     provider = PrivateDidaProvider(
         DidaCredentials(region="dida365", cookie="abc", device_id="dev-1"),

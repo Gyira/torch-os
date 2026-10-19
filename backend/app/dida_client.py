@@ -124,6 +124,9 @@ class DidaProvider(Protocol):
     async def move_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def delete_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
     async def restore_tasks(self, entries: list[dict[str, str]]) -> dict[str, Any]: ...
+    async def add_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def update_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def delete_projects(self, project_ids: list[str]) -> dict[str, Any]: ...
     async def aclose(self) -> None: ...
 
 
@@ -410,6 +413,34 @@ class PrivateDidaProvider:
 
     async def add_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         return await self._commit_tasks(add=tasks)
+
+    async def _commit_projects(self, *, add: list[dict[str, Any]] | None = None,
+                               update: list[dict[str, Any]] | None = None,
+                               delete: list[str] | None = None) -> dict[str, Any]:
+        """清单（项目）批量写入；与网页端 batch/project 的 envelope 一致。"""
+        add = list(add or [])
+        update = list(update or [])
+        delete = [str(item) for item in (delete or []) if str(item)]
+        if not add and not update and not delete:
+            return {"ok": True, "etags": {}, "errors": {}}
+        raw = await self._post_json("/api/v2/batch/project", {
+            "add": add,
+            "update": update,
+            "delete": delete,
+        })
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
+    async def add_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_projects(add=projects)
+
+    async def update_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_projects(update=projects)
+
+    async def delete_projects(self, project_ids: list[str]) -> dict[str, Any]:
+        return await self._commit_projects(delete=project_ids)
 
     async def update_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         return await self._commit_tasks(update=tasks)

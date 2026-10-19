@@ -14,6 +14,7 @@ export function syncErrorText(code) {
     write_forbidden: "滴答拒绝写入（CSRF 或账号权限不足）。",
     http_404: "滴答接口不存在，可能已变更。",
     http_500: "滴答服务暂时不可用。",
+    EXCEED_QUOTA: "滴答清单数量已达上限，请清理或升级后再试。",
   };
   return map[String(code || "")] || `同步失败（${String(code || "unknown")}）。`;
 }
@@ -27,6 +28,9 @@ export function syncCountsText(counts = {}) {
   ];
   if (number("projects_created")) parts.push(`新清单 ${number("projects_created")}`);
   if (number("projects_deleted")) parts.push(`删除清单 ${number("projects_deleted")}`);
+  if (number("projects_created_pushed")) parts.push(`回写新清单 ${number("projects_created_pushed")}`);
+  if (number("projects_renamed_pushed")) parts.push(`回写清单改名 ${number("projects_renamed_pushed")}`);
+  if (number("projects_deleted_pushed")) parts.push(`回写删除清单 ${number("projects_deleted_pushed")}`);
   if (number("created_pushed")) parts.push(`回写新增 ${number("created_pushed")}`);
   if (number("updated_pushed")) parts.push(`回写更新 ${number("updated_pushed")}`);
   if (number("moved_pushed")) parts.push(`回写移动 ${number("moved_pushed")}`);
@@ -49,7 +53,14 @@ export function syncWarningText(code) {
     push_delete_error: "本地删除未能写回滴答（常见原因是缺少 _csrf_token）；请到 设置 → 滴答同步 查看「回写错误」。",
     push_changes_csrf_required: "本地新增/修改未能写回滴答：需要 _csrf_token，请到 设置 → 滴答同步 保存。",
     local_push_no_project: "有本地任务所在清单尚未映射到滴答，已跳过写回。",
+    local_push_unmapped_list: "有任务所在清单尚未映射到滴答，已跳过写回；请先成功创建该清单。",
     push_needs_pull: "有本地修改等待一次完整同步后再写回（先补全远端原始数据，避免覆盖正文）。",
+    project_create_unconfirmed: "滴答已接受新建清单，但没有返回确认信息，已按成功处理。",
+    project_rename_unconfirmed: "滴答已接受清单改名，但没有返回确认信息，请下次同步后检查名称。",
+    project_create_list_gone: "清单在回写期间被改名或删除，已跳过本次新建。",
+    project_create_cleanup_failed: "清单新建失败后的远端清理未完成，可能留下一个空清单。",
+    project_link_missing: "有本地清单缺少滴答同步链接，清单改名未能回写。",
+    project_seen_pending: "新清单等待一次完整拉取确认。",
     attachments_ignored: "附件暂不映射。",
     completed_filtered: "部分已完成任务超出回看范围，已跳过。",
     completed_truncated: "已完成任务超过 2000 条，超出部分已截断。",
@@ -63,6 +74,7 @@ export function syncWarningText(code) {
     restored_note_unreadable: "滴答恢复的任务在本地回收站里无法读取，已保留原文件，请手动检查。",
   };
   if (map[text]) return map[text];
+  if (text.startsWith("project_push_error_")) return "有清单未能写回滴答（新建/改名/删除），请稍后重试或查看「回写错误」。";
   if (text.startsWith("project_delete_error_")) return "有远端已删除的清单未能移入回收站，请检查清单目录里是否有非任务文件。";
   if (text.startsWith("task_error_")) return "有任务同步失败，其余任务不受影响。";
   if (text.startsWith("trash_error_")) return "有任务未能移入回收站，请稍后重试。";

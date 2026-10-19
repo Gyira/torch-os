@@ -6,9 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from backend.app import task_notes
+from backend.app import task_notes, tasks
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
@@ -565,3 +567,37 @@ def test_synthetic_lists_and_warnings(tmp_path):
     payload = board(client)
     assert next(item for item in payload["lists"] if item["name"] == "自由清单")["synthetic"] is False
     assert find(payload, "手工任务")["list_name"] == "自由清单"
+
+
+def test_attach_list_dida_project_preserves_other_metadata(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    vault = tmp_path / "vault"
+    database = Database(tmp_path / "tasks.sqlite3")
+    assert tasks.attach_list_dida_project(vault, "心愿清单", "proj-abc", database) is True
+    payload = board(client)
+    entry = next(item for item in payload["lists"] if item["name"] == "心愿清单")
+    assert entry["dida_project_id"] == "proj-abc"
+    assert entry["pinned"] is True
+    assert entry["color"] == "#8b5cf6"
+    other = next(item for item in payload["lists"] if item["name"] == "客户A")
+    assert other["folder"] == "工作"
+    assert other["dida_project_id"] == ""
+
+
+def test_attach_list_dida_project_missing_list_returns_false(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    vault = tmp_path / "vault"
+    database = Database(tmp_path / "tasks.sqlite3")
+    assert tasks.attach_list_dida_project(vault, "不存在的清单", "proj-abc", database) is False
+
+
+def test_attach_list_dida_project_rejects_read_only(tmp_path):
+    client = make_client(tmp_path, read_only=True)
+    seed(tmp_path)
+    vault = tmp_path / "vault"
+    database = Database(tmp_path / "tasks.sqlite3")
+    with pytest.raises(HTTPException):
+        tasks.attach_list_dida_project(vault, "心愿清单", "proj-abc", database,
+                                       read_only=True)

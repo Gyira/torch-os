@@ -43,6 +43,8 @@ CREDENTIALS_FILE = "dida-credentials.json"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _TRUE_VALUES = {"1", "true", "yes", "on"}
+# 滴答删除接口返回这些错误码时，等价于“已经不存在”，按成功处理。
+_DELETE_OK_CODES = {"NOT_EXISTED", "DELETED", "NOT_EXIST", "NOT_FOUND"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dida_sync_settings (
@@ -108,6 +110,8 @@ CREATE TABLE IF NOT EXISTS dida_project_links (
     list_name TEXT NOT NULL,
     color TEXT NOT NULL DEFAULT '',
     closed INTEGER NOT NULL DEFAULT 0,
+    synced_name TEXT NOT NULL DEFAULT '',
+    remote_seen INTEGER NOT NULL DEFAULT 1,
     last_seen_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
     PRIMARY KEY(source, project_id)
@@ -243,6 +247,9 @@ def _completed_recent(task: RemoteTask, cutoff: datetime | None) -> bool:
 class SyncCounts:
     projects_created: int = 0
     projects_deleted: int = 0
+    projects_created_pushed: int = 0
+    projects_renamed_pushed: int = 0
+    projects_deleted_pushed: int = 0
     created: int = 0
     created_pushed: int = 0
     restored: int = 0
@@ -278,6 +285,8 @@ class DidaSyncService:
         self._push_guard = asyncio.Lock()
         self._push_backoff_until: datetime | None = None
         self._local_push_backoff_until: datetime | None = None
+        # 清单名 → 待用于远端新建的项目 ID；重试时复用，避免瞬时失败产生重复清单。
+        self._pending_projects: dict[str, str] = {}
         self.initialize()
 
     # ---------- 初始化 / 设置 ----------
@@ -309,6 +318,25 @@ class DidaSyncService:
                     connection.execute(
                         f"ALTER TABLE dida_task_links ADD COLUMN {name} {declaration}"
                     )
+            project_columns = {row["name"] for row in connection.execute(
+                "PRAGMA table_info(dida_project_links)"
+            )}
+            added_synced_name = "synced_name" not in project_columns
+            for name, declaration in (
+                ("synced_name", "TEXT NOT NULL DEFAULT ''"),
+                ("remote_seen", "INTEGER NOT NULL DEFAULT 1"),
+            ):
+                if name not in project_columns:
+                    connection.execute(
+                        f"ALTER TABLE dida_project_links ADD COLUMN {name} {declaration}"
+                    )
+            if added_synced_name:
+                # 升级前的链接以当前本地清单名作为基线，避免把历史改名误当成待回写。
+                connection.execute(
+                    "UPDATE dida_project_links SET synced_name = list_name "
+                    "WHERE source = ? AND synced_name = ''",
+                    (SOURCE,),
+                )
             connection.execute(
                 "INSERT OR IGNORE INTO dida_sync_settings(id, device_id, updated_at) VALUES (1, ?, ?)",
                 (uuid.uuid4().hex, _iso_now()),
@@ -560,24 +588,97 @@ class DidaSyncService:
                                     "trash_path": str(link.get("relpath") or "")})
         return entries
 
+    def _local_list_delete_candidates(self) -> list[dict[str, Any]]:
+        """本地已删除、但仍与滴答项目保持映射的清单；只读，不发请求。"""
+        if not self.supported or self.read_only:
+            return []
+        row = self._row()
+        if not row.get("push_deletes"):
+            return []
+        state = tasks.read_tasks(self.vault_dir, read_only=self.read_only)
+        linked_ids = {
+            str(entry.get("dida_project_id") or "").strip()
+            for entry in state.get("lists", [])
+            if str(entry.get("dida_project_id") or "").strip()
+        }
+        with self.database.connect() as connection:
+            project_links = self._load_project_links(connection)
+        candidates: list[dict[str, Any]] = []
+        for project_id, link in project_links.items():
+            name = str(link.get("list_name") or "").strip()
+            if not project_id or project_id in linked_ids:
+                continue
+            if not name or name.casefold() == task_notes.INBOX.casefold():
+                continue
+            if project_id.lower().startswith("inbox"):
+                continue
+            try:
+                if task_notes.task_folder(self.vault_dir, name).is_dir():
+                    continue
+            except Exception:  # 名字无法安全转成目录时宁可不动
+                continue
+            candidates.append({"project_id": project_id, "list_name": name})
+        return candidates
+
+    async def _push_local_list_deletions(self, provider: DidaProvider,
+                                         items: list[dict[str, Any]],
+                                         counts: SyncCounts,
+                                         warnings: Counter) -> str:
+        try:
+            result = await provider.delete_projects(
+                [item["project_id"] for item in items]
+            )
+        except DidaError as error:
+            counts.errors += len(items)
+            warnings[f"project_push_error_{error.code}"] += len(items)
+            return error.code
+        errors = result.get("errors") if isinstance(result, dict) else {}
+        first_error = ""
+        for item in items:
+            project_id = item["project_id"]
+            code = str((errors or {}).get(project_id) or "")
+            if code and code not in _DELETE_OK_CODES:
+                counts.errors += 1
+                warnings[f"project_push_error_{code}"] += 1
+                first_error = first_error or code
+                continue
+            with self.database.connect() as connection:
+                for external_id, link in self._load_links(connection).items():
+                    if str(link.get("project_id") or "") != project_id:
+                        continue
+                    if str(link.get("status") or "") == "remote_deleted":
+                        continue
+                    self._mark_link_status(connection, external_id,
+                                           "remote_deleted", "deleted_with_project")
+                self._delete_project_link(connection, project_id)
+            counts.projects_deleted_pushed += 1
+        return first_error
+
     async def push_deletions(self, *, force: bool = False) -> dict[str, Any]:
-        """把 torch-os 回收站里的已同步任务删除回滴答（需要 CSRF）。"""
+        """把本地删除的清单和已同步任务回写滴答（需要 CSRF）。"""
         row = self._row()
         if not self.supported:
-            return {"enabled": False, "deleted": 0, "errors": []}
+            return {"enabled": False, "deleted": 0, "projects_deleted": 0,
+                    "counts": {}, "warnings": [], "errors": []}
         if self.read_only:
-            return {"enabled": False, "deleted": 0, "errors": []}
+            return {"enabled": False, "deleted": 0, "projects_deleted": 0,
+                    "counts": {}, "warnings": [], "errors": []}
         if not row.get("push_deletes"):
-            return {"enabled": False, "deleted": 0, "errors": []}
+            return {"enabled": False, "deleted": 0, "projects_deleted": 0,
+                    "counts": {}, "warnings": [], "errors": []}
         now = datetime.now(timezone.utc)
         if not force and self._push_backoff_until and now < self._push_backoff_until:
-            return {"enabled": True, "deleted": 0, "skipped": "backoff", "errors": []}
+            return {"enabled": True, "deleted": 0, "projects_deleted": 0,
+                    "skipped": "backoff", "counts": {}, "warnings": [], "errors": []}
         if self._push_guard.locked():
-            return {"enabled": True, "deleted": 0, "skipped": "running", "errors": []}
+            return {"enabled": True, "deleted": 0, "projects_deleted": 0,
+                    "skipped": "running", "counts": {}, "warnings": [], "errors": []}
         async with self._push_guard:
+            list_items = await run_in_threadpool(self._local_list_delete_candidates)
             entries = await run_in_threadpool(self._pending_delete_entries)
-            if not entries:
-                return {"enabled": True, "deleted": 0, "errors": []}
+            if not list_items and not entries:
+                return {"enabled": True, "deleted": 0, "projects_deleted": 0,
+                        "counts": {}, "warnings": [], "errors": []}
             _cookie, csrf = self.credentials.load()
             if not csrf:
                 with self.database.connect() as connection:
@@ -588,16 +689,36 @@ class DidaSyncService:
                     )
                     connection.commit()
                 self._push_backoff_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-                return {"enabled": True, "deleted": 0,
+                return {"enabled": True, "deleted": 0, "projects_deleted": 0,
+                        "counts": {}, "warnings": [],
                         "errors": [{"code": "csrf_required",
                                     "message": "需要 _csrf_token 才能回写滴答"}]}
+            counts = SyncCounts()
+            warnings: Counter = Counter()
+            errors: list[dict[str, str]] = []
+            success_ids: set[str] = set()
+            first_error = ""
             provider: DidaProvider | None = None
             try:
                 provider = self.build_provider()
-                result = await provider.delete_tasks([
-                    {"taskId": entry["taskId"], "projectId": entry["projectId"]}
-                    for entry in entries
-                ])
+                if list_items:
+                    first_error = await self._push_local_list_deletions(
+                        provider, list_items, counts, warnings
+                    ) or first_error
+                    # 项目已整体删除：属于它的任务不必再逐条发送删除。
+                    entries = await run_in_threadpool(self._pending_delete_entries)
+                if entries:
+                    result = await provider.delete_tasks([
+                        {"taskId": entry["taskId"], "projectId": entry["projectId"]}
+                        for entry in entries
+                    ])
+                    raw_errors = result.get("errors") if isinstance(result, dict) else {}
+                    for entry in entries:
+                        code = str((raw_errors or {}).get(entry["taskId"]) or "")
+                        if code and code not in _DELETE_OK_CODES:
+                            errors.append({"taskId": entry["taskId"], "code": code})
+                        else:
+                            success_ids.add(entry["taskId"])
             except DidaError as error:
                 self._push_backoff_until = now + timedelta(minutes=5)
                 with self.database.connect() as connection:
@@ -608,34 +729,33 @@ class DidaSyncService:
                     )
                     connection.commit()
                 return {"enabled": True, "deleted": 0,
+                        "projects_deleted": counts.projects_deleted_pushed,
+                        "counts": counts.as_dict(), "warnings": sorted(warnings),
                         "errors": [{"code": error.code, "message": error.message}]}
             finally:
                 if provider is not None:
                     await provider.aclose()
-            raw_errors = result.get("errors") if isinstance(result, dict) else {}
-            errors: list[dict[str, str]] = []
-            success_ids: set[str] = set()
-            for entry in entries:
-                code = str((raw_errors or {}).get(entry["taskId"]) or "")
-                if code and code not in {"NOT_EXISTED", "DELETED", "NOT_EXIST", "NOT_FOUND"}:
-                    errors.append({"taskId": entry["taskId"], "code": code})
-                else:
-                    success_ids.add(entry["taskId"])
-            if success_ids:
-                with self.database.connect() as connection:
-                    for dida_id in success_ids:
-                        self._mark_link_status(connection, dida_id, "remote_deleted",
-                                               "deleted_by_local")
-                    connection.execute(
-                        "UPDATE dida_sync_settings SET last_push_at = ?, "
-                        "last_push_error_code = ?, updated_at = ? WHERE id = 1",
-                        (_iso_now(), errors[0]["code"] if errors else "", _iso_now()),
-                    )
-                    connection.commit()
-            self._push_backoff_until = datetime.now(timezone.utc) + timedelta(minutes=5) if errors else None
+            with self.database.connect() as connection:
+                for dida_id in success_ids:
+                    self._mark_link_status(connection, dida_id, "remote_deleted",
+                                           "deleted_by_local")
+                connection.execute(
+                    "UPDATE dida_sync_settings SET last_push_at = ?, "
+                    "last_push_error_code = ?, updated_at = ? WHERE id = 1",
+                    (_iso_now(), errors[0]["code"] if errors else first_error,
+                     _iso_now()),
+                )
+                connection.commit()
+            self._push_backoff_until = (
+                datetime.now(timezone.utc) + timedelta(minutes=5)
+                if (errors or first_error) else None
+            )
             if success_ids:
                 self.database.audit("dida_sync_delete_pushed", {"count": len(success_ids)})
-            return {"enabled": True, "deleted": len(success_ids), "errors": errors}
+            return {"enabled": True, "deleted": len(success_ids),
+                    "projects_deleted": counts.projects_deleted_pushed,
+                    "counts": counts.as_dict(), "warnings": sorted(warnings),
+                    "errors": errors}
 
     def _list_project_map(self) -> dict[str, str]:
         """本地清单名 → 滴答项目 ID（收集箱也通过 project_links 映射）。"""
@@ -657,6 +777,46 @@ class DidaSyncService:
                 mapping[name] = project_id
         return mapping
 
+    def _pending_project_id(self, name: str) -> str:
+        return self._pending_projects.setdefault(name, uuid.uuid4().hex[:24])
+
+    def _local_list_push_candidates(self) -> tuple[list[dict[str, Any]],
+                                                   list[dict[str, Any]], Counter]:
+        """扫描本地清单，找出需要在滴答新建/改名的项目；只读，不发请求。"""
+        warnings: Counter = Counter()
+        state = tasks.read_tasks(self.vault_dir, read_only=self.read_only)
+        with self.database.connect() as connection:
+            links = self._load_project_links(connection)
+        creates: list[dict[str, Any]] = []
+        renames: list[dict[str, Any]] = []
+        for entry in state.get("lists", []):
+            name = str(entry.get("name") or "").strip()
+            if not name or entry.get("synthetic"):
+                continue
+            if name.casefold() == task_notes.INBOX.casefold():
+                continue
+            project_id = str(entry.get("dida_project_id") or "").strip()
+            color = _valid_color(entry.get("color")) or "#3b82f6"
+            if not project_id:
+                creates.append({
+                    "name": name,
+                    "color": color,
+                    "project_id": self._pending_project_id(name),
+                })
+                continue
+            link = links.get(project_id)
+            if link is None:
+                warnings["project_link_missing"] += 1
+                continue
+            synced_name = str(link.get("synced_name") or "").strip()
+            if synced_name and synced_name != name:
+                renames.append({
+                    "project_id": project_id,
+                    "name": name,
+                    "color": color,
+                })
+        return creates, renames, warnings
+
     def _local_push_candidates(self) -> tuple[list[dict[str, Any]],
                                               list[dict[str, Any]], Counter]:
         """扫描本地任务，找出需要回写的新建/修改；只读，不发请求。"""
@@ -675,6 +835,7 @@ class DidaSyncService:
             dida_id = str(note.get("dida_id") or "").strip()
             if not dida_id:
                 if not project_id:
+                    warnings["local_push_unmapped_list"] += 1
                     continue
                 creates.append({
                     "note": note,
@@ -764,8 +925,108 @@ class DidaSyncService:
             connection.commit()
         return first_error
 
+    async def _push_local_list_creates(self, provider: DidaProvider,
+                                       items: list[dict[str, Any]],
+                                       counts: SyncCounts,
+                                       warnings: Counter) -> str:
+        payloads = [{
+            "id": item["project_id"],
+            "name": item["name"],
+            "color": item["color"],
+            "kind": "TASK",
+            "viewMode": "list",
+        } for item in items]
+        try:
+            result = await provider.add_projects(payloads)
+        except DidaError as error:
+            counts.errors += len(items)
+            warnings[f"project_push_error_{error.code}"] += len(items)
+            return error.code
+        etags = result.get("etags") if isinstance(result, dict) else {}
+        errors = result.get("errors") if isinstance(result, dict) else {}
+        first_error = ""
+        for item in items:
+            project_id = item["project_id"]
+            code = str((errors or {}).get(project_id) or "")
+            if code:
+                counts.errors += 1
+                warnings[f"project_push_error_{code}"] += 1
+                first_error = first_error or code
+                continue
+            try:
+                attached = await run_in_threadpool(
+                    tasks.attach_list_dida_project,
+                    self.vault_dir, item["name"], project_id, self.database,
+                )
+            except (HTTPException, VaultReadOnlyError, OSError):
+                attached = False
+            if not attached:
+                # 扫描与落库之间清单被改名/删除：远端项目成了孤儿，尽力清理。
+                warnings["project_create_list_gone"] += 1
+                try:
+                    cleanup = await provider.delete_projects([project_id])
+                    cleanup_errors = (cleanup.get("errors")
+                                      if isinstance(cleanup, dict) else {})
+                    cleanup_code = str((cleanup_errors or {}).get(project_id) or "")
+                    if cleanup_code and cleanup_code not in _DELETE_OK_CODES:
+                        warnings["project_create_cleanup_failed"] += 1
+                    else:
+                        self._pending_projects.pop(item["name"], None)
+                except Exception:
+                    warnings["project_create_cleanup_failed"] += 1
+                continue
+            self._pending_projects.pop(item["name"], None)
+            with self.database.connect() as connection:
+                self._upsert_local_project_link(
+                    connection, project_id, item["name"], item["color"]
+                )
+            counts.projects_created_pushed += 1
+            if not str((etags or {}).get(project_id) or ""):
+                warnings["project_create_unconfirmed"] += 1
+        return first_error
+
+    async def _push_local_list_renames(self, provider: DidaProvider,
+                                       items: list[dict[str, Any]],
+                                       counts: SyncCounts,
+                                       warnings: Counter) -> str:
+        try:
+            result = await provider.update_projects([{
+                "id": item["project_id"],
+                "name": item["name"],
+                "color": item["color"],
+            } for item in items])
+        except DidaError as error:
+            counts.errors += len(items)
+            warnings[f"project_push_error_{error.code}"] += len(items)
+            return error.code
+        etags = result.get("etags") if isinstance(result, dict) else {}
+        errors = result.get("errors") if isinstance(result, dict) else {}
+        first_error = ""
+        now = _iso_now()
+        with self.database.connect() as connection:
+            for item in items:
+                project_id = item["project_id"]
+                code = str((errors or {}).get(project_id) or "")
+                if code:
+                    counts.errors += 1
+                    warnings[f"project_push_error_{code}"] += 1
+                    first_error = first_error or code
+                    continue
+                counts.projects_renamed_pushed += 1
+                if not str((etags or {}).get(project_id) or ""):
+                    warnings["project_rename_unconfirmed"] += 1
+                connection.execute(
+                    """UPDATE dida_project_links
+                       SET synced_name = ?, list_name = ?, color = ?, last_seen_at = ?
+                       WHERE source = ? AND project_id = ?""",
+                    (item["name"], item["name"], item["color"], now,
+                     SOURCE, project_id),
+                )
+            connection.commit()
+        return first_error
+
     async def push_local_changes(self, *, force: bool = False) -> dict[str, Any]:
-        """把本地新建/修改的任务写回滴答（需要 CSRF）。"""
+        """把本地新建/修改的任务和清单写回滴答（需要 CSRF）。"""
         if not self.supported or self.read_only:
             return {"enabled": False, "counts": {}, "warnings": []}
         row = self._row()
@@ -785,17 +1046,41 @@ class DidaSyncService:
                 and now < self._local_push_backoff_until):
             return {"enabled": True, "counts": {}, "warnings": [], "skipped": "backoff"}
         async with self._push_guard:
-            creates, updates, warnings = await run_in_threadpool(
-                self._local_push_candidates
+            list_creates, list_renames, warnings = await run_in_threadpool(
+                self._local_list_push_candidates
             )
-            if not creates and not updates:
+            task_creates: list[dict[str, Any]] = []
+            task_updates: list[dict[str, Any]] = []
+            if not list_creates and not list_renames:
+                task_creates, task_updates, task_warnings = await run_in_threadpool(
+                    self._local_push_candidates
+                )
+                warnings.update(task_warnings)
+            if (not list_creates and not list_renames
+                    and not task_creates and not task_updates):
                 return {"enabled": True, "counts": {}, "warnings": sorted(warnings)}
             target_tz = _zone(str(row.get("timezone") or "Asia/Shanghai"))
             counts = SyncCounts()
             first_error = ""
+            creates, updates = task_creates, task_updates
             provider: DidaProvider | None = None
             try:
                 provider = self.build_provider()
+                if list_creates:
+                    first_error = await self._push_local_list_creates(
+                        provider, list_creates, counts, warnings
+                    ) or first_error
+                if list_renames:
+                    first_error = await self._push_local_list_renames(
+                        provider, list_renames, counts, warnings
+                    ) or first_error
+                if list_creates:
+                    # 新清单的 dida_project_id 已落盘：同一轮把其中的任务也推上去。
+                    task_creates, task_updates, task_warnings = await run_in_threadpool(
+                        self._local_push_candidates
+                    )
+                    warnings.update(task_warnings)
+                creates, updates = task_creates, task_updates
                 if creates:
                     payloads = []
                     for item in creates:
@@ -857,11 +1142,13 @@ class DidaSyncService:
                     ) or first_error
             except DidaError as error:
                 first_error = first_error or error.code
-                counts.errors += len(creates) + len(updates)
+                counts.errors += (len(creates) + len(updates)
+                                  + len(list_creates) + len(list_renames))
                 warnings[f"push_error_{error.code}"] += 1
             except Exception as error:  # 回写失败不应拖垮整次拉取
                 first_error = first_error or type(error).__name__
-                counts.errors += len(creates) + len(updates)
+                counts.errors += (len(creates) + len(updates)
+                                  + len(list_creates) + len(list_renames))
                 warnings[f"push_error_{type(error).__name__}"] += 1
             finally:
                 if provider is not None:
@@ -1024,15 +1311,57 @@ class DidaSyncService:
         now = _iso_now()
         connection.execute(
             """INSERT INTO dida_project_links
-               (source, project_id, list_name, color, closed, last_seen_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+               (source, project_id, list_name, color, closed, synced_name,
+                remote_seen, last_seen_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
                ON CONFLICT(source, project_id) DO UPDATE SET
                  list_name = excluded.list_name, color = excluded.color,
-                 closed = excluded.closed, last_seen_at = excluded.last_seen_at""",
+                 closed = excluded.closed, last_seen_at = excluded.last_seen_at,
+                 remote_seen = 1""",
             (SOURCE, project.id, list_name, _valid_color(project.color),
-             1 if project.closed else 0, now, now),
+             1 if project.closed else 0, list_name, now, now),
         )
         connection.commit()
+
+    def _upsert_local_project_link(self, connection, project_id: str,
+                                   list_name: str, color: str) -> None:
+        """本地新建清单成功后建链：synced_name 已对齐，等待快照确认 remote_seen。"""
+        now = _iso_now()
+        connection.execute(
+            """INSERT INTO dida_project_links
+               (source, project_id, list_name, color, closed, synced_name,
+                remote_seen, last_seen_at, created_at)
+               VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)
+               ON CONFLICT(source, project_id) DO UPDATE SET
+                 list_name = excluded.list_name, color = excluded.color,
+                 synced_name = excluded.synced_name, remote_seen = 0,
+                 last_seen_at = excluded.last_seen_at""",
+            (SOURCE, project_id, list_name, _valid_color(color),
+             list_name, now, now),
+        )
+        connection.commit()
+
+    def _mark_projects_seen(self, connection,
+                            project_links: dict[str, dict[str, Any]],
+                            remote_ids: set[str]) -> None:
+        """完整快照里出现的本地新建项目：解除旧快照保护。"""
+        now = _iso_now()
+        changed = False
+        for project_id, link in project_links.items():
+            if project_id not in remote_ids:
+                continue
+            if int(link.get("remote_seen") or 0) != 0:
+                continue
+            connection.execute(
+                """UPDATE dida_project_links
+                   SET remote_seen = 1, last_seen_at = ?
+                   WHERE source = ? AND project_id = ?""",
+                (now, SOURCE, project_id),
+            )
+            link["remote_seen"] = 1
+            changed = True
+        if changed:
+            connection.commit()
 
     def _delete_project_link(self, connection, project_id: str) -> None:
         connection.execute(
@@ -1168,6 +1497,13 @@ class DidaSyncService:
         remote_ids = set(projects)
         if snapshot.inbox_id:
             remote_ids.add(snapshot.inbox_id)
+        if not dry_run:
+            # 本次快照包含这些本地新建项目：解除“等待远端确认”的保护。
+            self._mark_projects_seen(connection, project_links, remote_ids)
+        protected_ids = {
+            project_id for project_id, link in project_links.items()
+            if int(link.get("remote_seen") or 0) == 0
+        }
         current = tasks.read_tasks(self.vault_dir, read_only=self.read_only)
         candidates: dict[str, str] = {}
         for entry in current.get("lists", []):
@@ -1186,12 +1522,18 @@ class DidaSyncService:
                 project_id = str(link.get("project_id") or "")
                 if not project_id or project_id in remote_ids:
                     continue
+                if project_id in protected_ids:
+                    continue
                 if str(link.get("status") or "") == "remote_deleted":
                     continue
                 self._mark_link_status(connection, external_id, "remote_deleted",
                                        "remote_deleted")
         for project_id in sorted(candidates):
             if project_id in remote_ids:
+                continue
+            if project_id in protected_ids:
+                # 本地刚建、远端快照还没看到：先别当作远端删除。
+                warnings["project_seen_pending"] += 1
                 continue
             name = candidates[project_id]
             if dry_run:
@@ -1372,6 +1714,18 @@ class DidaSyncService:
             for project_id in needed:
                 project = projects.get(project_id)
                 if project is None:
+                    # 本地刚建、完整快照里暂时缺席的项目：沿用本地清单，别把任务
+                    # 挪进收集箱（等下次快照确认后再恢复正常处理）。
+                    local_name = next(
+                        (name for name, entry in lists_by_name.items()
+                         if str(entry.get("dida_project_id") or "") == project_id),
+                        None,
+                    )
+                    link = project_links.get(project_id)
+                    if (local_name and link is not None
+                            and int(link.get("remote_seen") or 0) == 0):
+                        project_to_list[project_id] = local_name
+                        continue
                     project_to_list[project_id] = task_notes.INBOX
                     warnings["unknown_project"] += 1
                     continue
@@ -1717,6 +2071,14 @@ async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
                     warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
                 push = await service.push_deletions(force=True)
                 summary["counts"]["deleted_pushed"] = int(push.get("deleted") or 0)
+                for key, value in (push.get("counts") or {}).items():
+                    summary["counts"][key] = (
+                        int(summary["counts"].get(key, 0)) + int(value or 0)
+                    )
+                for warning in push.get("warnings") or []:
+                    summary["warnings"] = sorted(set([*summary.get("warnings", []), warning]))
+                    warning_counts = summary.setdefault("warning_counts", {})
+                    warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
                 if push.get("errors"):
                     summary["warnings"] = sorted(set([*summary.get("warnings", []), "push_delete_error"]))
                     summary.setdefault("warning_counts", {})["push_delete_error"] = len(push["errors"])

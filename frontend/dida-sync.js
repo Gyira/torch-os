@@ -271,7 +271,10 @@ async function runSync(dryRun = false, quick = false) {
     changed();
     await loadDidaSync();
     const pushFailed = Array.isArray(result.warnings)
-      && result.warnings.some((warning) => String(warning).startsWith("push_"));
+      && result.warnings.some((warning) => {
+        const code = String(warning);
+        return code.startsWith("push_") || code.startsWith("project_push_error_");
+      });
     setStatus(feedback,
       quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
         : dryRun ? "预览完成，没有写入任何文件。"

@@ -1062,6 +1062,27 @@ def delete_list(vault_dir: Path | str, payload: NamedPayload, database: Database
             "trash": task_notes.task_relative(batch, vault_dir)}
 
 
+def attach_list_dida_project(vault_dir: Path | str, name: str, project_id: str,
+                             database: Database, *, read_only: bool = False) -> bool:
+    """把滴答项目 ID 写进一条已存在的本地清单定义；清单已不存在时返回 False。"""
+    _ensure_write(read_only, "关联滴答清单")
+    state = _read_state(vault_dir)
+    metadata = _base_metadata(state["loaded"])
+    entries = _entries(metadata, "清单")
+    entry = _find_entry(entries, name)
+    if entry is None:
+        return False
+    current = str(entry.get("dida_project_id") or "").strip()
+    if current == project_id:
+        return True
+    entry["dida_project_id"] = project_id
+    metadata["清单"] = entries
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
+    _audit(database, "list_dida_project_attached",
+           {"name": name, "project_id": project_id})
+    return True
+
+
 # ===== 逻辑文件夹（不是磁盘目录） =====
 
 
