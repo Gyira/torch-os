@@ -178,6 +178,16 @@ class ListDuplicate(BaseModel):
     revision: str = Field(default="", max_length=64)
 
 
+class ListReorder(BaseModel):
+    """把清单放到同一文件夹里另一条清单的前面；before 为空 = 放到该组末尾。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=MAX_LIST)
+    before: str = Field(default="", max_length=MAX_LIST)
+    revision: str = Field(default="", max_length=64)
+
+
 class NamedPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -979,6 +989,51 @@ def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, 
     return {"revision": _revision_now(vault_dir), "list": {"name": name}}
 
 
+def reorder_list(vault_dir: Path | str, payload: ListReorder, database: Database, *,
+                 read_only: bool = False) -> dict[str, Any]:
+    """调整清单顺序（2026-10-20）：只动同文件夹内的相对顺序，跨文件夹的相对位置不变。
+
+    前端只发 before 锚点；找不到清单或锚点不在同一文件夹里都拒绝，
+    避免拖拽把一个清单意外挪进别的文件夹。
+    """
+    _ensure_write(read_only, "调整清单顺序")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    name = _clean_name(payload.name, what="清单名")
+    before = _clean_name(payload.before, what="清单名") if payload.before.strip() else ""
+    metadata = _base_metadata(state["loaded"])
+    entries = _entries(metadata, "清单")
+    entry = _find_entry(entries, name)
+    if entry is None:
+        raise HTTPException(422, f"没有叫“{name}”的清单")
+    folder = str(entry.get("文件夹") or "").strip()
+
+    def in_folder(item: dict[str, Any]) -> bool:
+        return str(item.get("文件夹") or "").strip() == folder
+
+    if before:
+        anchor = _find_entry([item for item in entries if in_folder(item)], before)
+        if anchor is None:
+            raise HTTPException(422, f"清单“{before}”不在同一个文件夹里")
+        if anchor is entry:
+            # 拖到自己前面 = 没变化；不写文件，但也不报错。
+            return {"revision": state["revision"], "list": {"name": name}}
+
+    group = [item for item in entries if in_folder(item)]
+    rest = [item for item in group if item is not entry]
+    index = (next(index for index, item in enumerate(rest)
+                  if str(item.get("名称") or "").strip() == before)
+             if before else len(rest))
+    reordered = [*rest[:index], entry, *rest[index:]]
+    slots = [index for index, item in enumerate(entries) if in_folder(item)]
+    for slot, item in zip(slots, reordered):
+        entries[slot] = item
+    metadata["清单"] = entries
+    _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
+    _audit(database, "list_reordered", {"name": name, "before": before or None})
+    return {"revision": _revision_now(vault_dir), "list": {"name": name}}
+
+
 def duplicate_list(vault_dir: Path | str, payload: ListDuplicate, database: Database, *,
                    read_only: bool = False) -> dict[str, Any]:
     _ensure_write(read_only, "复制清单")
@@ -1314,6 +1369,10 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     @router.post("/lists/update")
     def lists_update(payload: ListUpdate):
         return update_list(vault_dir, payload, database, read_only=read_only)
+
+    @router.post("/lists/reorder")
+    def lists_reorder(payload: ListReorder):
+        return reorder_list(vault_dir, payload, database, read_only=read_only)
 
     @router.post("/lists/duplicate")
     def lists_duplicate(payload: ListDuplicate):

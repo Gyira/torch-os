@@ -1,8 +1,12 @@
 // 任务页的二级侧边栏（2026-10-08）：置顶区 + 三大可折叠组（任务看板 / 清单管理 / 标签管理）。
 // 第 2 轮照滴答实测规格补齐：清单与标签的「＋」「…」菜单、文件夹树（可折叠）、清单行的快速添加。
+// 2026-10-20：清单行支持拖拽调整同组顺序；颜色色点改用 CSSOM 写变量（页面 CSP 会拦内联 style 属性）。
 import { escapeHtml } from "./core.js";
-import { VIEWS, INBOX, INBOX_HINT, viewCounts, countBy, listTree, pinnedItems, listIcon } from "./tasks-model.js";
+import {
+  VIEWS, INBOX, INBOX_HINT, viewCounts, countBy, listTree, pinnedItems, listIcon, dropBeforeName,
+} from "./tasks-model.js";
 import { openPopover } from "./tasks-picker.js";
+import { setListDragData, isListDrag, readListDragName } from "./tasks-drag.js";
 
 const ICONS = { today: "☀", inbox: "📥", done: "✅" };
 
@@ -37,7 +41,7 @@ function group(container, { label, collapsed, onToggle, hint, onAdd, addLabel })
   return body;
 }
 
-function item(host, { id, icon, label, hint = "", count, active, kind, onClick, actions = [] }) {
+function item(host, { id, icon, iconEntry, label, hint = "", count, active, kind, onClick, actions = [] }) {
   const row = document.createElement("div");
   row.className = `time-side-row${active ? " is-active" : ""}`;
   const button = document.createElement("button");
@@ -47,9 +51,21 @@ function item(host, { id, icon, label, hint = "", count, active, kind, onClick, 
   button.dataset.timeId = id;
   button.setAttribute("aria-current", active ? "true" : "false");
   if (hint) button.title = hint;
-  button.innerHTML = `<span class="time-side-icon" aria-hidden="true">${icon || ""}</span>` +
-    `<span class="time-side-label">${escapeHtml(label)}</span>` +
-    (count ? `<span class="time-side-count">${count}</span>` : "");
+  const iconHost = document.createElement("span");
+  iconHost.className = "time-side-icon";
+  iconHost.setAttribute("aria-hidden", "true");
+  if (iconEntry) paintIcon(iconHost, iconEntry);
+  else iconHost.textContent = icon || "";
+  const labelNode = document.createElement("span");
+  labelNode.className = "time-side-label";
+  labelNode.textContent = label;
+  button.append(iconHost, labelNode);
+  if (count) {
+    const countNode = document.createElement("span");
+    countNode.className = "time-side-count";
+    countNode.textContent = String(count);
+    button.append(countNode);
+  }
   button.addEventListener("click", onClick);
   row.append(button);
   if (actions.length) {
@@ -74,12 +90,95 @@ function item(host, { id, icon, label, hint = "", count, active, kind, onClick, 
   return row;
 }
 
-/** 色点或默认小图标（清单/标签共用）。 */
-function iconHtml(entry) {
+/**
+ * 把清单/标签的图标放进 host：有颜色就放色点，否则放默认小图标。
+ * 颜色必须用 CSSOM（style.setProperty）写：页面 CSP 是 style-src 'self'，
+ * 通过 innerHTML 拼出来的 style 属性会被浏览器直接丢弃（2026-10-20 用户报“清单颜色不显示”）。
+ */
+function paintIcon(host, entry) {
   if (entry.color) {
-    return `<span class="task-tag-dot" style="--tag-color:${escapeHtml(entry.color)}"></span>`;
+    const dot = document.createElement("span");
+    dot.className = "task-tag-dot";
+    dot.style.setProperty("--tag-color", entry.color);
+    dot.setAttribute("aria-hidden", "true");
+    host.append(dot);
+    return;
   }
-  return escapeHtml(listIcon(entry));
+  host.textContent = listIcon(entry);
+}
+
+/** 清掉侧栏里的排序落点提示。 */
+function clearReorderMarks(container) {
+  for (const node of container.querySelectorAll(".is-reorder-before, .is-reorder-after")) {
+    node.classList.remove("is-reorder-before", "is-reorder-after");
+  }
+}
+
+/** 同一分组里可参与排序的清单名（按 DOM 顺序；合成的目录清单不参与）。 */
+function groupListNames(container, folder) {
+  return [...container.querySelectorAll(".time-side-row")]
+    .filter((row) => row.dataset.listDefined === "true"
+      && (row.dataset.listFolder || "") === (folder || ""))
+    .map((row) => row.dataset.listName);
+}
+
+/** 把一行清单变成拖拽源 + 同组清单的落点；drag 是本次渲染共享的拖拽状态。 */
+function bindListDrag(container, row, entry, drag, { onListReorder }) {
+  row.dataset.listName = entry.name;
+  row.dataset.listFolder = entry.folder || "";
+  row.dataset.listDefined = entry.synthetic ? "false" : "true";
+  row.classList.add("is-list-row");
+  if (entry.synthetic) return; // 目录里捡到的合成清单没有配置定义，顺序无处可写
+  row.draggable = true;
+  row.title = "拖动调整顺序";
+
+  row.addEventListener("dragstart", (event) => {
+    if (!setListDragData(event.dataTransfer, entry.name)) {
+      event.preventDefault();
+      return;
+    }
+    drag.current = { name: entry.name, folder: entry.folder || "", row };
+    row.classList.add("is-list-dragging");
+  });
+  row.addEventListener("dragend", () => {
+    drag.current = null;
+    row.classList.remove("is-list-dragging");
+    clearReorderMarks(container);
+  });
+  row.addEventListener("dragover", (event) => {
+    const dragged = drag.current;
+    if (!dragged || !isListDrag(event)) return;
+    if (dragged.folder !== (entry.folder || "")) return;
+    if (dragged.name === entry.name) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      try { event.dataTransfer.dropEffect = "move"; } catch { /* 某些环境不允许改 */ }
+    }
+    const rect = row.getBoundingClientRect();
+    const after = Number(event.clientY) > rect.top + rect.height / 2;
+    clearReorderMarks(container);
+    row.classList.add(after ? "is-reorder-after" : "is-reorder-before");
+  });
+  row.addEventListener("dragleave", (event) => {
+    if (row.contains(event.relatedTarget)) return;
+    row.classList.remove("is-reorder-before", "is-reorder-after");
+  });
+  row.addEventListener("drop", (event) => {
+    const dragged = drag.current;
+    if (!dragged || !isListDrag(event)) return;
+    if (dragged.folder !== (entry.folder || "")) return;
+    const name = readListDragName(event) || dragged.name;
+    if (!name || name === entry.name) return;
+    event.preventDefault();
+    const rect = row.getBoundingClientRect();
+    const after = Number(event.clientY) > rect.top + rect.height / 2;
+    const names = groupListNames(container, entry.folder);
+    const before = dropBeforeName(names, name, entry.name, after);
+    clearReorderMarks(container);
+    dragged.row.classList.remove("is-list-dragging");
+    drag.current = null;
+    onListReorder({ name, before });
+  });
 }
 
 function openRowMenu(anchor, rows) {
@@ -107,6 +206,7 @@ function openRowMenu(anchor, rows) {
  *   collapsed：折叠状态，键为 views / lists / tags / `folder:<名>`
  *   onSelect(selection) / onToggleGroup(name) / onQuickAdd(listName) / onAddList() / onAddTag()
  *   onListAction(action, entry) / onFolderAction(action, name) / onTagAction(action, entry)
+ *   onListReorder({name, before})：同一文件夹内拖拽排序；before 为空 = 放到该组末尾
  */
 export function renderTaskSidebar(container, options) {
   const {
@@ -115,6 +215,7 @@ export function renderTaskSidebar(container, options) {
     onSelect = () => {}, onToggleGroup = () => {}, onQuickAdd = () => {},
     onAddList = () => {}, onAddTag = () => {},
     onListAction = () => {}, onFolderAction = () => {}, onTagAction = () => {},
+    onListReorder = () => {},
   } = options;
   const counts = viewCounts(tasks, { showDone: Boolean(options.showDone) });
   const listCounts = countBy(tasks, "list_name");
@@ -135,7 +236,12 @@ export function renderTaskSidebar(container, options) {
       tile.type = "button";
       tile.className = "time-pinned-tile";
       tile.title = `置顶：${item_.name}`;
-      tile.innerHTML = iconHtml(item_) + `<span>${escapeHtml(item_.name)}</span>`;
+      const iconHost = document.createElement("span");
+      iconHost.setAttribute("aria-hidden", "true");
+      paintIcon(iconHost, item_);
+      const labelNode = document.createElement("span");
+      labelNode.textContent = item_.name;
+      tile.append(iconHost, labelNode);
       tile.addEventListener("click", () => onSelect(item_.kind === "list"
         ? { list: item_.name } : { tag: item_.name }));
       box.append(tile);
@@ -162,6 +268,7 @@ export function renderTaskSidebar(container, options) {
     label: "清单管理", collapsed: collapsed.lists, onToggle: () => onToggleGroup("lists"),
     hint: `${lists.length} 个`, onAdd: onAddList, addLabel: "添加清单",
   });
+  const listDrag = { current: null }; // 本次渲染共享：拖拽源与落点在两个行闭包里
   const pushList = (host, entry) => {
     // synthetic = 在 Obsidian 里手工建出来、还没登记定义的目录：可见、可筛选，
     // 但不提供改名/复制/删除（这些动作需要写配置定义）。快速添加仍然可用。
@@ -176,12 +283,13 @@ export function renderTaskSidebar(container, options) {
         { label: "删除", onClick: () => onListAction("delete", entry) },
       ]) });
     }
-    item(host, {
-      id: entry.name, icon: iconHtml(entry), label: entry.name,
+    const row = item(host, {
+      id: entry.name, iconEntry: entry, label: entry.name,
       count: listCounts[entry.name] || 0, active: selection.list === entry.name, kind: "list",
       onClick: () => onSelect({ list: entry.name }),
       actions,
     });
+    bindListDrag(container, row, entry, listDrag, { onListReorder });
   };
   for (const tree of listTree(lists, folders)) {
     if (!tree.folder) {
@@ -223,7 +331,7 @@ export function renderTaskSidebar(container, options) {
   });
   for (const tag of tags) {
     item(tagBody, {
-      id: tag.name, icon: iconHtml(tag), label: tag.name, count: tagCounts[tag.name] || 0,
+      id: tag.name, iconEntry: tag, label: tag.name, count: tagCounts[tag.name] || 0,
       active: selection.tag === tag.name, kind: "tag",
       onClick: () => onSelect({ tag: tag.name }),
       actions: [{

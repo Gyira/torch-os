@@ -815,6 +815,16 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .time-group-body .time-group-body { padding-left: 10px; }  /* 文件夹里的清单缩进一格（照滴答） */
 .time-side-row { position: relative; display: flex; align-items: center; }
 .time-side-row .time-side-item { flex: 1 1 auto; }
+/* 清单拖拽排序（2026-10-20）：同一分组内拖动清单行，落点用一条细线提示。 */
+.time-side-row.is-list-row[draggable="true"] { cursor: grab; }
+.time-side-row.is-list-row[draggable="true"]:active { cursor: grabbing; }
+.time-side-row.is-list-dragging { opacity: .45; }
+.time-side-row.is-reorder-before::before, .time-side-row.is-reorder-after::after {
+  content: ""; position: absolute; left: 6px; right: 6px; height: 2px;
+  border-radius: 2px; background: var(--p-accent); pointer-events: none; z-index: 1;
+}
+.time-side-row.is-reorder-before::before { top: -1px; }
+.time-side-row.is-reorder-after::after { bottom: -1px; }
 .time-side-tools { position: absolute; right: 3px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; }
 .time-side-row:hover .time-side-tools, .time-side-row:focus-within .time-side-tools { opacity: 1; }
 .time-side-row:hover .time-side-count, .time-side-row:focus-within .time-side-count { visibility: hidden; }

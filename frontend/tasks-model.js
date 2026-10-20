@@ -240,6 +240,20 @@ export function listIcon(entry = {}) {
   return entry.color ? "" : "☰";
 }
 
+/**
+ * 清单拖拽排序（2026-10-20）：names 是同一分组（根级或同一文件夹）里的定义顺序。
+ * 把 name 拖到 target 的前/后，返回它该插在谁前面（"" = 放到该组末尾）。
+ * 后端只接受 before 锚点，避免前端重复实现整组顺序的校验。
+ */
+export function dropBeforeName(names, name, target, after = false) {
+  const list = Array.isArray(names) ? names : [];
+  if (!name || !target || name === target) return "";
+  const rest = list.filter((item) => item !== name);
+  const index = rest.indexOf(target);
+  if (index < 0) return "";
+  return rest[index + (after ? 1 : 0)] || "";
+}
+
 /** 四象限（第 3 轮，照滴答实测）：艾森豪威尔名称 ↔ 四档优先级的一一对应。 */
 export const QUADRANTS = [
   { priority: "high", label: "重要且紧急", hint: "高优先级" },

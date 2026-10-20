@@ -25,7 +25,13 @@ class NodeDouble {
     this.textContent = "";
     this.innerHTML = "";
     this.scrollHeight = 100;
-    this.style = { setProperty() {}, removeProperty() {}, getPropertyValue: () => "" };
+    // 记录 CSSOM 写入的自定义属性：页面 CSP 会拦内联 style 属性，颜色必须走这条通道。
+    this.style = {
+      props: new Map(),
+      setProperty(name, value) { this.props.set(name, String(value)); },
+      removeProperty(name) { this.props.delete(name); },
+      getPropertyValue(name) { return this.props.get(name) || ""; },
+    };
     // 会真的记进 className（2026-10-11 起：日历视图要靠类名断言 is-today / heat-N）
     this.classList = {
       add: (...names) => { this.className = [...new Set([...String(this.className).split(/\s+/).filter(Boolean), ...names])].join(" "); },
@@ -895,6 +901,54 @@ test("task rows expose an open-document button and keep legacy tasks read-only",
   assert.equal(byClass(legacy, "task-legacy-badge").length, 1);
   await byClass(legacy, "task-open")[0].emit("click");
   assert.deepEqual(opened, ["00-System/任务/写方案.md", "00-System/任务（tasks）.md"]);
+});
+
+test("sidebar list colors use CSSOM and defined lists can be dragged into order", async () => {
+  const { load, getNode } = await harness();
+  const { renderTaskSidebar } = (await load("tasks-sidebar.js")).namespace;
+  const container = getNode("#time-sidebar");
+  const moves = [];
+  renderTaskSidebar(container, {
+    tasks: [], folders: [], tags: [], selection: { list: "收集箱" },
+    lists: [
+      { name: "收集箱", color: "#3b82f6", folder: "", pinned: true, synthetic: false },
+      { name: "心愿清单", color: "", folder: "", pinned: false, synthetic: false },
+      { name: "自由清单", color: "", folder: "", pinned: false, synthetic: true },
+    ],
+    onListReorder: (payload) => moves.push(payload),
+  });
+  const rows = walk(container).filter((node) => node.dataset.listName);
+  assert.deepEqual(rows.map((row) => row.dataset.listName), ["收集箱", "心愿清单", "自由清单"]);
+
+  // 色点存在，颜色通过 CSSOM 的 style.setProperty 写入（页面 CSP 会丢弃 HTML 里的 style 属性）。
+  const dots = walk(rows[0]).filter((node) => hasClass(node, "task-tag-dot"));
+  assert.equal(dots.length, 1);
+  assert.equal(dots[0].style.getPropertyValue("--tag-color"), "#3b82f6");
+  // 置顶瓦片也走同一条通道，不再是灰点。
+  const pinnedDots = walk(byClass(container, "time-pinned-tile")[0])
+    .filter((node) => hasClass(node, "task-tag-dot"));
+  assert.equal(pinnedDots.length, 1);
+  assert.equal(pinnedDots[0].style.getPropertyValue("--tag-color"), "#3b82f6");
+
+  // 定义过的清单可拖；目录里捡到的合成清单不可拖，避免排序无处可写。
+  assert.equal(rows[0].draggable, true);
+  assert.equal(rows[1].draggable, true);
+  assert.equal(Boolean(rows[2].draggable), false);
+
+  // 把「收集箱」拖到「心愿清单」上面：落点在上半部分 → before = 心愿清单。
+  container.querySelectorAll = () => rows;
+  const dragData = new Map();
+  const transfer = {
+    types: [],
+    setData(type, value) { dragData.set(type, value); if (!this.types.includes(type)) this.types.push(type); },
+    getData(type) { return dragData.get(type) || ""; },
+  };
+  await rows[0].emit("dragstart", { dataTransfer: transfer });
+  await rows[1].emit("dragover", { dataTransfer: transfer, clientY: 10, preventDefault() {} });
+  await rows[1].emit("drop", { dataTransfer: transfer, clientY: 10, preventDefault() {} });
+  assert.deepEqual(moves.map((move) => ({ ...move })), [{ name: "收集箱", before: "心愿清单" }]);
+  assert.equal(hasClass(rows[0], "is-list-dragging"), false);
+  assert.equal(hasClass(rows[1], "is-reorder-before"), false);
 });
 
 test("standalone pages use the top module navigation instead of the outer sidebar", async () => {

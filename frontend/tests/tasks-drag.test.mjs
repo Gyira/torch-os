@@ -1,7 +1,10 @@
 // 任务拖放的数据层：只接受自己的 MIME，不误接文件/文本拖放。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TASK_DRAG_MIME, setTaskDragData, isTaskDrag, readTaskDragKey } from "../tasks-drag.js";
+import {
+  TASK_DRAG_MIME, setTaskDragData, isTaskDrag, readTaskDragKey,
+  LIST_DRAG_MIME, setListDragData, isListDrag, readListDragName,
+} from "../tasks-drag.js";
 
 function transfer({ types = [], data = new Map(), failSet = false } = {}) {
   return {
@@ -38,4 +41,23 @@ test("readTaskDragKey reads the custom payload and tolerates missing data", () =
   assert.equal(readTaskDragKey({ dataTransfer: transfer({ data }) }), "k".repeat(64));
   assert.equal(readTaskDragKey({ dataTransfer: transfer() }), "");
   assert.equal(readTaskDragKey({}), "");
+});
+
+test("list drags use their own MIME so task drops never steal them", () => {
+  const data = new Map();
+  const dt = transfer({ data });
+  assert.equal(setListDragData(dt, "心愿清单"), true);
+  assert.equal(dt.effectAllowed, "move");
+  assert.equal(data.get(LIST_DRAG_MIME), "心愿清单");
+  assert.equal(setListDragData(null, "心愿清单"), false);
+  assert.equal(setListDragData(transfer({ failSet: true }), "心愿清单"), false);
+
+  assert.equal(isListDrag({ dataTransfer: transfer({ types: [LIST_DRAG_MIME] }) }), true);
+  assert.equal(isListDrag({ dataTransfer: transfer({ types: [TASK_DRAG_MIME] }) }), false);
+  assert.equal(isTaskDrag({ dataTransfer: transfer({ types: [LIST_DRAG_MIME] }) }), false);
+  assert.equal(isListDrag({}), false);
+
+  assert.equal(readListDragName({ dataTransfer: transfer({ data }) }), "心愿清单");
+  assert.equal(readListDragName({ dataTransfer: transfer() }), "");
+  assert.equal(readListDragName({}), "");
 });

@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   dayOffset, relativeDay, filterTasks, viewCounts, countBy, groupTasks, sortTasks,
-  boardTitle, priorityMeta, VIEWS, listTree, pinnedItems, listIcon,
+  boardTitle, priorityMeta, VIEWS, listTree, pinnedItems, listIcon, dropBeforeName,
   QUADRANTS, quadrantBuckets, monthCells, monthTitle, tasksByDay,
   addMonths, weekCells, dayCells, weekRangeCells, yearMonths,
   timeToMinutes, minutesToLabel, clockLabel, timeLabel, sortDayTasks, layoutBlocks,
@@ -174,6 +174,17 @@ test("pinnedItems keeps lists before tags and carries colors", () => {
   assert.deepEqual(pinnedItems(), []);
   assert.equal(listIcon({ name: "x" }), "☰");
   assert.equal(listIcon({ name: "x", color: "#fff" }), "");
+});
+
+test("dropBeforeName turns a drop position into the before anchor the API wants", () => {
+  const names = ["收集箱", "心愿清单", "客户A"];
+  assert.equal(dropBeforeName(names, "客户A", "收集箱", false), "收集箱");
+  assert.equal(dropBeforeName(names, "收集箱", "心愿清单", true), "客户A");
+  assert.equal(dropBeforeName(names, "收集箱", "客户A", true), "");   // 放到组末尾
+  assert.equal(dropBeforeName(names, "收集箱", "收集箱", false), ""); // 拖到自己身上 = 不动
+  assert.equal(dropBeforeName(names, "收集箱", "不存在", false), "");
+  assert.equal(dropBeforeName([], "收集箱", "心愿清单", false), "");
+  assert.equal(dropBeforeName(undefined, "收集箱", "心愿清单", false), "");
 });
 
 test("quadrantBuckets maps priority to the eisenhower names", () => {

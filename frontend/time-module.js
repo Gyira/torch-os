@@ -469,6 +469,8 @@ function paintSidebar() {
         { name: values.new_name, color: values.color, folder: values.folder }, "清单已创建。"),
     }),
     onListAction: (action, entry) => listAction(action, entry),
+    // 清单拖拽排序：只发 before 锚点，后端负责校验同一文件夹并写回配置顺序。
+    onListReorder: ({ name, before }) => post("/api/time/lists/reorder", { name, before }),
     onAddTag: () => openTagDialog({
       onSave: (values) => post("/api/time/tags",
         { name: values.new_name, color: values.color }, "标签已创建。"),

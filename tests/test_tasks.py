@@ -304,6 +304,42 @@ def test_list_rename_moves_folder_and_legacy_heading(tmp_path):
     assert find(payload, "去一次海边", legacy=True)["list_name"] == "旅行"
 
 
+def test_reorder_lists_within_the_same_folder_only(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    root_names = [item["name"] for item in payload["lists"] if not item["folder"]]
+    assert root_names == ["收集箱", "心愿清单"]
+
+    # 根级：把「心愿清单」拖到「收集箱」前面。
+    moved = post(client, "/api/time/lists/reorder", {
+        "name": "心愿清单", "before": "收集箱", "revision": payload["revision"]})
+    assert moved.status_code == 200, moved.text
+    payload = board(client)
+    assert [item["name"] for item in payload["lists"] if not item["folder"]] == ["心愿清单", "收集箱"]
+    text = config_file(tmp_path).read_text(encoding="utf-8")
+    assert text.index("名称: 心愿清单") < text.index("名称: 收集箱")
+
+    # before 为空 = 放到同一组末尾；文件夹里的清单位置不受影响。
+    moved = post(client, "/api/time/lists/reorder", {
+        "name": "心愿清单", "before": "", "revision": payload["revision"]})
+    assert moved.status_code == 200, moved.text
+    payload = board(client)
+    assert [item["name"] for item in payload["lists"] if not item["folder"]] == ["收集箱", "心愿清单"]
+    work = next(item for item in payload["lists"] if item["name"] == "客户A")
+    assert work["folder"] == "工作"
+
+    # 跨文件夹拖拽拒绝；未知清单、过期 revision 也拒绝。
+    payload = board(client)
+    assert post(client, "/api/time/lists/reorder", {
+        "name": "客户A", "before": "收集箱", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/lists/reorder", {
+        "name": "无此清单", "before": "收集箱", "revision": payload["revision"]}).status_code == 422
+    assert post(client, "/api/time/lists/reorder", {
+        "name": "心愿清单", "before": "收集箱", "revision": "stale"}).status_code == 409
+    assert [item["name"] for item in board(client)["lists"] if not item["folder"]] == ["收集箱", "心愿清单"]
+
+
 def test_duplicate_list_copies_notes_and_legacy_lines(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)

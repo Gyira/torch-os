@@ -174,8 +174,16 @@ export function openTagPicker(anchor, { selected = [], tags = [], onSave }) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `time-popover-row${chosen.has(name) ? " is-current" : ""}`;
-        button.innerHTML = `<span class="task-tag-dot" style="${tag.color ? `--tag-color:${escapeHtml(tag.color)}` : ""}"></span>` +
-          `${escapeHtml(name)}<span class="time-popover-check" aria-hidden="true">${chosen.has(name) ? "✓" : ""}</span>`;
+        // 颜色走 CSSOM：CSP 的 style-src 'self' 会拦掉 innerHTML 里的 style 属性。
+        const dot = document.createElement("span");
+        dot.className = "task-tag-dot";
+        dot.setAttribute("aria-hidden", "true");
+        if (tag.color) dot.style.setProperty("--tag-color", tag.color);
+        const check = document.createElement("span");
+        check.className = "time-popover-check";
+        check.setAttribute("aria-hidden", "true");
+        check.textContent = chosen.has(name) ? "✓" : "";
+        button.append(dot, document.createTextNode(name), check);
         button.addEventListener("click", () => {
           if (chosen.has(name)) chosen.delete(name);
           else chosen.add(name);
