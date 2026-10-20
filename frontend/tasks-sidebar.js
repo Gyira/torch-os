@@ -41,7 +41,8 @@ function group(container, { label, collapsed, onToggle, hint, onAdd, addLabel })
   return body;
 }
 
-function item(host, { id, icon, iconEntry, label, hint = "", count, active, kind, onClick, actions = [] }) {
+function item(host, { id, icon, iconEntry, label, hint = "", count, active, kind,
+                     onClick, actions = [], contextMenu = null }) {
   const row = document.createElement("div");
   row.className = `time-side-row${active ? " is-active" : ""}`;
   const button = document.createElement("button");
@@ -85,6 +86,13 @@ function item(host, { id, icon, iconEntry, label, hint = "", count, active, kind
       tools.append(tool);
     }
     row.append(tools);
+  }
+  if (contextMenu && contextMenu.length) {
+    // 右键整行也能打开同一份菜单，不必非得点「…」（2026-10-20 用户要求）。
+    row.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      openRowMenu(row, contextMenu);
+    });
   }
   host.append(row);
   return row;
@@ -275,19 +283,21 @@ export function renderTaskSidebar(container, options) {
     const actions = [
       { icon: "＋", title: "在这个清单里加任务", onClick: () => onQuickAdd(entry.name) },
     ];
-    if (!entry.synthetic) {
-      actions.push({ icon: "…", title: "清单操作", onClick: (anchor) => openRowMenu(anchor, [
-        { label: "编辑", onClick: () => onListAction("edit", entry) },
-        { label: entry.pinned ? "取消置顶" : "置顶", onClick: () => onListAction("pin", entry) },
-        { label: "复制", onClick: () => onListAction("duplicate", entry) },
-        { label: "删除", onClick: () => onListAction("delete", entry) },
-      ]) });
+    const menuItems = entry.synthetic ? [] : [
+      { label: "编辑", onClick: () => onListAction("edit", entry) },
+      { label: entry.pinned ? "取消置顶" : "置顶", onClick: () => onListAction("pin", entry) },
+      { label: "复制", onClick: () => onListAction("duplicate", entry) },
+      { label: "删除", onClick: () => onListAction("delete", entry) },
+    ];
+    if (menuItems.length) {
+      actions.push({ icon: "…", title: "清单操作",
+        onClick: (anchor) => openRowMenu(anchor, menuItems) });
     }
     const row = item(host, {
       id: entry.name, iconEntry: entry, label: entry.name,
       count: listCounts[entry.name] || 0, active: selection.list === entry.name, kind: "list",
       onClick: () => onSelect({ list: entry.name }),
-      actions,
+      actions, contextMenu: menuItems,
     });
     bindListDrag(container, row, entry, listDrag, { onListReorder });
   };
