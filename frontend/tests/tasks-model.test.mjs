@@ -136,6 +136,23 @@ test("sorting keeps pinned tasks on top and honours the direction", () => {
   assert.deepEqual(same.map((item) => item.title), ["第一条", "第二条"]);
 });
 
+test("manual sorting follows stored order, keeps pinned first and puts unordered last", () => {
+  const items = [
+    task({ title: "C", sort_order: 3000, path: "00-System/任务/c.md" }),
+    task({ title: "无顺序", path: "00-System/任务/z.md" }),
+    task({ title: "A", sort_order: 1000, path: "00-System/任务/a.md" }),
+    task({ title: "置顶", pinned: true, sort_order: 5000, path: "00-System/任务/p.md" }),
+  ];
+  assert.deepEqual(sortTasks(items, "manual").map((item) => item.title),
+    ["置顶", "A", "C", "无顺序"]);
+  // 没有数字时按笔记路径稳定排序。
+  const unordered = [
+    task({ title: "后", path: "00-System/任务/b.md" }),
+    task({ title: "前", path: "00-System/任务/a.md" }),
+  ];
+  assert.deepEqual(sortTasks(unordered, "manual").map((item) => item.title), ["前", "后"]);
+});
+
 test("boardTitle names the current selection", () => {
   assert.equal(boardTitle({ view: "today" }), "今天");
   assert.equal(boardTitle({ view: "week" }), "今天");  // 旧的本机状态回落到今天

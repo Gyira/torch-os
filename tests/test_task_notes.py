@@ -186,3 +186,18 @@ def test_board_revision_changes_when_any_note_changes(tmp_path):
     changed, _warnings = scan_task_notes(tmp_path)
     assert board_revision("cfg", changed) != revision
     assert board_revision("cfg2", changed) != board_revision("cfg", changed)
+
+
+def test_sort_order_roundtrip_and_preserved_when_rewrite_omits_it(tmp_path):
+    note = create_task_note(tmp_path, "", "可排序", fields(sort_order=1500))
+    assert note["sort_order"] == 1500
+    assert note["metadata"]["排序"] == 1500
+
+    # 滴答回写等旧调用方不会传 sort_order：重写时不能把手动顺序丢掉。
+    updated = rewrite_task_note(tmp_path, note, folder="", title=note["title"],
+                                values=fields())
+    assert updated["sort_order"] == 1500
+    assert updated["metadata"]["排序"] == 1500
+
+    fractional = create_task_note(tmp_path, "", "小数顺序", fields(sort_order=999.5))
+    assert fractional["sort_order"] == 999.5

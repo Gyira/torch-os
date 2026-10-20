@@ -359,6 +359,71 @@ function reprioritizeTaskByDrop(key, priority) {
     `已改为${priorityMeta(priority).label}。`);
 }
 
+/** 清掉任务行上的排序落点线。 */
+function clearTaskReorderMarks() {
+  document.querySelectorAll(".time-task.is-reorder-before, .time-task.is-reorder-after")
+    .forEach((node) => node.classList.remove("is-reorder-before", "is-reorder-after"));
+}
+
+/** 任务板上的排序落点：同一分组（同一个 ul）内才允许，落点上下半区决定插在谁前面。 */
+function taskReorderTarget(event) {
+  const row = event.target.closest?.(".time-task");
+  const dragged = document.querySelector(".time-task.is-dragging");
+  if (!row || !dragged || row === dragged) return null;
+  if (row.classList?.contains("is-legacy")) return null;  // 旧任务只读，不能当锚点
+  if (row.parentElement !== dragged.parentElement) return null;
+  const rect = row.getBoundingClientRect?.();
+  const after = rect ? Number(event.clientY) > rect.top + rect.height / 2 : false;
+  let before = "";
+  if (!after) {
+    before = row.dataset.taskKey || "";
+  } else {
+    let next = row.nextElementSibling;
+    while (next && !next.classList?.contains("time-task")) next = next.nextElementSibling;
+    before = next?.dataset?.taskKey || "";
+  }
+  return { row, after, before };
+}
+
+/** 任务板上当前显示顺序的 key（分组里的任务只记第一次出现）。 */
+function boardTaskKeys() {
+  const seen = new Set();
+  const keys = [];
+  for (const row of document.querySelectorAll("#time-board .time-task")) {
+    const key = row.dataset.taskKey || "";
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+/** 拖拽排序：首次拖动自动切到「手动」排序，否则按时间/标题排的列表看不出顺序变化。 */
+function reorderTaskByDrop(key, before) {
+  const task = taskByDragKey(key);
+  if (!task) return;
+  if (before === key) return;
+  if (before && !taskByDragKey(before)) return;
+  const switched = viewState.sort !== "manual";
+  if (!switched) {
+    post("/api/time/tasks/reorder", { key, before });
+    return;
+  }
+  // 第一次切手动：把当前屏幕顺序整体写进笔记，避免其它任务按路径重排。
+  const keys = boardTaskKeys();
+  const from = keys.indexOf(key);
+  if (from < 0) return;
+  keys.splice(from, 1);
+  let index = before ? keys.indexOf(before) : keys.length;
+  if (before && index < 0) return;
+  if (!before) index = keys.length;
+  keys.splice(index, 0, key);
+  viewState = { ...viewState, sort: "manual" };
+  writeStore(VIEW_KEY, viewState);
+  post("/api/time/tasks/reorder", { key, order: keys }, "已切换为手动排序。");
+}
+
 /** 任务行拖到侧栏清单 / 四象限面板：事件委托在容器上，重画列表也不丢监听。 */
 function bindTaskDropTargets() {
   const sidebar = $("#time-sidebar");
@@ -419,7 +484,36 @@ function bindTaskDropTargets() {
     reprioritizeTaskByDrop(key, priority);
   });
 
-  document.addEventListener("dragend", clearTaskDropTargets);
+  // 任务板内拖拽 = 手动排序；落点和侧栏/四象限互不影响（各自检查 MIME 与元素）。
+  const boardEl = $("#time-board");
+  boardEl?.addEventListener("dragover", (event) => {
+    if (!isTaskDrag(event)) return;
+    const target = taskReorderTarget(event);
+    if (!target) { clearTaskReorderMarks(); return; }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      try { event.dataTransfer.dropEffect = "move"; } catch { /* 合成事件不允许改 */ }
+    }
+    clearTaskReorderMarks();
+    target.row.classList.add(target.after ? "is-reorder-after" : "is-reorder-before");
+  });
+  boardEl?.addEventListener("dragleave", (event) => {
+    if (!boardEl.contains(event.relatedTarget)) clearTaskReorderMarks();
+  });
+  boardEl?.addEventListener("drop", (event) => {
+    if (!isTaskDrag(event)) return;
+    const target = taskReorderTarget(event);
+    if (!target) { clearTaskReorderMarks(); return; }
+    event.preventDefault();
+    const key = readTaskDragKey(event);
+    clearTaskReorderMarks();
+    reorderTaskByDrop(key, target.before);
+  });
+
+  document.addEventListener("dragend", () => {
+    clearTaskDropTargets();
+    clearTaskReorderMarks();
+  });
 }
 
 /** 打开任务文档：插件 iframe 里走宿主桥，浏览器里走 obsidian://。 */

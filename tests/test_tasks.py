@@ -637,3 +637,136 @@ def test_attach_list_dida_project_rejects_read_only(tmp_path):
     with pytest.raises(HTTPException):
         tasks.attach_list_dida_project(vault, "心愿清单", "proj-abc", database,
                                        read_only=True)
+
+
+def _create_task(client, title):
+    payload = board(client)
+    response = post(client, "/api/time/tasks", {"title": title, "revision": payload["revision"]})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_reorder_tasks_persists_manual_order(tmp_path):
+    client = make_client(tmp_path)
+    _create_task(client, "A")
+    _create_task(client, "B")
+    payload = board(client)
+    a = find(payload, "A")
+    b = find(payload, "B")
+    moved = post(client, "/api/time/tasks/reorder", {
+        "key": b["key"], "before": a["key"], "revision": payload["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["reordered"] is True
+    payload = board(client)
+    assert find(payload, "B")["sort_order"] == 1000
+    assert find(payload, "A")["sort_order"] is None
+
+    moved = post(client, "/api/time/tasks/reorder", {
+        "key": find(payload, "A")["key"], "before": find(payload, "B")["key"],
+        "revision": payload["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    payload = board(client)
+    assert find(payload, "A")["sort_order"] == 0
+    assert find(payload, "B")["sort_order"] == 1000
+
+
+def test_reorder_without_existing_orders_assigns_even_spacing(tmp_path):
+    client = make_client(tmp_path)
+    _create_task(client, "A")
+    _create_task(client, "B")
+    _create_task(client, "C")
+    payload = board(client)
+    moved = post(client, "/api/time/tasks/reorder", {
+        "key": find(payload, "A")["key"], "before": "", "revision": payload["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    payload = board(client)
+    assert find(payload, "B")["sort_order"] == 1000
+    assert find(payload, "C")["sort_order"] == 2000
+    assert find(payload, "A")["sort_order"] == 3000
+
+
+def test_reorder_rejects_bad_anchor_and_stale_revision(tmp_path):
+    client = make_client(tmp_path)
+    created = _create_task(client, "A")
+    payload = board(client)
+    bad = post(client, "/api/time/tasks/reorder", {
+        "key": created["task"]["key"], "before": "not-a-key", "revision": payload["revision"],
+    })
+    assert bad.status_code == 422
+    missing = post(client, "/api/time/tasks/reorder", {
+        "key": created["task"]["key"], "before": "f" * 64, "revision": payload["revision"],
+    })
+    assert missing.status_code == 422
+    stale = post(client, "/api/time/tasks/reorder", {
+        "key": created["task"]["key"], "before": "", "revision": "stale",
+    })
+    assert stale.status_code == 409
+
+
+def test_reorder_is_rejected_in_read_only_vault(tmp_path):
+    client = make_client(tmp_path)
+    created = _create_task(client, "A")
+    readonly = make_client(tmp_path, read_only=True)
+    payload = board(readonly)
+    blocked = post(readonly, "/api/time/tasks/reorder", {
+        "key": created["task"]["key"], "before": "", "revision": payload["revision"],
+    })
+    assert blocked.status_code == 409
+
+
+def test_duplicate_task_lands_before_original_in_manual_order(tmp_path):
+    client = make_client(tmp_path)
+    _create_task(client, "A")
+    _create_task(client, "B")
+    payload = board(client)
+    moved = post(client, "/api/time/tasks/reorder", {
+        "key": find(payload, "B")["key"], "before": find(payload, "A")["key"],
+        "revision": payload["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    payload = board(client)
+    duplicated = post(client, "/api/time/tasks/duplicate", {
+        "key": find(payload, "B")["key"], "revision": payload["revision"],
+    })
+    assert duplicated.status_code == 200, duplicated.text
+    payload = board(client)
+    rows = [item for item in payload["tasks"] if item["title"] == "B"]
+    assert len(rows) == 2
+    assert sorted(item["sort_order"] for item in rows) == [999.5, 1000]
+
+
+def test_reorder_with_screen_order_preserves_the_visible_sequence(tmp_path):
+    client = make_client(tmp_path)
+    _create_task(client, "A")
+    _create_task(client, "B")
+    _create_task(client, "C")
+    payload = board(client)
+    wanted = [find(payload, "C")["key"], find(payload, "B")["key"], find(payload, "A")["key"]]
+    seeded = post(client, "/api/time/tasks/reorder", {
+        "key": wanted[0], "order": wanted, "revision": payload["revision"],
+    })
+    assert seeded.status_code == 200, seeded.text
+    payload = board(client)
+    assert find(payload, "C")["sort_order"] == 1000
+    assert find(payload, "B")["sort_order"] == 2000
+    assert find(payload, "A")["sort_order"] == 3000
+
+
+def test_reorder_with_screen_order_rejects_duplicates_and_missing_moved_task(tmp_path):
+    client = make_client(tmp_path)
+    _create_task(client, "A")
+    _create_task(client, "B")
+    payload = board(client)
+    a = find(payload, "A")
+    b = find(payload, "B")
+    duplicate = post(client, "/api/time/tasks/reorder", {
+        "key": a["key"], "order": [a["key"], a["key"]], "revision": payload["revision"],
+    })
+    assert duplicate.status_code == 422
+    missing = post(client, "/api/time/tasks/reorder", {
+        "key": a["key"], "order": [b["key"]], "revision": payload["revision"],
+    })
+    assert missing.status_code == 422

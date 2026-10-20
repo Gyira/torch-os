@@ -41,6 +41,7 @@ export const GROUP_OPTIONS = [
 ];
 
 export const SORT_OPTIONS = [
+  { id: "manual", label: "手动" },
   { id: "time", label: "时间" },
   { id: "created", label: "创建时间" },
   { id: "title", label: "标题" },
@@ -185,6 +186,21 @@ function stableOrder(task) {
 
 /** 排序：置顶永远在最前，其次按选定的字段；order="old" 从旧到新，"new" 从新到旧。 */
 export function sortTasks(tasks, sortBy, order = "old") {
+  const all = Array.isArray(tasks) ? tasks : [];
+  if (sortBy === "manual") {
+    // 手动排序（2026-10-20）：笔记里的 `排序` 数字；没有数字的稳定沉底。
+    const manual = (task) => (
+      typeof task.sort_order === "number" && Number.isFinite(task.sort_order)
+        ? task.sort_order : Number.POSITIVE_INFINITY
+    );
+    return [...all].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      const left = manual(a);
+      const right = manual(b);
+      if (left !== right) return left - right;
+      return stableOrder(a).localeCompare(stableOrder(b), "zh");
+    });
+  }
   const direction = order === "new" ? -1 : 1;
   const value = (task) => {
     if (sortBy === "title") return task.title || "";

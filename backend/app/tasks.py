@@ -96,6 +96,21 @@ class TaskUpdate(BaseModel):
     day: str = Field(default="", max_length=10)
 
 
+class TaskReorder(BaseModel):
+    """把任务放到 before 那条任务的前面；before 为空 = 放到全部任务末尾。
+
+    `order` 是「首次切换到手动排序」时的整屏顺序：前端按当前显示顺序发上来，
+    后端一次性把顺序写进笔记，避免刚切到手动时整块列表按路径重排。
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    key: TaskKey
+    before: str = Field(default="", max_length=64)
+    order: list[TaskKey] | None = Field(default=None, max_length=500)
+    revision: str = Field(default="", max_length=64)
+
+
 class TaskKeyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -508,7 +523,7 @@ def _note_public(note: dict[str, Any]) -> dict[str, Any]:
         "title": note["title"], "list_name": note["list_name"], "done": note["done"],
         "done_on": note["done_on"], "date": note["date"], "time": note["time"],
         "priority": note["priority"], "tags": list(note["tags"]), "pinned": note["pinned"],
-        "created": note["created"],
+        "created": note["created"], "sort_order": note.get("sort_order"),
     }
 
 
@@ -517,6 +532,7 @@ def _note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
         "date": note["date"], "time": note["time"], "priority": note["priority"],
         "tags": list(note["tags"]), "done": note["done"], "done_on": note["done_on"],
         "pinned": note["pinned"], "created": note["created"],
+        "sort_order": note.get("sort_order"),
         "dida_id": note.get("dida_id", ""),
     }
     values.update(changes)
@@ -726,6 +742,8 @@ def create_task(vault_dir: Path | str, payload: TaskCreate, database: Database, 
     _check_revision(payload.revision, state["revision"])
     target = _require_list(state, payload.list_name)
     title = _clean_title(payload.title)
+    orders = [note.get("sort_order") for note in state["notes"]
+              if note.get("sort_order") is not None]
     values = {
         "date": _clean_date(payload.date, "日期"),
         "time": _clean_time(payload.time),
@@ -735,6 +753,8 @@ def create_task(vault_dir: Path | str, payload: TaskCreate, database: Database, 
         "done_on": "",
         "pinned": False,
         "created": _today(),
+        # 已经有手动排序时，新任务排在最后；否则保持旧的稳定顺序。
+        "sort_order": max(orders) + 1000 if orders else None,
     }
     try:
         note = task_notes.create_task_note(vault_dir, _folder_for_list(target), title, values)
@@ -767,9 +787,141 @@ def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, 
         vault_dir, note, folder=_folder_for_list(target), title=title,
         values={"date": date, "time": time, "priority": priority, "tags": tags,
                 "done": done, "done_on": done_on, "pinned": pinned,
-                "created": note["created"], "dida_id": note.get("dida_id", "")})
+                "created": note["created"], "sort_order": note.get("sort_order"),
+                "dida_id": note.get("dida_id", "")})
     _audit(database, "task_updated", {"list": target, "moved": target != note["list_name"]})
     return {"revision": _revision_now(vault_dir), "task": _note_public(updated)}
+
+
+def _stable_task_key(note: dict[str, Any]) -> str:
+    return f"{note['relpath']}\u0000{note['key']}"
+
+
+def _manual_sort_key(note: dict[str, Any]) -> tuple:
+    """和前端「手动」排序一致：置顶在前，其次按 排序 数值，缺省的稳定沉底。"""
+    order = note.get("sort_order")
+    rank = 0 if note.get("pinned") else 1
+    if order is None:
+        return (rank, 1, 0.0, _stable_task_key(note))
+    return (rank, 0, float(order), _stable_task_key(note))
+
+
+def _reorder_values(sequence: list[dict[str, Any]],
+                    index: int) -> dict[str, float | int]:
+    """给拖拽后的序列分配「排序」值；空间不够时整组按 1000 递增重排。"""
+    moved = sequence[index]
+    previous = sequence[index - 1] if index > 0 else None
+    following = sequence[index + 1] if index + 1 < len(sequence) else None
+    previous_order = previous.get("sort_order") if previous else None
+    following_order = following.get("sort_order") if following else None
+    candidate: float | None = None
+    if previous_order is None and following_order is None:
+        if previous is None:
+            candidate = 1000.0
+    elif previous_order is None:
+        candidate = float(following_order) - 1000.0
+    elif following_order is None:
+        candidate = float(previous_order) + 1000.0
+    elif float(previous_order) < float(following_order):
+        middle = (float(previous_order) + float(following_order)) / 2
+        if float(previous_order) < middle < float(following_order):
+            candidate = middle
+
+    def sort_key(item: dict[str, Any], order: Any) -> tuple:
+        rank = 0 if item.get("pinned") else 1
+        if order is None:
+            return (rank, 1, 0.0, _stable_task_key(item))
+        return (rank, 0, float(order), _stable_task_key(item))
+
+    if candidate is not None:
+        used = {float(item["sort_order"]) for item in sequence
+                if item["key"] != moved["key"] and item.get("sort_order") is not None}
+        keys = [sort_key(item, candidate if item["key"] == moved["key"]
+                         else item.get("sort_order")) for item in sequence]
+        ordered = all(keys[position] <= keys[position + 1]
+                      for position in range(len(keys) - 1))
+        if candidate not in used and ordered:
+            return {moved["key"]: candidate}
+    return {item["key"]: (position + 1) * 1000
+            for position, item in enumerate(sequence)}
+
+
+def _apply_task_order(vault_dir: Path | str, state: dict[str, Any],
+                      sequence: list[dict[str, Any]], moved: dict[str, Any],
+                      database: Database, *, before: str = "",
+                      orders: dict[str, Any] | None = None,
+                      mode: str = "sparse") -> dict[str, Any]:
+    if orders is None:
+        orders = {item["key"]: (position + 1) * 1000
+                  for position, item in enumerate(sequence)}
+    changed = 0
+    for item in sequence:
+        target = orders.get(item["key"])
+        if target is None:
+            continue
+        current = item.get("sort_order")
+        if current is not None and float(current) == float(target):
+            continue
+        task_notes.rewrite_task_note(
+            vault_dir, item, folder=_folder_for_list(item["list_name"]),
+            title=item["title"], values=_note_values(item, sort_order=target))
+        changed += 1
+    if not changed:
+        return {"revision": state["revision"], "reordered": False}
+    _audit(database, "tasks_reordered", {
+        "key": moved["key"], "before": before or None, "mode": mode,
+        "changed": changed,
+    })
+    return {"revision": _revision_now(vault_dir), "reordered": True}
+
+
+def reorder_task(vault_dir: Path | str, payload: TaskReorder, database: Database, *,
+                 read_only: bool = False) -> dict[str, Any]:
+    """拖拽调整任务顺序（2026-10-20）：只改「排序」字段，不动其它 frontmatter。"""
+    _ensure_write(read_only, "调整任务顺序")
+    state = _read_state(vault_dir)
+    _check_revision(payload.revision, state["revision"])
+    note = _require_note(state, payload.key)
+    if payload.order is not None:
+        wanted = list(payload.order)
+        if not wanted:
+            raise HTTPException(422, "整屏顺序不能为空")
+        if len(set(wanted)) != len(wanted):
+            raise HTTPException(422, "整屏顺序里同一个任务不能出现两次")
+        if note["key"] not in wanted:
+            raise HTTPException(422, "整屏顺序里缺少被拖动的任务")
+        by_key = {item["key"]: item for item in state["notes"]}
+        sequence = []
+        for key in wanted:
+            item = by_key.get(key)
+            if item is None:
+                if any(task["key"] == key for task in state["legacy"]):
+                    raise HTTPException(409, "旧任务仍保存在 任务（tasks）.md，不参与应用内排序")
+                raise HTTPException(422, "整屏顺序里有不在任务笔记里的任务")
+            sequence.append(item)
+        return _apply_task_order(vault_dir, state, sequence, note, database,
+                                 before="", mode="screen")
+
+    before_key = payload.before.strip()
+    if before_key and not re.fullmatch(r"[0-9a-f]{64}", before_key):
+        raise HTTPException(422, "锚点任务 key 格式不正确")
+    if before_key == note["key"]:
+        return {"revision": state["revision"], "reordered": False}
+    sequence = sorted(state["notes"], key=_manual_sort_key)
+    rest = [item for item in sequence if item["key"] != note["key"]]
+    if before_key:
+        index = next((position for position, item in enumerate(rest)
+                      if item["key"] == before_key), None)
+        if index is None:
+            if any(task["key"] == before_key for task in state["legacy"]):
+                raise HTTPException(409, "旧任务仍保存在 任务（tasks）.md，不参与应用内排序")
+            raise HTTPException(422, "锚点任务不在可排序的笔记里")
+    else:
+        index = len(rest)
+    sequence = [*rest[:index], note, *rest[index:]]
+    return _apply_task_order(vault_dir, state, sequence, note, database,
+                             before=before_key,
+                             orders=_reorder_values(sequence, index))
 
 
 def delete_task(vault_dir: Path | str, payload: TaskKeyPayload, database: Database, *,
@@ -790,9 +942,11 @@ def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Data
     _check_revision(payload.revision, state["revision"])
     note = _require_note(state, payload.key)
     target = _require_list(state, payload.list_name) if payload.list_name else note["list_name"]
+    order = note.get("sort_order")
     copy = task_notes.create_task_note(
         vault_dir, _folder_for_list(target), note["title"],
-        _note_values(note, done=False, done_on="", created=_today(), dida_id=""),
+        _note_values(note, done=False, done_on="", created=_today(), dida_id="",
+                     sort_order=(order - 0.5) if order is not None else None),
         body=task_notes.note_body(note))
     _audit(database, "task_duplicated", {"list": target})
     return {"revision": _revision_now(vault_dir), "task": _note_public(copy)}
@@ -866,9 +1020,11 @@ def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
                                              title=note["title"], values=_note_values(note, pinned=payload.pinned))
         else:  # duplicate
             for note in picked:
+                order = note.get("sort_order")
                 task_notes.create_task_note(
                     vault_dir, _folder_for_list(note["list_name"]), note["title"],
-                    _note_values(note, done=False, done_on="", created=_today(), dida_id=""),
+                    _note_values(note, done=False, done_on="", created=_today(), dida_id="",
+                                 sort_order=(order - 0.5) if order is not None else None),
                     body=task_notes.note_body(note))
     except Exception:
         # 跨多个文件的写入没有文件系统事务；失败时刷新页面看真实状态，并留下审计。
@@ -1330,6 +1486,10 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     @router.post("/tasks/update")
     def tasks_update(payload: TaskUpdate):
         return update_task(vault_dir, payload, database, read_only=read_only)
+
+    @router.post("/tasks/reorder")
+    def tasks_reorder(payload: TaskReorder):
+        return reorder_task(vault_dir, payload, database, read_only=read_only)
 
     @router.post("/tasks/delete")
     def tasks_delete(payload: TaskKeyPayload):

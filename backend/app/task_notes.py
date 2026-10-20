@@ -55,7 +55,21 @@ QUOTE_AS_STRING = re.compile(r"^(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?:-\d{1,2}:\d
 RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL",
                   *(f"COM{index}" for index in range(1, 10)),
                   *(f"LPT{index}" for index in range(1, 10))}
-KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于", "置顶", "创建", "dida_id")
+KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于",
+              "置顶", "创建", "排序", "dida_id")
+
+
+def order_value(value: Any) -> float | int | None:
+    """把 frontmatter 的「排序」解析成有限数字；无法解析时返回 None。"""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return int(number) if number.is_integer() else number
 
 
 class TaskNoteFormatError(ValueError):
@@ -299,6 +313,7 @@ def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
         "tags": _tags_value(metadata.get("标签")),
         "pinned": _bool_text(metadata.get("置顶")),
         "created": _date_text(metadata.get("创建")),
+        "sort_order": order_value(metadata.get("排序")),
         "dida_id": _coerce_text(metadata.get("dida_id")),
         "metadata": metadata,
         "exists": True,
@@ -397,6 +412,12 @@ def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dic
         metadata["置顶"] = True
     if fields.get("created"):
         metadata["创建"] = str(fields["created"])
+    order = order_value(fields.get("sort_order"))
+    if order is None:
+        # 没有显式改顺序时保留原值：滴答回写等旧调用方不会丢「手动排序」。
+        order = order_value(existing.get("排序"))
+    if order is not None:
+        metadata["排序"] = order
     dida_id = str(fields.get("dida_id") or existing.get("dida_id") or "").strip()
     if dida_id:
         metadata["dida_id"] = dida_id
@@ -456,6 +477,7 @@ def _fields_from(values: dict[str, Any]) -> dict[str, Any]:
         "done_on": _date_text(values.get("done_on")) if done else "",
         "pinned": _bool_text(values.get("pinned")),
         "created": _date_text(values.get("created")),
+        "sort_order": values.get("sort_order"),
         "dida_id": _coerce_text(values.get("dida_id")),
     }
 
@@ -682,6 +704,6 @@ __all__ = [
     "PRIORITIES", "TaskNoteFormatError", "task_root", "task_relative", "task_key",
     "normalize_title", "safe_task_stem", "unique_stem", "task_folder",
     "clean_list_name", "read_task_note", "scan_task_notes", "create_task_note",
-    "rewrite_task_note", "note_body", "new_trash_batch", "copy_to_trash",
+    "rewrite_task_note", "order_value", "note_body", "new_trash_batch", "copy_to_trash",
     "trash_note", "trash_list_folder", "rename_list_folder", "board_revision",
 ]

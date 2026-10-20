@@ -1014,6 +1014,14 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 /* 任务拖放（2026-10-17）：行拖到侧栏清单 / 四象限面板；拖动时给目标和源明确反馈。 */
 .time-task.is-draggable { cursor: grab; }
 .time-task.is-dragging { opacity: .45; cursor: grabbing; }
+/* 任务手动排序（2026-10-20）：拖到另一行上/下半区时显示插入线。 */
+.time-task { position: relative; }
+.time-task.is-reorder-before::before, .time-task.is-reorder-after::after {
+  content: ""; position: absolute; left: 4px; right: 4px; height: 2px;
+  border-radius: 2px; background: var(--p-accent); pointer-events: none; z-index: 1;
+}
+.time-task.is-reorder-before::before { top: -1px; }
+.time-task.is-reorder-after::after { bottom: -1px; }
 .time-side-row.is-drop-target .time-side-item { background: var(--p-accent-soft); box-shadow: inset 0 0 0 1px var(--p-accent-line); }
 .time-quad-panel.is-drop-target { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
 .time-quad-panel.is-drop-target .time-quad-hint { color: var(--p-accent); }
