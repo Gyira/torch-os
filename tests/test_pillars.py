@@ -132,6 +132,24 @@ def test_steward_suggestions_are_deterministic_and_confirmable(tmp_path):
     assert moved.json()["chapter"] == "method_general"
 
 
+def test_life_overview_marks_the_last_seven_days(tmp_path):
+    from backend.app.habits import shanghai_today
+
+    client, vault = make_client(tmp_path)
+    today = shanghai_today().isoformat()
+    path = vault / "00_人生路" / "01_日记" / f"{today}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\ntype: journal\ndate: {today}\n---\n\n今天。\n", encoding="utf-8")
+
+    overview = client.get("/api/pillars/life/overview").json()
+    week = overview["today"]["week"]
+    assert len(week) == 7
+    assert week[-1]["date"] == today
+    assert week[-1]["exists"] is True
+    assert week[-1]["path"] == f"00_人生路/01_日记/{today}.md"
+    assert week[0]["date"] < today
+
+
 def test_note_location_comes_from_path_not_stale_frontmatter(tmp_path):
     client, vault = make_client(tmp_path)
     path = vault / "00_人生路" / "02_反思" / "错位.md"

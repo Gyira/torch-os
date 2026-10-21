@@ -120,6 +120,7 @@ function renderShell(view) {
   const chapter = state.chapter[view] || "";
   const notes = state.notes[view] || overview?.recent || [];
   const searching = Boolean(state.search[view]?.trim());
+  const week = overview?.today?.week || [];
   root.innerHTML = `
     <header class="pillar-head">
       <div class="pillar-head-main">
@@ -195,6 +196,15 @@ function renderShell(view) {
             <button type="button" class="pillar-quick-button" data-review="weekly">生成本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">生成本月复盘</button>
           </div>
+        </section>` : ""}
+        ${view === "life" && week.length ? `<section class="pillar-card">
+          <p class="eyebrow">最近 7 天</p>
+          <div class="pillar-week" role="group" aria-label="最近 7 天日记">
+            ${week.map((day) => `<button type="button" class="pillar-week-day${day.exists ? " is-done" : ""}${day.date === overview?.today?.date ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${day.exists ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${day.exists ? "已写日记" : "未写日记"}`)}">
+              <span>${escapeHtml(String(day.weekday || "").replace("周", ""))}</span><i aria-hidden="true"></i>
+            </button>`).join("")}
+          </div>
+          <p class="field-help">近 7 天写了 ${week.filter((day) => day.exists).length} 天；点有记录的日期打开当天日记。</p>
         </section>` : ""}
         ${view === "knowledge" && overview ? `<section class="pillar-card">
           <p class="eyebrow">收件箱</p>
@@ -361,6 +371,20 @@ function bindPillarEvents() {
         }
       }
       openVaultNote(state.overviews.self?.vault_name || "", identity.dataset.openIdentity);
+      return;
+    }
+    const journalDay = event.target.closest?.("[data-journal-day]");
+    if (journalDay) {
+      const path = journalDay.dataset.journalPath;
+      if (path) {
+        openNote(path);
+        return;
+      }
+      if (journalDay.dataset.journalLegacy === "1") {
+        toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
+      } else {
+        toast(`${journalDay.dataset.journalDay} 还没有日记。`, "info");
+      }
       return;
     }
     const row = event.target.closest?.("[data-note-path]");
@@ -555,7 +579,7 @@ function openCapture(view, chapter = "", type = "") {
       <p class="status-message" data-capture-status role="status"></p>
       <div class="form-actions">
         <button type="button" class="button secondary" data-capture-close>取消</button>
-        <button type="submit" class="button primary">保存</button>
+        <button type="submit" class="button primary" title="Ctrl/⌘ Enter 保存">保存</button>
       </div>
     </form>`;
   document.body.append(dialog);
@@ -566,6 +590,12 @@ function openCapture(view, chapter = "", type = "") {
   };
   dialog.querySelectorAll("[data-capture-close]").forEach((button) => button.addEventListener("click", close));
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
+  dialog.querySelector("form").addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      dialog.querySelector('form button[type="submit"]')?.click();
+    }
+  });
   dialog.querySelector("form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

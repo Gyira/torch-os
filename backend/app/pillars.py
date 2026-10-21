@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -92,14 +92,28 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
         "count": len(notes),
     }
     if key == "life":
-        today = shanghai_today().isoformat()
+        today_date = shanghai_today()
+        today = today_date.isoformat()
         journal = journal_note.read_note(vault_dir, today)
         habits = HabitService(database, vault_dir).list(status="active")
+        week: list[dict[str, Any]] = []
+        for offset in range(6, -1, -1):
+            day = (today_date - timedelta(days=offset)).isoformat()
+            entry = journal_note.read_note(vault_dir, day) if day != today else journal
+            relpath = str(entry.get("relpath") or "") if entry.get("exists") else ""
+            week.append({
+                "date": day,
+                "weekday": journal_note.WEEKDAYS[date.fromisoformat(day).weekday()],
+                "exists": bool(entry.get("exists")),
+                "path": relpath if relpath.startswith("00_人生路/") else "",
+                "legacy": bool(entry.get("exists")) and not relpath.startswith("00_人生路/"),
+            })
         payload["today"] = {
             "date": today,
             "journal_written": bool(journal.get("exists")),
             "journal_updated_at": journal.get("updated_at"),
             "habit_count": len(habits),
+            "week": week,
         }
     if key == "self":
         identity = read_identity(vault_dir)

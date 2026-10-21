@@ -1099,7 +1099,8 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-content-head h3 { margin: 2px 0 0; font-family: var(--p-font-display); font-size: 20px; color: var(--p-ink-strong); }
 .pillar-list { display: flex; flex-direction: column; border-top: 1px solid var(--p-line); }
 .pillar-note-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; width: 100%; padding: 13px 10px; border: 0; border-bottom: 1px solid var(--p-line); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 0; transition: background .14s ease; }
-.pillar-note-row:hover { background: var(--p-hover); }
+.pillar-note-row:hover, .pillar-note-row.is-selected { background: var(--p-hover); }
+.pillar-note-row.is-selected { box-shadow: inset 2px 0 0 var(--pillar-accent, var(--p-accent)); }
 .pillar-note-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .pillar-note-title { color: var(--p-ink-strong); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pillar-note-excerpt { color: var(--p-ink-4); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1111,6 +1112,14 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-card .eyebrow { color: var(--pillar-accent); }
 .pillar-card-quiet { background: var(--p-surface-2); }
 .pillar-stat { margin: 6px 0 2px; font-family: var(--p-font-display); font-size: 20px; color: var(--p-ink-strong); }
+.pillar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 10px 0 2px; }
+.pillar-week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--p-ink-5); font: inherit; font-size: 10px; padding: 2px 0; cursor: pointer; border-radius: 7px; }
+.pillar-week-day i { width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--p-line-2); background: var(--p-surface-2); transition: transform .14s ease, background .14s ease; }
+.pillar-week-day:hover i { transform: scale(1.1); }
+.pillar-week-day.is-done { color: var(--pillar-accent); }
+.pillar-week-day.is-done i { background: var(--pillar-accent); border-color: var(--pillar-accent); }
+.pillar-week-day.is-today i { box-shadow: 0 0 0 3px var(--pillar-soft); }
+.pillar-week-day:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
 .pillar-quick { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .pillar-quick-button { border: 1px solid var(--p-line); background: var(--p-surface); color: var(--p-ink-2); border-radius: 9px; padding: 8px 10px; text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
 .pillar-quick-button:hover { border-color: var(--pillar-accent); color: var(--pillar-accent); background: var(--pillar-soft); }
@@ -1145,14 +1154,21 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-aside { display: none; }
 }
 @media (max-width: 760px) {
-  .pillar-head { flex-direction: column; align-items: stretch; }
+  .pillar-head { flex-direction: column; align-items: stretch; gap: 12px; padding: 4px 0 14px; }
+  .pillar-head h2 { font-size: 24px; }
+  .pillar-subtitle { font-size: 12px; }
+  .pillar-icon { width: 38px; height: 38px; border-radius: 12px; font-size: 18px; }
   .pillar-head-actions { flex-wrap: wrap; }
   .pillar-search input { width: 100%; }
-  .pillar-layout { grid-template-columns: 1fr; gap: 14px; }
-  .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .pillar-layout { grid-template-columns: 1fr; gap: 14px; padding-top: 14px; }
+  .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .pillar-rail::-webkit-scrollbar { display: none; }
   .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
   .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
   .pillar-capture-grid { grid-template-columns: 1fr; }
+  /* 小屏弹窗可能比视口高：让整个弹窗可滚动，底部按钮不会被裁掉。 */
+  .pillar-dialog { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+  .pillar-capture-form { padding-bottom: 16px; }
 }
 .pillar-ops-slot { margin-bottom: 18px; }
 .pillar-ops-card { border: 1px solid var(--p-line); border-radius: 16px; background: var(--p-surface); padding: 16px 18px; }

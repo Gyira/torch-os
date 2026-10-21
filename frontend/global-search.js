@@ -24,7 +24,7 @@ export function openGlobalSearch() {
       <button type="button" class="text-button" data-search-close>关闭</button>
     </div>
     <div class="pillar-global-search">
-      <input type="search" data-global-query placeholder="输入标题、正文或标签，回车搜索" autofocus>
+      <input type="search" data-global-query placeholder="输入标题、正文或标签，↑↓ 选择，回车打开" autofocus>
       <p class="status-message" data-global-status role="status"></p>
       <div data-global-results></div>
     </div>`;
@@ -41,17 +41,38 @@ export function openGlobalSearch() {
   const results = dialog.querySelector("[data-global-results]");
   let timer = 0;
   let searchSeq = 0;
+  let resultItems = [];
+  let activeIndex = -1;
+  const paintActive = () => {
+    results.querySelectorAll("[data-global-note]").forEach((row, index) => {
+      const active = index === activeIndex;
+      row.classList.toggle("is-selected", active);
+      if (active) {
+        row.setAttribute("aria-current", "true");
+        row.scrollIntoView({ block: "nearest" });
+      } else {
+        row.removeAttribute("aria-current");
+      }
+    });
+  };
+  const openRow = (index) => {
+    const item = resultItems[index];
+    if (!item) return;
+    close();
+    openNote(item.path);
+  };
   const search = async () => {
     const query = input.value.trim();
-    if (!query) { results.innerHTML = ""; status.textContent = ""; return; }
+    if (!query) { results.innerHTML = ""; status.textContent = ""; resultItems = []; activeIndex = -1; return; }
     const seq = ++searchSeq;
     status.textContent = "搜索中…";
     try {
       const payload = await api(`/api/search?q=${encodeURIComponent(query)}&limit=60`);
       if (seq !== searchSeq) return;
-      const items = Array.isArray(payload.items) ? payload.items : [];
-      status.textContent = items.length ? `找到 ${items.length} 条` : "没有找到匹配的笔记。";
-      results.innerHTML = items.length ? `<div class="pillar-list">${items.map((item) => `
+      resultItems = Array.isArray(payload.items) ? payload.items : [];
+      activeIndex = -1;
+      status.textContent = resultItems.length ? `找到 ${resultItems.length} 条` : "没有找到匹配的笔记。";
+      results.innerHTML = resultItems.length ? `<div class="pillar-list">${resultItems.map((item) => `
         <button type="button" class="pillar-note-row" data-global-note="${escapeHtml(item.path)}">
           <span class="pillar-note-main">
             <span class="pillar-note-title">${escapeHtml(item.title)}</span>
@@ -63,6 +84,8 @@ export function openGlobalSearch() {
       if (seq !== searchSeq) return;
       status.textContent = error.message;
       results.innerHTML = "";
+      resultItems = [];
+      activeIndex = -1;
     }
   };
   input.addEventListener("input", () => {
@@ -70,7 +93,20 @@ export function openGlobalSearch() {
     timer = window.setTimeout(search, 220);
   });
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") { event.preventDefault(); search(); }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!resultItems.length) return;
+      event.preventDefault();
+      activeIndex = event.key === "ArrowDown"
+        ? (activeIndex + 1) % resultItems.length
+        : (activeIndex <= 0 ? resultItems.length - 1 : activeIndex - 1);
+      paintActive();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (activeIndex >= 0) openRow(activeIndex);
+      else search();
+    }
   });
   results.addEventListener("click", (event) => {
     const row = event.target.closest?.("[data-global-note]");

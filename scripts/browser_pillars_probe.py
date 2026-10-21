@@ -71,14 +71,15 @@ class CDP:
         path.write_bytes(base64.b64decode(result["data"]))
 
 
-async def run(base_url: str, output: Path, port: int):
+async def run(base_url: str, output: Path, port: int,
+              width: int = 1440, height: int = 1000):
     edge = find_edge()
     profile = tempfile.mkdtemp(prefix="torch-edge-pillars-")
     process = subprocess.Popen([
         edge, "--headless=new", "--disable-gpu", "--no-first-run",
         "--no-default-browser-check", "--disable-extensions",
         f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
-        "--window-size=1440,1000", f"{base_url}/#life",
+        f"--window-size={width},{height}", f"{base_url}/#life",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     report = {"ok": False, "views": {}}
     try:
@@ -124,6 +125,15 @@ async def run(base_url: str, output: Path, port: int):
                     report["inbox_suggestions"] = await cdp.evaluate(
                         "document.querySelectorAll('#knowledge-view [data-suggestion-path]').length")
                 if view == "life":
+                    report["life_week"] = await cdp.evaluate("""(() => ({
+                        days: document.querySelectorAll('#life-view .pillar-week-day').length,
+                        done: document.querySelectorAll('#life-view .pillar-week-day.is-done').length,
+                    }))()""")
+                    await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done')?.click()")
+                    await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                    report["life_week_click"] = await cdp.evaluate(
+                        "document.querySelector('.pillar-note-dialog .meta')?.textContent || ''")
+                    await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
                     await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
                     await cdp.wait_for("document.querySelector('#life-view [data-habit-panel]')")
                     await asyncio.sleep(0.6)
@@ -212,7 +222,22 @@ async def run(base_url: str, output: Path, port: int):
             await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))")
             await cdp.wait_for("document.querySelector('.pillar-search-dialog')")
             report["shortcut_search"] = True
-            await cdp.evaluate("document.querySelector('.pillar-search-dialog [data-search-close]')?.click()")
+            await cdp.evaluate("""(() => {
+                const input = document.querySelector('[data-global-query]');
+                input.value = '考研';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            })()""")
+            await cdp.wait_for("document.querySelectorAll('[data-global-note]').length > 0", timeout=20)
+            await cdp.evaluate("document.querySelector('[data-global-query]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))")
+            report["search_keyboard"] = await cdp.evaluate("""(() => ({
+                selected: document.querySelectorAll('[data-global-note].is-selected').length,
+                current: document.querySelector('[data-global-note].is-selected')?.getAttribute('aria-current') || '',
+            }))()""")
+            await cdp.evaluate("document.querySelector('[data-global-query]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+            report["search_enter_opened"] = await cdp.evaluate(
+                "document.querySelector('.pillar-note-dialog h2')?.textContent || ''")
+            await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")
             # 工作台回归：任务板、问候、横幅、天气卡都还在。
@@ -276,10 +301,12 @@ def main():
     parser.add_argument("--base-url", default="http://127.0.0.1:8899")
     parser.add_argument("--output", default=".pillar-probe")
     parser.add_argument("--port", type=int, default=9333)
+    parser.add_argument("--width", type=int, default=1440)
+    parser.add_argument("--height", type=int, default=1000)
     args = parser.parse_args()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    report = asyncio.run(run(args.base_url, output, args.port))
+    report = asyncio.run(run(args.base_url, output, args.port, args.width, args.height))
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
