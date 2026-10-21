@@ -2,6 +2,14 @@
 // 不执行原始 HTML，不加载外部脚本，足够阅读 Obsidian 笔记。
 import { escapeHtml } from "./core.js";
 
+function safeHref(value) {
+  // 笔记与模型回答都可能包含不可信链接：只放行 http(s)/mailto/obsidian 与相对路径。
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) {
+    return /^(?:https?:|mailto:|obsidian:)/i.test(value) ? value : "";
+  }
+  return value;
+}
+
 function inline(text) {
   let value = escapeHtml(text);
   value = value.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -12,7 +20,10 @@ function inline(text) {
     const label = alias || target;
     return `<span class="pillar-wikilink" title="${target}">${label}</span>`;
   });
-  value = value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  value = value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label, href) => {
+    const safe = safeHref(href);
+    return safe ? `<a href="${safe}" target="_blank" rel="noreferrer">${label}</a>` : label;
+  });
   return value;
 }
 

@@ -4,6 +4,7 @@ import { $, api, escapeHtml, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
+import { openSteward } from "./pillar-steward.js";
 import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
 
 const PILLAR_META = {
@@ -105,6 +106,7 @@ function renderShell(view) {
         <label class="pillar-search"><span class="sr-only">搜索${escapeHtml(meta.title)}</span>
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
+        <button type="button" class="button secondary" data-steward-open="${view}">管家</button>
         <button type="button" class="button primary" data-pillar-capture="${view}">＋ 记一条</button>
       </div>
     </header>
@@ -222,6 +224,14 @@ async function loadPillar(view, { keepChapter = false } = {}) {
 
 function bindPillarEvents() {
   document.addEventListener("click", async (event) => {
+    const steward = event.target.closest?.("[data-steward-open]");
+    if (steward) {
+      openSteward(steward.dataset.stewardOpen, {
+        onOpenNote: (path) => openNote(path),
+        onApplied: () => loadPillar(steward.dataset.stewardOpen, { keepChapter: true }),
+      });
+      return;
+    }
     const capture = event.target.closest?.("[data-pillar-capture]");
     if (capture) {
       openCapture(capture.dataset.pillarCapture,

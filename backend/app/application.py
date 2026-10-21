@@ -89,6 +89,7 @@ from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_
 from .migration_api import create_migration_router
 from .ops import create_ops_router
 from .pillars import create_pillars_router
+from .steward import create_steward_router
 from .vault_audit import create_vault_audit_router
 from .wolai_import import WolaiImportError, preview_wolai_archive, import_selected_notes
 from .wolai_import import preview_import_states
@@ -954,6 +955,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     # 四库只读浏览、笔记读写与快速捕获。
     app.include_router(create_pillars_router(
         database, vault_dir, read_only=vault_read_only))
+    # 薪火管家二期：确定性提案、健康检查与本地优先的带引用问答。
+    app.include_router(create_steward_router(
+        database, vault_dir, gateway, read_only=vault_read_only))
     # 生活运营：体重/账目月度 Markdown 表。
     app.include_router(create_ops_router(vault_dir, read_only=vault_read_only))
     # Read-only Vault structure audit; no writes, no restricted partitions.

@@ -130,6 +130,38 @@ async def run(base_url: str, output: Path, port: int):
                     await cdp.screenshot(output / "life-habits.png")
                     report["habit_cards"] = await cdp.evaluate(
                         "document.querySelectorAll('#life-view .pillar-habit-card').length")
+            # 薪火管家抽屉：提案 → 健康检查 → 本地问答（不执行任何提案）。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
+            await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view [data-steward-open]')")
+            await cdp.evaluate("document.querySelector('#knowledge-view [data-steward-open]').click()")
+            await cdp.wait_for("document.querySelector('.pillar-steward-dialog')")
+            await cdp.wait_for("document.querySelector('.steward-section-head')", timeout=20)
+            report["steward_proposals"] = await cdp.evaluate(
+                "document.querySelectorAll('.pillar-steward-dialog .steward-proposal').length")
+            await cdp.screenshot(output / "steward-proposals.png")
+            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-tab=\"health\"]').click()")
+            await cdp.wait_for("document.querySelector('.steward-health-summary')", timeout=20)
+            report["steward_health"] = await cdp.evaluate("""(() => ({
+                checked: document.querySelector('.steward-health-summary')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+                warnings: document.querySelectorAll('.steward-health-row[data-severity="warning"]').length,
+                infos: document.querySelectorAll('.steward-health-row[data-severity="info"]').length,
+            }))()""")
+            await cdp.screenshot(output / "steward-health.png")
+            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-tab=\"ask\"]').click()")
+            await cdp.wait_for("document.querySelector('.pillar-steward-dialog [data-steward-ask-form]')", timeout=20)
+            await cdp.evaluate("""(() => {
+                const form = document.querySelector('.pillar-steward-dialog [data-steward-ask-form]');
+                form.querySelector('[name="question"]').value = '考研';
+                form.requestSubmit();
+            })()""")
+            await cdp.wait_for("document.querySelector('.pillar-steward-dialog .steward-answer-body')", timeout=30)
+            report["steward_ask"] = await cdp.evaluate("""(() => ({
+                mode: document.querySelector('.pillar-steward-dialog .steward-mode')?.textContent || '',
+                citations: document.querySelectorAll('.pillar-steward-dialog .steward-citation').length,
+                answer: document.querySelector('.pillar-steward-dialog .steward-answer-body')?.textContent?.slice(0, 80) || '',
+            }))()""")
+            await cdp.screenshot(output / "steward-ask.png")
+            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-close]')?.click()")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")
             # 工作台回归：任务板、问候、横幅、天气卡都还在。

@@ -82,7 +82,9 @@ def suggest(title: str, body: str = "", source: str = "",
 
 
 def suggestion_for_note(note: dict[str, Any]) -> dict[str, Any]:
-    result = suggest(note.get("title", ""), note.get("excerpt", ""),
+    # 列表接口给 excerpt，详情接口给完整 body；两者都尽量用上，规则才看得见上下文。
+    body = note.get("excerpt") or str(note.get("body") or "")[:400]
+    result = suggest(note.get("title", ""), body,
                      str(note.get("source") or ""), note.get("tags") or [])
     result["path"] = note.get("path", "")
     result["title"] = note.get("title", "")

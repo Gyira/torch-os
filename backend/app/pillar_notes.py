@@ -87,6 +87,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
                     loaded["raw"].decode("utf-8-sig") if loaded["raw"] else "")
             except Exception:
                 continue
+            if vault_layout.is_foreign(relative, metadata):
+                continue
             item = _metadata(relative, metadata, path)
             if text and text not in item["title"].casefold() and text not in body.casefold():
                 continue
