@@ -109,3 +109,34 @@ def test_weekly_and_monthly_review_skeletons_are_idempotent(tmp_path):
     assert monthly.status_code == 200, monthly.text
     assert monthly.json()["path"].startswith("00_人生路/05_月复盘/")
     assert "2026-10" in monthly.json()["body"]
+
+
+def test_steward_suggestions_are_deterministic_and_confirmable(tmp_path):
+    from backend.app.steward_policy import suggest
+    assert suggest("整理收件箱五步法", "第一步……第二步……")["chapter"] == "method_general"
+    assert suggest("读书笔记：原则", "作者说……")["chapter"] == "reading"
+    assert suggest("一个想法", "我觉得这件事很触动我")["chapter"] == "idea"
+    assert suggest("随手记", "")["chapter"] == "inbox"
+
+    client, _ = make_client(tmp_path)
+    note = client.post("/api/capture", json={
+        "title": "整理收件箱五步法", "body": "第一步：列清单；第二步：分类。",
+    }).json()
+    items = client.get("/api/steward/inbox-suggestions").json()["items"]
+    assert items and items[0]["path"] == note["path"]
+    assert items[0]["chapter"] == "method_general"
+    moved = client.post("/api/notes/move", json={
+        "path": note["path"], "chapter": items[0]["chapter"],
+    })
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["chapter"] == "method_general"
+
+
+def test_backlinks_find_wiki_and_markdown_links(tmp_path):
+    client, _ = make_client(tmp_path)
+    target = client.post("/api/capture", json={"title": "目标概念", "body": "概念正文"}).json()
+    source = client.post("/api/capture", json={
+        "title": "引用来源", "body": f"见 [[{target['path']}|目标概念]]",
+    }).json()
+    links = client.get("/api/notes/backlinks", params={"path": target["path"]}).json()["items"]
+    assert [item["path"] for item in links] == [source["path"]]

@@ -3,6 +3,7 @@
 import { $, api, escapeHtml, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
+import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
 
 const PILLAR_META = {
@@ -127,7 +128,11 @@ function renderShell(view) {
         ${view === "ops" ? (chapter === "health" || chapter === "finance"
           ? `<div class="pillar-ops-slot" data-ops-table="${chapter}"></div>`
           : `<div class="pillar-ops-slot" data-ops-dashboard></div>`) : ""}
-        ${view === "ops" && !chapter && !notes.length && !searching ? "" : `<div class="pillar-list">
+        ${view === "knowledge" && chapter === "inbox" ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
+        ${view === "life" && chapter === "habit" ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
+        ${(view === "ops" && !chapter && !notes.length && !searching)
+          || (view === "life" && chapter === "habit" && !notes.length && !searching)
+          ? "" : `<div class="pillar-list">
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
             <p class="field-help">${escapeHtml(meta.subtitle)}</p>
@@ -172,7 +177,29 @@ function renderShell(view) {
   if (view === "ops") {
     mountOps(view).catch((error) => toast(error.message, "error"));
   }
+  if (view === "knowledge" && chapter === "inbox") {
+    mountInboxSuggestions().catch((error) => toast(error.message, "error"));
+  }
+  if (view === "life" && chapter === "habit") {
+    mountHabits().catch((error) => toast(error.message, "error"));
+  }
   return root;
+}
+
+async function mountInboxSuggestions() {
+  const host = document.querySelector("#knowledge-view [data-inbox-suggestions]");
+  if (!host) return;
+  const payload = await api("/api/steward/inbox-suggestions");
+  const items = (payload.items || []).filter((item) => item.chapter !== "inbox");
+  if (!items.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<section class="pillar-suggestion-card">
+    <div class="pillar-suggestion-head"><p class="eyebrow">整理建议</p><p class="field-help">本地规则判断，不调用模型；点按钮才会移动。</p></div>
+    ${items.map((item) => `<div class="pillar-suggestion-row">
+      <div><strong>${escapeHtml(item.title)}</strong>
+        <p class="field-help">建议放到「${escapeHtml(item.pillar_title)} / ${escapeHtml(item.chapter_title)}」：${escapeHtml(item.reason)}</p></div>
+      <button type="button" class="button secondary" data-suggestion-path="${escapeHtml(item.path)}" data-suggestion-chapter="${escapeHtml(item.chapter)}">移到建议章节</button>
+    </div>`).join("")}
+  </section>`;
 }
 
 async function loadPillar(view, { keepChapter = false } = {}) {
@@ -233,6 +260,23 @@ function bindPillarEvents() {
       }
       return;
     }
+    const suggestion = event.target.closest?.("[data-suggestion-path]");
+    if (suggestion) {
+      try {
+        await api("/api/notes/move", {
+          method: "POST",
+          body: JSON.stringify({
+            path: suggestion.dataset.suggestionPath,
+            chapter: suggestion.dataset.suggestionChapter,
+          }),
+        });
+        toast("已按建议移动。");
+        await loadPillar("knowledge", { keepChapter: true });
+      } catch (error) {
+        toast(error.message, "error");
+      }
+      return;
+    }
     const identity = event.target.closest?.("[data-open-identity]");
     if (identity) {
       if (!identity.dataset.openIdentity) return;
@@ -282,7 +326,11 @@ function bindPillarEvents() {
 }
 
 export function openNote(path) {
-  api(`/api/notes?path=${encodeURIComponent(path)}`).then((note) => {
+  Promise.all([
+    api(`/api/notes?path=${encodeURIComponent(path)}`),
+    api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
+  ]).then(([note, links]) => {
+    const backlinks = Array.isArray(links.items) ? links.items : [];
     const dialog = document.createElement("dialog");
     dialog.className = "pillar-dialog pillar-note-dialog";
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
@@ -296,6 +344,10 @@ export function openNote(path) {
         <button type="button" class="text-button" data-close-note>关闭</button>
       </div>
       <article class="pillar-note-body">${renderMarkdown(note.body || "")}</article>
+      ${backlinks.length ? `<section class="pillar-backlinks">
+        <p class="eyebrow">反向链接</p>
+        ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
+      </section>` : ""}
       <div class="pillar-dialog-foot">
         <div class="pillar-note-actions">
           <select data-note-target aria-label="移动到章节">
@@ -312,6 +364,13 @@ export function openNote(path) {
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
+    });
+    dialog.querySelectorAll("[data-backlink-path]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.backlinkPath;
+        close();
+        if (target) openNote(target);
+      });
     });
     dialog.querySelector("[data-move-note]")?.addEventListener("click", async () => {
       const chapter = dialog.querySelector("[data-note-target]")?.value;
@@ -410,6 +469,7 @@ function openCapture(view, chapter = "", type = "") {
 export function initPillars() {
   bindPillarEvents();
   bindOpsEvents();
+  bindHabitEvents();
 }
 
 export async function loadPillarModule(view) {

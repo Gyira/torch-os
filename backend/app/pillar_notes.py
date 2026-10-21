@@ -14,7 +14,7 @@ from uuid import uuid4
 import yaml
 from fastapi import HTTPException
 
-from . import vault_layout
+from . import vault_layout, vault_links
 from .db import utc_now
 from .markdown_store import guarded_write, load_note
 from .vault import clean_fragment, parse_text, safe_note_path
@@ -216,4 +216,43 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str) -> dict
     return read_note(vault, new_relative)
 
 
-__all__ = ["list_notes", "read_note", "create_note", "update_note", "move_note"]
+def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[str, Any]]:
+    """在四库笔记里找指向 target 的链接（wiki 全路径/文件名、相对 Markdown 链接）。"""
+    vault = Path(vault_dir).resolve()
+    wanted = vault_layout.normalize_relpath(target).removesuffix(".md")
+    wanted_name = wanted.rsplit("/", 1)[-1]
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for directory in vault_layout.PILLAR_DIRS.values():
+        root = vault / directory
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.md"):
+            if any(part.startswith(".") for part in path.relative_to(root).parts):
+                continue
+            relative = _relative(vault, path)
+            if relative == target or relative in seen:
+                continue
+            try:
+                loaded = load_note(path)
+                metadata, body = parse_text(loaded["raw"].decode("utf-8-sig"))
+            except Exception:
+                continue
+            for link in vault_links.scan_links(body, relative):
+                candidate = vault_layout.normalize_relpath(link["target"]).removesuffix(".md")
+                candidate_name = candidate.rsplit("/", 1)[-1]
+                if candidate == wanted or candidate_name == wanted_name:
+                    seen.add(relative)
+                    found.append({
+                        "path": relative,
+                        "title": str(metadata.get("title") or path.stem),
+                        "pillar": vault_layout.pillar_of(relative),
+                        "chapter": vault_layout.chapter_key_of(relative),
+                    })
+                    break
+            if len(found) >= limit:
+                return found
+    return found
+
+
+__all__ = ["list_notes", "read_note", "create_note", "update_note", "move_note", "backlinks"]

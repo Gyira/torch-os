@@ -116,6 +116,20 @@ async def run(base_url: str, output: Path, port: int):
                     hash: location.hash,
                 }}))()""")
                 await cdp.screenshot(output / f"{view}.png")
+                if view == "knowledge":
+                    await cdp.evaluate("document.querySelector('#knowledge-view [data-pillar-chapter=\"knowledge\"][data-chapter=\"inbox\"]')?.click()")
+                    await cdp.wait_for("document.querySelector('#knowledge-view [data-inbox-suggestions]')")
+                    await asyncio.sleep(0.6)
+                    await cdp.screenshot(output / "knowledge-inbox.png")
+                    report["inbox_suggestions"] = await cdp.evaluate(
+                        "document.querySelectorAll('#knowledge-view [data-suggestion-path]').length")
+                if view == "life":
+                    await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
+                    await cdp.wait_for("document.querySelector('#life-view [data-habit-panel]')")
+                    await asyncio.sleep(0.6)
+                    await cdp.screenshot(output / "life-habits.png")
+                    report["habit_cards"] = await cdp.evaluate(
+                        "document.querySelectorAll('#life-view .pillar-habit-card').length")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")
             # 工作台回归：任务板、问候、横幅、天气卡都还在。

@@ -1119,6 +1119,8 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--p-line); }
 .pillar-dialog-head h2 { margin: 2px 0 4px; font-family: var(--p-font-display); font-size: 22px; color: var(--p-ink-strong); }
 .pillar-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; border-top: 1px solid var(--p-line); }
+.pillar-backlinks { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 22px 14px; border-top: 1px solid var(--p-line-faint); }
+.pillar-backlinks .eyebrow { flex: 0 0 100%; margin: 0 0 2px; }
 .pillar-note-actions { display: flex; align-items: center; gap: 8px; }
 .pillar-note-actions select { padding: 6px 9px; border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 12px; }
 .pillar-note-body { padding: 18px 22px; line-height: 1.75; max-height: 58vh; overflow: auto; }
@@ -1171,3 +1173,14 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-global-search { padding: 16px 22px 20px; display: flex; flex-direction: column; gap: 10px; }
 .pillar-global-search input[type="search"] { width: 100%; padding: 10px 12px; border: 1px solid var(--p-line-input); border-radius: 10px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 14px; }
 .pillar-global-search [data-global-results] { max-height: 56vh; overflow: auto; }
+.pillar-suggestions { margin-bottom: 16px; }
+.pillar-suggestion-card { border: 1px solid var(--p-pillar-knowledge); border-radius: 14px; background: var(--p-pillar-knowledge-soft); padding: 14px 16px; }
+.pillar-suggestion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.pillar-suggestion-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-top: 1px solid var(--p-line); }
+.pillar-suggestion-row strong { color: var(--p-ink-strong); font-size: 13px; }
+.pillar-suggestion-row .field-help { margin: 2px 0 0; }
+.pillar-habits { margin-bottom: 16px; }
+.pillar-habit-list { display: grid; gap: 12px; }
+.pillar-habit-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px 16px; }
+.pillar-habit-card .pillar-ops-head { margin-bottom: 4px; }
+.pillar-habit-card .habit-grid { margin-top: 8px; }
