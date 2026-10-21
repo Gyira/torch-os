@@ -1,32 +1,22 @@
 import { $, state, api, escapeHtml } from "./core.js";
 import { askHarnessToCompose } from "./harness-bridge.js";
-import { initMemories, loadMemories } from "./memories.js";
-import { initLibrary, loadDocuments } from "./library.js";
-import { initGoals, loadGoals } from "./goals.js";
 import { initSettings, loadSettings } from "./settings.js";
-import { initImports, loadImports } from "./imports.js";
-import { initJournal, loadJournalCalendar, openJournalDay } from "./journal.js";
+import { initJournal, openJournalDay } from "./journal.js";
 import { initJournalNote, loadJournalNote, loadActivity } from "./journal-note.js";
-import { loadBodyRecord, loadBodyHistory } from "./body-records.js";
 import { shanghaiDay } from "./journal-model.js";
-import { initHabits, loadHabits, beforeLeaveHabits } from "./habits.js";
-import { initProfile, loadProfile } from "./profile.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
-import { initVaultAudit } from "./vault-audit.js";
 import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
-import { initBazi, loadBazi } from "./bazi.js";
 import { initThemeBridge } from "./theme-bridge.js";
-import { initShareImport } from "./share-import.js";
 import { initVaultConnection } from "./vault-connection.js";
 import { initWorkspaces } from "./workspaces.js";
 import { initDataHandbook } from "./data-handbook.js";
 import { initToolCatalog } from "./tool-catalog.js";
 import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
-import { initIdentity, loadIdentity } from "./identity.js";
-import { initSecondBrain, loadNotes } from "./second-brain.js";
 import { initDidaSync } from "./dida-sync.js";
+import { initPillars, loadPillarModule } from "./pillars.js";
+import { openGlobalSearch } from "./global-search.js";
 
 const titles = NAV_LABELS;
 
@@ -37,30 +27,22 @@ const MODULES = {
     stacked: true,
     panes: [["workbench-view", "待办事项"], ["journal-view", "日记"]],
   },
-  identity: {
-    panes: [["me-view", "座右铭与三观"], ["profile-view", "画像"], ["memory-view", "记忆"],
-            ["goals-view", "目标与任务"], ["habits-view", "习惯"], ["body-view", "身体"], ["bazi-view", "八字参考"]],
-  },
-  brain: {
-    panes: [["documents-view", "资料库"], ["notes-view", "笔记与灵感"], ["archive-view", "日记归档"]],
-  },
+  // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
+  life: { panes: [], ownNav: true },
+  self: { panes: [], ownNav: true },
+  ops: { panes: [], ownNav: true },
+  knowledge: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
 };
 const paneChoice = {};
-const PANE_GUARDS = { "habits-view": beforeLeaveHabits };
+const PANE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "journal-view": () => { loadJournalNote(); loadActivity(); },
-  "me-view": () => loadIdentity(),
-  "profile-view": () => loadProfile(),
-  "memory-view": () => loadMemories(),
-  "goals-view": () => loadGoals(),
-  "habits-view": () => loadHabits(),
-  "body-view": () => { loadBodyRecord(shanghaiDay()); loadBodyHistory(); },
-  "bazi-view": () => loadBazi(),
-  "documents-view": () => { loadDocuments(); loadImports(); },
-  "notes-view": () => loadNotes(),
-  "archive-view": () => loadJournalCalendar(),
+  "life-view": () => loadPillarModule("life"),
+  "self-view": () => loadPillarModule("self"),
+  "ops-view": () => loadPillarModule("ops"),
+  "knowledge-view": () => loadPillarModule("knowledge"),
   "settings-view": () => { loadSettings(); loadSchedulePanel(); },
 };
 
@@ -107,6 +89,13 @@ function renderPanelNav() {
     button.addEventListener("click", () => { switchView(view); });
     nav.appendChild(button);
   }
+  const search = document.createElement("button");
+  search.type = "button";
+  search.className = "panel-nav-search";
+  search.textContent = "搜索";
+  search.setAttribute("aria-label", "在四库中搜索");
+  search.addEventListener("click", () => { openGlobalSearch(); });
+  nav.appendChild(search);
   main.prepend(nav);
   // 顶部标签条吸顶（2026-10-05）：把它的实际高度写进 --panel-nav-h，
   // 模块内导航（.module-nav）据此下移，两条吸顶条不会互相盖住。
@@ -129,10 +118,11 @@ if (embedMode) {
 /** 旧的 data-go-view 目标映射到新的模块 + 分区。 */
 const GO_TARGETS = {
   workbench: ["workbench", ""], today: ["workbench", ""], journal: ["workbench", "journal-view"],
-  identity: ["identity", ""], profile: ["identity", "profile-view"], memory: ["identity", "memory-view"],
-  goals: ["identity", "goals-view"], habits: ["identity", "habits-view"], body: ["identity", "body-view"],
-  bazi: ["identity", "bazi-view"], brain: ["brain", ""], documents: ["brain", "documents-view"],
-  notes: ["brain", "notes-view"], archive: ["brain", "archive-view"], settings: ["settings", ""],
+  identity: ["self", ""], self: ["self", ""], profile: ["self", ""], memory: ["self", ""],
+  bazi: ["self", ""], goals: ["life", ""], habits: ["life", ""],
+  life: ["life", ""], ops: ["ops", ""],
+  brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
+  notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
 };
 
 export async function showPane(view, paneId, updateHash = true) {
@@ -165,7 +155,7 @@ export async function switchView(view, updateHash = true) {
   // 工作台的标题块。**不要用 data-view**——页面的点击委托按 `closest("[data-view]")` 找导航
   // 按钮，body 带上它会吞掉一切点击并触发一次“切到当前模块”（2026-10-05 实测踩到）。
   if (document.body?.classList) {
-    ["workbench", "identity", "brain", "settings"].forEach((name) => document.body.classList.remove(`view-${name}`));
+    Object.keys(MODULES).forEach((name) => document.body.classList.remove(`view-${name}`));
     document.body.classList.add(`view-${view}`);
   }
   document.querySelectorAll(".nav-item, .panel-nav-item").forEach((button) => { const active = button.dataset.view === view; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
@@ -308,12 +298,10 @@ function runModuleLoaders(view, visiblePanes) {
   }
 }
 
-initMemories(); initLibrary(); initGoals(); initSettings(); initImports(); initJournal(); initJournalNote(); initHabits(); initProfile(); initInbox(); initVaultAudit();
-initWorkbench(); initIdentity(); initSecondBrain();
+initSettings(); initJournal(); initJournalNote(); initInbox();
+initWorkbench(); initPillars();
 bindSidebarPanes();
 initHelp();
-initBazi();
-initShareImport();
 initVaultConnection();
 initWorkspaces();
 initDataHandbook();
@@ -333,7 +321,6 @@ document.addEventListener("click", async (event) => {
   const ask = event.target.closest("[data-ask-question]");
   if (ask) askHarnessToCompose(ask.dataset.askQuestion || "");
 });
-document.addEventListener("data-changed", () => { if (state.view === "identity") { loadMemories(); loadProfile(); } });
 // 滴答同步完成后（可能在设置页触发）让工作台任务立即重读一次。
 document.addEventListener("torch:tasks-changed", () => {
   if (state.view !== "workbench") return;

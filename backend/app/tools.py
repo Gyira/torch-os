@@ -15,14 +15,15 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
+from . import journal_note
 from .body import BodyRecordService
 from .attachment_plan import ATTACHMENT_DIRECTORY
 from .db import Database
 from .goals import GoalTaskService
 from .habits import HabitService
 from .identity import read_identity
-from .journal import JournalService
 from .learning import LearningService
+from .vault import parse_text
 from .vault_connection import describe_vault, read_only_enabled
 from .vault_audit import run_audit
 from .wolai_import import HISTORY_DIRECTORY, IMPORT_DIRECTORY
@@ -92,9 +93,8 @@ class ToolService:
     def __init__(self, database: Database, vault_dir: Path):
         self.database = database
         self.vault_dir = Path(vault_dir)
-        self._journal = JournalService(database, vault_dir)
         self._goals = GoalTaskService(database)
-        self._habits = HabitService(database)
+        self._habits = HabitService(database, vault_dir)
         self._learning = LearningService(database)
         self._body = BodyRecordService(database)
 
@@ -124,7 +124,12 @@ class ToolService:
     def today(self, day: str | None = None) -> dict[str, Any]:
         target = self._day(day)
         stamp = target.isoformat()
-        record = self._journal.get(stamp)
+        note = journal_note.read_note(self.vault_dir, stamp)
+        try:
+            _metadata, journal_body = parse_text(note.get("content") or "")
+        except ValueError:
+            journal_body = note.get("content") or ""
+        next_action = journal_note.next_action_text(note.get("content") or "")
         rows = self._goals.list_tasks()
         open_tasks = [task for task in rows if task.get('status') in ('todo', 'in_progress')]
         due_today = [task for task in open_tasks if task.get('due_date') == stamp]
@@ -146,14 +151,14 @@ class ToolService:
         return {
             'date': stamp,
             'journal': {
-                'recorded': bool(record.get('recorded')),
-                'updated_at': record.get('updated_at'),
-                'content': record.get('content') or '',
-                'highlights': record.get('highlights') or '',
-                'obstacles': record.get('obstacles') or '',
-                'next_action': record.get('next_action') or '',
-                'mood': record.get('mood') or '',
-                'diet_summary': record.get('diet_summary') or '',
+                'recorded': bool(note.get('exists')),
+                'updated_at': note.get('updated_at'),
+                'content': journal_body,
+                'highlights': '',
+                'obstacles': '',
+                'next_action': next_action,
+                'mood': '',
+                'diet_summary': '',
             },
             'tasks': {
                 'open': len(open_tasks), 'due_today': len(due_today), 'overdue': len(overdue),
@@ -248,19 +253,25 @@ class ToolService:
             raise HTTPException(422, '日期顺序应为 from ≤ to')
         if (last - first).days >= 90:
             raise HTTPException(422, '一次最多查询 90 天')
-        with self.database.connect() as connection:
-            rows = connection.execute(
-                'SELECT date, next_action, content FROM journal_entries WHERE date>=? AND date<=? ORDER BY date DESC',
-                (first.isoformat(), last.isoformat()),
-            ).fetchall()
+        days: list[dict[str, Any]] = []
+        current = last
+        while current >= first:
+            stamp = current.isoformat()
+            note = journal_note.read_note(self.vault_dir, stamp)
+            if note.get('exists'):
+                try:
+                    _metadata, body = parse_text(note.get('content') or "")
+                except ValueError:
+                    body = note.get('content') or ""
+                days.append({
+                    'date': stamp, 'recorded': True,
+                    'has_next_step': bool(journal_note.next_action_text(note.get('content') or '')),
+                    'has_body': bool(body.strip()),
+                })
+            current -= timedelta(days=1)
         return {
             'from_date': first.isoformat(), 'to_date': last.isoformat(),
-            'days': [
-                {'date': row['date'], 'recorded': True,
-                 'has_next_step': bool(str(row['next_action'] or '').strip()),
-                 'has_body': bool(str(row['content'] or '').strip())}
-                for row in rows
-            ],
+            'days': days,
             'note': '只列出是否记录与是否写了下一步，不包含日记正文。',
         }
 

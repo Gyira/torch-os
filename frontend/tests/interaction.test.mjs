@@ -373,14 +373,14 @@ test("the shell keeps its skip link, main landmark and single page-title contrac
   assert.match(html, /<main class="main" id="main-content" tabindex="-1">/);
   assert.match(html, /<h1 id="page-title" tabindex="-1">/);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((match) => match[1]);
-  assert.equal(views.length, 4);
+  assert.equal(views.length, 6);
   for (const view of views) {
     // 模块可以是实体页面（workbench / settings），也可以只有分区（identity / brain）。
     const shell = new RegExp(`id="${view}-view"`).test(html);
     const panes = new RegExp(`data-module="${view}"`).test(html);
     assert.ok(shell || panes, `${view} exposes a shell or panes`);
   }
-  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 9);
+  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 3);
 });
 
 test("static markup keeps accessible names and live status regions", async () => {
@@ -409,7 +409,7 @@ test("switching views focuses the page title and keeps aria-current in sync", as
   setResponse((url) => url === "/api/health" ? { status: "ok" }
     : url === "/api/config/status" ? { model_configured: false, capabilities: {} }
       : []);
-  const navItems = ["workbench", "identity", "brain", "settings"]
+  const navItems = ["workbench", "life", "self", "ops", "knowledge", "settings"]
     .map((view) => { const node = getNode(`[data-view="${view}"]`); node.dataset.view = view; return node; });
   // 真实浏览器里 `.nav-item, .panel-nav-item` 会同时命中侧边栏与面板切换条；
   // 这个假 DOM 只有侧边栏节点，所以按“包含 .nav-item”来回答（0.94.0 修正）。
@@ -419,15 +419,15 @@ test("switching views focuses the page title and keeps aria-current in sync", as
   assert.equal(context.document.activeElement, null, "the first render must not steal focus");
   assert.equal(navItems[0].attributes["aria-current"], "page");
 
-  assert.equal(await app.switchView("identity"), true);
+  assert.equal(await app.switchView("self"), true);
   assert.equal(context.document.activeElement, getNode("#page-title"));
-  assert.equal(getNode("#page-title").textContent, "数字分身");
-  assert.equal(navItems[1].attributes["aria-current"], "page");
+  assert.equal(getNode("#page-title").textContent, "自我档案");
+  assert.equal(navItems[2].attributes["aria-current"], "page");
   assert.equal(navItems[0].attributes["aria-current"], undefined);
 
-  await app.switchView("brain");
-  assert.equal(navItems[2].attributes["aria-current"], "page");
-  assert.equal(navItems[1].attributes["aria-current"], undefined);
+  await app.switchView("knowledge");
+  assert.equal(navItems[4].attributes["aria-current"], "page");
+  assert.equal(navItems[2].attributes["aria-current"], undefined);
   assert.equal(context.document.activeElement, getNode("#page-title"));
 });
 
@@ -440,8 +440,8 @@ test("a host navigate message switches modules before locating the pane", async 
   context.location.search = "?embed=1";
   const app = (await load("app.js")).namespace;
   for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(await app.switchView("identity"), true);
-  assert.equal(context.location.hash, "#identity");
+  assert.equal(await app.switchView("self"), true);
+  assert.equal(context.location.hash, "#self");
 
   await emitWindow("message", { data: { type: "torch:navigate", view: "workbench", pane: "journal-view" } });
   for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -505,13 +505,15 @@ test("the sidebar second level lists exactly the panes each module defines", asy
     if (!name) continue;
     modules[name] = [...entry.matchAll(/\["([a-z-]+)", "([^"]+)"\]/g)].map((match) => [match[1], match[2]]);
   }
-  assert.deepEqual(Object.keys(modules).sort(), ["brain", "identity", "settings", "workbench"]);
+  assert.deepEqual(Object.keys(modules).sort(), [
+    "knowledge", "life", "ops", "self", "settings", "workbench",
+  ]);
 
   const groups = [...html.matchAll(/<div class="nav-sublist"[^>]*data-sublist="([a-z]+)"[^>]*>([\s\S]*?)<\/div>/g)]
     .map((match) => [match[1], [...match[2].matchAll(/data-pane="([a-z-]+)"[^>]*>([^<]+)</g)].map((pane) => [pane[1], pane[2].trim()])]);
   const sidebar = Object.fromEntries(groups);
-  // 设置页自带分区导航，所以侧栏只给它一级菜单。
-  assert.deepEqual(Object.keys(sidebar).sort(), ["brain", "identity", "workbench"]);
+  // 四库与设置页都自带导航，侧栏只给工作台二级菜单。
+  assert.deepEqual(Object.keys(sidebar).sort(), ["workbench"]);
   for (const [view, panes] of Object.entries(sidebar)) {
     assert.deepEqual(panes, modules[view], `${view} 的二级菜单要和模块定义一致`);
   }
@@ -522,10 +524,10 @@ test("the sidebar second level lists exactly the panes each module defines", asy
   }
 });
 
-test("the settings shell exposes eleven navigable sections with focusable headings", async () => {
+test("the settings shell exposes twelve navigable sections with focusable headings", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const nav = [...html.matchAll(/data-settings-nav="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(nav, ["status", "model", "schedule", "dida", "backup", "data", "obsidian", "audit", "appearance", "help", "about"]);
+  assert.deepEqual(nav, ["status", "model", "schedule", "dida", "backup", "data", "obsidian", "migration", "audit", "appearance", "help", "about"]);
   for (const name of nav) {
     const section = html.match(new RegExp(`data-settings-section="${name}"[^>]*>([\\s\\S]*?)</section>`));
     assert.ok(section, `${name} section exists`);
@@ -545,7 +547,7 @@ test("the appearance section lists every sidebar view and offers a reset", async
   const defaults = (defaultsBlock.match(/"([a-z]+)"/g) || []).map((value) => value.replace(/"/g, ""));
   const views = [...html.matchAll(/class="nav-item[^"]*" data-view="([a-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual([...views].sort(), [...defaults].sort());
-  assert.equal(defaults.length, 4);
+  assert.equal(defaults.length, 6);
 });
 
 test("the time dialogs collect every field value on submit", async () => {
@@ -958,5 +960,5 @@ test("standalone pages use the top module navigation instead of the outer sideba
   const main = h.getNode("#main-content");
   assert.equal(byClass(main, "panel-nav").length, 1);
   assert.deepEqual(byClass(main, "panel-nav-item").map((node) => node.dataset.view),
-    ["workbench", "identity", "brain", "settings"]);
+    ["workbench", "life", "self", "ops", "knowledge", "settings"]);
 });

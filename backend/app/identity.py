@@ -1,12 +1,12 @@
 """Identity: the user's own name, motto and three views, kept in the Vault.
 
-Markdown is the source of truth (项目书 §7.3 puts identity under `01-Identity/`),
-so `01-Identity/身份（identity）.md` is a normal note the user can edit in Obsidian and
-dsh can read through the vault tools. The app only offers a structured form on
-top of the same file: front matter carries the short fields, the body carries
-free notes. Writing is atomic, respects the vault read-only switch and requires
-the revision the client last read, so two windows cannot silently overwrite
-each other.
+Markdown is the source of truth (四库设计把身份放在
+`01_自我档案/01_内核与三观/`)，so `身份（identity）.md` is a normal note the user
+can edit in Obsidian and dsh can read through the vault tools. The app only
+offers a structured form on top of the same file: front matter carries the
+short fields, the body carries free notes. Writing is atomic, respects the
+vault read-only switch and requires the revision the client last read, so two
+windows cannot silently overwrite each other.
 """
 
 from __future__ import annotations
@@ -22,16 +22,26 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .db import utc_now
 from .markdown_store import revision as _revision
-from .vault import managed_note_path, note_relative, safe_note_path
+from .vault import note_relative, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-IDENTITY_RELATIVE = "01-Identity/身份（identity）.md"
-IDENTITY_LEGACY_RELATIVE = "01-Identity/identity.md"
+IDENTITY_RELATIVE = "01_自我档案/01_内核与三观/身份（identity）.md"
+IDENTITY_LEGACY_RELATIVE = "01-Identity/身份（identity）.md"
+IDENTITY_LEGACY_ALT = "01-Identity/identity.md"
 
 
 def _identity_path(vault_dir: Path | str) -> Path:
-    """现行文件名优先；旧库里的 `identity.md` 继续读写（不自动改名）。"""
-    return managed_note_path(vault_dir, IDENTITY_RELATIVE, IDENTITY_LEGACY_RELATIVE)
+    """四库路径优先；未迁移的旧库继续读写 `01-Identity/`（不自动改名）。"""
+    root = Path(vault_dir)
+    current = safe_note_path(root, IDENTITY_RELATIVE)
+    if current.exists():
+        return current
+    for legacy in (IDENTITY_LEGACY_RELATIVE, IDENTITY_LEGACY_ALT,
+                   "01_自我档案/01_内核与三观/identity.md"):
+        candidate = safe_note_path(root, legacy)
+        if candidate.exists():
+            return candidate
+    return current
 TEXT_FIELDS = ("name", "motto", "worldview", "lifeview", "values", "notes")
 MAX_FIELD = 4_000
 

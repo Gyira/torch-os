@@ -12,9 +12,12 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
+from pathlib import Path as FilePath
+
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, field_validator
 
+from . import journal_note
 from .db import Database, utc_now
 
 
@@ -112,8 +115,9 @@ def _audit(connection, details: dict[str, Any]) -> None:
 
 
 class SchedulerService:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, vault_dir: FilePath | str | None = None):
         self.database = database
+        self.vault_dir = FilePath(vault_dir) if vault_dir else None
         self.initialize()
 
     def initialize(self) -> None:
@@ -216,7 +220,11 @@ class SchedulerService:
                     (day,),
                 ).fetchall()]
             journal_yesterday = False
-            if self._has_table(connection, "journal_entries"):
+            if self.vault_dir is not None:
+                journal_yesterday = journal_note.note_abspath(
+                    self.vault_dir, yesterday
+                ).is_file()
+            elif self._has_table(connection, "journal_entries"):
                 journal_yesterday = connection.execute(
                     "SELECT 1 FROM journal_entries WHERE date=?", (yesterday,)
                 ).fetchone() is not None
@@ -298,7 +306,11 @@ class SchedulerService:
                             habits["unrecorded"] += 1
             journal_recorded = False
             next_action = ""
-            if self._has_table(connection, "journal_entries"):
+            if self.vault_dir is not None:
+                note = journal_note.read_note(self.vault_dir, day)
+                journal_recorded = bool(note.get("exists"))
+                next_action = journal_note.next_action_text(note.get("content") or "")
+            elif self._has_table(connection, "journal_entries"):
                 row = connection.execute(
                     "SELECT next_action FROM journal_entries WHERE date=?", (day,)
                 ).fetchone()
@@ -401,7 +413,13 @@ class SchedulerService:
                         else:
                             habits["unrecorded"] += 1
             journal_days = 0
-            if self._has_table(connection, "journal_entries"):
+            if self.vault_dir is not None:
+                for offset in range(7):
+                    if journal_note.note_abspath(
+                            self.vault_dir, (week_start + timedelta(days=offset)).isoformat()
+                    ).is_file():
+                        journal_days += 1
+            elif self._has_table(connection, "journal_entries"):
                 journal_days = connection.execute(
                     "SELECT COUNT(*) FROM journal_entries WHERE date>=? AND date<=?",
                     (start, end),
@@ -540,8 +558,9 @@ class SchedulerService:
         return self._touch(item_id, "dismissed_at")
 
 
-def create_scheduler_router(database: Database, prefix: str = "/api", status_provider=None) -> APIRouter:
-    service = SchedulerService(database)
+def create_scheduler_router(database: Database, prefix: str = "/api", status_provider=None,
+                            vault_dir: FilePath | str | None = None) -> APIRouter:
+    service = SchedulerService(database, vault_dir)
     router = APIRouter(prefix=prefix, tags=["scheduler"])
 
     @router.get("/schedule")

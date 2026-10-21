@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
+from . import habit_markdown
 from .db import Database, utc_now
 
 
@@ -138,11 +139,28 @@ def _entry(row: Any, habit_id: int, day: str, scheduled: bool) -> dict[str, Any]
 
 
 class HabitService:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, vault_dir: Any = None):
         self.database = database
+        self.vault_dir = vault_dir
         self.database.initialize()
         with self.database.connect() as connection:
             connection.executescript(SCHEMA)
+
+    def _mirror(self) -> None:
+        """写入后把定义和当月打卡镜像到人生路的 Markdown（失败不影响主流程）。"""
+        if not self.vault_dir:
+            return
+        try:
+            month = shanghai_today().strftime("%Y-%m")
+            with self.database.connect() as connection:
+                habits = [dict(row) for row in connection.execute(
+                    "SELECT * FROM habit_definitions ORDER BY id").fetchall()]
+                entries = [dict(row) for row in connection.execute(
+                    "SELECT * FROM habit_entries WHERE date LIKE ? ORDER BY date, habit_id",
+                    (f"{month}%",)).fetchall()]
+            habit_markdown.mirror(self.vault_dir, habits, entries, month)
+        except (OSError, ValueError):
+            pass
 
     def list(self, status: HabitStatus | None = None) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
@@ -175,7 +193,9 @@ class HabitService:
             )
             habit_id = int(cursor.lastrowid)
             _audit(connection, "habit_created", {"habit_id": habit_id, "revision": 1})
-            return _habit(_require_habit(connection, habit_id))
+            result = _habit(_require_habit(connection, habit_id))
+        self._mirror()
+        return result
 
     def update(self, habit_id: int, payload: HabitUpdate) -> dict[str, Any]:
         with self.database.connect() as connection:
@@ -195,7 +215,9 @@ class HabitService:
                 "habit_id": habit_id, "previous_revision": current["revision"], "revision": current["revision"] + 1,
                 "changed_fields": sorted(changes), "previous_status": current["status"], "status": values["status"],
             })
-            return _habit(_require_habit(connection, habit_id))
+            result = _habit(_require_habit(connection, habit_id))
+        self._mirror()
+        return result
 
     @staticmethod
     def _scheduled(habit, target: date) -> bool:
@@ -238,7 +260,9 @@ class HabitService:
                 "previous_revision": current["revision"] if current else 0, "revision": row["revision"],
                 "previous_status": current["status"] if current else "unrecorded", "status": row["status"],
             })
-            return _entry(row, habit_id, day, True)
+            result = _entry(row, habit_id, day, True)
+        self._mirror()
+        return result
 
     def _entries_from_rows(self, habit, first: date, last: date, rows) -> list[dict[str, Any]]:
         return [
@@ -296,8 +320,9 @@ class HabitService:
         }
 
 
-def create_habits_router(database: Database, prefix: str = "/api") -> APIRouter:
-    service = HabitService(database)
+def create_habits_router(database: Database, prefix: str = "/api",
+                         vault_dir: Any = None) -> APIRouter:
+    service = HabitService(database, vault_dir)
     router = APIRouter(prefix=prefix, tags=["habits"])
 
     @router.get("/habits")

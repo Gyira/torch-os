@@ -51,9 +51,8 @@ test("resolveOrder keeps known keys, drops strangers and appends missing ones", 
 
 test("moveItem moves by one and clamps at the edges", async () => {
   const { NAV_ORDER_DEFAULT, moveItem } = await loadModule();
-  const moved = Array.from(moveItem(NAV_ORDER_DEFAULT, "brain", -1));
-  assert.deepEqual(moved.slice(0, 3), ["workbench", "brain", "identity"]);
-  assert.deepEqual(moved, ["workbench", "brain", "identity", "settings"]);
+  const moved = Array.from(moveItem(NAV_ORDER_DEFAULT, "knowledge", -1));
+  assert.deepEqual(moved.slice(0, 5), ["workbench", "life", "self", "knowledge", "ops"]);
   assert.deepEqual(Array.from(moveItem(NAV_ORDER_DEFAULT, "workbench", -1)), Array.from(NAV_ORDER_DEFAULT));
   assert.deepEqual(Array.from(moveItem(NAV_ORDER_DEFAULT, "settings", 1)), Array.from(NAV_ORDER_DEFAULT));
   assert.deepEqual(Array.from(moveItem(NAV_ORDER_DEFAULT, "missing", 1)), Array.from(NAV_ORDER_DEFAULT));
@@ -61,7 +60,7 @@ test("moveItem moves by one and clamps at the edges", async () => {
 
 test("storage round-trips the order and reset restores the default", async () => {
   const { NAV_ORDER_DEFAULT, clearOrder, currentNavOrder, readStoredOrder, storeOrder } = await loadModule();
-  const custom = ["settings", "brain", "workbench", "identity"];
+  const custom = ["settings", "knowledge", "workbench", "life", "self", "ops"];
   assert.equal(readStoredOrder(), null);
   storeOrder(custom);
   assert.deepEqual(Array.from(readStoredOrder()), custom);
@@ -72,18 +71,18 @@ test("storage round-trips the order and reset restores the default", async () =>
 });
 
 test("applyNavOrder anchors on the default so reset still restores it after a move", async () => {
-  const dom = fakeSidebar(["workbench", "identity", "brain", "settings"]);
+  const dom = fakeSidebar(["workbench", "life", "self", "ops", "knowledge", "settings"]);
   const { NAV_ORDER_DEFAULT, applyNavOrder, clearOrder, moveItem, storeOrder } = await loadModule({
     document: { querySelectorAll: (selector) => (selector === ".nav-item" ? dom.buttons.slice() : []) },
   });
   storeOrder(Array.from(moveItem(NAV_ORDER_DEFAULT, "workbench", 1)));
   const moved = Array.from(applyNavOrder());
-  assert.deepEqual(moved.slice(0, 2), ["identity", "workbench"]);
-  assert.deepEqual(dom.order().slice(0, 2), ["identity", "workbench"]);
+  assert.deepEqual(moved.slice(0, 2), ["life", "workbench"]);
+  assert.deepEqual(dom.order().slice(0, 2), ["life", "workbench"]);
   clearOrder();
   const restored = Array.from(applyNavOrder());
-  assert.deepEqual(restored.slice(0, 2), ["workbench", "identity"]);
-  assert.deepEqual(dom.order().slice(0, 2), ["workbench", "identity"]);
+  assert.deepEqual(restored.slice(0, 2), ["workbench", "life"]);
+  assert.deepEqual(dom.order().slice(0, 2), ["workbench", "life"]);
 });
 
 test("applyNavOrder keeps a sidebar entry that is not in the default list", async () => {
@@ -93,5 +92,6 @@ test("applyNavOrder keeps a sidebar entry that is not in the default list", asyn
   });
   const order = Array.from(applyNavOrder());
   assert.equal(order[order.length - 1], "experimental");
+  // 假 DOM 里没有四库按钮，applyNavOrder 只重排实际存在的节点；未知入口仍排最后。
   assert.deepEqual(dom.order(), ["workbench", "settings", "experimental"]);
 });

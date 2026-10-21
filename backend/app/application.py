@@ -86,6 +86,9 @@ from .profile import create_profile_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
+from .migration_api import create_migration_router
+from .ops import create_ops_router
+from .pillars import create_pillars_router
 from .vault_audit import create_vault_audit_router
 from .wolai_import import WolaiImportError, preview_wolai_archive, import_selected_notes
 from .wolai_import import preview_import_states
@@ -97,8 +100,8 @@ APP_VERSION = '0.99.0'
 # mirror frontend/nav-order.js; tests keep the two in sync.
 # 对话页已移除（用户 2026-10-05：对话统一在 dsh 里），所以这里不再有 chat。
 NAV_VIEWS = [
-    ('workbench', '工作台'), ('identity', '数字分身'),
-    ('brain', '第二大脑'), ('settings', '设置与状态'),
+    ('workbench', '工作台'), ('life', '人生路'), ('self', '自我档案'),
+    ('ops', '生活运营'), ('knowledge', '知识库'), ('settings', '设置与状态'),
 ]
 
 
@@ -274,7 +277,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         supported=(runtime_label == 'personal'),
         provider_factory=dida_provider_factory,
     )
-    scheduler_service = SchedulerService(database)
+    scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
     # 每一次本地任务/清单写操作后立即尝试回写滴答。250ms 防抖只合并同一批快速
@@ -880,7 +883,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.include_router(create_dida_sync_router(dida_service, data_lock))
     app.include_router(create_journal_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
-    app.include_router(create_habits_router(database), dependencies=[Depends(journal_data_guard)])
+    app.include_router(create_habits_router(database, vault_dir=vault_dir),
+                       dependencies=[Depends(journal_data_guard)])
     app.include_router(create_learning_router(database), dependencies=[Depends(journal_data_guard)])
     # Body records share the daily-record database boundary; one optional row per day.
     app.include_router(create_body_router(database), dependencies=[Depends(journal_data_guard)])
@@ -932,7 +936,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     suggestion_service = SuggestionService(database, vault_dir)
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_profile_router(database, vault_dir, app.state.data_lock, APP_VERSION))
-    app.include_router(create_scheduler_router(database, status_provider=lambda: dict(scheduler_state)))
+    app.include_router(create_scheduler_router(
+        database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
     # Read-only export of the user's own memories; no vault or review writes.
     app.include_router(create_memory_export_router(database))
     # Read-only self-check: counts and integrity only, no content and no audit.
@@ -943,6 +948,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.include_router(create_growth_export_router(database))
     # Read-only export of saved conversations and citations; no state changes.
     app.include_router(create_conversation_export_router(database))
+    # 四库布局迁移：预览只读，执行/回滚需要显式确认并持有 data_lock。
+    app.include_router(create_migration_router(
+        database, vault_dir, app.state.data_lock, read_only=vault_read_only))
+    # 四库只读浏览、笔记读写与快速捕获。
+    app.include_router(create_pillars_router(
+        database, vault_dir, read_only=vault_read_only))
+    # 生活运营：体重/账目月度 Markdown 表。
+    app.include_router(create_ops_router(vault_dir, read_only=vault_read_only))
     # Read-only Vault structure audit; no writes, no restricted partitions.
     app.include_router(create_vault_audit_router(vault_dir))
     # Read-only audit summary: event types and counts, no content.

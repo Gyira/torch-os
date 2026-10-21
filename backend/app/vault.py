@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from uuid import uuid4
+from . import vault_layout
 from .db import Database, utc_now
 
 MAX_NOTE_BYTES = 1_048_576
@@ -17,12 +18,13 @@ MAX_CANDIDATES_PER_DOCUMENT = 20
 MAX_CANDIDATE_CHARACTERS = 400
 MIN_CANDIDATE_CHARACTERS = 3
 MEMORY_KINDS = {'fact', 'experience', 'belief', 'goal', 'preference', 'note', 'project', 'idea', 'memo'}
-EXCLUDED_DIRECTORIES = {'.obsidian', '.git', '.trash', '00-system', '99-templates', 'templates',
-                        'relationship', 'relationships', 'relationship-vault', 'relationship vault', 'generated'}
+# 兼容旧引用；真正的判定统一走 vault_layout.index_policy。
+EXCLUDED_DIRECTORIES = vault_layout.SKIP_DIRECTORIES
 
 
 def restricted_path(relative: Path) -> bool:
-    return any(part.casefold() in EXCLUDED_DIRECTORIES or part.startswith('.') for part in relative.parts)
+    text = relative.as_posix()
+    return vault_layout.is_skipped(text) or vault_layout.is_foreign(text)
 
 
 def safe_note_path(vault_dir: Path, relative: str) -> Path:
@@ -312,19 +314,24 @@ def scan_vault(vault_dir: Path, database: Database) -> dict[str, Any]:
                        for key in ('scope', 'memory_scope', 'visibility', 'sensitivity')) or metadata.get('type') == 'constitution':
                     excluded += 1
                     continue
+                policy = vault_layout.index_policy(relative, metadata)
+                if policy == 'skip':
+                    excluded += 1
+                    continue
                 source_id = str(metadata.get('id') or '')
                 if source_id:
                     id_paths.setdefault(source_id, []).append(relative)
-                notes.append((path, relative, metadata, body, hashlib.sha256(raw).hexdigest(), source_id))
+                notes.append((path, relative, metadata, body,
+                              hashlib.sha256(raw).hexdigest(), source_id, policy))
             except (OSError, ValueError, yaml.YAMLError):
                 errors.append(f'{relative}: 读取或格式校验失败，旧索引已停止使用')
     duplicates = {key for key, paths in id_paths.items() if len(paths) > 1}
     ambiguous_paths = database.prepare_document_paths({
         relative: source_id or None
-        for _, relative, _, _, _, source_id in notes if source_id not in duplicates
+        for _, relative, _, _, _, source_id, _ in notes if source_id not in duplicates
     })
     valid_paths: set[str] = set()
-    for path, relative, metadata, body, digest, source_id in notes:
+    for path, relative, metadata, body, digest, source_id, policy in notes:
         if source_id in duplicates:
             errors.append(f'{relative}: 记忆 ID 重复，请给每篇笔记分配唯一 ID')
             continue
@@ -334,7 +341,15 @@ def scan_vault(vault_dir: Path, database: Database) -> dict[str, Any]:
         document_id, was_changed = database.upsert_document(relative, str(metadata.get('title') or path.stem), body, digest, metadata)
         valid_paths.add(relative)
         if was_changed:
-            database.replace_document_memories(document_id, _memory_from_document(metadata, body, path))
+            if policy == 'memory_eligible':
+                database.replace_document_memories(document_id, _memory_from_document(metadata, body, path))
+            else:
+                database.replace_document_memories(document_id, [], {
+                    'extraction_version': EXTRACTION_VERSION,
+                    'candidate_count': 0,
+                    'policy': 'document_only',
+                    'reason': '该目录只建索引，不生成待确认记忆；需要沉淀请在自我档案中记录。',
+                })
             changed += 1
         else:
             skipped += 1
@@ -349,9 +364,12 @@ def create_note(vault_dir: Path, database: Database, title: str, content: str, k
     if kind not in MEMORY_KINDS or not title.strip() or not content.strip():
         raise ValueError('记录标题、正文和类型不能为空或无效')
     note_id = uuid4().hex
-    path = safe_note_path(vault_dir, f'90-Inbox/{note_id}.md')
+    path = safe_note_path(vault_dir, f'{vault_layout.inbox_dir()}/{note_id}.md')
     path.parent.mkdir(parents=True, exist_ok=True)
-    metadata = {'id': note_id, 'type': kind, 'title': title.strip(), 'created_at': utc_now(),
+    timestamp = utc_now()
+    metadata = {'id': note_id, 'type': kind, 'title': title.strip(),
+                'created': timestamp, 'created_at': timestamp,
+                'pillar': 'knowledge', 'chapter': 'inbox', 'status': 'inbox',
                 'source_kind': 'user-authored', 'visibility': 'private'}
     raw = ('---\n' + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False) + '---\n\n' + content.strip() + '\n').encode('utf-8')
     if len(raw) > MAX_NOTE_BYTES:

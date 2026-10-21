@@ -14,7 +14,7 @@ from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ["workbench", "identity", "brain", "settings"]
+MODULES = ["workbench", "life", "self", "ops", "knowledge", "settings"]
 
 
 def make_app(tmp_path):
@@ -29,7 +29,7 @@ def test_nav_manifest_matches_the_frontend_modules_and_labels(tmp_path):
     client.get("/")
     views = client.get("/api/nav").json()["views"]
     ids = [view["id"] for view in views]
-    assert len(ids) == len(set(ids)) == 4
+    assert len(ids) == len(set(ids)) == 6
     assert ids == MODULES, "顺序由 NAV_VIEWS 决定"
     assert "chat" not in ids, "对话页已移除：清单里不应再有 chat"
     assert "today" not in ids and "profile" not in ids, "旧页面名不应再出现在清单里"
@@ -58,4 +58,6 @@ def test_learning_and_daily_pages_are_gone_from_the_shell(tmp_path):
     assert 'id="learning-view"' not in markup, "学习页已移除：学了什么写进日记"
     assert 'data-settings-section="help"' in markup, "帮助并进了设置"
     assert 'id="journal-view"' in markup and 'data-module="workbench"' in markup, "日记在工作台里"
-    assert 'id="me-view"' in markup and 'id="notes-view"' in markup, "数字分身与第二大脑的新分区"
+    assert 'id="me-view"' not in markup and 'id="notes-view"' not in markup, "旧模块入口已移除"
+    for view in ("life", "self", "ops", "knowledge"):
+        assert f'id="{view}-view"' in markup, f"{view} 四库页面存在"

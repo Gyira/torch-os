@@ -14,8 +14,10 @@ def test_parse_markdown_frontmatter(tmp_path: Path):
 
 def test_scan_vault_is_incremental(tmp_path: Path):
     vault = tmp_path / "vault"
-    vault.mkdir()
-    (vault / "goal.md").write_text("---\ntitle: 目标\ntype: goal\n---\n\n完成一个闭环", encoding="utf-8")
+    memory_dir = vault / "01_自我档案" / "02_记忆与自传"
+    memory_dir.mkdir(parents=True)
+    (memory_dir / "goal.md").write_text(
+        "---\ntitle: 目标\ntype: goal\n---\n\n完成一个闭环", encoding="utf-8")
     db = Database(tmp_path / "test.sqlite3")
     db.initialize()
     first = scan_vault(vault, db)
@@ -23,6 +25,18 @@ def test_scan_vault_is_incremental(tmp_path: Path):
     assert first["changed"] == 1
     assert second["changed"] == 0
     assert len(db.list_memories("candidate")) == 1
+
+
+def test_scan_vault_only_extracts_memories_from_memory_eligible_paths(tmp_path: Path):
+    vault = tmp_path / "vault"
+    note_dir = vault / "00_人生路" / "01_日记"
+    note_dir.mkdir(parents=True)
+    (note_dir / "2026-10-20.md").write_text(
+        "---\ntitle: 日记\ntype: journal\n---\n\n今天想清楚了一个重要问题。", encoding="utf-8")
+    db = Database(tmp_path / "test.sqlite3")
+    db.initialize()
+    assert scan_vault(vault, db)["changed"] == 1
+    assert db.list_memories("candidate") == []
 
 
 def test_managed_note_path_keeps_old_files_working(tmp_path: Path):

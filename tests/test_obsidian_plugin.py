@@ -32,7 +32,8 @@ def test_main_js_is_a_loadable_commonjs_plugin_without_user_paths():
         assert token in source, token
     # 打开任务文档的宿主桥：只接受任务目录或旧总文件，并校验消息来源。
     for token in ("torch:open-note", "TFile", "normalizePath", "getAbstractFileByPath", "openFile",
-                  "00-System/任务（tasks）.md", "00-System/任务/"):
+                  "00-System/任务（tasks）.md", "00-System/任务/",
+                  "00_人生路", "01_自我档案", "02_生活运营", "03_知识库"):
         assert token in source, token
     assert "event.origin" in source
     # 隐私：仓库副本里不许出现任何本机绝对路径与用户名。

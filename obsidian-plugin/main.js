@@ -428,10 +428,12 @@ module.exports = class TorchPlugin extends Plugin {
     const normalized = normalizePath(pathValue);
     const isTask = normalized.startsWith('00-System/任务/') && normalized.endsWith('.md');
     const isConfig = normalized === '00-System/任务（tasks）.md' || normalized === '00-System/任务.md';
-    if (!isTask && !isConfig) return;
+    const isPillar = /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(normalized)
+      && normalized.endsWith('.md');
+    if (!isTask && !isConfig && !isPillar) return;
     const file = this.app.vault.getAbstractFileByPath(normalized);
     if (!(file instanceof TFile)) {
-      new Notice(`任务文档不存在：${normalized}。刷新任务后重试。`);
+      new Notice(`笔记不存在：${normalized}。刷新后重试。`);
       return;
     }
     try {

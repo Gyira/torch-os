@@ -1,8 +1,8 @@
-"""今天的笔记：日记文件化（Vault 的 `02-Life/journal/YYYY-MM-DD.md`，文件为准）。
+"""今天的笔记：日记文件化（Vault 的 `00_人生路/01_日记/YYYY-MM-DD.md`，文件为准）。
 
-设计见 `docs/REDESIGN_0.97.md` B 节（用户定案：不做内置编辑器，Obsidian 就是编辑器）：
+设计见 `docs/薪火OS-重设计方案-v2.0.md`（用户定案：不做内置编辑器，Obsidian 就是编辑器）：
 
-- 目录按项目书 7.3 的 Vault 约定：日记在 `02-Life/journal/`，模板在 `00-System/templates/`；
+- 目录按四库约定：日记在 `00_人生路/01_日记/`，模板在 `00-System/templates/`；
 - 「一键生成」**只在文件不存在时落笔**：模板骨架（可用模板文件覆盖）＋当天事实汇总；
 - 文件已存在＝**文件优先**：生成只返回可追加的汇总预览，追加必须再显式点一次；
 - 只读安全模式的 Vault 一律拒绝写入；每次真正的写入只留一条不含正文的计数审计。
@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -19,14 +20,14 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from . import workbench
+from . import vault_layout, workbench
 from .activity import list_day_activity
 from .db import Database, utc_now
 from .journal import validate_day
 from .vault import managed_note_path
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-JOURNAL_DIR = Path("02-Life", "journal")
+JOURNAL_DIR = Path("00_人生路", "01_日记")
 TEMPLATE_REL = Path("00-System", "templates", "日记模板（journal-template）.md")
 TEMPLATE_LEGACY_REL = Path("00-System", "templates", "日记模板.md")
 MAX_NOTE_BYTES = 200_000
@@ -105,15 +106,22 @@ def _relative(day: str) -> Path:
 
 
 def note_abspath(vault_dir: Path | str, day: str) -> Path:
-    return Path(vault_dir) / _relative(day)
+    return managed_note_path(
+        vault_dir, vault_layout.journal_path(day),
+        vault_layout.legacy_journal_path(day),
+    )
 
 
 def read_note(vault_dir: Path | str, day: str) -> dict[str, Any]:
     """Read the day's note. Missing file is a normal state, not an error."""
     path = note_abspath(vault_dir, day)
+    try:
+        relpath = path.relative_to(Path(vault_dir).resolve()).as_posix()
+    except ValueError:
+        relpath = _relative(day).as_posix()
     meta = {
         "day": day,
-        "relpath": _relative(day).as_posix(),
+        "relpath": relpath,
         "path": str(path),
         "vault_name": Path(vault_dir).name,
     }
@@ -125,6 +133,19 @@ def read_note(vault_dir: Path | str, day: str) -> dict[str, Any]:
         raise HTTPException(500, f"无法读取今天的笔记：{exc}") from exc
     updated = datetime.fromtimestamp(path.stat().st_mtime, SHANGHAI).isoformat(timespec="seconds")
     return {**meta, "exists": True, "content": content, "updated_at": updated}
+
+
+def next_action_text(content: str) -> str:
+    """从日记正文提取「下一步」；没有就返回空串。"""
+    body = _strip_front_matter(str(content or ""))
+    match = re.search(r"(?m)^\s*(?:[-*]\s*)?下一步[:：]\s*(.+?)\s*$", body)
+    if match:
+        return match.group(1).strip()
+    section = re.search(r"(?ms)^#{1,6}\s*下一步[^\n]*\n+(.+?)(?:\n#{1,6}\s|\Z)", body)
+    if section:
+        lines = [line.strip("-* \t") for line in section.group(1).splitlines() if line.strip()]
+        return lines[0] if lines else ""
+    return ""
 
 
 def _strip_front_matter(text: str) -> str:

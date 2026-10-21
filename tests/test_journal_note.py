@@ -26,7 +26,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def note_file(tmp_path):
-    return tmp_path / "vault" / "02-Life" / "journal" / f"{TODAY}.md"
+    return tmp_path / "vault" / "00_人生路" / "01_日记" / f"{TODAY}.md"
 
 
 def seed_day(client, tmp_path):
@@ -51,7 +51,7 @@ def test_generate_creates_the_note_with_template_and_facts(tmp_path):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["created"] is True and payload["exists"] is True
-    assert payload["relpath"] == f"02-Life/journal/{TODAY}.md"
+    assert payload["relpath"] == f"00_人生路/01_日记/{TODAY}.md"
 
     content = note_file(tmp_path).read_text(encoding="utf-8")
     week = date.fromisoformat(TODAY).isocalendar()[1]
@@ -96,7 +96,7 @@ def test_read_returns_state_and_rejects_future_days(tmp_path):
     client = make_client(tmp_path)
     missing = client.get("/api/journal/note", params={"day": TODAY}).json()
     assert missing["exists"] is False and missing["content"] == ""
-    assert missing["relpath"] == f"02-Life/journal/{TODAY}.md"
+    assert missing["relpath"] == f"00_人生路/01_日记/{TODAY}.md"
 
     client.post("/api/journal/note/generate", json={"day": TODAY, "mode": "create"})
     present = client.get("/api/journal/note", params={"day": TODAY}).json()

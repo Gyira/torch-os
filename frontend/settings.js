@@ -1,5 +1,6 @@
 import { $, state, api, escapeHtml, jsonBody, renderState, formatDate, setStatus, toast, confirmAction } from "./core.js";
 import { NAV_LABELS, applyNavOrder, clearOrder, currentNavOrder, moveItem, storeOrder } from "./nav-order.js";
+import { initVaultMigration, loadVaultMigration } from "./vault-migration.js";
 
 let loadId = 0;
 let backupLoadId = 0;
@@ -139,6 +140,7 @@ function showSettingsSection(name, { focus = true } = {}) {
     button.setAttribute("aria-current", String(active));
   });
   if (focus) target.querySelector("h2, h3")?.focus?.();
+  if (currentSettingsSection === "migration") loadVaultMigration();
 }
 
 // The last user action stays visible: a background refresh redraws the list and
@@ -394,6 +396,7 @@ async function runBackup(filename = null) {
 }
 
 export function initSettings() {
+  initVaultMigration();
   $("#refresh-settings").addEventListener("click", loadSettings);
   $("#create-backup").addEventListener("click", () => runBackup());
   $("#run-diagnostics")?.addEventListener("click", runDiagnostics);

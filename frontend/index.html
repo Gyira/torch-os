@@ -12,22 +12,10 @@
         <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">待办事项</button>
         <button type="button" class="nav-subitem" data-pane="journal-view" aria-current="false">日记</button>
       </div>
-      <button class="nav-item" data-view="identity" aria-expanded="false" aria-controls="nav-sub-identity"><span aria-hidden="true">◈</span>数字分身</button>
-      <div class="nav-sublist" id="nav-sub-identity" data-sublist="identity" role="group" aria-label="数字分身分区" hidden>
-        <button type="button" class="nav-subitem" data-pane="me-view" aria-current="false">座右铭与三观</button>
-        <button type="button" class="nav-subitem" data-pane="profile-view" aria-current="false">画像</button>
-        <button type="button" class="nav-subitem" data-pane="memory-view" aria-current="false">记忆</button>
-        <button type="button" class="nav-subitem" data-pane="goals-view" aria-current="false">目标与任务</button>
-        <button type="button" class="nav-subitem" data-pane="habits-view" aria-current="false">习惯</button>
-        <button type="button" class="nav-subitem" data-pane="body-view" aria-current="false">身体</button>
-        <button type="button" class="nav-subitem" data-pane="bazi-view" aria-current="false">八字参考</button>
-      </div>
-      <button class="nav-item" data-view="brain" aria-expanded="false" aria-controls="nav-sub-brain"><span aria-hidden="true">▤</span>第二大脑</button>
-      <div class="nav-sublist" id="nav-sub-brain" data-sublist="brain" role="group" aria-label="第二大脑分区" hidden>
-        <button type="button" class="nav-subitem" data-pane="documents-view" aria-current="false">资料库</button>
-        <button type="button" class="nav-subitem" data-pane="notes-view" aria-current="false">笔记与灵感</button>
-        <button type="button" class="nav-subitem" data-pane="archive-view" aria-current="false">日记归档</button>
-      </div>
+      <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
+      <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
+      <button class="nav-item" data-view="ops"><span aria-hidden="true">生</span>生活运营</button>
+      <button class="nav-item" data-view="knowledge"><span aria-hidden="true">知</span>知识库</button>
       <button class="nav-item" data-view="settings" aria-expanded="false"><span aria-hidden="true">⚙</span>设置与状态</button>
     </nav>
     <div class="sidebar-footer"><span id="service-dot" class="status-dot" aria-hidden="true"></span><span class="sidebar-service"><span id="service-label">正在检查本地服务…</span><span id="service-version">版本读取中…</span></span></div>
@@ -121,44 +109,9 @@
       </header>
       </section>
     </section>
-    <section id="profile-view" class="pane" data-module="identity" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">KNOW ME</span><h2>它现在认识我多少</h2><p class="section-description">这里汇总已确认且来源有效的记忆、推进中的目标与最近的节奏；候选和已拒绝内容不会进入回答。</p></div><div class="section-actions"><span id="profile-status" class="status-message" role="status"></span><button id="profile-refresh" class="text-button">重新读取</button></div></div>
-      <div id="profile-body" class="profile-body"><div class="empty-state">正在读取本地数据…</div></div>
-    </section>
-    <section id="me-view" class="pane" data-module="identity" data-pane-label="座右铭与三观" hidden>
-      <div class="section-head"><div><span class="eyebrow">IDENTITY</span><h2>我是谁</h2><p class="section-description">姓名用在工作台的问候语；座右铭显示在工作台顶部；三观是你看世界、看人生、看重什么。全部写在本机 Vault 的 <code>01-Identity/身份（identity）.md</code>，你也可以在 Obsidian 或对话里直接改这个文件。</p></div><div class="section-actions"><span id="identity-status" class="status-message" role="status"></span><button id="identity-reload" class="text-button" type="button">重新读取</button></div></div>
-      <form id="identity-form" class="panel form-panel">
-        <fieldset id="identity-fields" class="journal-fields" disabled>
-          <legend class="visually-hidden">个人档案</legend>
-          <div class="form-grid"><div class="field"><label for="identity-name">姓名</label><input id="identity-name" maxlength="60" placeholder="怎么称呼你" /></div><div class="field"><label for="identity-motto">座右铭</label><input id="identity-motto" maxlength="200" placeholder="一句提醒自己的话" /></div></div>
-          <div class="field"><label for="identity-worldview">世界观</label><textarea id="identity-worldview" rows="3" maxlength="4000" placeholder="世界是怎么运转的？"></textarea></div>
-          <div class="field"><label for="identity-lifeview">人生观</label><textarea id="identity-lifeview" rows="3" maxlength="4000" placeholder="要怎么活？"></textarea></div>
-          <div class="field"><label for="identity-values">价值观</label><textarea id="identity-values" rows="3" maxlength="4000" placeholder="什么最重要？"></textarea></div>
-          <div class="field"><label for="identity-notes">自由补充</label><textarea id="identity-notes" rows="4" maxlength="4000" placeholder="任何想让它记住的自我介绍。"></textarea></div>
-        </fieldset>
-        <div class="form-actions"><span id="identity-feedback" class="status-message" role="status" aria-live="polite"></span><button id="identity-save" class="button primary" type="submit" disabled>保存档案</button></div>
-      </form>
-      <p class="field-help">保存会原子写回同一个 Markdown 文件；如果文件在别处被改过，这里会先提示你重新读取。</p>
-    </section>
-    <section id="bazi-view" class="pane" data-module="identity" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">TRADITIONAL REFERENCE</span><h2>八字参考（传统文化）</h2><p class="section-description">用你自己的出生资料在本机排出四柱，作为自我反思的一种角度。它是参考体系，不是结论，也不会替你决定任何事。</p></div><div class="section-actions"><span id="bazi-status" class="status-message" role="status"></span><button id="bazi-refresh" class="text-button" data-bazi-refresh>重新读取</button></div></div>
-      <p id="bazi-support" class="meta" role="status" hidden></p>
-      <div class="bazi-layout">
-        <form id="bazi-form" class="panel form-panel" novalidate data-disabled="false">
-          <h3>出生资料</h3>
-          <p id="bazi-updated" class="meta">还没有保存出生资料。</p>
-          <div class="field-grid">
-            <div class="field"><label for="bazi-birth-date">出生日期（公历）</label><input id="bazi-birth-date" type="date" min="1900-01-01" required /><p class="field-help">公历日期；年柱以立春为界。</p></div>
-            <div class="field"><label for="bazi-birth-time">出生时间</label><input id="bazi-birth-time" type="time" required /><p class="field-help">不知道确切时间时，可先填 12:00，但时柱会随之变化。</p></div>
-            <div class="field"><label for="bazi-longitude">出生地经度（可选）</label><input id="bazi-longitude" type="number" step="0.1" min="-180" max="180" placeholder="例如 116.4（北京）" /><p class="field-help">只有勾选真太阳时才需要；不知道就留空。</p></div>
-            <div class="field"><label class="check-label" for="bazi-true-solar"><input id="bazi-true-solar" type="checkbox" />按真太阳时排盘（需要经度）</label><p class="field-help">真太阳时 = 北京时间 + 经度时差 + 均时差（NOAA 近似）。</p></div>
-          </div>
-          <div class="form-actions"><button id="bazi-save" class="button primary" type="submit">保存并排盘</button><button id="bazi-clear" class="button secondary" type="button" data-has-profile="false">清除出生资料</button></div>
-          <p class="field-help">出生资料只保存在本机数据库，不发送给模型或网络服务；你手动创建的数据库备份会包含它。“清除出生资料”会立即删除。</p>
-        </form>
-        <div id="bazi-chart" class="panel bazi-chart"><div class="empty-state">正在读取…</div></div>
-      </div>
-    </section>
+
+
+
     <section id="journal-view" class="pane workbench-journal" data-module="workbench" data-pane-label="日记" aria-labelledby="page-title" hidden>
       <section class="panel journal-activity-panel" aria-labelledby="journal-activity-heading">
         <div class="section-head"><div><span class="eyebrow">ACTIVITY</span><h2 id="journal-activity-heading">今天你动过哪些文件</h2><p class="section-description">按保险库文件的真实修改时间记录——这就是日记「自动汇总」的原料，不用手填。</p></div><div class="section-actions"><button id="journal-activity-refresh" class="text-button" type="button">刷新</button></div></div>
@@ -171,91 +124,30 @@
         <div id="journal-note-body"><div class="empty-state">正在读取日记…</div></div>
       </section>
     </section>
-    <section id="documents-view" class="pane" data-module="brain" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">CAPTURE</span><h2>留下一条记录</h2><p class="section-description">保存为本地 Markdown 原文，生成候选记忆，等待你确认。</p></div></div>
-      <form id="note-form" class="panel form-panel"><div class="form-grid"><div class="field"><label for="note-title">标题</label><input id="note-title" name="title" required maxlength="200" placeholder="给今天的一段经历起个名字" /></div><div class="field"><label for="note-type">记录类型</label><select id="note-type" name="type"><option value="note">普通记录</option><option value="fact">事实</option><option value="experience">经历</option><option value="belief">信念</option><option value="goal">目标</option><option value="preference">偏好</option></select></div></div><div class="field"><label for="note-content">正文</label><textarea id="note-content" name="content" rows="5" required maxlength="50000" placeholder="可以写事实、感受、想法，以及你还不确定的部分。" aria-describedby="note-feedback"></textarea></div><div class="form-actions"><span id="note-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">保存到本地</button></div></form>
-      <div class="section-head"><div><span class="eyebrow">WOLAI IMPORT</span><h2>Wolai 导入预览</h2><p class="section-description">从已落盘的导出包中查看清单，再明确选择 1–20 篇 Markdown 记录。</p></div><button id="refresh-imports" class="text-button">刷新导出包</button></div>
-      <div class="panel form-panel"><div class="import-source-row"><div class="field"><label for="import-package">本地导出包</label><select id="import-package"><option value="">请选择已落盘的导出包</option></select></div><button id="preview-import" class="button secondary" disabled>生成预览清单</button></div><p id="import-status" class="status-message import-status" role="status"></p><p class="field-help">目录分类不等于隐私审查。导入只是生成候选记忆，未确认不参与问答；附件保留在原 ZIP，未导入。</p><div id="import-warnings"></div>
-        <div id="import-preview" hidden><p id="import-summary" class="meta"></p><div class="import-filter-row"><div class="field"><label for="import-search">搜索 Markdown 路径</label><input id="import-search" type="search" placeholder="输入文件名或目录关键词缩小范围" /></div><label class="check-label" for="import-selected-only"><input id="import-selected-only" type="checkbox" />只看已选</label></div><p id="import-list-status" class="meta" role="status"></p><div id="import-file-list" class="import-file-list"></div><div class="form-actions import-actions"><span id="import-selection-count" class="meta" role="status">已选择 0 / 20 篇</span><div class="section-actions"><button id="clear-import-selection" class="text-button" disabled>清空选择</button><button id="check-import-states" class="button secondary" disabled>检查重复与变化</button><button id="audit-import-links" class="button secondary" aria-describedby="import-link-audit-help" disabled>核对所选链接</button><button id="check-import-history" class="button secondary" aria-describedby="import-history-help" disabled>查看导入历史</button><button id="preview-history-cleanup" class="button secondary" aria-describedby="import-cleanup-help" disabled>清理预览</button><button id="plan-import-attachments" class="button secondary" aria-describedby="import-attachment-plan-help" disabled>预览附件本地化</button><button id="apply-import" class="button primary" disabled>导入所选记录</button></div></div><section class="import-link-audit" aria-labelledby="import-link-audit-heading"><h3 id="import-link-audit-heading">所选链接核对</h3><p id="import-link-audit-help" class="field-help">仅检查链接清单存在性，未验证附件正文或可用性；不重写原文。不访问外部链接，不导入资料。</p><p id="import-link-audit-status" class="status-message" role="status" aria-live="polite"></p><div id="import-link-audit-result"></div></section><section class="import-link-audit" aria-labelledby="import-attachment-plan-heading"><h3 id="import-attachment-plan-heading">附件本地化预览</h3><p id="import-attachment-plan-help" class="field-help">只读预览：不复制附件、不改写原文、不改原 ZIP。执行时会把附件复制到 Vault 的 80-Wolai/attachments/，并把笔记里的链接改为本地相对路径。</p><p id="import-attachment-plan-status" class="status-message" role="status" aria-live="polite"></p><div class="growth-actions"><button id="apply-attachment-plan" class="button secondary" aria-describedby="import-attachment-plan-help" disabled>执行附件本地化</button></div><div id="import-attachment-plan-result"></div></section></div><section class="import-history" aria-labelledby="import-history-heading"><h3 id="import-history-heading">导入历史</h3><p id="import-history-help" class="field-help">只列出 .wolai-import-history/ 里的版本时间、大小与哈希，不展示历史正文；恢复前会先把当前文件也存进历史，不会丢内容。</p><p id="import-history-status" class="status-message" role="status" aria-live="polite"></p><div id="import-history-result"></div></section><section class="import-cleanup" aria-labelledby="import-cleanup-heading"><h3 id="import-cleanup-heading">历史清理预览</h3><p id="import-cleanup-help" class="field-help">只统计 .wolai-import-history/ 里哪些旧副本超出保留窗口（每篇最近 3 个版本与 30 天内的一律保留）；不会删除任何文件，是否清理等你决定。</p><p id="import-cleanup-status" class="status-message" role="status" aria-live="polite"></p><div id="import-cleanup-result"></div></section><section class="import-states" aria-labelledby="import-states-heading"><h3 id="import-states-heading">重复与变化检查</h3><p class="field-help">只读检查所选记录与当前 Vault 的关系：未变化=内容一致；已更新=重新导出过，导入会先把旧版本存入历史再替换；已被你编辑=导入不会覆盖。不会写入任何文件。</p><p id="import-states-status" class="status-message" role="status"></p><div id="import-states-result"></div></section><div id="import-result" role="status"></div>
-      </div>
-      <div class="section-head"><div><span class="eyebrow">SHARE LINK</span><h2>DeepSeek 分享链接导入</h2><p class="section-description">粘贴一条公开分享链接，先预览“哪些话会被提炼”，确认后才写入候选记忆。</p></div><span id="share-support" class="meta" role="status" hidden></span></div>
-      <div class="panel form-panel">
-        <div class="import-source-row">
-          <div class="field"><label for="share-url">分享链接</label><input id="share-url" type="url" placeholder="https://chat.deepseek.com/share/…" autocomplete="off" /></div>
-          <button id="share-preview" class="button secondary" type="button" disabled>预览可提炼内容</button>
-          <button id="share-apply" class="button primary" type="button" disabled>导入为候选记忆</button>
-        </div>
-        <p id="share-status" class="status-message" role="status"></p>
-        <p class="field-help">只读取 chat.deepseek.com 的公开分享（不接受其他域名与端口、不跟随跳转、有超时与大小上限，且一条链接只抓取一次）。只提炼分享里你说的话——助手的回答、思考与工具调用不会进入候选；写入后是一篇普通 Markdown 笔记，句子仍需你在“记忆”页逐条确认。</p>
-        <div id="share-result" hidden></div>
-      </div>
-      <div class="section-head"><div><span class="eyebrow">SOURCE LIBRARY</span><h2>本地资料</h2><p class="section-description">查看已索引资料与原文。扫描只更新索引，不修改原文件。</p></div><div class="section-actions"><span id="document-status" class="status-message" role="status"></span><button id="refresh-documents" class="text-button">刷新</button></div></div><div class="field search-field"><label class="visually-hidden" for="document-search">筛选资料</label><input id="document-search" type="search" placeholder="按标题或路径筛选资料" /></div><div id="document-list" class="panel"></div>
-      <div class="section-head"><div><span class="eyebrow">VAULT AUDIT</span><h2>资料体检</h2><p class="section-description">只读检查 front-matter、重复 id、空正文与编码；不修改或修复任何文件，也不读取关系分区。</p></div><button id="run-vault-audit" class="text-button" disabled>运行体检</button></div><div id="vault-audit-panel" class="panel"></div>
+    <section id="life-view" class="view pillar-view" data-module="life" hidden>
+      <div class="pillar-shell" data-pillar="life"><div class="pillar-empty">正在读取人生路…</div></div>
     </section>
-    <section id="memory-view" class="pane" data-module="identity" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">MEMORY CORE</span><h2>记忆审核</h2><p class="section-description">只有已确认记忆参与问答。编辑已确认内容后，请重新审核。</p></div><div class="section-actions"><span id="memory-status" class="status-message" role="status"></span><button id="tidy-candidates" class="text-button" data-memory-tidy disabled>整理候选</button><button id="export-memories-md" class="text-button" disabled>导出 Markdown</button><button id="export-memories-json" class="text-button" disabled>导出 JSON</button><button id="refresh-memory" class="text-button">刷新</button></div></div><div class="memory-filter" role="group" aria-label="筛选记忆状态"><button class="filter-button active" data-memory-filter="candidate" aria-pressed="true">待确认</button><button class="filter-button" data-memory-filter="active" aria-pressed="false">已确认</button><button class="filter-button" data-memory-filter="rejected" aria-pressed="false">已拒绝</button><button class="filter-button" data-memory-filter="archived" aria-pressed="false">已归档</button><button class="filter-button" data-memory-filter="all" aria-pressed="false">全部</button></div><div class="field search-field"><label class="visually-hidden" for="memory-search">筛选记忆</label><input id="memory-search" type="search" placeholder="按标题、内容或来源筛选（多个词用空格分隔）" /></div><div class="memory-filter-row"><div class="field compact-field"><label for="memory-source-filter">来源文档</label><select id="memory-source-filter"><option value="">全部来源</option></select></div><div class="field compact-field"><label for="memory-month-filter">原始记录月份</label><select id="memory-month-filter"><option value="">全部月份</option><option value="unknown">未标注日期</option></select></div></div><div id="memory-batch-bar" class="memory-batch-bar" hidden><span id="memory-batch-count" class="meta" role="status">已选 0 条</span><button id="memory-batch-confirm" class="small-button confirm" data-memory-batch="active" disabled>批量确认</button><button id="memory-batch-reject" class="small-button reject" data-memory-batch="rejected" disabled>批量拒绝</button><button id="memory-batch-clear" class="text-button" data-memory-batch-clear disabled>清空选择</button></div><div id="memory-list" class="panel"></div>
+    <section id="self-view" class="view pillar-view" data-module="self" hidden>
+      <div class="pillar-shell" data-pillar="self"><div class="pillar-empty">正在读取自我档案…</div></div>
     </section>
-    <section id="goals-view" class="pane" data-module="identity" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">SMALL STEPS</span><h2>把方向落到行动</h2><p class="section-description">目标描述你想去哪里，任务描述接下来可以做什么。</p></div><div class="section-actions"><button id="export-planning-md" class="text-button" disabled>导出 Markdown</button><button id="export-planning-json" class="text-button" disabled>导出 JSON</button><button id="refresh-goals" class="text-button">刷新</button></div></div>
-      <div class="two-column"><div><h3>新增目标</h3><form id="goal-form" class="panel form-panel"><div class="field"><label for="goal-title">目标名称</label><input id="goal-title" name="title" required maxlength="200" placeholder="例如：建立稳定的学习节奏" /></div><div class="field"><label for="goal-description">目标说明</label><textarea id="goal-description" name="description" rows="2" maxlength="10000" placeholder="它为什么重要？怎样算完成？"></textarea></div><div class="form-grid"><div class="field"><label for="goal-category">领域</label><select id="goal-category" name="category"><option value="生活">生活</option><option value="健康">健康</option><option value="学习">学习</option><option value="开发">开发</option><option value="创作">创作</option><option value="其他">其他</option></select></div><div class="field"><label for="goal-date">目标日期（可选）</label><input id="goal-date" name="target_date" type="date" /></div></div><div class="form-actions"><span id="goal-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">创建目标</button></div></form></div>
-      <div><h3>新增任务</h3><form id="task-form" class="panel form-panel"><div class="field"><label for="task-title">下一步行动</label><input id="task-title" name="title" required maxlength="200" placeholder="例如：专注阅读 20 分钟" /></div><div class="field"><label for="task-goal">关联目标</label><select id="task-goal" name="goal_id"><option value="">独立任务</option></select></div><div class="form-grid"><div class="field"><label for="task-priority">优先级</label><select id="task-priority" name="priority"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="urgent">紧急</option></select></div><div class="field"><label for="task-date">截止日期（可选）</label><input id="task-date" name="due_date" type="date" /></div></div><div class="form-actions"><span id="task-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">创建任务</button></div></form></div></div>
-      <div class="section-head"><h2>我的目标</h2><span id="goals-status" class="status-message" role="status"></span></div><div id="goal-list" class="goal-grid"></div><div class="section-head"><h2>任务清单</h2><div class="section-actions"><div class="field compact-field"><label class="visually-hidden" for="task-sort">任务排序方式</label><select id="task-sort"><option value="default">默认（状态与截止）</option><option value="priority">优先级</option><option value="due">截止日期</option><option value="updated">最近更新</option><option value="manual">手动排序</option></select></div><div class="field compact-field"><label class="visually-hidden" for="task-filter">任务状态筛选</label><select id="task-filter"><option value="open">待办与进行中</option><option value="due_today">今天到期</option><option value="overdue">已逾期</option><option value="completed">已完成</option><option value="all">全部任务</option></select></div></div></div><p id="task-sort-help" class="field-help">排序方式只保存在本机浏览器；“默认”按服务端的状态与截止日期顺序。</p><div id="task-list" class="panel"></div>
+    <section id="ops-view" class="view pillar-view" data-module="ops" hidden>
+      <div class="pillar-shell" data-pillar="ops"><div class="pillar-empty">正在读取生活运营…</div></div>
     </section>
-    <section id="habits-view" class="pane" data-module="identity" aria-labelledby="page-title" hidden>
-      <div class="section-head"><div><span class="eyebrow">SMALL STEPS</span><h2>让重要的事，小到可以开始</h2><p class="section-description">用触发提示连接一个最低行动。完成、休息与未记录分别保留，记录只保存在本地。</p></div></div>
-      <p id="habit-support" class="inline-warning" role="status">正在检查服务能力…</p>
-      <form id="habit-form" class="panel form-panel" aria-describedby="habit-create-feedback">
-        <fieldset id="habit-fields" class="growth-fields" disabled><legend>建立一个习惯</legend>
-          <div class="form-grid"><div class="field"><label for="habit-title">习惯名称</label><input id="habit-title" required maxlength="120" placeholder="例如：睡前阅读" /></div><div class="field"><label for="habit-cue">触发提示（可选）</label><input id="habit-cue" maxlength="500" placeholder="例如：洗漱后，把书放在枕边" /></div></div>
-          <div class="form-grid"><div class="field"><label for="habit-minimum">最低行动</label><input id="habit-minimum" required maxlength="500" placeholder="例如：读一页就算完成" /></div><div class="field"><label for="habit-start">开始日期（北京时间）</label><input id="habit-start" required type="date" /></div></div>
-          <fieldset class="habit-weekdays"><legend>每周计划日（至少一天）</legend><label class="check-label"><input type="checkbox" name="habit-weekday" value="0" checked />周一</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="1" checked />周二</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="2" checked />周三</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="3" checked />周四</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="4" checked />周五</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="5" checked />周六</label><label class="check-label"><input type="checkbox" name="habit-weekday" value="6" checked />周日</label></fieldset>
-        </fieldset><p class="field-help">开始日期和计划日建立后固定，用来保留历史统计口径。需要新安排时，可以归档旧习惯后建立新的习惯。</p>
-        <div class="form-actions"><span id="habit-create-feedback" class="status-message" role="status"></span><button id="habit-create" type="submit" class="button primary" disabled>创建习惯</button></div>
-      </form>
-      <div class="section-head"><h2>当天记录与近七天</h2><button id="habit-refresh" class="text-button" disabled>重新读取</button></div>
-      <div class="growth-toolbar"><div class="field compact-field"><label for="habit-date">查看日期（北京时间）</label><input id="habit-date" type="date" required /></div><div class="field compact-field"><label for="habit-filter">习惯状态</label><select id="habit-filter"><option value="active">进行中</option><option value="archived">已归档</option></select></div></div>
-      <p id="habits-status" class="status-message growth-feedback" role="status"></p><p class="field-help">完成率 = 已完成 ÷（计划日 − 主动休息）。无可统计计划日时显示 —；未记录不代表失败。备注随打卡一起保存，历史日期可补写或纠正。</p><div id="habit-list" class="growth-card-list"></div>
+    <section id="knowledge-view" class="view pillar-view" data-module="knowledge" hidden>
+      <div class="pillar-shell" data-pillar="knowledge"><div class="pillar-empty">正在读取知识库…</div></div>
     </section>
-    <section id="body-view" class="pane" data-module="identity" data-pane-label="身体" hidden>
-      <div class="section-head"><div><h2>身体记录（可选）</h2><p class="section-description">体重、睡眠和运动只保存在本地数据库，用于本地晚报草稿；不会自动成为记忆，也不会发送到云端。</p></div></div>
-      <form id="body-form" class="panel form-panel" aria-describedby="body-help body-feedback">
-        <p id="body-state" class="meta" role="status" aria-live="polite">正在读取身体记录…</p>
-        <fieldset id="body-fields" class="journal-fields" disabled>
-          <legend class="visually-hidden">身体记录内容</legend>
-          <div class="form-grid">
-            <div class="field"><label for="body-weight">体重（kg，可选）</label><input id="body-weight" name="weight_kg" type="number" inputmode="decimal" min="20" max="300" step="0.1" placeholder="例如 68.5" /></div>
-            <div class="field"><label for="body-sleep">睡眠时长（分钟，可选）</label><input id="body-sleep" name="sleep_minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" placeholder="例如 450" /></div>
-            <div class="field"><label for="body-exercise">运动时长（分钟，可选）</label><input id="body-exercise" name="exercise_minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" placeholder="例如 30" /></div>
-          </div>
-        </fieldset>
-        <p id="body-help" class="field-help">可以只填其中一项；某天不记录某项时留空保存。每天只保留一组数据，再次保存会更新为最新值。</p>
-        <div class="form-actions journal-save-row"><span id="body-feedback" class="status-message" role="status" aria-live="polite"></span><button id="body-clear" class="text-button" type="button" disabled>清除这一天</button><button id="body-save" class="button primary" type="submit" disabled>保存身体记录</button></div>
-      </form>
-    </section>
+
+
+
+
+
     <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
       <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><span id="help-status" class="status-message" role="status"></span></div></div>
       <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
       <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
     </section>
-    <section id="notes-view" class="pane" data-module="brain" data-pane-label="笔记与灵感" hidden>
-      <div class="section-head"><div><span class="eyebrow">NOTES</span><h2>笔记、灵感与备忘录</h2><p class="section-description">快速记一条，直接写进 Vault 的 <code>90-Inbox</code>；它是一篇普通 Markdown，Obsidian 里立刻能看到，dsh 也能读。</p></div><div class="section-actions"><span id="note-quick-status" class="status-message" role="status"></span></div></div>
-      <form id="note-quick-form" class="panel form-panel">
-        <div class="form-grid"><div class="field"><label for="note-quick-kind">类型</label><select id="note-quick-kind"><option value="note">笔记</option><option value="idea">灵感</option><option value="memo">备忘录</option></select></div><div class="field"><label for="note-quick-title">标题</label><input id="note-quick-title" maxlength="120" placeholder="一句话说明这条是什么" /></div></div>
-        <div class="field"><label for="note-quick-content">内容</label><textarea id="note-quick-content" rows="5" maxlength="12000" placeholder="想到什么就写什么，之后可以在 Obsidian 里继续整理。"></textarea></div>
-        <div class="form-actions"><button id="note-quick-save" class="button primary" type="submit">保存到 Vault</button></div>
-      </form>
-      <div class="section-head"><div><h2>最近写下的</h2><p class="section-description">按时间倒序列出 Vault 里的笔记，点标题在右侧面板打开。</p></div><button id="note-quick-refresh" class="text-button" type="button">刷新</button></div>
-      <div id="note-quick-list" class="panel"><div class="empty-state">正在读取笔记…</div></div>
-    </section>
-    <section id="archive-view" class="pane" data-module="brain" data-pane-label="日记归档" hidden>
-      <div class="section-head"><div><h2>近期身体记录</h2><p class="section-description">最近 30 天里已保存的日期，只作事实回看，不推断健康结论。</p></div><div class="section-actions"><div class="field compact-field"><label class="visually-hidden" for="body-summary-period">汇总周期</label><select id="body-summary-period" disabled><option value="week">本周</option><option value="month" selected>本月</option></select></div><button id="body-summary-md" class="text-button" disabled>导出汇总 MD</button><button id="body-summary-json" class="text-button" disabled>导出汇总 JSON</button><button id="body-export-csv" class="text-button" disabled>导出 CSV</button><button id="body-export-json" class="text-button" disabled>导出 JSON</button><button id="body-history-refresh" class="text-button">刷新列表</button></div></div><div id="body-history" class="panel" aria-live="polite"></div>
-      <section id="journal-calendar" class="panel journal-calendar" aria-labelledby="journal-calendar-heading">
-        <div class="growth-card-head"><div><h3 id="journal-calendar-heading">月历浏览</h3><p class="meta">只显示已保存的日期；点一天可在上方打开那天的记录。未来日期不能记录。</p></div><div class="growth-actions"><button id="journal-calendar-prev" class="small-button" type="button">上一月</button><button id="journal-calendar-current" class="small-button" type="button">回到本月</button><button id="journal-calendar-next" class="small-button" type="button">下一月</button><button id="journal-calendar-refresh" class="small-button" type="button">刷新月历</button></div></div>
-        <p id="journal-calendar-label" class="meta" role="status" aria-live="polite">正在读取月历…</p>
-        <div id="journal-calendar-grid"></div>
-        <p id="journal-calendar-status" class="status-message" role="status" aria-live="polite"></p>
-      </section>
-    </section>
+
+
     <section id="settings-view" class="view" data-module="settings" aria-labelledby="page-title" hidden>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="设置分区">
@@ -265,7 +157,7 @@
           <button class="settings-nav-item" type="button" data-settings-nav="dida" aria-current="false">滴答同步</button>
           <button class="settings-nav-item" type="button" data-settings-nav="backup" aria-current="false">备份与恢复</button>
           <button class="settings-nav-item" type="button" data-settings-nav="data" aria-current="false">数据与导出</button>
-          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="migration" aria-current="false">库结构与迁移</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
           <button class="settings-nav-item" type="button" data-settings-nav="help" aria-current="false">帮助</button><button class="settings-nav-item" type="button" data-settings-nav="about" aria-current="false">关于</button>
         </nav>
         <div class="settings-content">
@@ -398,6 +290,15 @@
               <p id="workspace-status" class="status-message" role="status"></p>
               <p id="workspace-support" class="meta" role="status" hidden></p>
               <p class="field-help">切换工作区不会删除任何数据：当前文件夹里的 Markdown、索引与备份都原样留在原处，换回来即可。删除条目只从列表移除，不动磁盘文件。</p>
+            </article>
+          </section>
+          <section class="settings-section" data-settings-section="migration" aria-labelledby="settings-migration-heading" hidden>
+            <article class="settings-card">
+              <div class="settings-card-head"><div><span class="eyebrow">VAULT LAYOUT</span><h2 id="settings-migration-heading" tabindex="-1">库结构与迁移</h2><p>把旧目录迁移到四库（人生路 / 自我档案 / 生活运营 / 知识库）。先预览，再备份并执行；每一步都写迁移日志，可回滚。</p></div><div class="section-actions"><button id="migration-preview" class="button secondary" type="button">生成迁移预览</button><button id="migration-refresh" class="text-button" type="button">刷新状态</button></div></div>
+              <p id="migration-status" class="status-message" role="status"></p>
+              <div id="migration-layout"></div>
+              <div id="migration-preview-panel" hidden></div>
+              <div id="migration-runs"></div>
             </article>
           </section>
           <section class="settings-section" data-settings-section="audit" aria-labelledby="settings-audit-heading" hidden>

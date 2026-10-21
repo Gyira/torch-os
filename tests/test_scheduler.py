@@ -182,8 +182,13 @@ def test_report_bodies_summarize_local_facts_without_writing_them(tmp_path):
     yesterday = (today - timedelta(days=1)).isoformat()
     goal = client.post("/api/goals", json={"title": "虚构目标"}).json()
     task = client.post("/api/tasks", json={"title": "虚构任务", "goal_id": goal["id"], "due_date": day}).json()
-    client.put(f"/api/journal/{yesterday}", json={"revision": 0, "content": "昨日虚构记录"})
-    client.put(f"/api/journal/{day}", json={"revision": 0, "content": "今日虚构记录", "next_action": "虚构下一步"})
+    journal_dir = tmp_path / "vault" / "00_人生路" / "01_日记"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    (journal_dir / f"{yesterday}.md").write_text(
+        f"---\ntype: journal\ndate: {yesterday}\n---\n\n昨日虚构记录\n", encoding="utf-8")
+    (journal_dir / f"{day}.md").write_text(
+        f"---\ntype: journal\ndate: {day}\n---\n\n今日虚构记录\n\n下一步：虚构下一步\n",
+        encoding="utf-8")
     client.put(f"/api/body/entries/{day}", json={"revision": 0, "weight_kg": 68.5, "sleep_minutes": 450, "exercise_minutes": 30})
     habit = client.post("/api/habits", json={"title": "虚构习惯", "minimum_action": "一页", "start_date": day}).json()
     client.put(f"/api/habits/{habit['id']}/entries/{day}", json={"revision": 0, "status": "done"})

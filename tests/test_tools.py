@@ -126,15 +126,15 @@ def test_today_reports_structure_and_marks_missing_days(tmp_path, monkeypatch):
     assert payload['inbox_drafts'] == 0
     assert '未记录' in payload['note'] or '不代表' in payload['note']
 
-    saved = client.put('/api/journal/2026-10-04', json={
-        'revision': 0, 'content': '今天在整理项目结构。', 'highlights': '想清楚了一件事',
-        'obstacles': '', 'next_action': '写数据手册', 'mood': '平稳', 'diet_summary': '',
-    })
-    assert saved.status_code == 200, saved.text
+    journal_dir = tmp_path / 'vault' / '00_人生路' / '01_日记'
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    (journal_dir / '2026-10-04.md').write_text(
+        '---\ntype: journal\ndate: 2026-10-04\n---\n\n'
+        '今天在整理项目结构。\n\n下一步：写数据手册\n', encoding='utf-8')
     again = client.get('/api/tools/today').json()
     assert again['journal']['recorded'] is True
     assert again['journal']['next_action'] == '写数据手册'
-    assert again['journal']['content'] == '今天在整理项目结构。'
+    assert '今天在整理项目结构。' in again['journal']['content']
 
 
 def test_memories_tool_only_returns_confirmed_and_valid_items(tmp_path, monkeypatch):
@@ -189,9 +189,11 @@ def test_goal_habit_and_learning_tools_report_counts(tmp_path, monkeypatch):
 
 def test_journal_and_vault_tools_never_leak_note_text(tmp_path, monkeypatch):
     _, database, client = build(tmp_path, monkeypatch)
-    client.put('/api/journal/2026-10-04', json={
-        'revision': 0, 'content': '机密正文不应出现在工具输出里', 'next_action': '明天继续',
-    })
+    journal_dir = tmp_path / 'vault' / '00_人生路' / '01_日记'
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    (journal_dir / '2026-10-04.md').write_text(
+        '---\ntype: journal\ndate: 2026-10-04\n---\n\n'
+        '机密正文不应出现在工具输出里\n\n下一步：明天继续\n', encoding='utf-8')
     journal = client.get('/api/tools/journal?from=2026-09-30&to=2026-10-04').json()
     assert journal['days'][0]['date'] == '2026-10-04'
     assert journal['days'][0]['has_next_step'] is True

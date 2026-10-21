@@ -282,7 +282,7 @@ export function initHabits() {
     if (button) return applyHabit(button);
     if (event.target.closest('[data-retry="habits"]')) return loadHabits();
   });
-  document.addEventListener("config-changed", () => { syncControls(); if (state.view === "identity") loadHabits(); });
+  document.addEventListener("config-changed", () => { syncControls(); if (state.view === "self") loadHabits(); });
   window.addEventListener("beforeunload", (event) => {
     if (busy || hasDrafts()) { event.preventDefault(); event.returnValue = ""; }
   });

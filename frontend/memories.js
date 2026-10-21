@@ -332,7 +332,7 @@ export function initMemories() {
   renderExportControls();
   document.addEventListener("config-changed", () => {
     renderExportControls();
-    if (state.view === "identity") loadMemories();
+    if (state.view === "self") loadMemories();
   });
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-memory-tidy]")) return tidyCandidates();

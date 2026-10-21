@@ -4,7 +4,6 @@
 import { $, api, setStatus } from "./core.js";
 import { shanghaiDay, validJournalDay } from "./journal-model.js";
 import { buildJournalCalendar, journalCalendarHtml, monthBounds, monthKey, shiftMonth } from "./journal-calendar.js";
-import { initBodyRecords } from "./body-records.js";
 
 let calendarId = 0;
 let calendarMonth = null;
@@ -47,8 +46,8 @@ export async function loadJournalCalendar(month) {
 }
 
 export function initJournal() {
-  initBodyRecords();
   const picker = $("#journal-date");
+  if (!picker) return;
   picker.value = shanghaiDay();
   picker.max = shanghaiDay();
   picker.addEventListener("change", () => {
@@ -59,25 +58,18 @@ export function initJournal() {
     }
     openJournalDay(picker.value);
   });
-  $("#journal-today").addEventListener("click", () => openJournalDay(shanghaiDay()));
-  $("#journal-reload").addEventListener("click", () => openJournalDay(picker.value));
+  $("#journal-today")?.addEventListener("click", () => openJournalDay(shanghaiDay()));
+  $("#journal-reload")?.addEventListener("click", () => openJournalDay(picker.value));
 
-  // 归档页的月历（brain → 日记归档 在用）。
-  $("#journal-calendar-prev").addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), -1)));
-  $("#journal-calendar-next").addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), 1)));
-  $("#journal-calendar-current").addEventListener("click", () => loadJournalCalendar(monthKey(shanghaiDay())));
-  $("#journal-calendar-refresh").addEventListener("click", () => loadJournalCalendar(calendarMonth || monthKey(shanghaiDay())));
-  $("#journal-calendar-grid").addEventListener("click", (event) => {
+  // 旧「日记归档」页已随第二大脑下线；保留月历函数给未来的四库复盘页复用。
+  $("#journal-calendar-prev")?.addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), -1)));
+  $("#journal-calendar-next")?.addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), 1)));
+  $("#journal-calendar-current")?.addEventListener("click", () => loadJournalCalendar(monthKey(shanghaiDay())));
+  $("#journal-calendar-refresh")?.addEventListener("click", () => loadJournalCalendar(calendarMonth || monthKey(shanghaiDay())));
+  $("#journal-calendar-grid")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-journal-calendar-day]");
     if (!button) return;
     openJournalDay(button.dataset.journalCalendarDay);
     location.hash = "workbench";  // 回到工作台，看那一天的日记
-  });
-  $("#body-history").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-journal-day]");
-    if (button) {
-      openJournalDay(button.dataset.journalDay);
-      location.hash = "identity";
-    }
   });
 }

@@ -248,7 +248,7 @@ def test_library_health_reports_counts_without_paths_or_text(tmp_path, monkeypat
     _, client, database = build_client(tmp_path, monkeypatch)
     add_note(client, '虚构资料', '我每周跑步三次，用来测试资料健康度。')
     vault = tmp_path / 'vault'
-    (vault / '90-Inbox' / 'broken.md').write_text('---\ntitle: 缺 id\n---\n\n', encoding='utf-8')
+    (vault / '03_知识库' / '00_收件箱' / 'broken.md').write_text('---\ntitle: 缺 id\n---\n\n', encoding='utf-8')
     library = client.get('/api/profile').json()['library_health']
     assert library['documents'] >= 1
     assert library['recent'][0]['title']

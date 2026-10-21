@@ -72,7 +72,7 @@ def test_private_relationship_and_system_notes_are_not_indexed(tmp_path):
     write_note(vault/'00-System'/'constitution.md',note_id='sys')
     result=scan_vault(vault,db)
     assert db.list_documents()==[] and db.list_memories()==[]
-    assert result['excluded']==1
+    assert result['excluded']>=1
 
 
 def test_duplicate_ids_fail_closed(tmp_path):

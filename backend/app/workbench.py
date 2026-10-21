@@ -22,11 +22,10 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from . import todo_note
+from . import journal_note, todo_note, vault_layout
 from .db import Database, utc_now
 from .habits import HabitService
 from .identity import greeting_for, read_identity
-from .journal import JournalService
 from .learning import LearningService
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -82,8 +81,7 @@ def _entries_state(habit_service: HabitService, habit_id: int, day: str) -> tupl
 
 def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str, Any]:
     """Everything the workbench shows for one day. Read-only, no model call."""
-    habit_service = HabitService(database)
-    journal_service = JournalService(database, vault_dir)
+    habit_service = HabitService(database, vault_dir)
     learning_service = LearningService(database)
     identity = read_identity(vault_dir)
 
@@ -144,11 +142,9 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
             "done": state in DONE_HABIT_STATES,
         })
 
-    journal = journal_service.get(day)
     # 进度里的"日记"以**文件**为准（md-first）：今天的日记存在就算写了。
-    from .journal_note import note_abspath
-
-    journal_written = note_abspath(vault_dir, day).is_file()
+    journal = journal_note.read_note(vault_dir, day)
+    journal_written = bool(journal.get("exists"))
     sessions = learning_service.list_sessions(day, day)
 
     done_todos = [todo for todo in todos if todo["completed"]]
@@ -190,7 +186,7 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "journal": {
             "recorded": journal_written,
             "updated_at": journal.get("updated_at"),
-            "has_next_action": bool((journal.get("next_action") or "").strip()),
+            "has_next_action": _has_next_action(journal.get("content") or ""),
         },
         "study": {
             "minutes": sum(int(session.get("minutes") or 0) for session in sessions),
@@ -198,6 +194,11 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
         },
         "progress": {"done": done, "total": total, "percent": percent},
     }
+
+
+def _has_next_action(content: str) -> bool:
+    """日记正文里是否有「下一步」小节或行；文件是唯一权威，不再读 SQLite。"""
+    return bool(journal_note.next_action_text(content))
 
 
 def _strip_front_matter(text: str) -> str:
@@ -209,24 +210,29 @@ def _strip_front_matter(text: str) -> str:
 
 def session_notes(vault_dir: Path | str, day: str) -> list[dict[str, str]]:
     """Today's dsh session notes, trimmed to bullets (local files only)."""
-    inbox = Path(vault_dir) / "90-Inbox"
-    if not inbox.is_dir():
-        return []
+    inboxes = [Path(vault_dir) / vault_layout.inbox_dir(), Path(vault_dir) / "90-Inbox"]
     found: list[tuple[float, dict[str, str]]] = []
-    for path in inbox.glob(f"{SESSION_PREFIX}*.md"):
-        try:
-            stamp = datetime.fromtimestamp(path.stat().st_mtime, SHANGHAI).date().isoformat()
-        except OSError:
+    seen: set[Path] = set()
+    for inbox in inboxes:
+        if not inbox.is_dir():
             continue
-        if stamp != day:
-            continue
-        try:
-            body = _strip_front_matter(path.read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            continue
-        lines = [line.strip("-* \t") for line in body.splitlines() if line.strip().startswith(("-", "*"))]
-        text = "\n".join(lines) if lines else body.strip()
-        found.append((path.stat().st_mtime, {"path": path.name, "text": text[:MAX_SESSION_CHARS]}))
+        for path in inbox.glob(f"{SESSION_PREFIX}*.md"):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                stamp = datetime.fromtimestamp(path.stat().st_mtime, SHANGHAI).date().isoformat()
+            except OSError:
+                continue
+            if stamp != day:
+                continue
+            try:
+                body = _strip_front_matter(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            lines = [line.strip("-* \t") for line in body.splitlines() if line.strip().startswith(("-", "*"))]
+            text = "\n".join(lines) if lines else body.strip()
+            found.append((path.stat().st_mtime, {"path": path.name, "text": text[:MAX_SESSION_CHARS]}))
     found.sort(key=lambda item: item[0], reverse=True)
     return [item[1] for item in found[:MAX_SESSION_NOTES]]
 
@@ -234,7 +240,7 @@ def session_notes(vault_dir: Path | str, day: str) -> list[dict[str, str]]:
 def draft_parts(database: Database, vault_dir: Path | str, day: str) -> dict[str, Any]:
     """The local facts a journal draft is built from."""
     payload = collect_day(database, vault_dir, day)
-    journal = JournalService(database, vault_dir).get(day)
+    journal = journal_note.read_note(vault_dir, day)
     return {
         "day": day,
         "greeting": payload["greeting"],
@@ -244,7 +250,7 @@ def draft_parts(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "open_daily": [item["title"] for item in payload["daily"] if not item["done"]],
         "done_habits": [habit["title"] for habit in payload["habits"] if habit["done"]],
         "study_minutes": payload["study"]["minutes"],
-        "journal_content": (journal.get("content") or "")[:1_000],
+        "journal_content": _strip_front_matter(journal.get("content") or "")[:1_000],
         "sessions": session_notes(vault_dir, day),
         "progress": payload["progress"],
     }

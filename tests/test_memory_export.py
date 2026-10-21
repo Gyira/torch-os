@@ -85,7 +85,7 @@ def test_markdown_export_renders_statuses_sources_and_filter(tmp_path):
     assert text.startswith("# 薪火OS 记忆导出")
     assert "## 已确认（1）" in text and "## 待确认（1）" in text
     assert "### 第一行完整内容。" in text
-    assert "来源：90-Inbox" in text
+    assert "来源：03_知识库/00_收件箱" in text
 
     filtered = client.get("/api/export/memories.md?status=active")
     assert filtered.status_code == 200

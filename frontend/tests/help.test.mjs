@@ -56,7 +56,7 @@ async function harness() {
 test("the in-app guide renders every static section locally", async () => {
   const h = await harness();
   const html = h.getNode("#help-body").innerHTML;
-  for (const title of ["快速上手", "记录与记忆", "记录、复盘与成长", "目标与任务", "数据、备份与恢复", "隐私与云端边界", "键盘与无障碍"]) {
+  for (const title of ["快速上手", "自我档案", "人生路：记录与复盘", "生活运营与知识库", "数据、备份与恢复", "隐私与云端边界", "键盘与无障碍"]) {
     assert.match(html, new RegExp(title));
   }
   assert.match(h.getNode("#help-status").textContent, /共 \d+ 条帮助/);

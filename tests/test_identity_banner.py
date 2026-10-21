@@ -18,7 +18,7 @@ def make_client(tmp_path):
 
 
 def identity_path(tmp_path):
-    return tmp_path / "vault" / "01-Identity" / "身份（identity）.md"
+    return tmp_path / "vault" / "01_自我档案" / "01_内核与三观" / "身份（identity）.md"
 
 
 def seed_identity(tmp_path):

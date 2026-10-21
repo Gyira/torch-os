@@ -57,7 +57,7 @@ def todos_file(tmp_path):
 
 
 def journal_file(tmp_path, day=TODAY):
-    return tmp_path / "vault" / "02-Life" / "journal" / f"{day}.md"
+    return tmp_path / "vault" / "00_人生路" / "01_日记" / f"{day}.md"
 
 
 def seed(tmp_path, text=SAMPLE):

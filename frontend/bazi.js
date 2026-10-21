@@ -193,7 +193,7 @@ export function initBazi() {
   // The page can be opened by deep link before the service status arrives.
   document.addEventListener("config-changed", () => {
     syncControls();
-    if (state.view === "identity") loadBazi();
+    if (state.view === "self") loadBazi();
   });
   syncControls();
 }

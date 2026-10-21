@@ -72,8 +72,8 @@ async function harness({ capabilities = { bazi: true }, profile = null, confirmA
       return true;
     },
   };
-  // 八字现在是数字分身里的一个分区：模块名是 identity。
-  const state = { view: "identity", config: { capabilities } };
+  // 八字页面随旧数字分身下线；模块视图名统一为 self（保留测试到清理阶段）。
+  const state = { view: "self", config: { capabilities } };
   let current = profile ? { ...profile } : null;
   const respond = (url, options = {}) => {
     if (url === "/api/bazi/profile" && (options.method || "GET") === "GET") {
