@@ -1134,6 +1134,11 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-capture-form .field { display: flex; flex-direction: column; gap: 5px; }
 .pillar-capture-form input, .pillar-capture-form textarea, .pillar-capture-form select { width: 100%; padding: 8px 10px; border: 1px solid var(--p-line-input); border-radius: 9px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 13px; }
 .pillar-capture-form textarea { resize: vertical; }
+.pillar-capture-hint { color: var(--p-ink-5); font-size: 11px; line-height: 1.5; }
+.pillar-capture-more { border-top: 1px solid var(--p-line-faint); padding-top: 6px; }
+.pillar-capture-more summary { cursor: pointer; color: var(--p-ink-4); font-size: 12px; padding: 4px 0; }
+.pillar-capture-more[open] summary { color: var(--p-ink-2); margin-bottom: 8px; }
+.pillar-capture-more .field { margin-bottom: 0; }
 .pillar-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 1180px) {
   .pillar-layout { grid-template-columns: 190px minmax(0, 1fr); }
@@ -1214,6 +1219,10 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .steward-health-summary { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--p-line); margin-bottom: 12px; font-size: 12px; color: var(--p-ink-4); }
 .steward-health-summary strong { color: var(--p-ink-strong); font-variant-numeric: tabular-nums; }
 .steward-health-summary .text-button { margin-left: auto; }
+.steward-health-filters { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
+.steward-filter { border: 1px solid var(--p-line); background: var(--p-surface); color: var(--p-ink-4); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 11px; cursor: pointer; }
+.steward-filter:hover { background: var(--p-hover); color: var(--p-ink-2); }
+.steward-filter.is-active { background: var(--pillar-soft); border-color: var(--pillar-accent); color: var(--pillar-accent); font-weight: 600; }
 .steward-health-ok { border: 1px solid var(--p-ok-line); background: var(--p-ok-soft); color: var(--p-ok-ink); border-radius: 10px; padding: 10px 12px; font-size: 12px; }
 .steward-health-list { display: grid; gap: 0; }
 .steward-health-row { display: flex; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--p-line-faint); }

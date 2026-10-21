@@ -35,14 +35,21 @@ function proposalMarkup(item) {
   </article>`;
 }
 
-function healthMarkup(payload) {
+function healthMarkup(payload, filter = "all") {
   const counts = payload.counts || {};
-  const rows = payload.items || [];
+  const allRows = Array.isArray(payload.items) ? payload.items : [];
+  const actionable = allRows.filter((item) => item.severity !== "info");
+  const rows = filter === "issues" ? actionable : allRows;
+  const issueCount = actionable.length;
   return `<div class="steward-health-summary">
       <span>已检查 <strong>${Number(payload.checked) || 0}</strong> 篇</span>
       <span class="steward-severity warning">需要留意 <strong>${Number(counts.warning) || 0}</strong></span>
       <span class="steward-severity info">提示 <strong>${Number(counts.info) || 0}</strong></span>
       <button type="button" class="text-button" data-steward-refresh-health>重新检查</button>
+    </div>
+    <div class="steward-health-filters" role="group" aria-label="健康检查筛选">
+      <button type="button" class="steward-filter${filter === "issues" ? " is-active" : ""}" data-steward-health-filter="issues">只看需要留意（${issueCount}）</button>
+      <button type="button" class="steward-filter${filter === "all" ? " is-active" : ""}" data-steward-health-filter="all">全部（${allRows.length}）</button>
     </div>
     ${payload.ok ? `<p class="steward-health-ok">四库结构看起来不错，没有发现需要立即处理的问题。</p>` : ""}
     ${rows.length ? `<div class="steward-health-list">${rows.map((item) => `
@@ -57,8 +64,8 @@ function healthMarkup(payload) {
           <p class="field-help">${escapeHtml(item.suggestion)}</p>
           <p class="meta">${escapeHtml(item.path)} · ${escapeHtml(item.kind)}</p>
         </div>
-      </div>`).join("")}</div>` : `<div class="pillar-empty"><p>没有发现结构问题。</p></div>`}
-    <p class="field-help steward-footnote">${escapeHtml(payload.note || "")}</p>`;
+      </div>`).join("")}</div>` : `<div class="pillar-empty"><p>${filter === "issues" ? "没有需要立即处理的问题。" : "没有发现结构问题。"}</p></div>`}
+    <p class="field-help steward-footnote">${escapeHtml(payload.note || "")}${payload.truncated ? " 结果较多，已只显示前一部分。" : ""}</p>`;
 }
 
 function askMarkup(configured) {
@@ -96,6 +103,7 @@ function answerMarkup(result) {
 }
 
 export function openSteward(view, { onApplied, onOpenNote } = {}) {
+  const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "pillar-dialog pillar-steward-dialog";
   dialog.dataset.pillar = view || "";
@@ -118,8 +126,14 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
   const body = dialog.querySelector("[data-steward-body]");
   const tabs = [...dialog.querySelectorAll("[data-steward-tab]")];
   let active = "";
+  let healthData = null;
+  let healthFilter = "issues";
 
-  const close = () => { dialog.close(); dialog.remove(); };
+  const close = () => {
+    dialog.close();
+    dialog.remove();
+    trigger?.focus?.({ preventScroll: true });
+  };
 
   const openNote = (path) => {
     if (!path) return;
@@ -145,8 +159,12 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
   async function loadHealth() {
     body.innerHTML = `<p class="field-help">正在检查四库结构…</p>`;
     try {
-      body.innerHTML = healthMarkup(await api("/api/steward/health"));
+      healthData = await api("/api/steward/health");
+      const counts = healthData.counts || {};
+      healthFilter = (Number(counts.warning) || Number(counts.error)) ? "issues" : "all";
+      body.innerHTML = healthMarkup(healthData, healthFilter);
     } catch (error) {
+      healthData = null;
       body.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
     }
   }
@@ -178,6 +196,12 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     if (refreshProposals) { await loadProposals(); return; }
     const refreshHealth = event.target.closest?.("[data-steward-refresh-health]");
     if (refreshHealth) { await loadHealth(); return; }
+    const healthFilterButton = event.target.closest?.("[data-steward-health-filter]");
+    if (healthFilterButton) {
+      healthFilter = healthFilterButton.dataset.stewardHealthFilter === "all" ? "all" : "issues";
+      if (healthData) body.innerHTML = healthMarkup(healthData, healthFilter);
+      return;
+    }
     const open = event.target.closest?.("[data-steward-open-note]");
     if (open) { openNote(open.dataset.stewardOpenNote); return; }
     const apply = event.target.closest?.("[data-steward-apply]");

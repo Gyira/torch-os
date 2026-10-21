@@ -132,6 +132,18 @@ def test_steward_suggestions_are_deterministic_and_confirmable(tmp_path):
     assert moved.json()["chapter"] == "method_general"
 
 
+def test_note_location_comes_from_path_not_stale_frontmatter(tmp_path):
+    client, vault = make_client(tmp_path)
+    path = vault / "00_人生路" / "02_反思" / "错位.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\ntype: reflection\ntitle: 错位\npillar: self\nchapter: idea\n---\n\n正文。\n",
+        encoding="utf-8")
+    note = client.get("/api/notes", params={"path": "00_人生路/02_反思/错位.md"}).json()
+    assert note["pillar"] == "life"
+    assert note["chapter"] == "reflection"
+
+
 def test_backlinks_find_wiki_and_markdown_links(tmp_path):
     client, _ = make_client(tmp_path)
     target = client.post("/api/capture", json={"title": "目标概念", "body": "概念正文"}).json()

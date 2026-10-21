@@ -4,7 +4,18 @@ import { openNote } from "./pillars.js";
 
 const PILLAR_LABELS = { life: "人生路", self: "自我档案", ops: "生活运营", knowledge: "知识库" };
 
+export function initGlobalSearchShortcut() {
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    if (String(event.key).toLowerCase() !== "k") return;
+    event.preventDefault();
+    if (document.querySelector("dialog[open]")) return;
+    openGlobalSearch();
+  });
+}
+
 export function openGlobalSearch() {
+  const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "pillar-dialog pillar-search-dialog";
   dialog.innerHTML = `
@@ -18,19 +29,26 @@ export function openGlobalSearch() {
       <div data-global-results></div>
     </div>`;
   document.body.append(dialog);
-  const close = () => { dialog.close(); dialog.remove(); };
+  const close = () => {
+    dialog.close();
+    dialog.remove();
+    trigger?.focus?.({ preventScroll: true });
+  };
   dialog.querySelector("[data-search-close]").addEventListener("click", close);
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
   const input = dialog.querySelector("[data-global-query]");
   const status = dialog.querySelector("[data-global-status]");
   const results = dialog.querySelector("[data-global-results]");
   let timer = 0;
+  let searchSeq = 0;
   const search = async () => {
     const query = input.value.trim();
     if (!query) { results.innerHTML = ""; status.textContent = ""; return; }
+    const seq = ++searchSeq;
     status.textContent = "搜索中…";
     try {
       const payload = await api(`/api/search?q=${encodeURIComponent(query)}&limit=60`);
+      if (seq !== searchSeq) return;
       const items = Array.isArray(payload.items) ? payload.items : [];
       status.textContent = items.length ? `找到 ${items.length} 条` : "没有找到匹配的笔记。";
       results.innerHTML = items.length ? `<div class="pillar-list">${items.map((item) => `
@@ -42,6 +60,7 @@ export function openGlobalSearch() {
           <span class="pillar-note-meta">${escapeHtml(PILLAR_LABELS[item.pillar] || item.pillar)} · ${escapeHtml(item.date || "")}</span>
         </button>`).join("")}</div>` : "";
     } catch (error) {
+      if (seq !== searchSeq) return;
       status.textContent = error.message;
       results.innerHTML = "";
     }

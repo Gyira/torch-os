@@ -5,6 +5,7 @@ import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
+import { shanghaiDay } from "./journal-model.js";
 import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
 
 const PILLAR_META = {
@@ -12,6 +13,7 @@ const PILLAR_META = {
     title: "人生路",
     subtitle: "把每天过成可回看的成长线索。",
     icon: "行",
+    defaultChapter: "reflection",
     quick: [
       { label: "写今日日记", chapter: "journal", type: "journal" },
       { label: "记一条反思", chapter: "reflection", type: "reflection" },
@@ -22,6 +24,7 @@ const PILLAR_META = {
     title: "自我档案",
     subtitle: "把经历沉淀成「我是谁」。",
     icon: "我",
+    defaultChapter: "idea",
     quick: [
       { label: "记一条灵感", chapter: "idea", type: "idea" },
       { label: "添加一段记忆", chapter: "memory", type: "memory" },
@@ -32,9 +35,10 @@ const PILLAR_META = {
     title: "生活运营",
     subtitle: "把身体、钱、事务照顾好，不让它们占用注意力。",
     icon: "生",
+    defaultChapter: "affairs",
     quick: [
-      { label: "记体重", chapter: "health", type: "health_month" },
-      { label: "记一笔", chapter: "finance", type: "finance_month" },
+      { label: "记体重", ops: "health" },
+      { label: "记一笔", ops: "finance" },
       { label: "添加医疗记录", chapter: "medical", type: "medical" },
     ],
   },
@@ -42,6 +46,7 @@ const PILLAR_META = {
     title: "知识库",
     subtitle: "先接住，再提炼，最后变成能用的东西。",
     icon: "知",
+    defaultChapter: "inbox",
     quick: [
       { label: "快速收藏", chapter: "inbox", type: "inbox" },
       { label: "新建概念卡", chapter: "concept", type: "concept" },
@@ -56,6 +61,7 @@ const state = {
   chapter: {},
   notes: {},
   search: {},
+  searchSeq: {},
 };
 
 async function ensureManifest() {
@@ -73,13 +79,35 @@ function chapterTitle(view, key) {
   return chapter?.title || key;
 }
 
+function journalDayLabel(note) {
+  const value = String(note.title || note.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  try {
+    const date = new Date(`${value}T00:00:00Z`);
+    const monthDay = new Intl.DateTimeFormat("zh-CN", {
+      month: "long", day: "numeric", timeZone: "UTC",
+    }).format(date);
+    const weekday = new Intl.DateTimeFormat("zh-CN", {
+      weekday: "short", timeZone: "UTC",
+    }).format(date);
+    return `${monthDay} ${weekday}`;
+  } catch {
+    return "";
+  }
+}
+
 function noteRow(note) {
+  const journal = note.chapter === "journal";
+  const dayLabel = journal ? journalDayLabel(note) : "";
+  const title = dayLabel ? `日记 · ${dayLabel}` : note.title;
+  const excerpt = journal ? "打开这篇日记" : (note.excerpt || "");
+  const meta = journal ? "" : `${escapeHtml(note.date || "")}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}`;
   return `<button type="button" class="pillar-note-row" data-note-path="${escapeHtml(note.path)}">
     <span class="pillar-note-main">
-      <span class="pillar-note-title">${escapeHtml(note.title)}</span>
-      <span class="pillar-note-excerpt">${escapeHtml(note.excerpt || "")}</span>
+      <span class="pillar-note-title">${escapeHtml(title)}</span>
+      <span class="pillar-note-excerpt">${escapeHtml(excerpt)}</span>
     </span>
-    <span class="pillar-note-meta">${escapeHtml(note.date || "")}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}</span>
+    ${meta ? `<span class="pillar-note-meta">${meta}</span>` : ""}
   </button>`;
 }
 
@@ -106,7 +134,7 @@ function renderShell(view) {
         <label class="pillar-search"><span class="sr-only">搜索${escapeHtml(meta.title)}</span>
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
-        <button type="button" class="button secondary" data-steward-open="${view}">管家</button>
+        <button type="button" class="button secondary" data-steward-open="${view}" title="提案、健康检查与问答">管家</button>
         <button type="button" class="button primary" data-pillar-capture="${view}">＋ 记一条</button>
       </div>
     </header>
@@ -133,6 +161,7 @@ function renderShell(view) {
         ${view === "knowledge" && chapter === "inbox" ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
         ${view === "life" && chapter === "habit" ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
         ${(view === "ops" && !chapter && !notes.length && !searching)
+          || (view === "ops" && (chapter === "health" || chapter === "finance") && !notes.length && !searching)
           || (view === "life" && chapter === "habit" && !notes.length && !searching)
           ? "" : `<div class="pillar-list">
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
@@ -146,7 +175,9 @@ function renderShell(view) {
         <section class="pillar-card">
           <p class="eyebrow">快速记录</p>
           <div class="pillar-quick">
-            ${meta.quick.map((item) => `<button type="button" class="pillar-quick-button" data-pillar-capture="${view}" data-capture-chapter="${item.chapter}" data-capture-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
+            ${meta.quick.map((item) => item.ops
+              ? `<button type="button" class="pillar-quick-button" data-ops-quick="${escapeHtml(item.ops)}">${escapeHtml(item.label)}</button>`
+              : `<button type="button" class="pillar-quick-button" data-pillar-capture="${view}" data-capture-chapter="${item.chapter}" data-capture-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
           </div>
         </section>
         ${view === "self" && overview?.identity ? `<section class="pillar-card pillar-identity-card">
@@ -159,7 +190,7 @@ function renderShell(view) {
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
-          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(String(overview.today.journal_updated_at || "").slice(0, 16))}` : "先写一句也算记录。"}</p>
+          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(String(overview.today.journal_updated_at || "").replace("T", " ").slice(0, 16))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
             <button type="button" class="pillar-quick-button" data-review="weekly">生成本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">生成本月复盘</button>
@@ -222,6 +253,21 @@ async function loadPillar(view, { keepChapter = false } = {}) {
   renderShell(view);
 }
 
+function focusOpsForm(dataset) {
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    const input = document.querySelector(`#ops-view [data-ops-form="${dataset}"] input[name="date"]`);
+    if (input) {
+      window.clearInterval(timer);
+      input.focus({ preventScroll: true });
+      input.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    attempts += 1;
+    if (attempts > 40) window.clearInterval(timer);
+  }, 80);
+}
+
 function bindPillarEvents() {
   document.addEventListener("click", async (event) => {
     const steward = event.target.closest?.("[data-steward-open]");
@@ -230,6 +276,14 @@ function bindPillarEvents() {
         onOpenNote: (path) => openNote(path),
         onApplied: () => loadPillar(steward.dataset.stewardOpen, { keepChapter: true }),
       });
+      return;
+    }
+    const opsQuick = event.target.closest?.("[data-ops-quick]");
+    if (opsQuick) {
+      const dataset = opsQuick.dataset.opsQuick;
+      const target = document.querySelector(`#ops-view [data-pillar-chapter="ops"][data-chapter="${dataset}"]`);
+      target?.click();
+      focusOpsForm(dataset);
       return;
     }
     const capture = event.target.closest?.("[data-pillar-capture]");
@@ -244,6 +298,7 @@ function bindPillarEvents() {
       const view = chapter.dataset.pillarChapter;
       state.chapter[view] = chapter.dataset.chapter || "";
       state.search[view] = "";
+      state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
       try {
         if (state.chapter[view]) {
           state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
@@ -319,23 +374,30 @@ function bindPillarEvents() {
     const view = search.dataset.pillarSearch;
     state.search[view] = search.value;
     window.clearTimeout(search._timer);
+    const seq = (state.searchSeq[view] || 0) + 1;
+    state.searchSeq[view] = seq;
     search._timer = window.setTimeout(async () => {
       try {
         state.chapter[view] = "";
-        state.notes[view] = state.search[view].trim()
-          ? (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`)).items
+        const query = state.search[view];
+        const items = query.trim()
+          ? (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(query)}`)).items
           : (state.overviews[view]?.recent || []);
+        // 输入很快时，较早的响应不能覆盖较新的结果。
+        if (state.searchSeq[view] !== seq) return;
+        state.notes[view] = items;
         renderShell(view);
         const next = $(`[data-pillar-search="${view}"]`);
         if (next) { next.focus(); next.setSelectionRange?.(next.value.length, next.value.length); }
       } catch (error) {
-        toast(error.message, "error");
+        if (state.searchSeq[view] === seq) toast(error.message, "error");
       }
     }, 220);
   });
 }
 
 export function openNote(path) {
+  const trigger = document.activeElement;
   Promise.all([
     api(`/api/notes?path=${encodeURIComponent(path)}`),
     api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
@@ -344,12 +406,14 @@ export function openNote(path) {
     const dialog = document.createElement("dialog");
     dialog.className = "pillar-dialog pillar-note-dialog";
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
+    const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
+    const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
     dialog.innerHTML = `
       <div class="pillar-dialog-head">
         <div>
-          <p class="eyebrow">${escapeHtml(note.chapter)}</p>
-          <h2>${escapeHtml(note.title)}</h2>
-          <p class="meta">${escapeHtml(note.path)}${note.date ? ` · ${escapeHtml(note.date)}` : ""}</p>
+          <p class="eyebrow">${escapeHtml(chapterTitle(note.pillar, note.chapter))}</p>
+          <h2>${escapeHtml(displayTitle)}</h2>
+          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(note.date)}` : ""}</p>
         </div>
         <button type="button" class="text-button" data-close-note>关闭</button>
       </div>
@@ -369,7 +433,11 @@ export function openNote(path) {
         ${note.tags?.length ? `<span class="meta">${note.tags.map((tag) => `#${escapeHtml(tag)}`).join(" ")}</span>` : ""}
       </div>`;
     document.body.append(dialog);
-    const close = () => { dialog.close(); dialog.remove(); };
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+      trigger?.focus?.({ preventScroll: true });
+    };
     dialog.querySelector("[data-close-note]")?.addEventListener("click", close);
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
@@ -410,10 +478,57 @@ function openVaultNote(vaultName, path) {
   try { globalThis.open?.(uri, "_blank", "noopener"); } catch { /* ignore */ }
 }
 
+async function openTodayJournal() {
+  // 日记只有一份权威文件：直接复用工作台的日记接口，绝不另建同名笔记。
+  const day = shanghaiDay();
+  try {
+    const result = await api("/api/journal/note/generate", {
+      method: "POST",
+      body: JSON.stringify({ day, mode: "create" }),
+    });
+    const relpath = result.relpath || `00_人生路/01_日记/${day}.md`;
+    if (!String(relpath).startsWith("00_人生路/")) {
+      toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
+      return;
+    }
+    toast(result.created ? "已创建今天的日记。" : "今天已经有日记，直接打开。");
+    openNote(relpath);
+    loadPillar("life", { keepChapter: true }).catch(() => {});
+  } catch (error) {
+    // 只读模式下不允许生成；已有日记仍然可以打开。
+    if (error.status === 409) {
+      try {
+        const existing = await api(`/api/journal/note?day=${encodeURIComponent(day)}`);
+        if (existing.exists && String(existing.relpath || "").startsWith("00_人生路/")) {
+          openNote(existing.relpath);
+          return;
+        }
+        if (existing.exists) {
+          toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
+          return;
+        }
+      } catch { /* 使用下面统一的错误提示 */ }
+    }
+    toast(error.message, "error");
+  }
+}
+
 function openCapture(view, chapter = "", type = "") {
   const meta = PILLAR_META[view];
   const chapters = chapterList(view);
-  const defaultChapter = chapter || (view === "knowledge" ? "inbox" : chapters[0]?.key) || "inbox";
+  const defaultChapter = chapter || meta.defaultChapter || chapters[0]?.key || "inbox";
+  if (view === "life" && chapter === "journal") {
+    openTodayJournal();
+    return;
+  }
+  if (["habit", "health", "finance"].includes(chapter)) {
+    toast("习惯、体重和账目请用页面上的专用面板记录。", "warning");
+    return;
+  }
+  // 日记、习惯、体重、账目各有专用入口；普通捕获不再列出这些结构化章节，避免写错格式。
+  const structured = new Set(["journal", "habit", "health", "finance"]);
+  const captureChapters = chapters.filter((item) => !structured.has(item.key));
+  const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "pillar-dialog pillar-capture-dialog";
   dialog.innerHTML = `
@@ -424,13 +539,19 @@ function openCapture(view, chapter = "", type = "") {
       </div>
       <label class="field"><span>标题</span><input name="title" maxlength="200" required autofocus></label>
       <label class="field"><span>正文</span><textarea name="body" rows="6" maxlength="200000"></textarea></label>
-      <div class="pillar-capture-grid">
-        <label class="field"><span>放到</span><select name="chapter">
-          ${chapters.map((item) => `<option value="${escapeHtml(item.key)}"${item.key === defaultChapter ? " selected" : ""}>${escapeHtml(item.title)}</option>`).join("")}
-        </select></label>
-        <label class="field"><span>标签（逗号分隔）</span><input name="tags" maxlength="200"></label>
-      </div>
-      <label class="field"><span>来源（链接 / 书名 / 课程，可选）</span><input name="source" maxlength="500"></label>
+      <label class="field"><span>放到</span>
+        <select name="chapter">
+          ${captureChapters.map((item) => `<option value="${escapeHtml(item.key)}"${item.key === defaultChapter ? " selected" : ""}>${escapeHtml(item.title)}</option>`).join("")}
+        </select>
+        <span class="pillar-capture-hint">不确定放哪也没关系，之后可以再移动。</span>
+      </label>
+      <details class="pillar-capture-more">
+        <summary>更多选项（标签、来源）</summary>
+        <div class="pillar-capture-grid">
+          <label class="field"><span>标签（逗号分隔）</span><input name="tags" maxlength="200"></label>
+          <label class="field"><span>来源（链接 / 书名 / 课程）</span><input name="source" maxlength="500"></label>
+        </div>
+      </details>
       <p class="status-message" data-capture-status role="status"></p>
       <div class="form-actions">
         <button type="button" class="button secondary" data-capture-close>取消</button>
@@ -438,7 +559,11 @@ function openCapture(view, chapter = "", type = "") {
       </div>
     </form>`;
   document.body.append(dialog);
-  const close = () => { dialog.close(); dialog.remove(); };
+  const close = () => {
+    dialog.close();
+    dialog.remove();
+    trigger?.focus?.({ preventScroll: true });
+  };
   dialog.querySelectorAll("[data-capture-close]").forEach((button) => button.addEventListener("click", close));
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
   dialog.querySelector("form").addEventListener("submit", async (event) => {

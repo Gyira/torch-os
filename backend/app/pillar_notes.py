@@ -40,8 +40,9 @@ def _metadata(relative: str, metadata: dict[str, Any], path: Path) -> dict[str, 
     chapter = vault_layout.chapter_key_of(relative)
     return {
         "path": relative,
-        "pillar": str(metadata.get("pillar") or pillar),
-        "chapter": str(metadata.get("chapter") or chapter),
+        # 路径是结构事实来源；frontmatter 只补空缺，过期字段由健康检查报告。
+        "pillar": pillar or str(metadata.get("pillar") or ""),
+        "chapter": chapter or str(metadata.get("chapter") or ""),
         "type": str(metadata.get("type") or vault_layout.chapter_default_type(chapter)),
         "title": str(metadata.get("title") or path.stem),
         "id": str(metadata.get("id") or ""),

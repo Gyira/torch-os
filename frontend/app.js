@@ -16,7 +16,7 @@ import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
-import { openGlobalSearch } from "./global-search.js";
+import { initGlobalSearchShortcut, openGlobalSearch } from "./global-search.js";
 
 const titles = NAV_LABELS;
 
@@ -94,6 +94,7 @@ function renderPanelNav() {
   search.className = "panel-nav-search";
   search.textContent = "搜索";
   search.setAttribute("aria-label", "在四库中搜索");
+  search.title = "在四库中搜索（Ctrl/⌘ K）";
   search.addEventListener("click", () => { openGlobalSearch(); });
   nav.appendChild(search);
   main.prepend(nav);
@@ -299,7 +300,7 @@ function runModuleLoaders(view, visiblePanes) {
 }
 
 initSettings(); initJournal(); initJournalNote(); initInbox();
-initWorkbench(); initPillars();
+initWorkbench(); initPillars(); initGlobalSearchShortcut();
 bindSidebarPanes();
 initHelp();
 initVaultConnection();

@@ -130,6 +130,13 @@ async def run(base_url: str, output: Path, port: int):
                     await cdp.screenshot(output / "life-habits.png")
                     report["habit_cards"] = await cdp.evaluate(
                         "document.querySelectorAll('#life-view .pillar-habit-card').length")
+                if view == "ops":
+                    await cdp.evaluate("document.querySelector('#ops-view [data-ops-quick=\"health\"]')?.click()")
+                    await cdp.wait_for("document.querySelector('#ops-view [data-ops-form=\"health\"]')")
+                    await asyncio.sleep(0.4)
+                    report["ops_quick_focus"] = await cdp.evaluate(
+                        "document.activeElement?.getAttribute('name') || document.activeElement?.tagName || ''")
+                    await cdp.screenshot(output / "ops-health.png")
             # 薪火管家抽屉：提案 → 健康检查 → 本地问答（不执行任何提案）。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view [data-steward-open]')")
@@ -162,6 +169,50 @@ async def run(base_url: str, output: Path, port: int):
             }))()""")
             await cdp.screenshot(output / "steward-ask.png")
             await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-close]')?.click()")
+            # 健康检查默认只看需要留意，可切到全部。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
+            await cdp.wait_for("document.querySelector('#knowledge-view [data-steward-open]')")
+            await cdp.evaluate("document.querySelector('#knowledge-view [data-steward-open]').click()")
+            await cdp.wait_for("document.querySelector('.pillar-steward-dialog')")
+            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-tab=\"health\"]').click()")
+            await cdp.wait_for("document.querySelector('.steward-health-filters')", timeout=20)
+            report["steward_health_filter"] = await cdp.evaluate("""(() => ({
+                active: document.querySelector('.steward-filter.is-active')?.textContent || '',
+                rows: document.querySelectorAll('.steward-health-row').length,
+            }))()""")
+            await cdp.evaluate("document.querySelector('.steward-filter[data-steward-health-filter=\"all\"]')?.click()")
+            report["steward_health_all_rows"] = await cdp.evaluate(
+                "document.querySelectorAll('.steward-health-row').length")
+            await cdp.screenshot(output / "steward-health-filtered.png")
+            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-close]')?.click()")
+            # 写今日日记：必须打开权威的 00_人生路/01_日记/YYYY-MM-DD.md，不能另建同名笔记。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"life\"]').click()")
+            await cdp.wait_for("document.querySelector('#life-view [data-capture-chapter=\"journal\"]')")
+            await cdp.evaluate("document.querySelector('#life-view [data-capture-chapter=\"journal\"]').click()")
+            await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=30)
+            report["today_journal"] = await cdp.evaluate("""(() => ({
+                path: document.querySelector('.pillar-note-dialog .meta')?.textContent || '',
+                title: document.querySelector('.pillar-note-dialog h2')?.textContent || '',
+            }))()""")
+            await cdp.screenshot(output / "journal-detail.png")
+            await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+            # 快速捕获：默认只露出标题/正文/去向，标签与来源收进“更多选项”。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
+            await cdp.wait_for("document.querySelector('#knowledge-view [data-pillar-capture]')")
+            await cdp.evaluate("document.querySelector('#knowledge-view [data-pillar-capture]').click()")
+            await cdp.wait_for("document.querySelector('.pillar-capture-dialog')")
+            await cdp.screenshot(output / "capture-dialog.png")
+            report["capture"] = await cdp.evaluate("""(() => ({
+                visibleFields: Array.from(document.querySelectorAll('.pillar-capture-dialog .field > span')).filter((node) => node.offsetParent !== null).map((node) => node.textContent.trim()),
+                moreCollapsed: !document.querySelector('.pillar-capture-dialog details')?.open,
+                chapter: document.querySelector('.pillar-capture-dialog select[name="chapter"]')?.value || '',
+            }))()""")
+            await cdp.evaluate("document.querySelector('.pillar-capture-dialog [data-capture-close]')?.click()")
+            # Ctrl/⌘ K 全局搜索。
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.pillar-search-dialog')")
+            report["shortcut_search"] = True
+            await cdp.evaluate("document.querySelector('.pillar-search-dialog [data-search-close]')?.click()")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")
             # 工作台回归：任务板、问候、横幅、天气卡都还在。
