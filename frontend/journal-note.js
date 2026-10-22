@@ -98,7 +98,7 @@ export async function loadActivity(day) {
       box.innerHTML = '<div class="empty-state">这一天还没有动过任何文件——写点什么、勾几条待办，这里就有记录了。</div>';
       return;
     }
-    box.innerHTML = `<p class="meta" role="status">${escapeHtml(result.day)} · ${Number(result.count) || 0} 个文件</p>` +
+    box.innerHTML = `<p class="meta" role="status">${escapeHtml(formatRelativeDate(result.day))} · ${Number(result.count) || 0} 个文件</p>` +
       '<ul class="activity-list">' + result.files.map((item) => (
         `<li><span class="activity-time">${escapeHtml(String(item.mtime || "").slice(11, 16))}</span>` +
         `<span class="activity-title">${escapeHtml(item.title)}</span>` +

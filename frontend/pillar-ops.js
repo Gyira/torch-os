@@ -1,5 +1,5 @@
 // 生活运营：体重/账目月度表 + 极简 SVG 趋势。数据来自 Markdown 月度表。
-import { api, escapeHtml, toast } from "./core.js";
+import { api, confirmAction, escapeHtml, toast } from "./core.js";
 
 const DATASETS = {
   health: { title: "健康与体重", accent: "var(--p-pillar-ops)", unit: "kg" },
@@ -190,6 +190,14 @@ export function bindOpsEvents() {
   document.addEventListener("click", async (event) => {
     const remove = event.target.closest?.("[data-ops-delete]");
     if (remove) {
+      const confirmed = await confirmAction({
+        title: "删除这条记录？",
+        message: "记录会从月度 Markdown 表里移除，不能撤销。",
+        confirmLabel: "删除",
+        cancelLabel: "保留",
+        trigger: remove,
+      });
+      if (!confirmed) return;
       const dataset = remove.dataset.opsDelete;
       const host = remove.closest("[data-ops-table]");
       const month = host?.dataset.month || monthNow();
