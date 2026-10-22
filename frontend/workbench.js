@@ -2,6 +2,7 @@
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
 // 待办在 00-System/待办（todos）.md，每日必做勾在当天日记，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
+import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
 import { renderAlmanac } from "./almanac.js";
 import { renderClock, renderWeather, startClock } from "./weather.js";
@@ -63,6 +64,68 @@ export function renderWorkbench(payload) {
 
   renderAlmanac($("#workbench-almanac"), payload.day, name, payload.progress);
   renderDaily(payload);
+  renderWelcome(payload);
+}
+
+const WELCOME_KEY = "torch.welcome.v1.dismissed";
+
+function welcomeDismissed() {
+  try { return localStorage.getItem(WELCOME_KEY) === "1"; } catch { return false; }
+}
+
+function dismissWelcome() {
+  try { localStorage.setItem(WELCOME_KEY, "1"); } catch { /* private mode */ }
+}
+
+function renderWelcome(payload) {
+  document.getElementById("workbench-welcome")?.remove();
+  if (!shouldShowWelcome(payload, welcomeDismissed())) return;
+  const banner = $("#workbench-banner");
+  if (!banner) return;
+  const card = document.createElement("section");
+  card.id = "workbench-welcome";
+  card.className = "workbench-welcome";
+  card.setAttribute("role", "note");
+  card.innerHTML = `
+    <div>
+      <p class="eyebrow">第一次来</p>
+      <h3>先做一件小事</h3>
+      <p>不用先整理结构。写一句日记、加一条任务，或者打开帮助看看四库怎么用。</p>
+    </div>
+    <div class="workbench-welcome-actions">
+      <button type="button" class="small-button" data-welcome="journal">打开今天的日记</button>
+      <button type="button" class="small-button" data-welcome="task">加一条任务</button>
+      <button type="button" class="small-button" data-welcome="help">打开帮助</button>
+      <button type="button" class="workbench-welcome-dismiss" data-welcome="dismiss" aria-label="关闭开始使用提示">×</button>
+    </div>`;
+  banner.insertAdjacentElement("afterend", card);
+  card.querySelector('[data-welcome="journal"]')?.addEventListener("click", () => {
+    location.hash = "#life";
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      const button = document.querySelector('#life-view [data-capture-chapter="journal"]');
+      if (button) {
+        window.clearInterval(timer);
+        button.click();
+      } else if (++attempts > 30) {
+        window.clearInterval(timer);
+      }
+    }, 100);
+  });
+  card.querySelector('[data-welcome="task"]')?.addEventListener("click", () => {
+    const input = $("#time-add-input");
+    input?.focus();
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+  card.querySelector('[data-welcome="help"]')?.addEventListener("click", () => {
+    const help = document.querySelector(".panel-nav-help");
+    if (help) help.click();
+    else location.hash = "#settings";
+  });
+  card.querySelector('[data-welcome="dismiss"]')?.addEventListener("click", () => {
+    dismissWelcome();
+    card.remove();
+  });
 }
 
 function renderDaily(payload) {

@@ -407,6 +407,14 @@ body.view-workbench .topbar { display: none; }
 .workbench-head-row { display: grid; grid-template-columns: minmax(0, 1fr) 248px; gap: 10px 18px; align-items: start; }
 /* 左列：问候语一行 + 时间管理模块吃掉剩余高度（模块在问候语正下方、天气列左边）。 */
 .workbench-head-main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; align-content: start; }
+.workbench-welcome { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 0 0 12px; padding: 13px 16px; border: 1px solid var(--p-accent-line); border-radius: 12px; background: var(--p-accent-soft-3); }
+.workbench-welcome h3 { margin: 2px 0 3px; font-size: 15px; }
+.workbench-welcome p { margin: 0; color: var(--p-ink-3); font-size: 12px; line-height: 1.6; }
+.workbench-welcome .eyebrow { margin: 0; }
+.workbench-welcome-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.workbench-welcome-dismiss { border: 0; background: transparent; color: var(--p-ink-5); font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.workbench-welcome-dismiss:hover { background: var(--p-hover); color: var(--p-ink); }
+@media (max-width: 760px) { .workbench-welcome { flex-direction: column; align-items: flex-start; gap: 10px; } .workbench-welcome-actions { width: 100%; } }
 /* 今日黄历（2026-10-05）：右上角小巧挂件，按日期确定性生成。 */
 .almanac { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 12px 14px; }
 .almanac-title { margin: 0; text-align: center; font-size: 13px; color: var(--p-ink-3); }
