@@ -11,7 +11,6 @@ httptools==0.8.0
 httpx==0.28.1
 idna==3.20
 iniconfig==2.3.0
-lunar-python==1.4.8
 opentelemetry-api==1.45.0
 packaging==26.3
 pluggy==1.6.0
