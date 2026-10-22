@@ -4,16 +4,6 @@ import { openNote } from "./pillars.js";
 
 const PILLAR_LABELS = { life: "人生路", self: "自我档案", ops: "生活运营", knowledge: "知识库" };
 
-export function initGlobalSearchShortcut() {
-  document.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-    if (String(event.key).toLowerCase() !== "k") return;
-    event.preventDefault();
-    if (document.querySelector("dialog[open]")) return;
-    openGlobalSearch();
-  });
-}
-
 export function openGlobalSearch() {
   const trigger = document.activeElement;
   const dialog = document.createElement("dialog");

@@ -128,6 +128,7 @@ async function purge(paths) {
       ? `会真正删除 ${label} 的 md 文件，无法从回收站找回。`
       : "会真正删除回收站里所有任务笔记，无法恢复。",
     confirmLabel: paths.length ? "彻底删除" : "清空回收站",
+    danger: true,
   });
   if (!accepted) return;
   setStatus("#time-trash-status", "正在删除…");

@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   conflictReasonText, syncBadge, syncCountsText, syncErrorText, syncWarningText,
-  validateSyncForm,
+  validateSyncForm, willArmPushDeletes,
 } from "../dida-sync-model.js";
 
 test("sync errors map to readable Chinese guidance", () => {
@@ -64,6 +64,13 @@ test("form validation blocks bad intervals and enabling without credentials", ()
   assert.equal(validateSyncForm({ ...base, enabled: true }).ok, false);
   assert.equal(validateSyncForm({ ...base, enabled: true, cookie_set: true }).ok, true);
   assert.equal(validateSyncForm({ ...base, device_version: 0 }).ok, false);
+});
+
+test("arming local-delete push requires confirmation only on the off-to-on transition", () => {
+  assert.equal(willArmPushDeletes({ push_deletes: true }, { push_deletes: false }), true);
+  assert.equal(willArmPushDeletes({ push_deletes: true }, {}), true);
+  assert.equal(willArmPushDeletes({ push_deletes: true }, { push_deletes: true }), false);
+  assert.equal(willArmPushDeletes({ push_deletes: false }, { push_deletes: false }), false);
 });
 
 test("badge reflects support, configuration and error state", () => {

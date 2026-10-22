@@ -102,6 +102,27 @@ def _parse_table(text: str, columns: list[tuple[str, str]]) -> list[dict[str, st
     return rows
 
 
+def _write_rows(vault_dir: Path | str, dataset: str, month: str,
+                rows: list[dict[str, str]], metadata: dict[str, Any] | None = None,
+                expected_revision: str = "") -> dict[str, Any]:
+    """把整张月度表写回 Markdown；所有增删改共用同一条冲突检查。"""
+    item = _dataset(dataset)
+    metadata = dict(metadata or _frontmatter(dataset, month))
+    metadata["updated"] = utc_now()
+    relative = month_path(vault_dir, dataset, month)
+    path = safe_note_path(Path(vault_dir), relative)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = _render(metadata, item["columns"], rows)
+    if path.exists():
+        loaded = load_note(path)
+        if expected_revision and loaded.get("revision") and loaded["revision"] != expected_revision:
+            raise HTTPException(409, "月度表已在别处修改，请刷新后重试")
+        guarded_write(loaded, lines)
+    else:
+        path.write_text("\n".join(lines), encoding="utf-8", newline="")
+    return read_month(vault_dir, dataset, month)
+
+
 def read_month(vault_dir: Path | str, dataset: str, month: str) -> dict[str, Any]:
     item = _dataset(dataset)
     month = _month(month)
@@ -142,37 +163,50 @@ def upsert_row(vault_dir: Path | str, dataset: str, month: str, values: dict[str
             target[key] = _clean(values[key])
     if not target.get("date"):
         raise HTTPException(422, "日期不能为空")
-    metadata = current.get("metadata") or _frontmatter(dataset, month)
-    metadata["updated"] = utc_now()
-    relative = month_path(vault_dir, dataset, month)
-    path = safe_note_path(Path(vault_dir), relative)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = _render(metadata, item["columns"], rows)
-    if path.exists():
-        loaded = load_note(path)
-        if loaded.get("revision") and current.get("revision") and loaded["revision"] != current["revision"]:
-            raise HTTPException(409, "月度表已在别处修改，请刷新后重试")
-        guarded_write(loaded, lines)
-    else:
-        path.write_text("\n".join(lines), encoding="utf-8", newline="")
-    return read_month(vault_dir, dataset, month)
+    return _write_rows(vault_dir, dataset, month, rows,
+                       current.get("metadata"), current.get("revision", ""))
 
 
 def delete_row(vault_dir: Path | str, dataset: str, month: str, row_id: str) -> dict[str, Any]:
-    item = _dataset(dataset)
     current = read_month(vault_dir, dataset, month)
     if not current["exists"]:
         raise HTTPException(404, "月度表不存在")
     rows = [dict(row) for row in current["rows"] if row["row_id"] != row_id]
     if len(rows) == len(current["rows"]):
         raise HTTPException(404, "记录不存在")
-    metadata = current["metadata"]
-    metadata["updated"] = utc_now()
-    relative = month_path(vault_dir, dataset, month)
-    path = safe_note_path(Path(vault_dir), relative)
-    loaded = load_note(path)
-    guarded_write(loaded, _render(metadata, item["columns"], rows))
-    return read_month(vault_dir, dataset, month)
+    return _write_rows(vault_dir, dataset, month, rows,
+                       current.get("metadata"), current.get("revision", ""))
+
+
+def restore_row(vault_dir: Path | str, dataset: str, month: str, values: dict[str, Any],
+                row_id: str, position: int | None = None) -> dict[str, Any]:
+    """撤销删除：按原 row_id 与可选位置放回月度表，不生成新身份。"""
+    item = _dataset(dataset)
+    month = _month(month)
+    row_id = str(row_id or "")
+    if not ROW_RE.fullmatch(row_id):
+        raise HTTPException(422, "row_id 格式不正确")
+    current = read_month(vault_dir, dataset, month)
+    rows = [dict(row) for row in current["rows"]]
+    if any(row.get("row_id") == row_id for row in rows):
+        raise HTTPException(409, "这条记录已经存在，不需要恢复")
+    target = {"row_id": row_id}
+    for key, _label in item["columns"]:
+        if key == "row_id":
+            continue
+        if key in values and values[key] is not None:
+            target[key] = _clean(values[key])
+    if not target.get("date"):
+        raise HTTPException(422, "日期不能为空")
+    index = len(rows)
+    if position is not None:
+        try:
+            index = max(0, min(int(position), len(rows)))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "恢复位置不正确")
+    rows.insert(index, target)
+    return _write_rows(vault_dir, dataset, month, rows,
+                       current.get("metadata"), current.get("revision", ""))
 
 
 def summary(vault_dir: Path | str, dataset: str, months: int = 12) -> dict[str, Any]:
@@ -189,4 +223,5 @@ def summary(vault_dir: Path | str, dataset: str, months: int = 12) -> dict[str, 
     return {"dataset": dataset, "months": found, "columns": item["columns"]}
 
 
-__all__ = ["DATASETS", "month_path", "read_month", "upsert_row", "delete_row", "summary"]
+__all__ = ["DATASETS", "month_path", "read_month", "upsert_row", "delete_row",
+           "restore_row", "summary"]

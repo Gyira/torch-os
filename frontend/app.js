@@ -16,7 +16,8 @@ import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
-import { initGlobalSearchShortcut, openGlobalSearch } from "./global-search.js";
+import { openGlobalSearch } from "./global-search.js";
+import { initKeyboardShortcuts } from "./shortcuts.js";
 
 const titles = NAV_LABELS;
 
@@ -97,7 +98,7 @@ function renderPanelNav() {
   help.className = "panel-nav-help";
   help.textContent = "?";
   help.setAttribute("aria-label", "打开帮助");
-  help.title = "打开帮助：四库怎么用、快捷键与迁移";
+  help.title = "打开帮助：四库怎么用、数据边界与快捷键（按 ? 打开快捷键总览）";
   help.addEventListener("click", () => { goTo("help"); });
   nav.appendChild(help);
   const search = document.createElement("button");
@@ -314,7 +315,8 @@ function runModuleLoaders(view, visiblePanes) {
 }
 
 initSettings(); initJournal(); initJournalNote(); initInbox();
-initWorkbench(); initPillars(); initGlobalSearchShortcut();
+initWorkbench(); initPillars();
+initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
 initHelp();
 initVaultConnection();

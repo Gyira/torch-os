@@ -152,6 +152,8 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.wait_for("location.hash === '#life'")
             report["help_hidden_outside_settings"] = await cdp.evaluate(
                 "document.querySelector('#help-view')?.offsetParent === null")
+            undo_note = f"QA 撤销探针 {time.time_ns()}"
+            undo_note_literal = json.dumps(undo_note, ensure_ascii=False)
             for view in ("life", "self", "ops", "knowledge"):
                 await cdp.evaluate(f"document.querySelector('.panel-nav-item[data-view=\"{view}\"]').click()")
                 await cdp.wait_for(
@@ -200,6 +202,38 @@ async def run(base_url: str, output: Path, port: int,
                     report["ops_quick_focus"] = await cdp.evaluate(
                         "document.activeElement?.getAttribute('name') || document.activeElement?.tagName || ''")
                     await cdp.screenshot(output / "ops-health.png")
+                    # 删除 → 危险色确认 → 撤销：真实写入 QA 月度表后按原 row_id 放回。
+                    await cdp.evaluate("""(() => {
+                        const form = document.querySelector('#ops-view [data-ops-form="health"]');
+                        form.querySelector('[name="weight_kg"]').value = '66.6';
+                        form.querySelector('[name="note"]').value = __NOTE__;
+                        form.requestSubmit();
+                    })()""".replace("__NOTE__", undo_note_literal))
+                    row_has_note = ("Array.from(document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr'))"
+                                    ".some((tr) => tr.textContent.includes(__NOTE__))")
+                    await cdp.wait_for(row_has_note.replace("__NOTE__", undo_note_literal))
+                    report["ops_rows_before_delete"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
+                    await cdp.evaluate("""(() => {
+                        const row = Array.from(document.querySelectorAll('#ops-view [data-ops-table="health"] tbody tr'))
+                            .find((tr) => tr.textContent.includes(__NOTE__));
+                        row?.querySelector('[data-ops-delete]')?.click();
+                    })()""".replace("__NOTE__", undo_note_literal))
+                    await cdp.wait_for("document.querySelector('#confirm-dialog[open]')")
+                    report["ops_delete_confirm_danger"] = await cdp.evaluate(
+                        "document.querySelector('#confirm-accept')?.classList.contains('danger') || false")
+                    await cdp.evaluate("document.querySelector('#confirm-accept')?.click()")
+                    await cdp.wait_for(f"!({row_has_note.replace('__NOTE__', undo_note_literal)})")
+                    report["ops_rows_after_delete"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
+                    await cdp.wait_for("document.querySelector('#toast.show .toast-action')")
+                    report["ops_undo_prompt"] = await cdp.evaluate(
+                        "document.querySelector('#toast.show .toast-action')?.textContent || ''")
+                    await cdp.screenshot(output / "ops-delete-undo.png")
+                    await cdp.evaluate("document.querySelector('#toast.show .toast-action')?.click()")
+                    await cdp.wait_for(row_has_note.replace("__NOTE__", undo_note_literal))
+                    report["ops_undo_restored"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
             # 薪火管家抽屉：提案 → 健康检查 → 本地问答（不执行任何提案）。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view [data-steward-open]')")
@@ -336,7 +370,41 @@ async def run(base_url: str, output: Path, port: int,
                 results: document.querySelectorAll('[data-global-note]').length,
                 status: document.querySelector('[data-global-status]')?.textContent || '',
             }))()""")
-            report["ok"] = all(item["chapters"] > 0 for item in report["views"].values())
+            await cdp.evaluate("document.querySelector('.pillar-search-dialog [data-search-close]')?.click()")
+            # 快捷键总览：? 打开，包含分组与条目；关闭后能用 g 组合键与 n 快速记录。
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.shortcut-dialog')")
+            report["shortcut_sheet"] = await cdp.evaluate("""(() => ({
+                groups: document.querySelectorAll('.shortcut-dialog .shortcut-group').length,
+                rows: document.querySelectorAll('.shortcut-dialog .shortcut-row').length,
+                text: document.querySelector('.shortcut-dialog')?.textContent?.slice(0, 80) || '',
+            }))()""")
+            await cdp.screenshot(output / "shortcut-sheet.png")
+            await cdp.evaluate("document.querySelector('.shortcut-dialog [data-shortcut-close]')?.click()")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true }))")
+            await cdp.wait_for("location.hash === '#life'")
+            report["chord_nav"] = await cdp.evaluate("location.hash")
+            await cdp.wait_for("document.querySelector('#life-view [data-pillar-capture]')")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.pillar-capture-dialog')")
+            report["shortcut_capture"] = await cdp.evaluate("Boolean(document.querySelector('.pillar-capture-dialog'))")
+            await cdp.evaluate("document.querySelector('.pillar-capture-dialog [data-capture-close]')?.click()")
+            # 方向键：设置侧栏移动焦点，Enter 才切换分区。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"settings\"]').click()")
+            await cdp.wait_for("location.hash === '#settings'")
+            await cdp.evaluate("document.querySelector('[data-settings-nav=\"status\"]').focus()")
+            await cdp.evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))")
+            report["arrow_nav"] = await cdp.evaluate("document.activeElement?.dataset?.settingsNav || ''")
+            report["ok"] = (all(item["chapters"] > 0 for item in report["views"].values())
+                            and report["shortcut_sheet"]["rows"] >= 10
+                            and report["chord_nav"] == "#life"
+                            and report["shortcut_capture"] is True
+                            and report["arrow_nav"] == "model"
+                            and report["ops_delete_confirm_danger"] is True
+                            and report["ops_undo_prompt"] == "撤销"
+                            and report["ops_rows_after_delete"] == report["ops_rows_before_delete"] - 1
+                            and report["ops_undo_restored"] == report["ops_rows_before_delete"])
             (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                                 encoding="utf-8")
             return report

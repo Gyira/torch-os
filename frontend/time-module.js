@@ -70,8 +70,12 @@ export function initTimeModule() {
   paintBulkBar();
   initTrashPage();
 
-  // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限
+  // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限。
+  // 这是一组 tab：只有当前页在 Tab 顺序里，左右/上下键由 shortcuts.js 移动并切换。
   for (const button of document.querySelectorAll("[data-time-page]")) {
+    const active = button.classList.contains("is-active");
+    button.tabIndex = active ? 0 : -1;
+    button.setAttribute("aria-selected", String(active));
     button.addEventListener("click", () => switchPage(button.dataset.timePage));
   }
   // 添加栏
@@ -238,6 +242,7 @@ export function switchPage(next) {
     const active = button.dataset.timePage === next;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
   }
   $("#time-sidebar").hidden = next !== "tasks";
   $("#time-tasks-page").hidden = next !== "tasks";
@@ -603,6 +608,7 @@ function listAction(action, entry) {
       title: `删除清单「${entry.name}」？`,
       message: "新任务笔记会移到当前库的 .torch-os/task-trash（清单定义与原任务文件同时备份）；"
         + "这个清单里的旧任务行也会从 任务（tasks）.md 移除。可在文件系统回收站里找回。",
+      danger: true,
       onConfirm: async () => {
         if (viewState.selection?.list === entry.name) selectView({ view: "today" });
         await post("/api/time/lists/delete", { name: entry.name }, "清单已删除。");

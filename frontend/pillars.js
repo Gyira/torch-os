@@ -140,7 +140,7 @@ function renderShell(view) {
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
         <button type="button" class="button secondary" data-steward-open="${view}" title="提案、健康检查与问答">管家</button>
-        <button type="button" class="button primary" data-pillar-capture="${view}">＋ 记一条</button>
+        <button type="button" class="button primary" data-pillar-capture="${view}" title="记一条（按 N）" aria-keyshortcuts="N">＋ 记一条</button>
       </div>
     </header>
     <div class="pillar-layout">
@@ -315,6 +315,7 @@ function bindPillarEvents() {
     const chapter = event.target.closest?.("[data-pillar-chapter]");
     if (chapter) {
       const view = chapter.dataset.pillarChapter;
+      const fromRail = chapter.classList?.contains("pillar-rail-item");
       state.chapter[view] = chapter.dataset.chapter || "";
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
@@ -325,6 +326,11 @@ function bindPillarEvents() {
           state.notes[view] = state.overviews[view]?.recent || [];
         }
         renderShell(view);
+        // 章节轨会被整块重绘：从键盘切章节后把焦点放回新的当前项，
+        // 否则用户下一次按 Tab 会从页面开头重新开始。
+        if (fromRail) {
+          document.querySelector(`#${view}-view .pillar-rail-item.is-active`)?.focus?.({ preventScroll: true });
+        }
       } catch (error) {
         toast(error.message, "error");
       }

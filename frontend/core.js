@@ -31,13 +31,58 @@ export async function api(path, options = {}) {
   } finally { window.clearTimeout(timer); }
 }
 
-export function toast(message, tone = "info") {
+/**
+ * 右下角状态提示。第三个参数可带一个按钮（用于“撤销”）：
+ * { label, onAction, timeout, errorMessage }。动作执行前先收起本条提示，
+ * 这样动作里再弹“已恢复”不会立刻被旧计时器或收尾逻辑盖掉。
+ */
+export function toast(message, tone = "info", action = null) {
   const node = $("#toast");
-  node.textContent = message;
+  if (!node) return;
+  // 真实 DOM 里可以拼文字 + 撤销按钮；极简的测试替身只实现了 textContent。
+  const canCompose = typeof node.append === "function" && typeof document.createElement === "function";
+  const hasAction = canCompose && Boolean(action?.label && typeof action.onAction === "function");
+  if (canCompose) {
+    node.replaceChildren?.();
+    const text = document.createElement("span");
+    text.className = "toast-message";
+    text.textContent = message;
+    node.append(text);
+    if (hasAction) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "toast-action";
+      button.textContent = action.label;
+      button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        hideToast();
+        try {
+          await action.onAction();
+        } catch (error) {
+          toast(`${action.errorMessage || "操作失败"}：${error.message}`, "error");
+        }
+      });
+      node.append(button);
+    }
+  } else {
+    node.textContent = message;
+  }
+  node.classList.toggle("has-action", hasAction);
   node.dataset.tone = tone;
   node.classList.add("show");
   window.clearTimeout(toast.timer);
-  toast.timer = window.setTimeout(() => node.classList.remove("show"), 5000);
+  const timeout = Number(action?.timeout) > 0 ? Number(action.timeout) : 5000;
+  toast.timer = window.setTimeout(hideToast, timeout);
+}
+
+function hideToast() {
+  const node = $("#toast");
+  if (!node) return;
+  window.clearTimeout(toast.timer);
+  toast.timer = 0;
+  node.classList.remove("show");
+  node.classList.remove("has-action");
 }
 
 export function setStatus(selector, message, tone = "neutral") {
@@ -106,12 +151,16 @@ export function openDialog(title, html) {
 let activeConfirmation = null;
 
 /** An explicit, cancellable in-page prompt. A second request never shares consent. */
-export function confirmAction({ title = "请确认", message, confirmLabel = "继续", cancelLabel = "取消", trigger = document.activeElement }) {
+export function confirmAction({ title = "请确认", message, confirmLabel = "继续", cancelLabel = "取消",
+  danger = false, trigger = document.activeElement }) {
   if (activeConfirmation) return Promise.resolve(false);
   const dialog = $("#confirm-dialog");
   $("#confirm-title").textContent = title;
   $("#confirm-message").textContent = message;
-  $("#confirm-accept").textContent = confirmLabel;
+  const accept = $("#confirm-accept");
+  accept.textContent = confirmLabel;
+  accept.classList.toggle("danger", Boolean(danger));
+  accept.classList.toggle("primary", !danger);
   $("#confirm-cancel").textContent = cancelLabel;
   dialog.returnValue = "cancel";
   return new Promise((resolve) => {

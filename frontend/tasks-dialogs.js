@@ -105,7 +105,7 @@ function field({ type, name, label, value = "", options = [], placeholder = "" }
 }
 
 /** 通用小弹窗：title + 若干字段 + 提交/取消。提交回调返回 false 表示不关窗（比如校验失败）。 */
-export function formDialog({ title, fields = [], submitLabel = "保存", hint = "", onSubmit }) {
+export function formDialog({ title, fields = [], submitLabel = "保存", hint = "", danger = false, onSubmit }) {
   const dialog = document.createElement("dialog");
   dialog.className = "time-dialog";
   const form = document.createElement("form");
@@ -133,7 +133,7 @@ export function formDialog({ title, fields = [], submitLabel = "保存", hint = 
   cancel.textContent = "取消";
   const submit = document.createElement("button");
   submit.type = "submit";
-  submit.className = "button primary";
+  submit.className = danger ? "button danger" : "button primary";
   submit.textContent = submitLabel;
   footer.append(status, cancel, submit);
   form.append(heading, body, footer);
@@ -283,11 +283,12 @@ export function openQuickAdd({ day = "", time = "", lists = [], onSave }) {
 }
 
 /** 二次确认（删除清单/标签/文件夹、解散文件夹）：照滴答的「关闭 / 删除」两键。 */
-export function confirmDialog({ title, message, confirmLabel = "删除", onConfirm }) {
+export function confirmDialog({ title, message, confirmLabel = "删除", danger = false, onConfirm }) {
   return formDialog({
     title,
     submitLabel: confirmLabel,
     hint: message,
+    danger,
     fields: [],
     onSubmit: async () => onConfirm(),
   });

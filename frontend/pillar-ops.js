@@ -6,6 +6,20 @@ const DATASETS = {
   finance: { title: "财富与记账", accent: "var(--p-pillar-ops)" },
 };
 
+// 删除前的整行快照 + 原位置，用于右下角“撤销”。只在本次页面会话里保留；
+// 撤销成功后后端按原 row_id 写回，不会生成第二行。
+const rowSnapshots = new Map();
+const snapshotKey = (dataset, month, rowId) => `${dataset}:${month}:${rowId}`;
+
+function rememberRows(dataset, month, rows) {
+  rows.forEach((row, position) => {
+    if (!row.row_id) return;
+    rowSnapshots.set(snapshotKey(dataset, month, row.row_id), {
+      row: { ...row }, position, month,
+    });
+  });
+}
+
 function monthNow() {
   const now = new Date();
   const offset = new Date(now.getTime() + (now.getTimezoneOffset() + 480) * 60000);
@@ -56,7 +70,9 @@ async function renderHealth(host, dataset, month) {
   const months = summary.months || [];
   const current = months.find((item) => item.month === month) || months[0] || { month, rows: [] };
   const selected = current.month || month;
+  host.dataset.month = selected;
   const rows = current.rows || [];
+  rememberRows("health", selected, rows);
   const weights = rows.map((row) => Number(row.weight_kg)).filter((value) => Number.isFinite(value));
   host.innerHTML = `<section class="pillar-ops-card">
     <div class="pillar-ops-head">
@@ -93,7 +109,9 @@ async function renderFinance(host, dataset, month) {
   const months = summary.months || [];
   const current = months.find((item) => item.month === month) || months[0] || { month, rows: [] };
   const selected = current.month || month;
+  host.dataset.month = selected;
   const rows = current.rows || [];
+  rememberRows("finance", selected, rows);
   const totals = financeTotals(rows);
   host.innerHTML = `<section class="pillar-ops-card">
     <div class="pillar-ops-head">
@@ -192,18 +210,38 @@ export function bindOpsEvents() {
     if (remove) {
       const confirmed = await confirmAction({
         title: "删除这条记录？",
-        message: "记录会从月度 Markdown 表里移除，不能撤销。",
+        message: "记录会从月度 Markdown 表里移除。删除后 15 秒内可以点右下角的“撤销”放回原位置。",
         confirmLabel: "删除",
         cancelLabel: "保留",
+        danger: true,
         trigger: remove,
       });
       if (!confirmed) return;
       const dataset = remove.dataset.opsDelete;
+      const rowId = remove.dataset.rowId;
       const host = remove.closest("[data-ops-table]");
       const month = host?.dataset.month || monthNow();
+      const snapshot = rowSnapshots.get(snapshotKey(dataset, month, rowId));
       try {
-        await api(`/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(remove.dataset.rowId)}`, { method: "DELETE" });
+        await api(`/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(rowId)}`, { method: "DELETE" });
         await mountOps("ops");
+        if (!snapshot) {
+          toast("已删除这条记录。", "success");
+          return;
+        }
+        toast("已删除这条记录。", "success", {
+          label: "撤销",
+          timeout: 15000,
+          errorMessage: "撤销失败",
+          onAction: async () => {
+            await api(`/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(rowId)}/restore?position=${snapshot.position}`, {
+              method: "POST",
+              body: JSON.stringify(snapshot.row),
+            });
+            await mountOps("ops");
+            toast("已恢复这条记录。", "success");
+          },
+        });
       } catch (error) {
         toast(error.message, "error");
       }

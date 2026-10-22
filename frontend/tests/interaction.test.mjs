@@ -913,3 +913,55 @@ test("standalone pages use the top module navigation instead of the outer sideba
   assert.deepEqual(byClass(main, "panel-nav-item").map((node) => node.dataset.view),
     ["workbench", "life", "self", "ops", "knowledge", "settings"]);
 });
+
+test("destructive confirmations opt into the danger style and reset for the next prompt", async () => {
+  const { core, getNode } = await harness();
+  const first = core.confirmAction({ message: "彻底删除", danger: true });
+  assert.equal(getNode("#confirm-accept").classList.contains("danger"), true);
+  assert.equal(getNode("#confirm-accept").classList.contains("primary"), false);
+  await getNode("#confirm-cancel").emit("click");
+  assert.equal(await first, false);
+
+  const second = core.confirmAction({ message: "普通确认" });
+  assert.equal(getNode("#confirm-accept").classList.contains("danger"), false);
+  assert.equal(getNode("#confirm-accept").classList.contains("primary"), true);
+  await getNode("#confirm-accept").emit("click");
+  assert.equal(await second, true);
+});
+
+test("a toast action runs once, hides itself and leaves the follow-up toast", async () => {
+  const { core, getNode } = await harness();
+  const toastNode = getNode("#toast");
+  let calls = 0;
+  core.toast("已删除这条记录。", "success", {
+    label: "撤销",
+    timeout: 15000,
+    onAction: async () => {
+      calls += 1;
+      core.toast("已恢复这条记录。", "success");
+    },
+  });
+  assert.equal(toastNode.classList.contains("has-action"), true);
+  const button = toastNode.children.find((node) => node.className === "toast-action");
+  assert.ok(button, "undo toast exposes an action button");
+  await button.emit("click");
+  assert.equal(calls, 1);
+  assert.equal(toastNode.children[0].textContent, "已恢复这条记录。");
+  assert.equal(toastNode.classList.contains("has-action"), false);
+});
+
+test("the task-list delete confirmation can opt into the danger style", async () => {
+  const { load } = await harness();
+  const dialogs = (await load("tasks-dialogs.js")).namespace;
+  const dialog = dialogs.confirmDialog({ title: "删除清单", message: "会移入回收站", danger: true, onConfirm: () => {} });
+  const form = dialog.children[0];
+  const footer = form.children.find((child) => child.className === "form-actions");
+  const submit = footer.children.find((child) => child.type === "submit");
+  assert.equal(hasClass(submit, "danger"), true);
+  assert.equal(hasClass(submit, "primary"), false);
+  const plain = dialogs.confirmDialog({ title: "解散文件夹", message: "清单和任务都不删", onConfirm: () => {} });
+  const plainFooter = plain.children[0].children.find((child) => child.className === "form-actions");
+  const plainSubmit = plainFooter.children.find((child) => child.type === "submit");
+  assert.equal(hasClass(plainSubmit, "primary"), true);
+  assert.equal(hasClass(plainSubmit, "danger"), false);
+});

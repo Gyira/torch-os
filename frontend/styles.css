@@ -1245,3 +1245,29 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .time-main, .time-page { flex: 1 1 100%; order: 1; padding: 12px; }
   .time-head { flex-wrap: wrap; gap: 8px; }
 }
+
+/* 键盘快捷键总览与 G 组合键提示（2026-10-22）。 */
+.shortcut-dialog { overflow-y: auto; }
+.shortcut-sheet-body { padding: 16px 22px 6px; }
+.shortcut-group { margin: 0 0 18px; }
+.shortcut-group h3 { margin: 0 0 6px; font-size: 13px; letter-spacing: .04em; color: var(--p-ink-2); }
+.shortcut-list { display: grid; gap: 2px; margin: 0; padding: 0; }
+.shortcut-row { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(0, 1.8fr); gap: 14px; align-items: baseline; padding: 8px 0; border-bottom: 1px dashed var(--p-line); }
+.shortcut-row:last-child { border-bottom: 0; }
+.shortcut-row dt { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--p-ink-2); font-size: 12px; }
+.shortcut-row dd { margin: 0; color: var(--p-ink-3); font-size: 13px; line-height: 1.6; }
+.shortcut-row kbd, .shortcut-chord-hint kbd { min-width: 22px; padding: 2px 6px; border: 1px solid var(--p-line-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--p-surface-2); color: var(--p-ink-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; text-align: center; }
+.shortcut-chord-hint { position: fixed; left: 50%; bottom: 22px; z-index: 31; transform: translateX(-50%); padding: 8px 14px; border: 1px solid var(--p-line-strong); border-radius: 999px; background: var(--p-surface); color: var(--p-ink-2); font-size: 12px; box-shadow: 0 8px 24px var(--p-shadow); pointer-events: none; }
+@media (max-width: 600px) {
+  .shortcut-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .shortcut-chord-hint { bottom: 76px; max-width: calc(100vw - 24px); text-align: center; }
+}
+
+/* 危险操作确认按钮与可撤销 toast（2026-10-22）。 */
+.button.danger { background: var(--p-err-soft); color: var(--p-err-ink); border-color: var(--p-err-line); }
+.button.danger:hover { background: var(--p-err-line); }
+.toast { display: flex; align-items: center; gap: 10px; }
+.toast.has-action { pointer-events: auto; }
+.toast-message { min-width: 0; }
+.toast-action { flex-shrink: 0; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.toast-action:hover { background: var(--p-hover); }
