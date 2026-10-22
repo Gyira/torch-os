@@ -11,7 +11,7 @@ const deletedModules = [
   "identity.js", "profile.js", "memories.js", "memory-text.js", "goals.js",
   "task-view.js", "bazi.js", "body-records.js", "habits.js", "imports.js",
   "share-import.js", "library.js", "second-brain.js", "journal-review.js",
-  "vault-audit.js",
+  "journal-calendar.js", "vault-audit.js",
 ];
 
 const retiredEndpoints = [
