@@ -521,6 +521,29 @@ function bindPillarEvents() {
   });
 }
 
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to the legacy path */ }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
 export function openNote(path) {
   const trigger = document.activeElement;
   Promise.all([
@@ -542,6 +565,7 @@ export function openNote(path) {
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
     const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
     const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
+    const wikiLink = `[[${note.path.replace(/\.md$/i, "")}|${String(displayTitle).replace(/\|/g, "｜")}]]`;
     const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
     dialog.innerHTML = `
       <div class="pillar-dialog-head">
@@ -566,6 +590,14 @@ export function openNote(path) {
         <p class="eyebrow">反向链接</p>
         ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
       </section>` : ""}
+      <section class="pillar-note-tags">
+        <p class="eyebrow">标签</p>
+        <div class="pillar-tag-list" data-tag-list></div>
+        <form class="pillar-tag-form" data-tag-form>
+          <input name="tag" maxlength="32" placeholder="添加标签，回车保存" aria-label="添加标签">
+          <button type="submit" class="small-button">添加</button>
+        </form>
+      </section>
       <div class="pillar-dialog-foot">
         <div class="pillar-note-actions">
           <select data-note-target aria-label="移动到章节">
@@ -573,8 +605,9 @@ export function openNote(path) {
           </select>
           <button type="button" class="button secondary" data-move-note>移动</button>
           <button type="button" class="button secondary" data-open-note>在 Obsidian 打开</button>
+          <button type="button" class="small-button" data-copy-wikilink title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
+          <button type="button" class="small-button" data-copy-path>复制路径</button>
         </div>
-        ${note.tags?.length ? `<span class="meta">${note.tags.map((tag) => `#${escapeHtml(tag)}`).join(" ")}</span>` : ""}
       </div>`;
     document.body.append(dialog);
     const close = () => {
@@ -584,8 +617,68 @@ export function openNote(path) {
     };
     dialog.querySelector("[data-close-note]")?.addEventListener("click", close);
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
+    note.tags = Array.isArray(note.tags) ? note.tags : [];
+    const tagList = dialog.querySelector("[data-tag-list]");
+    const tagForm = dialog.querySelector("[data-tag-form]");
+    let tagSaving = false;
+    const renderTags = () => {
+      tagList.innerHTML = note.tags.length
+        ? note.tags.map((tag) => `<span class="pillar-tag">#${escapeHtml(tag)}<button type="button" data-remove-tag="${escapeHtml(tag)}" aria-label="移除标签 ${escapeHtml(tag)}" title="移除标签">×</button></span>`).join("")
+        : `<span class="field-help">还没有标签。</span>`;
+    };
+    const saveTags = async (nextTags) => {
+      if (tagSaving) return;
+      tagSaving = true;
+      const input = tagForm.querySelector('input[name="tag"]');
+      const button = tagForm.querySelector('button[type="submit"]');
+      if (input) input.disabled = true;
+      if (button) button.disabled = true;
+      try {
+        const updated = await api(`/api/notes/update?path=${encodeURIComponent(note.path)}`, {
+          method: "POST",
+          body: JSON.stringify({ tags: nextTags }),
+        });
+        note.tags = Array.isArray(updated.tags) ? updated.tags : [];
+        renderTags();
+        toast("标签已更新。");
+        loadPillar(note.pillar, { keepChapter: true }).catch(() => {});
+      } catch (error) {
+        toast(error.message, "error");
+      } finally {
+        tagSaving = false;
+        if (input) input.disabled = false;
+        if (button) button.disabled = false;
+      }
+    };
+    renderTags();
+    tagForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (tagSaving) return;
+      const input = tagForm.querySelector('input[name="tag"]');
+      const additions = String(input?.value || "").split(/[,，]/)
+        .map((item) => item.trim().replace(/^#/, ""))
+        .filter(Boolean);
+      if (!additions.length) return;
+      const next = [...note.tags];
+      for (const tag of additions) if (!next.includes(tag)) next.push(tag);
+      input.value = "";
+      await saveTags(next);
+    });
+    tagList.addEventListener("click", async (event) => {
+      const remove = event.target.closest?.("[data-remove-tag]");
+      if (!remove || tagSaving) return;
+      await saveTags(note.tags.filter((tag) => tag !== remove.dataset.removeTag));
+    });
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
+    });
+    dialog.querySelector("[data-copy-wikilink]")?.addEventListener("click", async () => {
+      const copied = await copyText(wikiLink);
+      toast(copied ? "已复制双链，可直接粘贴到 Obsidian。" : "复制失败，请手动复制路径。", copied ? "info" : "warning");
+    });
+    dialog.querySelector("[data-copy-path]")?.addEventListener("click", async () => {
+      const copied = await copyText(note.path);
+      toast(copied ? "已复制路径。" : "复制失败，请手动选择路径。", copied ? "info" : "warning");
     });
     dialog.querySelectorAll("[data-open-linked-task]").forEach((button) => {
       button.addEventListener("click", () => {

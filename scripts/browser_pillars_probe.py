@@ -357,6 +357,27 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
             report["search_enter_opened"] = await cdp.evaluate(
                 "document.querySelector('.pillar-note-dialog h2')?.textContent || ''")
+            report["note_actions"] = await cdp.evaluate("""(() => ({
+                copy_wikilink: Boolean(document.querySelector('.pillar-note-dialog [data-copy-wikilink]')),
+                copy_path: Boolean(document.querySelector('.pillar-note-dialog [data-copy-path]')),
+                tag_form: Boolean(document.querySelector('.pillar-note-dialog [data-tag-form]')),
+            }))()""")
+            await cdp.evaluate("""(() => {
+                const form = document.querySelector('.pillar-note-dialog [data-tag-form]');
+                form.querySelector('input[name="tag"]').value = 'QA标签';
+                form.requestSubmit();
+            })()""")
+            await cdp.wait_for(
+                "Array.from(document.querySelectorAll('.pillar-note-dialog .pillar-tag')).some((node) => node.textContent.includes('QA标签'))",
+                timeout=20)
+            report["note_tag_added"] = await cdp.evaluate(
+                "Array.from(document.querySelectorAll('.pillar-note-dialog .pillar-tag')).map((node) => node.textContent.replace('×', '').trim())")
+            await cdp.screenshot(output / "note-detail-tags.png")
+            await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-remove-tag=\"QA标签\"]')?.click()")
+            await cdp.wait_for(
+                "!Array.from(document.querySelectorAll('.pillar-note-dialog .pillar-tag')).some((node) => node.textContent.includes('QA标签'))",
+                timeout=20)
+            report["note_tag_removed"] = True
             await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")

@@ -1050,9 +1050,19 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; border-top: 1px solid var(--p-line); }
 .pillar-backlinks { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 22px 14px; border-top: 1px solid var(--p-line-faint); }
 .pillar-backlinks .eyebrow { flex: 0 0 100%; margin: 0 0 2px; }
-.pillar-note-actions { display: flex; align-items: center; gap: 8px; }
+.pillar-note-dialog { overflow-y: auto; }
+.pillar-note-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pillar-note-tags { padding: 10px 22px 12px; border-top: 1px solid var(--p-line-faint); }
+.pillar-note-tags .eyebrow { margin: 0 0 6px; }
+.pillar-tag-list { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+.pillar-tag-list .field-help { margin: 0; }
+.pillar-tag { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface-2); color: var(--p-ink-2); padding: 3px 8px; font-size: 12px; }
+.pillar-tag button { border: 0; background: transparent; color: var(--p-ink-5); padding: 0; font-size: 14px; line-height: 1; cursor: pointer; }
+.pillar-tag button:hover { color: var(--p-err-ink); }
+.pillar-tag-form { display: flex; gap: 6px; margin-top: 8px; }
+.pillar-tag-form input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 12px; }
 .pillar-note-actions select { padding: 6px 9px; border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 12px; }
-.pillar-note-body { padding: 18px 22px; line-height: 1.75; max-height: 58vh; overflow: auto; }
+.pillar-note-body { padding: 18px 22px; line-height: 1.75; max-height: 52vh; overflow: auto; }
 .pillar-note-body h1, .pillar-note-body h2, .pillar-note-body h3 { font-family: var(--p-font-display); color: var(--p-ink-strong); margin: 1.1em 0 .45em; }
 .pillar-note-body p { margin: .6em 0; }
 .pillar-note-body pre { background: var(--p-surface-2); border: 1px solid var(--p-line); border-radius: 10px; padding: 12px; overflow: auto; }
