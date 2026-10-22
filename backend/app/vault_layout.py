@@ -1,7 +1,7 @@
 """四库布局的唯一路径与索引策略来源（2026-10-21 重设计）。
 
 - 四个用户库：00_人生路 / 01_自我档案 / 02_生活运营 / 03_知识库；
-- 00-System 是工作台系统区，不属于四库，也不允许四库页面写入；
+- 工作台任务与待办在 `00_人生路/08_任务与待办`；旧 00-System 只做只读兜底；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
 
 所有路径都以创建目录（Vault 根）为基准，使用 POSIX 相对路径字符串，
@@ -37,6 +37,7 @@ PILLAR_ORDER = ("life", "self", "ops", "knowledge")
 CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     # 00_人生路
     ("journal", "life", "日记", "00_人生路/01_日记", "journal"),
+    ("task", "life", "任务与待办", "00_人生路/08_任务与待办", "task"),
     ("reflection", "life", "反思", "00_人生路/02_反思", "reflection"),
     ("insight_life", "life", "生活心得", "00_人生路/03_心得体会/01_生活心得", "insight"),
     ("insight_work", "life", "工作心得", "00_人生路/03_心得体会/02_工作心得", "insight"),
@@ -92,6 +93,7 @@ SKIP_DIRECTORIES = {
     ".obsidian", ".git", ".trash", ".claude", ".claudian", ".torch-os",
     "00-system", "99-templates", "templates", "relationship", "relationships",
     "relationship-vault", "relationship vault", "generated", "_附件",
+    "_旧版", "_系统", "_模板",
 }
 SKIP_FILES = {name.casefold() for name in FOREIGN_FILES}
 MEMORY_PILLARS = {"self"}
@@ -208,7 +210,7 @@ def safe_note_stem(title: str, *, fallback: str = "未命名") -> str:
 
 
 def validate_target(relpath: str) -> str:
-    """只允许写进四库章节；00-System 由工作台专用接口管理。"""
+    """只允许写进四库章节；任务章节由工作台专用接口管理，旧 00-System 不再写入。"""
     text = normalize_relpath(relpath)
     if not text or not pillar_of(text):
         raise ValueError("目标必须是四库章节内的路径")

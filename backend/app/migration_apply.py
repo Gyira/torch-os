@@ -221,7 +221,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
             "layout": vault_layout.layout_status(vault),
         }
         _write_json(run_dir / "report.json", report)
-        report_dir = vault / vault_layout.SYSTEM_DIR / "迁移记录"
+        report_dir = (vault / vault_layout.chapter_dir("task") / "_系统" / "迁移记录")
         report_dir.mkdir(parents=True, exist_ok=True)
         (report_dir / f"{run_id}.md").write_text(
             plan_markdown(plan) + "\n\n## 结果\n\n```json\n"

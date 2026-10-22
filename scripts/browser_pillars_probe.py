@@ -228,6 +228,24 @@ async def run(base_url: str, output: Path, port: int,
                         await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
                     else:
                         report["life_week_click"] = None
+                    task_chapter = await cdp.evaluate("Boolean(document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"task\"]'))")
+                    if task_chapter:
+                        await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"task\"]').click()")
+                        await cdp.wait_for(
+                            "document.querySelector('#life-view .pillar-content-head h3')?.textContent === '任务与待办'",
+                            timeout=20)
+                        await cdp.wait_for("document.querySelectorAll('#life-view .pillar-note-row[data-note-path]').length > 0", timeout=20)
+                        report["task_chapter_rows"] = await cdp.evaluate(
+                            "document.querySelectorAll('#life-view .pillar-note-row[data-note-path]').length")
+                        await cdp.screenshot(output / "task-chapter.png")
+                        await cdp.evaluate("document.querySelector('#life-view .pillar-note-row[data-note-path]').click()")
+                        await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                        report["task_note_guard"] = await cdp.evaluate("""(() => ({
+                            has_move: Boolean(document.querySelector('.pillar-note-dialog [data-note-target]')),
+                            has_tag_form: Boolean(document.querySelector('.pillar-note-dialog [data-tag-form]')),
+                            managed_hint: (document.querySelector('.pillar-note-dialog')?.textContent || '').includes('任务由工作台管理'),
+                        }))()""")
+                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
                     await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
                     await cdp.wait_for("document.querySelector('#life-view [data-habit-panel]')")
                     await asyncio.sleep(0.6)

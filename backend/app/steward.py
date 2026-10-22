@@ -2,7 +2,7 @@
 
 边界：
 - 管家只生成提案，不自动移动、不自动新建；执行接口必须收到 confirm=true。
-- 健康检查只读四库，不碰 00-System、Apex dashboard 与附件。
+- 健康检查只读四库散文笔记；任务/待办章节与 Apex dashboard、附件不在检查范围。
 - 问答默认只用本地检索；只有用户显式勾选“使用云端模型”才会把相关笔记片段
   发送给已配置的模型，模型不可用时退回本地摘录。
 - 审计只记录提案 id、动作、路径与结果，不记录正文。
@@ -182,6 +182,9 @@ def health_check(vault_dir: Path | str, *, limit: int = MAX_HEALTH_ITEMS) -> dic
 
     for note in notes:
         path = note["path"]
+        # 任务与待办由工作台维护：空正文是正常的，不按散文笔记做健康检查。
+        if note.get("chapter") == "task":
+            continue
         title = note.get("title", "")
         raw = note.get("raw_metadata") or {}
         body = str(note.get("body") or "").strip()
@@ -253,7 +256,7 @@ def health_check(vault_dir: Path | str, *, limit: int = MAX_HEALTH_ITEMS) -> dic
         "items": items,
         "truncated": total_items > len(items),
         "generated_at": utc_now(),
-        "note": "只检查四库笔记的元数据、空笔记、收件箱积压、重复标题与断链；不读取 00-System。",
+        "note": "只检查四库散文笔记的元数据、空笔记、收件箱积压、重复标题与断链；任务与待办由工作台单独维护。",
     }
 
 

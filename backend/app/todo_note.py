@@ -1,16 +1,15 @@
-"""Markdown-first todos: `00-System/待办（todos）.md` is the data, the workbench is the front.
+"""Markdown-first todos: `00_人生路/08_任务与待办/_系统/待办（todos）.md` is the data, the workbench is the front.
 
 用户定案（2026-10-05）：能用 Markdown 语法实现的功能尽量用 md，vault 文件是数据本体。
 
-- `00-System/待办（todos）.md`：`## 待办` 小节 = 待办清单（`- [ ]`，勾选时行尾追 ` ✅ YYYY-MM-DD`）；
-  `## 每日必做` 小节 = 长期清单的**定义**。
+- `00_人生路/08_任务与待办/_系统/待办（todos）.md`：`## 待办` 小节 = 待办清单
+  （`- [ ]`，勾选时行尾追 ` ✅ YYYY-MM-DD`）；`## 每日必做` 小节 = 长期清单的**定义**。
 - 每日必做的勾选状态写进**当天的日记**（`02-Life/journal/YYYY-MM-DD.md` 的 `## 每日必做`
   小节）——历史天然按天留存；产品只做镜像与勾选，绝不改用户已写的行。
 - 所有写操作都是外科手术：按 key 定位 → 校验该行原文未变 → 只重写这一行 → 原子替换
   （tmp + os.replace，先例见 identity.write_identity）；文件在别处被改过就 409，让用户刷新。
 
-`00-System` 在 vault.EXCLUDED_DIRECTORIES 里：待办文件不会进资料库索引、不参与记忆提取——
-这是有意为之，别"修"。
+待办文件位于四库的人生路章节，按 document_only 索引；不参与记忆提取。
 
 注意：`journal_note` 必须**函数内惰性导入**（journal_note → workbench → todo_note 构成
 模块环，模块级导入会得到部分初始化的模块）。
@@ -42,7 +41,8 @@ from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-TODO_REL = Path("00-System", "待办（todos）.md")
+TODO_REL = Path("00_人生路", "08_任务与待办", "_系统", "待办（todos）.md")
+TODO_OLD_REL = Path("00-System", "待办（todos）.md")
 TODO_LEGACY_REL = Path("00-System", "待办.md")
 TODOS_HEADING = "待办"
 DAILY_HEADING = "每日必做"
@@ -51,8 +51,12 @@ CHECKBOX_DATE = re.compile(r"\s*✅\s*(\d{4}-\d{2}-\d{2})\s*$")
 
 
 def _todo_path(vault_dir: Path | str) -> Path:
-    """现行文件名优先；旧库里的 `待办.md` 继续读写（不自动改名）。"""
-    return managed_note_path(vault_dir, TODO_REL.as_posix(), TODO_LEGACY_REL.as_posix())
+    """现行四库路径优先；迁移前的 00-System 和旧文件名继续读写。"""
+    current = managed_note_path(vault_dir, TODO_REL.as_posix(), TODO_OLD_REL.as_posix())
+    if current.exists():
+        return current
+    legacy = managed_note_path(vault_dir, TODO_LEGACY_REL.as_posix())
+    return legacy if legacy.exists() else current
 
 SKELETON = """---
 type: todo

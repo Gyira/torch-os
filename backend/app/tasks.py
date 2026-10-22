@@ -2,12 +2,13 @@
 
 数据本体分两层：
 
-- **新任务** = `00-System/任务/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
+- **新任务** = `00_人生路/08_任务与待办/任务/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
   清单来自文件夹；改名/换清单就是改文件名/移动文件；正文原样保留。
-- **旧任务** = `00-System/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
+- **旧任务** = `00_人生路/08_任务与待办/_系统/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
   （可在 Obsidian 里直接修改这份文件）。产品不自动迁移旧行。
 
-清单/标签/逻辑文件夹定义仍在 `任务（tasks）.md` 的 front matter（兼容旧文件名 `任务.md`）。
+清单/标签/逻辑文件夹定义仍在 `任务（tasks）.md` 的 front matter（兼容旧文件名 `任务.md` 和
+迁移前的 `00-System/任务（tasks）.md`）。
 旧任务只允许被清单/标签这类结构性操作（改名、复制、删除清单，改/删标签）连带改写；
 单个任务与批量的按 key 写操作只作用于新笔记，旧 key 一律 409。
 
@@ -42,7 +43,8 @@ from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-TASKS_REL = Path("00-System", "任务（tasks）.md")
+TASKS_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务（tasks）.md")
+TASKS_OLD_REL = Path("00-System", "任务（tasks）.md")
 TASKS_LEGACY_REL = Path("00-System", "任务.md")
 MAX_TITLE = 200
 MAX_LIST = 40
@@ -348,7 +350,11 @@ def _ensure_write(read_only: bool, action: str) -> None:
 
 
 def _tasks_path(vault_dir: Path | str) -> Path:
-    return managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_LEGACY_REL.as_posix())
+    current = managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_OLD_REL.as_posix())
+    if current.exists():
+        return current
+    legacy = managed_note_path(vault_dir, TASKS_LEGACY_REL.as_posix())
+    return legacy if legacy.exists() else current
 
 
 def _load_tasks(path: Path) -> dict[str, Any]:

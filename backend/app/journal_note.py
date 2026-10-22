@@ -2,7 +2,7 @@
 
 设计见 `docs/薪火OS-重设计方案-v2.0.md`（用户定案：不做内置编辑器，Obsidian 就是编辑器）：
 
-- 目录按四库约定：日记在 `00_人生路/01_日记/`，模板在 `00-System/templates/`；
+- 目录按四库约定：日记在 `00_人生路/01_日记/`，模板在 `00_人生路/01_日记/_模板/`；
 - 「一键生成」**只在文件不存在时落笔**：模板骨架（可用模板文件覆盖）＋当天事实汇总；
 - 文件已存在＝**文件优先**：生成只返回可追加的汇总预览，追加必须再显式点一次；
 - 只读安全模式的 Vault 一律拒绝写入；每次真正的写入只留一条不含正文的计数审计。
@@ -28,13 +28,15 @@ from .vault import managed_note_path
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 JOURNAL_DIR = Path("00_人生路", "01_日记")
-TEMPLATE_REL = Path("00-System", "templates", "日记模板（journal-template）.md")
-TEMPLATE_LEGACY_REL = Path("00-System", "templates", "日记模板.md")
+TEMPLATE_REL = Path("00_人生路", "01_日记", "_模板", "日记模板（journal-template）.md")
+TEMPLATE_LEGACY_REL = Path("00_人生路", "01_日记", "_模板", "日记模板.md")
+TEMPLATE_OLD_SYSTEM_REL = Path("00-System", "templates", "日记模板（journal-template）.md")
+TEMPLATE_OLD_SYSTEM_LEGACY_REL = Path("00-System", "templates", "日记模板.md")
 MAX_NOTE_BYTES = 200_000
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 STATE_LABELS = {"done": "已完成", "skipped": "主动休息", "unrecorded": "未记录"}
 
-# 与 `00-System/templates/日记模板（journal-template）.md` 同形的内置骨架（Vault 里没有模板文件时的兜底）。
+# 与 `00_人生路/01_日记/_模板/日记模板（journal-template）.md` 同形的内置骨架（Vault 里没有模板文件时的兜底）。
 # 结构参照用户 wolai 的「2026.10.05（第41周，周一）」页，做了精简（去掉影视娱乐/卫生细格）。
 DEFAULT_TEMPLATE = """---
 type: journal
@@ -160,12 +162,18 @@ def _strip_front_matter(text: str) -> str:
 def render_skeleton(vault_dir: Path | str, day: str) -> str:
     """模板文件优先（{{date}}/{{weekday}} 占位替换），缺失时用内置骨架；
     模板自己的 front matter 一律剥掉，笔记固定用 ``type: journal`` + ``date``。"""
-    try:
-        template = managed_note_path(
-            vault_dir, TEMPLATE_REL.as_posix(), TEMPLATE_LEGACY_REL.as_posix()
-        ).read_text(encoding="utf-8")
-    except OSError:
-        template = DEFAULT_TEMPLATE
+    template = DEFAULT_TEMPLATE
+    for primary, legacy in (
+        (TEMPLATE_REL, TEMPLATE_LEGACY_REL),
+        (TEMPLATE_OLD_SYSTEM_REL, TEMPLATE_OLD_SYSTEM_LEGACY_REL),
+    ):
+        try:
+            template = managed_note_path(
+                vault_dir, primary.as_posix(), legacy.as_posix()
+            ).read_text(encoding="utf-8")
+            break
+        except OSError:
+            continue
     parsed = date.fromisoformat(day)
     weekday = WEEKDAYS[parsed.weekday()]
     body = _strip_front_matter(template).strip("\n")

@@ -1,6 +1,6 @@
 // 时间管理模块外壳（2026-10-08，替换「今日待办」）：
 // 左侧按钮栏（任务 / 日历 / 习惯打卡 / 四象限）+ 任务页（二级侧边栏 + 添加栏 + 任务板）。
-// 数据来自 /api/time/*（Markdown 本体 `00-System/任务（tasks）.md`）；写操作一律「POST → 重载 → 提示」，
+// 数据来自 /api/time/*（Markdown 本体 `00_人生路/08_任务与待办/`）；写操作一律「POST → 重载 → 提示」，
 // 与 workbench.js 里待办/习惯那套写法保持一致。日历页与四象限页在第 3 轮接上（照滴答实测规格），
 // 2026-10-11 第 4 轮把日历扩成七种视图（状态：视图/锚点/档位/显示设置，全存本机）。
 import { $, state, api, jsonBody, toast, setStatus, confirmAction } from "./core.js";
@@ -323,7 +323,7 @@ function paintVaultNote() {
   const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
   const bits = [
     `${source}：${board.vault_name || "当前库"}`,
-    `新任务保存为 ${board.task_dir || "00-System/任务"}/…md`,
+    `新任务保存为 ${board.task_dir || "00_人生路/08_任务与待办/任务"}/…md`,
   ];
   if (board.legacy_tasks) {
     bits.push(`旧任务 ${board.legacy_tasks} 条（仍在总文件中，只读）`);

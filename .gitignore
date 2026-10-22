@@ -26,3 +26,6 @@ Start.cmd
 
 # QA probe typo output (generated, never versioned)
 .test-datapillar-probe/
+
+# 一次性个人数据整理脚本：含真实文件名/归档映射，只在本机保留，不提交公开仓库
+scripts/reorganize_legacy.py

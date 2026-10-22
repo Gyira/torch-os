@@ -588,6 +588,7 @@ export function openNote(path) {
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
     const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
     const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
+    const isTaskNote = note.chapter === "task";
     const wikiLink = `[[${note.path.replace(/\.md$/i, "")}|${String(displayTitle).replace(/\|/g, "｜")}]]`;
     const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
     dialog.innerHTML = `
@@ -613,24 +614,25 @@ export function openNote(path) {
         <p class="eyebrow">反向链接</p>
         ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
       </section>` : ""}
-      <section class="pillar-note-tags">
+      ${isTaskNote ? "" : `<section class="pillar-note-tags">
         <p class="eyebrow">标签</p>
         <div class="pillar-tag-list" data-tag-list></div>
         <form class="pillar-tag-form" data-tag-form>
           <input name="tag" maxlength="32" placeholder="添加标签，回车保存" aria-label="添加标签">
           <button type="submit" class="small-button">添加</button>
         </form>
-      </section>
+      </section>`}
       <div class="pillar-dialog-foot">
         <div class="pillar-note-actions">
-          <select data-note-target aria-label="移动到章节">
+          ${isTaskNote ? "" : `<select data-note-target aria-label="移动到章节">
             ${chapterList(note.pillar).map((item) => `<option value="${escapeHtml(item.key)}"${item.key === note.chapter ? " selected" : ""}>${escapeHtml(item.title)}</option>`).join("")}
           </select>
-          <button type="button" class="button secondary" data-move-note>移动</button>
+          <button type="button" class="button secondary" data-move-note>移动</button>`}
           <button type="button" class="button secondary" data-open-note>在 Obsidian 打开</button>
           <button type="button" class="small-button" data-copy-wikilink title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
           <button type="button" class="small-button" data-copy-path>复制路径</button>
         </div>
+        ${isTaskNote ? `<span class="field-help">任务由工作台管理；清单、日期和完成状态请在工作台修改。</span>` : ""}
       </div>`;
     document.body.append(dialog);
     const close = () => {
@@ -644,6 +646,7 @@ export function openNote(path) {
     const tagList = dialog.querySelector("[data-tag-list]");
     const tagForm = dialog.querySelector("[data-tag-form]");
     let tagSaving = false;
+    if (tagList && tagForm) {
     const renderTags = () => {
       tagList.innerHTML = note.tags.length
         ? note.tags.map((tag) => `<span class="pillar-tag">#${escapeHtml(tag)}<button type="button" data-remove-tag="${escapeHtml(tag)}" aria-label="移除标签 ${escapeHtml(tag)}" title="移除标签">×</button></span>`).join("")
@@ -692,6 +695,7 @@ export function openNote(path) {
       if (!remove || tagSaving) return;
       await saveTags(note.tags.filter((tag) => tag !== remove.dataset.removeTag));
     });
+    }
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
     });

@@ -1,6 +1,6 @@
 // 工作台 2.0（2026-10-05）：两大模块——今日待办（左清单 / 右每日勾选）＋ 日记（见 journal-note.js）。
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
-// 待办在 00-System/待办（todos）.md，每日必做勾在当天日记，习惯在本地库。
+// 待办在 00_人生路/08_任务与待办/_系统/待办（todos）.md，每日必做勾在当天日记，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
@@ -151,12 +151,12 @@ function renderDaily(payload) {
   } else {
     $("#time-habits-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
   }
-  $("#time-habits-hint").textContent = "每日必做在 00-System/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在人生路 →「习惯」里管理。";
+  $("#time-habits-hint").textContent = "每日必做在 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在人生路 →「习惯」里管理。";
   $("#time-habits-list").innerHTML = rows.length
     ? rows.map((row) => row.kind === "daily"
       ? `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`
       : `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-habit-toggle="${row.id}" data-habit-revision="${row.revision}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
-    : '<li class="empty-state">还没有每日必做——去 00-System/待办（todos）.md 的「每日必做」区写几条。</li>';
+    : '<li class="empty-state">还没有每日必做——去 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
 }
 
 export async function loadWorkbench() {

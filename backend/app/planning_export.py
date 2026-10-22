@@ -2,7 +2,7 @@
 
 The old SQLite goals/tasks export was retired. Goals come from the life-plan
 notes under ``00_人生路/06_目标与计划``; tasks come from one-task-one-note
-Markdown files under ``00-System/任务``. This is a snapshot: it never changes a
+Markdown files under ``00_人生路/08_任务与待办/任务``. This is a snapshot: it never changes a
 note and never calls a model.
 """
 
@@ -122,7 +122,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"- 导出时间：{payload['exported_at']}（Asia/Shanghai）",
         f"- 目标 {counts['goals']}" + (f"（{goal_summary}）" if goal_summary else ""),
         f"- 任务 {counts['tasks']}" + (f"（{task_summary}）" if task_summary else ""),
-        "- 来源：人生路目标笔记与 00-System/任务 下的一任务一笔记；这是只读快照。",
+        "- 来源：人生路目标笔记与 00_人生路/08_任务与待办/任务 下的一任务一笔记；这是只读快照。",
         "",
     ]
     for goal in payload["goals"]:

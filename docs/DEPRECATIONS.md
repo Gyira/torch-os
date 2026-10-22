@@ -15,7 +15,7 @@
 - `/api/learning/*`：旧学习科目、学习记录与周统计。
 - `/api/body/*`：旧 SQLite 身体记录；身体数据现在只读「健康与体重」月度 Markdown 表。
 - `/api/goals` 的写接口与 `/api/tasks/*` 旧接口：目标写转人生路目标笔记，任务只用
-  `00-System/任务/**` 的 Markdown 笔记（`GET /api/goals` 保留，返回目标笔记）。
+  `00_人生路/08_任务与待办/任务/**` 的 Markdown 笔记（`GET /api/goals` 保留，返回目标笔记）。
 - `/api/daily-plan/draft`：旧目标任务的今日计划草稿；时间管理页已替代。
 
 仍在使用的相邻接口：

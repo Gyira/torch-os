@@ -71,8 +71,13 @@ def main() -> int:
     info("数据库", str(database))
 
     line(vault.is_dir(), "Vault 目录存在")
-    for name in ("00-System", "00_人生路", "01_自我档案", "02_生活运营", "03_知识库"):
-        line((vault / name).is_dir(), f"四库/系统目录：{name}")
+    for name in ("00_人生路", "01_自我档案", "02_生活运营", "03_知识库"):
+        line((vault / name).is_dir(), f"四库目录：{name}")
+    line((vault / "00_人生路" / "08_任务与待办").is_dir(), "任务与待办目录")
+    line((vault / "00_人生路" / "08_任务与待办" / "任务").is_dir(), "任务笔记目录")
+    for legacy in ("00-System", "02-Life", "提示词"):
+        if (vault / legacy).is_dir():
+            warn(f"旧的 {legacy} 目录仍在", "确认里面是否还有未归档文件")
     journal = vault / "00_人生路" / "01_日记"
     line(journal.is_dir(), "日记目录存在", str(journal))
     line((vault / ".torch-os").is_dir(), "Vault 元数据目录 .torch-os 存在")

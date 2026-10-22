@@ -1,7 +1,7 @@
 // 时间管理模块的弹窗（2026-10-08，照滴答实测规格）：添加/编辑清单、复制清单、新建/重命名文件夹、添加/编辑标签；
 // 2026-10-11 日历那一轮加了「快速添加任务」（右上角 ＋）。
 // 共用一个小表单构造器（dialog + form），字段类型：text / date / time / swatches（颜色圆点）/ select / radio。
-// 颜色是用户数据（存进 00-System/任务（tasks）.md 的 front matter），所以直接写内联样式——
+// 颜色是用户数据（存进 00_人生路/08_任务与待办/_系统/任务（tasks）.md 的 front matter），所以直接写内联样式——
 // theme-tokens 守卫只扫 styles.css，这里是数据不是主题色。
 import { escapeHtml } from "./core.js";
 import { INBOX, PRIORITIES } from "./tasks-model.js";

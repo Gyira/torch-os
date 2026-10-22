@@ -1,9 +1,9 @@
 """一任务一笔记的存储层（2026-10-17）。
 
-产品托管的任务现在是 `00-System/任务/` 下的一篇篇 Markdown：
+产品托管的任务现在是 `00_人生路/08_任务与待办/任务/` 下的一篇篇 Markdown：
 
-- `00-System/任务/<标题>.md` = 收集箱任务；
-- `00-System/任务/<清单>/<标题>.md` = 自定义清单任务。
+- `00_人生路/08_任务与待办/任务/<标题>.md` = 收集箱任务；
+- `00_人生路/08_任务与待办/任务/<清单>/<标题>.md` = 自定义清单任务。
 
 规格（与 `tasks.py` 的分工）：
 
@@ -13,8 +13,8 @@
 - 清单目录/文件删除走 `.torch-os/task-trash`（软删除），扫描永不进入那里；
 - 读写复用 `markdown_store` 的修订号与 409 冲突协议。
 
-旧式复选框任务仍在 `00-System/任务（tasks）.md`，由 `tasks.py` 继续解析为只读任务；
-本模块不迁移、不改写它们。
+旧式复选框任务仍在 `00_人生路/08_任务与待办/_系统/任务（tasks）.md`，由 `tasks.py` 继续解析为只读任务；
+迁移前的 `00-System/任务（tasks）.md` 继续兼容读取，本模块不迁移、不改写它们。
 """
 
 from __future__ import annotations
@@ -35,8 +35,10 @@ from fastapi import HTTPException
 from .markdown_store import guarded_write, load_note
 
 INBOX = "收集箱"
-TASK_DIR_REL = Path("00-System", "任务")
+TASK_DIR_REL = Path("00_人生路", "08_任务与待办", "任务")
 TASK_DIR_POSIX = TASK_DIR_REL.as_posix()
+LEGACY_TASK_DIR_REL = Path("00-System", "任务")
+LEGACY_TASK_DIR_POSIX = LEGACY_TASK_DIR_REL.as_posix()
 TRASH_DIR_REL = Path(".torch-os", "task-trash")
 
 MAX_STEM_CHARS = 96
@@ -77,7 +79,21 @@ class TaskNoteFormatError(ValueError):
 
 
 def task_root(vault_dir: Path | str) -> Path:
-    return Path(vault_dir).resolve() / TASK_DIR_REL
+    """现行任务目录优先；迁移前的老库继续从 00-System/任务 读取。"""
+    vault = Path(vault_dir).resolve()
+    current = vault / TASK_DIR_REL
+    if current.is_dir():
+        return current
+    legacy = vault / LEGACY_TASK_DIR_REL
+    if legacy.is_dir():
+        return legacy
+    return current
+
+
+def is_task_relpath(relpath: str) -> bool:
+    text = str(relpath or "").replace("\\", "/")
+    return (text.startswith(TASK_DIR_POSIX + "/")
+            or text.startswith(LEGACY_TASK_DIR_POSIX + "/"))
 
 
 def task_relative(path: Path, vault_dir: Path | str) -> str:
@@ -710,8 +726,10 @@ def board_revision(config_revision: str, notes: list[dict[str, Any]]) -> str:
 
 
 __all__ = [
-    "INBOX", "TASK_DIR_REL", "TASK_DIR_POSIX", "MAX_TAGS", "MAX_TAG_NAME",
-    "PRIORITIES", "TaskNoteFormatError", "task_root", "task_relative", "task_key",
+    "INBOX", "TASK_DIR_REL", "TASK_DIR_POSIX", "LEGACY_TASK_DIR_REL",
+    "LEGACY_TASK_DIR_POSIX", "MAX_TAGS", "MAX_TAG_NAME",
+    "PRIORITIES", "TaskNoteFormatError", "task_root", "is_task_relpath",
+    "task_relative", "task_key",
     "normalize_title", "safe_task_stem", "unique_stem", "task_folder",
     "clean_list_name", "read_task_note", "scan_task_notes", "create_task_note",
     "rewrite_task_note", "order_value", "note_body", "new_trash_batch", "copy_to_trash",

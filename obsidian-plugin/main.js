@@ -426,8 +426,12 @@ module.exports = class TorchPlugin extends Plugin {
       return;
     }
     const normalized = normalizePath(pathValue);
-    const isTask = normalized.startsWith('00-System/任务/') && normalized.endsWith('.md');
-    const isConfig = normalized === '00-System/任务（tasks）.md' || normalized === '00-System/任务.md';
+    const isTask = (normalized.startsWith('00_人生路/08_任务与待办/任务/')
+      || normalized.startsWith('00-System/任务/')) && normalized.endsWith('.md');
+    const isConfig = normalized === '00_人生路/08_任务与待办/_系统/任务（tasks）.md'
+      || normalized === '00_人生路/08_任务与待办/_系统/待办（todos）.md'
+      || normalized === '00-System/任务（tasks）.md'
+      || normalized === '00-System/任务.md';
     const isPillar = /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(normalized)
       && normalized.endsWith('.md');
     if (!isTask && !isConfig && !isPillar) return;

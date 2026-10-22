@@ -570,7 +570,7 @@ class DidaSyncService:
             if dida_id in seen or str(link.get("status") or "") == "remote_deleted":
                 continue
             relpath = str(link.get("relpath") or "")
-            if not relpath.startswith(task_notes.TASK_DIR_POSIX + "/"):
+            if not task_notes.is_task_relpath(relpath):
                 continue
             try:
                 if (root / relpath).exists():

@@ -16,7 +16,8 @@ CommonJS 单文件，Obsidian 直接加载。
   - 端口按库保存在插件 `data.json` 的 `instancePort`，同一库的 localStorage 视图状态保持稳定；
   - 启动日志在 `当前库/.torch-os/logs/torch-backend-<port>.log`。
 - **打开任务文档**：iframe 发 `torch:open-note`（源 + 实例 origin 校验），插件只允许
-  `00-System/任务/` 下的新任务笔记，或旧的 `00-System/任务（tasks）.md` / `任务.md`，
+  `00_人生路/08_任务与待办/任务/` 下的新任务笔记，或 `_系统/任务（tasks）.md` /
+  `_系统/待办（todos）.md`（旧 `00-System` 路径也兼容），
   在新标签页打开；文件不存在时给出提示。
 - **主题跟随**：读 Obsidian 的计算样式翻译成产品主题桥的 `--dsw-alias-*` token，
   在 iframe 加载完成、`css-change`（换主题）与 iframe 主动请求时推送；

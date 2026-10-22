@@ -64,7 +64,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def config_file(tmp_path):
-    return tmp_path / "vault" / "00-System" / "任务（tasks）.md"
+    return tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "_系统" / "任务（tasks）.md"
 
 
 def legacy_file(tmp_path):
@@ -72,7 +72,7 @@ def legacy_file(tmp_path):
 
 
 def note_dir(tmp_path):
-    return tmp_path / "vault" / "00-System" / "任务"
+    return tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "任务"
 
 
 def seed(tmp_path, text=SAMPLE, *, legacy_name=False):
@@ -106,11 +106,11 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     payload = board(client)
 
     assert payload["legacy_tasks"] == 4
-    assert payload["path"] == "00-System/任务（tasks）.md"
+    assert payload["path"] == "00_人生路/08_任务与待办/_系统/任务（tasks）.md"
     assert payload["vault_name"] == "vault"
-    assert payload["task_dir"] == "00-System/任务"
+    assert payload["task_dir"] == "00_人生路/08_任务与待办/任务"
     shopping = find(payload, "买菜", legacy=True)
-    assert shopping["path"] == "00-System/任务（tasks）.md"
+    assert shopping["path"] == "00_人生路/08_任务与待办/_系统/任务（tasks）.md"
     assert shopping["list_name"] == "收集箱" and shopping["date"] == "2026-10-06"
     assert shopping["priority"] == "high" and shopping["tags"] == ["重要"]
     assert find(payload, "写周报", legacy=True)["done"] is True
@@ -121,7 +121,7 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     assert created.status_code == 200, created.text
     body = created.json()["task"]
     assert body["legacy"] is False
-    assert body["path"] == "00-System/任务/写方案.md"
+    assert body["path"] == "00_人生路/08_任务与待办/任务/写方案.md"
     assert (note_dir(tmp_path) / "写方案.md").is_file()
 
     payload = board(client)
@@ -265,7 +265,7 @@ def test_duplicate_and_delete_are_soft(tmp_path):
     payload = board(client)
     assert find(payload, "写方案", legacy=False)["created"] == TODAY
 
-    copy = next(item for item in payload["tasks"] if item["path"] == "00-System/任务/写方案 2.md")
+    copy = next(item for item in payload["tasks"] if item["path"] == "00_人生路/08_任务与待办/任务/写方案 2.md")
     removed = post(client, "/api/time/tasks/delete", {
         "key": copy["key"], "revision": payload["revision"]})
     assert removed.status_code == 200, removed.text

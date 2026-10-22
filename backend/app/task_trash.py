@@ -17,7 +17,10 @@ from fastapi import HTTPException
 
 from . import task_notes
 
-TASK_PREFIX = task_notes.TASK_DIR_REL.as_posix() + "/"
+TASK_PREFIXES = (
+    task_notes.TASK_DIR_REL.as_posix() + "/",
+    task_notes.LEGACY_TASK_DIR_REL.as_posix() + "/",
+)
 _BATCH_STAMP = re.compile(r"^(\d{8}T\d{6}\d+Z)-", re.IGNORECASE)
 
 
@@ -41,7 +44,7 @@ def _batch_time(name: str) -> str:
 
 
 def _is_task_note(original: str) -> bool:
-    if not original.startswith(TASK_PREFIX) or not original.endswith(".md"):
+    if not any(original.startswith(prefix) for prefix in TASK_PREFIXES) or not original.endswith(".md"):
         return False
     parts = PurePosixPath(original).parts
     return ".." not in parts and bool(parts)
