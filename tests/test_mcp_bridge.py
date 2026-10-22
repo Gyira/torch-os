@@ -164,7 +164,7 @@ def test_stdio_subprocess_frames_json_lines(tmp_path):
         send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
         tools = read()['result']['tools']
-        assert len(tools) == 13 and tools[-1]['name'] == 'identity'
+        assert len(tools) == 12 and tools[-1]['name'] == 'identity'
         assert any(tool['name'] == 'imports' for tool in tools)
         send({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
               'params': {'name': 'imports', 'arguments': {}}})
@@ -187,7 +187,7 @@ def test_selftest_spawns_the_bridge_against_a_running_service(tmp_path):
         assert result['ok'] is True, result
         assert result['protocol_version'] == '2025-06-18'
         assert result['server_name'] == 'torch-os-tools'
-        assert result['tool_count'] == 13 and result['tools'] == list(TOOLS)
+        assert result['tool_count'] == 12 and result['tools'] == list(TOOLS)
         assert result['sample_tool'] == 'imports' and result['sample_ok'] is True
         assert result['instructions_ok'] is True
         assert result['resources'] == 2 and result['catalog_ok'] is True
@@ -223,11 +223,11 @@ def test_bridge_selftest_endpoint_validates_loopback_and_runs(tmp_path):
         response = client.post(url, json={'base_url': base})
         assert response.status_code == 200
         payload = response.json()
-        assert payload['ok'] is True and payload['tool_count'] == 13
+        assert payload['ok'] is True and payload['tool_count'] == 12
         with database.connect() as connection:
             rows = [dict(row) for row in connection.execute(
                 "SELECT * FROM audit_events WHERE event_type='mcp_bridge_selftest'")]
-        assert len(rows) == 1 and '"tools": 13' in rows[0]['detail_json']
+        assert len(rows) == 1 and '"tools": 12' in rows[0]['detail_json']
     finally:
         server.should_exit = True
         thread.join(timeout=5)
