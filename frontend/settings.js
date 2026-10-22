@@ -134,11 +134,16 @@ function showSettingsSection(name, { focus = true } = {}) {
   const target = sections.find((section) => section.dataset.settingsSection === name) || sections[0];
   currentSettingsSection = target.dataset.settingsSection;
   sections.forEach((section) => { section.hidden = section !== target; });
+  let activeButton = null;
   document.querySelectorAll("[data-settings-nav]").forEach((button) => {
     const active = button.dataset.settingsNav === currentSettingsSection;
     button.classList.toggle("active", active);
     button.setAttribute("aria-current", String(active));
+    if (active) activeButton = button;
   });
+  if (activeButton && window.innerWidth <= 860) {
+    activeButton.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
 }

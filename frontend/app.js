@@ -80,6 +80,8 @@ function renderPanelNav() {
   const nav = document.createElement("nav");
   nav.className = "panel-nav";
   nav.setAttribute("aria-label", "工作台页面");
+  const scroll = document.createElement("div");
+  scroll.className = "panel-nav-scroll";
   for (const view of currentNavOrder()) {
     const button = document.createElement("button");
     button.type = "button";
@@ -87,8 +89,9 @@ function renderPanelNav() {
     button.dataset.view = view;
     button.textContent = titles[view] || view;
     button.addEventListener("click", () => { switchView(view); });
-    nav.appendChild(button);
+    scroll.appendChild(button);
   }
+  nav.appendChild(scroll);
   const search = document.createElement("button");
   search.type = "button";
   search.className = "panel-nav-search";
@@ -160,6 +163,8 @@ export async function switchView(view, updateHash = true) {
     document.body.classList.add(`view-${view}`);
   }
   document.querySelectorAll(".nav-item, .panel-nav-item").forEach((button) => { const active = button.dataset.view === view; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
+  // 小屏顶部标签栏是横向滚动：切页后把当前标签带到可见范围。
+  document.querySelector(".panel-nav-scroll .panel-nav-item.active")?.scrollIntoView?.({ block: "nearest", inline: "center" });
   // 两级导航：侧边栏选模块，模块内再用 #module-nav 选分区。
   const module = MODULES[view];
   const panes = module?.panes || [];

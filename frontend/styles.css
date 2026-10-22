@@ -383,7 +383,10 @@ html[data-torch-host="dsh"] {
 .top-nav-mode .sidebar{display:none}
 .top-nav-mode .main{max-width:none}
 .top-nav-mode:not(.embed-mode) .main{padding:24px 28px 48px}
-.top-nav-mode .panel-nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px;padding:6px;border:1px solid var(--p-line);border-radius:12px;background:var(--p-surface);position:sticky;top:0;z-index:8}
+.top-nav-mode .panel-nav{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;margin:0 0 14px;padding:6px;border:1px solid var(--p-line);border-radius:12px;background:var(--p-surface);position:sticky;top:0;z-index:8}
+.panel-nav-scroll{display:flex;gap:6px;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+.panel-nav-scroll::-webkit-scrollbar{display:none}
+.panel-nav-scroll .panel-nav-item{flex:0 0 auto;white-space:nowrap}
 .top-nav-mode .panel-nav-item{appearance:none;border:1px solid transparent;background:transparent;color:var(--p-ink-2);font:inherit;font-size:14px;padding:7px 14px;border-radius:9px;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
 .top-nav-mode .panel-nav-item:hover{background:var(--p-hover);color:var(--p-ink)}
 .top-nav-mode .panel-nav-item.active{background:var(--p-fill-strong);border-color:var(--p-line-strong);color:var(--p-ink-strong);font-weight:600}
@@ -1096,7 +1099,7 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-ops-form input, .pillar-ops-form select { padding: 6px 8px; border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 12px; min-width: 90px; }
 .pillar-ops-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
 @media (max-width: 760px) { .pillar-ops-dashboard { grid-template-columns: 1fr; } }
-.panel-nav-search { margin-left: auto; border: 1px solid var(--p-line); background: transparent; color: var(--p-ink-4); border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.panel-nav-search { flex: 0 0 auto; margin-left: 6px; border: 1px solid var(--p-line); background: transparent; color: var(--p-ink-4); border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
 .panel-nav-search:hover { background: var(--p-hover); color: var(--p-ink); }
 .pillar-search-dialog { width: min(720px, 94vw); }
 .pillar-global-search { padding: 16px 22px 20px; display: flex; flex-direction: column; gap: 10px; }
