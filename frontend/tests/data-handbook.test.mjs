@@ -77,6 +77,7 @@ const schemaPayload = {
     { name: "<img src=x onerror=1>", rows: 3 },
     { name: "memories", rows: 0 },
   ],
+  deprecated_tables: ["bazi_profiles", "suggestions"],
   note: "本导出只含结构与计数：没有笔记正文、没有问题文本、没有密钥。",
 };
 
@@ -91,6 +92,7 @@ test("the handbook card renders live counts with escaped table names", async () 
   assert.match(html, /2\.0 MB/);
   assert.match(html, /资料与记忆/);
   assert.match(html, /audit_events：42 行/);
+  assert.match(html, /保留的旧表（deprecated）：bazi_profiles、suggestions/);
   assert.match(h.getNode("#schema-status").textContent, /已读取 23 张表的实时结构/);
   assert.equal(h.getNode("#download-schema-md").disabled, false);
 });

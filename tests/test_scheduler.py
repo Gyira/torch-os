@@ -45,8 +45,8 @@ def test_run_due_respects_schedule_idempotency_catchup_and_new_day(tmp_path):
 
     early = service.run_due(now=at("2026-10-04", 7, 30))
     assert early["created"] == [] and early["existing"] == []
-    # Proactive suggestion cards ride along with the scheduled run (0.53.0).
-    assert "suggestions" in early
+    # 0.99 retired the old suggestion cards; the scheduler only creates drafts now.
+    assert "suggestions" not in early
 
     on_time = service.run_due(now=at("2026-10-04", 8, 2))
     assert len(on_time["created"]) == 1
@@ -120,7 +120,7 @@ def test_disabled_reports_do_not_generate_and_force_marks_manual(tmp_path):
     assert updated.status_code == 200
     disabled_run = service.run_due(now=at("2026-10-04", 23, 0))
     assert disabled_run["created"] == [] and disabled_run["existing"] == []
-    assert "suggestions" in disabled_run
+    assert "suggestions" not in disabled_run
 
     first = client.post("/api/schedule/run-now", json={"kind": "evening"})
     assert first.status_code == 200

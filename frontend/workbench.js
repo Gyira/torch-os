@@ -82,7 +82,7 @@ function renderDaily(payload) {
   } else {
     $("#time-habits-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
   }
-  $("#time-habits-hint").textContent = "每日必做在 00-System/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在数字分身的「习惯」里管理。";
+  $("#time-habits-hint").textContent = "每日必做在 00-System/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在人生路 →「习惯」里管理。";
   $("#time-habits-list").innerHTML = rows.length
     ? rows.map((row) => row.kind === "daily"
       ? `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`

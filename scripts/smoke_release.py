@@ -1,9 +1,8 @@
 """Read-only release smoke for a running 薪火OS service.
 
-Checks health/version, the local session boundary, capability flags, the
-profile reverse-reference payload and the read endpoints of the habit and
-learning modules. It creates no records, does not touch personal data and
-never calls the model.
+Checks health/version, the local session boundary, capability flags, and the
+read endpoints of the habit, learning, body, backup and journal modules. It
+creates no records, does not touch personal data and never calls the model.
 
 Usage:
     .venv\\Scripts\\python.exe scripts/smoke_release.py --base-url http://127.0.0.1:8765 --report data/diagnostics/release-0.4.1-smoke.json
@@ -96,38 +95,6 @@ def main() -> int:
                 if not {"date", "recorded", "revision"} <= set(payload):
                     failures.append("body: missing day payload fields")
             check("body_future", client.get(f"/api/body/entries/{(shanghai_today + timedelta(days=1)).isoformat()}"), 422)
-
-            profile = client.get("/api/profile")
-            check("profile", profile, 200)
-            if profile.status_code == 200:
-                payload = profile.json()
-                usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-                pool = payload.get("candidate_pool") if isinstance(payload.get("candidate_pool"), dict) else {}
-                report["profile_usage_window_days"] = usage.get("window_days")
-                report["profile_candidate_pool_total"] = pool.get("total")
-                if "recent" not in usage or "memories_used" not in usage:
-                    failures.append("profile: missing answer-usage payload")
-                if "by_source" not in pool or "by_month" not in pool:
-                    failures.append("profile: missing candidate-pool payload")
-            check("memory_usage_unknown_id", client.get("/api/memories/999999/usage"), 404)
-
-            activity = client.get("/api/profile/activity")
-            check("profile_activity", activity, 200)
-            if activity.status_code == 200:
-                payload = activity.json()
-                window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
-                report["profile_activity_window"] = window
-                report["profile_activity_journal_days"] = (payload.get("journal") or {}).get("days_recorded")
-                if window.get("days") != 30 or not window.get("start") or not window.get("end"):
-                    failures.append("profile_activity: missing 30-day window")
-                for section in ("journal", "body", "habits", "study"):
-                    if not isinstance(payload.get(section), dict):
-                        failures.append(f"profile_activity: missing {section} facts")
-                notes = payload.get("notes")
-                if not isinstance(notes, list) or not any("不评价" in note for note in notes):
-                    failures.append("profile_activity: missing non-evaluation notes")
-            check("profile_activity_range_min", client.get("/api/profile/activity", params={"days": 6}), 422)
-            check("profile_activity_range_max", client.get("/api/profile/activity", params={"days": 91}), 422)
 
             restored = client.get("/api/backups/restored")
             check("restored_copies", restored, 200)

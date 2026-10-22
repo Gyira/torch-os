@@ -44,6 +44,7 @@ export async function loadDataHandbook(force = false) {
       .sort((left, right) => Number(right.rows) - Number(left.rows))
       .slice(0, 5)
       .map((table) => `<li>${escapeHtml(table.name)}：${escapeHtml(table.rows)} 行</li>`).join("");
+    const deprecated = Array.isArray(payload.deprecated_tables) ? payload.deprecated_tables : [];
     $("#schema-summary").innerHTML = `
       <div class="settings-list">
         <div><span>数据表</span><strong>${escapeHtml(payload.database.tables)} 张</strong></div>
@@ -52,6 +53,7 @@ export async function loadDataHandbook(force = false) {
       </div>
       <div class="settings-list">${groups}</div>
       ${busiest ? `<h4>行数最多的表</h4><ul class="extract-list">${busiest}</ul>` : ""}
+      ${deprecated.length ? `<p class="field-help">保留的旧表（deprecated）：${deprecated.map((name) => escapeHtml(name)).join("、")}；只保留历史数据，不会自动删除。</p>` : ""}
       <p class="field-help">${escapeHtml(payload.note || "")}</p>
       <p class="field-help">生成时间：${escapeHtml(payload.generated_at)}；下载的 Markdown 含每张表的列定义、索引、备份/导出边界与恢复步骤。</p>`;
     setStatus("#schema-status", `已读取 ${payload.database.tables} 张表的实时结构。`, "success");

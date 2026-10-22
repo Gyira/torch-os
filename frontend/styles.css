@@ -411,7 +411,7 @@ html[data-torch-host="dsh"] {
 .embed-mode .sidebar{display:none}.embed-mode .main{max-width:none;padding:18px 22px 44px}
 .panel-nav{display:none}
 /* 顶部模块导航（2026-10-17）：浏览器直开和 Obsidian 面板统一收起左侧应用栏，
-   工作台/数字分身/第二大脑/设置以顶部标签出现；与模块内导航同一套视觉语言，吸顶。 */
+   工作台/四库/设置以顶部标签出现；与模块内导航同一套视觉语言，吸顶。 */
 .top-nav-mode .sidebar{display:none}
 .top-nav-mode .main{max-width:none}
 .top-nav-mode:not(.embed-mode) .main{padding:24px 28px 48px}

@@ -1,4 +1,5 @@
-"""Read-only local tools for agents: today, memories, goals, habits, learning, journal, profile, vault.
+"""Read-only local tools for agents: today, memories, goals, habits, learning, journal,
+profile, vault, body, documents, imports, vault_audit, identity.
 
 Every tool is a GET, returns structure and (where noted) the user's own text, and
 never writes anything except one count-only audit row per call. No write tool is

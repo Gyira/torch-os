@@ -61,7 +61,7 @@ export function initJournal() {
   $("#journal-today")?.addEventListener("click", () => openJournalDay(shanghaiDay()));
   $("#journal-reload")?.addEventListener("click", () => openJournalDay(picker.value));
 
-  // 旧「日记归档」页已随第二大脑下线；保留月历函数给未来的四库复盘页复用。
+  // 旧「日记归档」页已下线；保留月历函数给未来的四库复盘页复用。
   $("#journal-calendar-prev")?.addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), -1)));
   $("#journal-calendar-next")?.addEventListener("click", () => loadJournalCalendar(shiftMonth(calendarMonth || monthKey(shanghaiDay()), 1)));
   $("#journal-calendar-current")?.addEventListener("click", () => loadJournalCalendar(monthKey(shanghaiDay())));

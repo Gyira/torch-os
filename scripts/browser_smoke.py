@@ -1,8 +1,9 @@
-"""Read-only real-browser smoke for the profile page, usage records and chat preview.
+"""Legacy read-only browser smoke for the retired profile/usage/preview pages.
 
-Drives a headless Edge session over the DevTools protocol: real Chromium
-rendering, real clicks and real fetches against the local service. It never
-sends data to the network beyond 127.0.0.1 and never calls a model.
+Kept because tests/test_probe_reports.py imports its failure-report path; do
+not use it as 0.99 acceptance evidence. The current acceptance probe is
+scripts/browser_pillars_probe.py (four pillars, workbench and steward drawer).
+It never sends data to the network beyond 127.0.0.1 and never calls a model.
 """
 from __future__ import annotations
 

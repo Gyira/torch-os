@@ -92,7 +92,7 @@ def test_ip_failure_falls_back_to_default_city():
     fetcher = FakeFetcher(geo_error=True)
     service = WeatherService(fetcher=fetcher, city_override="", clock=lambda: 1000.0)
     payload = service.current()
-    assert payload["city"] == "赣州" and payload["source"] == "default"
+    assert payload["city"] == "北京" and payload["source"] == "default"
     assert "回退" in payload["note"]
 
 

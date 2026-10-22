@@ -237,7 +237,7 @@ def create_workspaces_router(*, data_dir: Path, vault_dir: Path, read_only: bool
         })
         return {**entry, "data": str(target_data), "active": False, "saved": True,
                 "restart_required": True,
-                "note": "已写入本地 .env；重启本地服务后切换到该文件夹。首次进入建议在「第二大脑」点一次扫描，建立这一套数据的索引。"}
+                "note": "已写入本地 .env；重启本地服务后切换到该文件夹。首次进入建议点一次扫描，建立这一套数据的索引。"}
 
     @router.post("/workspaces/delete")
     def delete_workspace(payload: WorkspaceName):

@@ -514,11 +514,7 @@ class SchedulerService:
                 _audit(connection, {"kind": kind, "source_date": source, "manual": manual, "catch_up": catch_up})
                 row = connection.execute("SELECT * FROM inbox_items WHERE id=?", (cursor.lastrowid,)).fetchone()
             created.append(_item(row))
-        # Proactive suggestion cards ride along with the scheduled drafts; the
-        # generator is read-only against everything except its own table.
-        from .suggestions import SuggestionService
-        suggestions = SuggestionService(self.database).generate()
-        return {"created": created, "existing": existing, "suggestions": suggestions}
+        return {"created": created, "existing": existing}
 
     def today_runs(self, now: datetime | None = None) -> list[dict[str, Any]]:
         local = (now or datetime.now(SHANGHAI)).astimezone(SHANGHAI)

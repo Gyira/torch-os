@@ -3,7 +3,7 @@
 The bridge only issues GET requests to the loopback API (fetching the local
 session cookie first). It never writes, never leaves this machine, and never
 sees model keys. Any MCP client (for example DeepSeek Harness via
-``@deepseek-ai/dsh-mcp-client``) can spawn it and call the 12 read-only tools.
+``@deepseek-ai/dsh-mcp-client``) can spawn it and call the 13 read-only tools.
 """
 
 from __future__ import annotations
@@ -258,7 +258,7 @@ def handle_message(bridge: Bridge, message: dict[str, Any]) -> dict[str, Any] | 
             'jsonrpc': '2.0', 'id': message_id,
             'result': {'resources': [
                 {'uri': RESOURCE_CATALOG_URI, 'name': 'tools-catalog', 'title': '只读工具目录',
-                 'description': '12 个只读工具的名称、参数与说明（本地静态目录，不含用户数据）',
+                 'description': '13 个只读工具的名称、参数与说明（本地静态目录，不含用户数据）',
                  'mimeType': 'application/json'},
                 {'uri': RESOURCE_GUIDE_URI, 'name': 'readonly-guide', 'title': '只读使用说明',
                  'description': '如何选择工具、只读边界与不要编造个人信息', 'mimeType': 'text/markdown'},

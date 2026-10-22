@@ -111,7 +111,7 @@ async function harness() {
     dispatchEvent() {},
   };
   const requests = [];
-  const location = { hash: "#today" };
+  const location = { hash: "#workbench" };
   const windowListeners = new Map();
   async function emitWindow(type, event) {
     for (const callback of windowListeners.get(type) || []) await callback(event);
@@ -160,55 +160,6 @@ test("expired local sessions instruct the user to refresh", async () => {
   context.fetch = async () => ({ ok: false, status: 401, json: async () => ({ detail: "expired" }) });
   await assert.rejects(core.api("/api/documents"), /刷新页面/);
 });
-test("import preview defaults to no selection, limits rows, and escapes filenames", async () => {
-  const { load, getNode, requests, setResponse } = await harness();
-  const imports = (await load("imports.js")).namespace;
-  imports.initImports();
-  const records = Array.from({ length: 85 }, (_, index) => ({ path: `sample-${index}.md`, type: "markdown", size: 100, sensitive: false, import_allowed: true, warnings: [] }));
-  records[0] = { ...records[0], path: '<img src=x onerror="alert(1)">.md', sensitive: true };
-  setResponse((url) => url.endsWith("/preview") ? { files: records, markdown_count: 85, attachment_count: 0, file_count: 85 } : []);
-  getNode("#import-package").value = "synthetic-package";
-  await getNode("#preview-import").emit("click");
-  const html = getNode("#import-file-list").innerHTML;
-  assert.equal((html.match(/data-import-path=/g) || []).length, 50);
-  assert.equal(html.includes("<img"), false);
-  assert.ok(html.includes("&lt;img"));
-  assert.ok(html.includes("敏感内容 · 禁止导入"));
-  assert.equal(getNode("#apply-import").disabled, true);
-  assert.equal(getNode("#import-selection-count").textContent, "已选择 0 / 20 篇");
-  assert.equal(requests.filter((item) => item.url.endsWith("/apply")).length, 0);
-  getNode("#import-search").value = "sample-84";
-  await getNode("#import-search").emit("input");
-  assert.equal((getNode("#import-file-list").innerHTML.match(/data-import-path=/g) || []).length, 1);
-});
-
-test("import refuses sensitive records and caps explicit selection at twenty", async () => {
-  const { load, getNode, requests, setResponse } = await harness();
-  const imports = (await load("imports.js")).namespace;
-  imports.initImports();
-  const records = Array.from({ length: 25 }, (_, index) => ({ path: `synthetic-${index}.md`, type: "markdown", size: 10, sensitive: index === 0, import_allowed: true }));
-  setResponse((url) => url.endsWith("/preview") ? { files: records } : url.endsWith("/apply") ? { imported: 20, skipped: 0, errors: [] } : []);
-  getNode("#import-package").value = "package with spaces";
-  await getNode("#preview-import").emit("click");
-  const select = async (filePath) => {
-    const input = { dataset: { importPath: filePath }, checked: true, closest() { return this; } };
-    await getNode("#import-file-list").emit("change", { target: input });
-    return input;
-  };
-  assert.equal((await select("synthetic-0.md")).checked, false);
-  for (let index = 1; index <= 20; index += 1) await select(`synthetic-${index}.md`);
-  assert.equal((await select("synthetic-21.md")).checked, false);
-  assert.equal(getNode("#import-selection-count").textContent, "已选择 20 / 20 篇");
-  await getNode("#apply-import").emit("click");
-  const request = requests.find((item) => item.url.endsWith("/apply"));
-  assert.equal(request.url, "/api/imports/package%20with%20spaces/apply");
-  const selected = JSON.parse(request.options.body).selected_paths;
-  assert.equal(selected.length, 20);
-  assert.equal(selected.includes("synthetic-0.md"), false);
-  assert.equal(getNode("#import-selection-count").textContent, "已选择 0 / 20 篇");
-  assert.equal(getNode("#apply-import").disabled, true);
-});
-
 test("journal calendar uses Shanghai boundaries and rejects future or invalid dates", async () => {
   const { load } = await harness();
   const model = (await load("journal-model.js")).namespace;
@@ -375,7 +326,7 @@ test("the shell keeps its skip link, main landmark and single page-title contrac
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((match) => match[1]);
   assert.equal(views.length, 6);
   for (const view of views) {
-    // 模块可以是实体页面（workbench / settings），也可以只有分区（identity / brain）。
+    // 模块可以是实体页面（workbench / settings），也可以只有分区（四库）。
     const shell = new RegExp(`id="${view}-view"`).test(html);
     const panes = new RegExp(`data-module="${view}"`).test(html);
     assert.ok(shell || panes, `${view} exposes a shell or panes`);

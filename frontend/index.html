@@ -246,7 +246,7 @@
               <p id="schema-support" class="meta" role="status" hidden></p>
             </article>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给外部智能体（例如 DeepSeek Harness）看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、学习、日记索引、认识我计数、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 MCP 客户端（例如 DeepSeek Harness）直接调用这 12 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code> 与 <code>docs/harness/torch-tools.cordis.yml</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
+              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给外部智能体（例如 DeepSeek Harness）看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、学习、日记索引、认识我计数、我是谁、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 MCP 客户端（例如 DeepSeek Harness）直接调用这 13 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
               <div id="tools-summary" class="panel">尚未读取。</div>
               <p id="tools-status" class="status-message" role="status"></p>
               <p id="tools-support" class="meta" role="status" hidden></p>
@@ -272,7 +272,7 @@
                 <div class="form-actions"><button id="vault-save" class="button primary" type="submit" disabled>保存连接设置</button><span id="vault-restart-note" class="meta"></span></div>
               </form>
               <p id="vault-connection-support" class="meta" role="status" hidden></p>
-              <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 分享导入 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
+              <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
             </article>
             <article class="settings-card" id="workspace-card">
               <div class="settings-card-head"><div><span class="eyebrow">WORKSPACES</span><h2 id="settings-workspaces-heading" tabindex="-1">工作区（用户文件夹）</h2><p>换用户就是换文件夹：一个文件夹 = 一个人的 Obsidian 库 + 应用数据。切换会写入本地 <code>.env</code>（<code>DATA_DIR</code>、<code>VAULT_DIR</code>、读写模式），重启本地服务后生效。</p></div><div class="section-actions"><button id="workspace-new" class="text-button" type="button" disabled>新建工作区</button></div></div>
@@ -283,7 +283,7 @@
                   <div class="field"><label for="workspace-name">名字</label><input id="workspace-name" type="text" autocomplete="off" maxlength="40" placeholder="例如 我的 / 家人A" /></div>
                   <div class="field"><label for="workspace-folder">用户文件夹（Obsidian 库根目录）</label><input id="workspace-folder" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
                 </div>
-                <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进第二大脑索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
+                <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
                 <div class="field"><label class="check-label" for="workspace-read-only"><input id="workspace-read-only" type="checkbox" />只读安全模式（扫描照常，所有写入拒绝）</label></div>
                 <div class="form-actions"><div><button id="workspace-save" class="button primary" type="submit" disabled>保存工作区</button> <button id="workspace-cancel" class="button secondary" type="button" disabled>取消</button></div></div>
               </form>

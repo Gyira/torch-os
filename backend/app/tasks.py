@@ -1472,7 +1472,7 @@ def delete_tag(vault_dir: Path | str, payload: NamedPayload, database: Database,
 
 def create_tasks_router(vault_dir: Path | str, database: Database, *,
                         read_only: bool = False, prefix: str = "/api") -> APIRouter:
-    # `/api/tasks` 已被“数字分身 → 目标与任务”的 SQLite 任务占用，时间管理统一走 /api/time。
+    # `/api/tasks` 已被旧“目标与任务”的 SQLite 任务占用，时间管理统一走 /api/time。
     router = APIRouter(prefix=f"{prefix}/time", tags=["time-tasks"])
 
     @router.get("/tasks")
