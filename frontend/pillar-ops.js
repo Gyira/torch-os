@@ -139,12 +139,12 @@ async function renderDashboard(host) {
       <p class="pillar-stat">${weights.length ? `${weights[weights.length - 1]} kg` : "还没有数据"}</p>
       ${sparkline(weights)}
       <p class="field-help">${escapeHtml(latestHealth?.month || monthNow())} · ${latestHealth?.rows?.length || 0} 条记录</p>
-      <button type="button" class="text-button" data-ops-open="health">打开月度表</button>
+      <button type="button" class="text-button" data-ops-quick="health">${weights.length ? "打开月度表" : "记第一次体重"}</button>
     </section>
     <section class="pillar-card"><p class="eyebrow">财富与记账</p>
       <p class="pillar-stat">${totals.balance.toFixed(2)}</p>
       <p class="field-help">${escapeHtml(latestFinance?.month || monthNow())} · 收入 ${totals.income.toFixed(2)} · 支出 ${totals.expense.toFixed(2)}</p>
-      <button type="button" class="text-button" data-ops-open="finance">打开月度表</button>
+      <button type="button" class="text-button" data-ops-quick="finance">${latestFinance?.rows?.length ? "打开月度表" : "记第一笔"}</button>
     </section>
   </div>`;
 }
@@ -200,16 +200,6 @@ export function bindOpsEvents() {
         toast(error.message, "error");
       }
       return;
-    }
-    const open = event.target.closest?.("[data-ops-open]");
-    if (open) {
-      const view = open.closest(".pillar-view");
-      const shell = view?.querySelector(".pillar-shell");
-      const key = view?.id.replace("-view", "");
-      if (!shell || !key) return;
-      // 复用章节切换：直接触发对应章节按钮。
-      const target = shell.querySelector(`[data-pillar-chapter="${key}"][data-chapter="${open.dataset.opsOpen}"]`);
-      target?.click();
     }
   });
 }

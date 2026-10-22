@@ -1,7 +1,7 @@
 // 日记模块（工作台 2.0）：今天的日记（Markdown：02-Life/journal/YYYY-MM-DD.md）+ 记录模块
 // （今天动过的文件，真实 mtime）。Obsidian 就是编辑器：产品只做「按模板起草 + 自动汇总 +
 // 可选 AI 润色」，文件优先、绝不覆盖你写过的字。
-import { $, api, escapeHtml, jsonBody, setStatus, toast, confirmAction } from "./core.js";
+import { $, api, escapeHtml, formatRelativeDate, jsonBody, setStatus, toast, confirmAction } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
 
 let note = null;
@@ -32,7 +32,7 @@ function renderNote() {
   const openLine = link
     ? `<a class="text-button" href="${escapeHtml(link)}">在 Obsidian 里打开 →</a>`
     : `<p class="field-help journal-note-path">在 Obsidian 里打开：${escapeHtml(note.path || note.relpath)}</p>`;
-  body.innerHTML = `<p class="meta journal-note-meta">文件 <code>${escapeHtml(note.relpath)}</code> · 最后修改 ${escapeHtml(note.updated_at || "")} · <strong>文件优先</strong>：产品不会改动你写过的字，只会在你确认后把“自动汇总”追加到末尾。</p>` +
+  body.innerHTML = `<p class="meta journal-note-meta">文件 <code>${escapeHtml(note.relpath)}</code> · 最后修改 ${escapeHtml(formatRelativeDate(note.updated_at))} · <strong>文件优先</strong>：产品不会改动你写过的字，只会在你确认后把“自动汇总”追加到末尾。</p>` +
     `<pre class="journal-note-text">${escapeHtml(note.content.slice(0, 6000))}</pre>` +
     openLine;
 }

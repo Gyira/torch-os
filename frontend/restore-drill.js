@@ -1,5 +1,5 @@
 // 一键恢复演练：生成备份 → 恢复到独立目录 → 只读验证 → 生成报告（不覆盖当前库）。
-import { $, state, api, escapeHtml, jsonBody, setStatus, toast, confirmAction } from "./core.js";
+import { $, state, api, escapeHtml, formatDate, jsonBody, setStatus, toast, confirmAction } from "./core.js";
 
 let busy = false;
 
@@ -65,7 +65,7 @@ export async function loadDrillReports() {
     target.innerHTML = `
       <p class="meta">最近 ${payload.count} 份演练报告（${escapeHtml(payload.note || "")}）</p>
       <ul class="extract-list">${payload.reports.map((item) => `
-        <li>${escapeHtml(item.name)} · ${escapeHtml(item.created_at)} · ${escapeHtml(item.bytes)} 字节
+        <li>${escapeHtml(item.name)} · ${escapeHtml(formatDate(item.created_at))} · ${escapeHtml(item.bytes)} 字节
           <button class="text-button" type="button" data-drill-report="${escapeHtml(item.name)}">下载</button></li>`).join("")}</ul>`;
   } catch {
     target.hidden = true;

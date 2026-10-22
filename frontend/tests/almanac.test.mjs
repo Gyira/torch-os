@@ -43,12 +43,12 @@ test("html escapes the name and the meta line follows progress", () => {
   const html = almanacHtml("2026-10-05", '<img src=x onerror=1>', { done: 3, total: 24 });
   assert.ok(!html.includes("<img"));
   assert.ok(html.includes("&lt;img"));
-  assert.ok(html.includes("今日完成 3 / 24 项"));
+  assert.ok(html.includes("今日闭环 3 / 24 项（含日记）"));
   assert.ok(html.includes("§ "));
   assert.ok(html.includes("宜："));
   assert.ok(html.includes("忌："));
 
   const anonymous = almanacHtml("2026-10-05", "", null);
   assert.ok(anonymous.includes("你 的运势"));
-  assert.ok(!anonymous.includes("今日完成"));
+  assert.ok(!anonymous.includes("今日闭环"));
 });

@@ -1,6 +1,6 @@
 // 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 快速捕获。
 // 工作台完全独立；这里只读写四库接口，不碰 time-module / workbench 的 DOM。
-import { $, api, escapeHtml, toast } from "./core.js";
+import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
@@ -101,7 +101,7 @@ function noteRow(note) {
   const dayLabel = journal ? journalDayLabel(note) : "";
   const title = dayLabel ? `日记 · ${dayLabel}` : note.title;
   const excerpt = journal ? "打开这篇日记" : (note.excerpt || "");
-  const meta = journal ? "" : `${escapeHtml(note.date || "")}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}`;
+  const meta = journal ? "" : `${escapeHtml(formatRelativeDate(note.date))}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}`;
   return `<button type="button" class="pillar-note-row" data-note-path="${escapeHtml(note.path)}">
     <span class="pillar-note-main">
       <span class="pillar-note-title">${escapeHtml(title)}</span>
@@ -191,7 +191,7 @@ function renderShell(view) {
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
-          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(String(overview.today.journal_updated_at || "").replace("T", " ").slice(0, 16))}` : "先写一句也算记录。"}</p>
+          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
             <button type="button" class="pillar-quick-button" data-review="weekly">生成本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">生成本月复盘</button>
@@ -286,6 +286,11 @@ function bindPillarEvents() {
         onOpenNote: (path) => openNote(path),
         onApplied: () => loadPillar(steward.dataset.stewardOpen, { keepChapter: true }),
       });
+      return;
+    }
+    const retry = event.target.closest?.("[data-pillar-retry]");
+    if (retry) {
+      loadPillarModule(retry.dataset.pillarRetry);
       return;
     }
     const opsQuick = event.target.closest?.("[data-ops-quick]");
@@ -437,7 +442,7 @@ export function openNote(path) {
         <div>
           <p class="eyebrow">${escapeHtml(chapterTitle(note.pillar, note.chapter))}</p>
           <h2>${escapeHtml(displayTitle)}</h2>
-          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(note.date)}` : ""}</p>
+          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(formatRelativeDate(note.date))}` : ""}</p>
         </div>
         <button type="button" class="text-button" data-close-note>关闭</button>
       </div>
@@ -642,7 +647,7 @@ export async function loadPillarModule(view) {
     await loadPillar(view);
   } catch (error) {
     const root = $(`#${view}-view .pillar-shell`);
-    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p></div>`;
+    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
   }
 }
 

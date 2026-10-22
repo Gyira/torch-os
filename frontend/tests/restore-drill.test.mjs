@@ -40,7 +40,7 @@ async function harness({ capabilities = { restore_drill: true }, drill = null, r
   };
   const state = { view: "settings", config: { capabilities } };
   const core = new vm.SyntheticModule(
-    ["$", "state", "api", "escapeHtml", "jsonBody", "setStatus", "toast", "confirmAction"],
+    ["$", "state", "api", "escapeHtml", "formatDate", "jsonBody", "setStatus", "toast", "confirmAction"],
     function () {
       this.setExport("$", getNode);
       this.setExport("state", state);
@@ -51,6 +51,7 @@ async function harness({ capabilities = { restore_drill: true }, drill = null, r
         return drill;
       });
       this.setExport("escapeHtml", (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character])));
+      this.setExport("formatDate", (value) => String(value ?? ""));
       this.setExport("jsonBody", (method, data) => ({ method, body: JSON.stringify(data) }));
       this.setExport("setStatus", (selector, message, tone = "") => { getNode(selector).textContent = message; getNode(selector).tone = tone; });
       this.setExport("toast", (message) => { getNode("#toast").textContent = message; });

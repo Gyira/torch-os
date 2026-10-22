@@ -1,5 +1,5 @@
 // 全局搜索：跨四库检索标题/正文/标签，点结果直接打开详情。
-import { api, escapeHtml, toast } from "./core.js";
+import { api, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { openNote } from "./pillars.js";
 
 const PILLAR_LABELS = { life: "人生路", self: "自我档案", ops: "生活运营", knowledge: "知识库" };
@@ -78,7 +78,7 @@ export function openGlobalSearch() {
             <span class="pillar-note-title">${escapeHtml(item.title)}</span>
             <span class="pillar-note-excerpt">${escapeHtml(item.excerpt || "")}</span>
           </span>
-          <span class="pillar-note-meta">${escapeHtml(PILLAR_LABELS[item.pillar] || item.pillar)} · ${escapeHtml(item.date || "")}</span>
+          <span class="pillar-note-meta">${escapeHtml(PILLAR_LABELS[item.pillar] || item.pillar)} · ${escapeHtml(formatRelativeDate(item.date))}</span>
         </button>`).join("")}</div>` : "";
     } catch (error) {
       if (seq !== searchSeq) return;
@@ -105,6 +105,7 @@ export function openGlobalSearch() {
     if (event.key === "Enter") {
       event.preventDefault();
       if (activeIndex >= 0) openRow(activeIndex);
+      else if (resultItems.length) openRow(0);
       else search();
     }
   });

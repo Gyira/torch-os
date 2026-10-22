@@ -27,7 +27,7 @@ function timeGreeting() {
 
 function describeProgress(progress) {
   if (!progress || !progress.total) return "今天还没有安排，先加一条待办吧。";
-  return `完成 ${progress.done} / ${progress.total} 项`;
+  return `今日闭环 ${progress.done} / ${progress.total} 项（含日记）`;
 }
 
 export function renderWorkbench(payload) {

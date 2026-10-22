@@ -1,3 +1,6 @@
+import { formatRelativeDate } from "./date-format.js";
+export { formatRelativeDate };
+
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const state = { view: "workbench", config: null, configLoaded: false };
 export const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
