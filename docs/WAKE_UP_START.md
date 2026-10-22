@@ -65,6 +65,8 @@ node scripts\check_module_surface.mjs
 
 ## 6. 已知边界
 
+完整的已移除路由、deprecated 表与仍保留旧后端清单见 `docs/DEPRECATIONS.md`。
+
 - 分享导入已退役；Wolai 导入仍有后端接口，但当前没有前端入口。
 - 旧「目标 / 记忆审核 / 八字 / 身体记录 / Vault 体检」页面不再提供 UI；
   对应数据表与部分导出仍保留，避免丢数据。

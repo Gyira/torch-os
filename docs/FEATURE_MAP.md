@@ -97,3 +97,4 @@
 - 设计书删除清单中的 `inbox.js`、`journal.js`、`journal-calendar.js`、`growth-model.js`、
   `habit-grid.js` 仍有活引用（设置页日程、工作台日记、四库习惯/日历），保留。
 - MCP 工具目录仍为 13 个：`profile` 是计数快照工具，不是已退役的 profile 页面。
+- 已移除路由、deprecated 表与仍保留旧后端的完整清单见 `docs/DEPRECATIONS.md`。
