@@ -151,6 +151,11 @@ export function groupTasks(tasks, groupBy, options = {}) {
     if (!buckets.has(label)) buckets.set(label, { label, order, tasks: [] });
     buckets.get(label).tasks.push(task);
   };
+  // 目标按 path 分组，但显示标题：两个同名目标不能被合并。
+  const pushKeyed = (key, label, order, task) => {
+    if (!buckets.has(key)) buckets.set(key, { label, order, tasks: [] });
+    buckets.get(key).tasks.push(task);
+  };
   const listOrder = Array.isArray(options.listOrder) ? options.listOrder : [];
   for (const task of all) {
     if (groupBy === "list") {
@@ -165,8 +170,8 @@ export function groupTasks(tasks, groupBy, options = {}) {
       if (!tags.length) push("无标签", 99, task);
       else tags.forEach((tag) => push(`#${tag}`, 0, task));
     } else if (groupBy === "goal") {
-      if (!task.goal) push("未关联目标", 99, task);
-      else push(options.goalLabel?.(task.goal) || "目标任务", 0, task);
+      if (!task.goal) pushKeyed("__no_goal__", "未关联目标", 99, task);
+      else pushKeyed(task.goal, options.goalLabel?.(task.goal) || "目标任务", 0, task);
     } else if (groupBy === "created") {
       const bucket = createdBucket(task, today);
       push(bucket.label, bucket.order, task);

@@ -67,7 +67,7 @@ def active_goals(vault_dir: Path | str, limit: int = 3) -> list[dict[str, Any]]:
 
 
 def count_active(vault_dir: Path | str) -> int:
-    return len(active_goals(vault_dir, limit=500))
+    return len(list_goals(vault_dir, active_only=True, limit=500))
 
 
 __all__ = ["GOAL_CHAPTERS", "list_goals", "resolve_goal", "active_goals", "count_active"]

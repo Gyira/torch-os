@@ -373,4 +373,9 @@ test("goal filters, grouping and titles use the goal path and label", () => {
     [["学习", 2], ["未关联目标", 1]]);
   assert.equal(boardTitle({ goal }), "目标任务");
   assert.equal(boardTitle({ goal }, { goalLabel: "学习" }), "目标：学习");
+  const sameTitle = groupTasks([
+    task({ title: "甲", goal: "goal/a.md" }),
+    task({ title: "乙", goal: "goal/b.md" }),
+  ], "goal", { goalLabel: () => "同名" });
+  assert.equal(sameTitle.length, 2, "同名目标按 path 分开");
 });
