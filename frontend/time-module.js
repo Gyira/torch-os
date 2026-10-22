@@ -259,6 +259,12 @@ export function switchPage(next) {
   if (next === "calendar") paintCalendar();
   if (next === "quadrant") paintQuadrant();
   if (next === "trash") loadTrash();
+  // 切回任务/日历/四象限时先重读一次 board：任务可能在别的窗口、Obsidian
+  // 或滴答同步里被删改，而页面自己的 30 秒静默刷新未必已经跑过。
+  // 先画当前缓存，再让 loadTimeTasks 在 revision 变化时重画，避免空屏。
+  if (next === "tasks" || next === "calendar" || next === "quadrant") {
+    loadTimeTasks({ silent: true });
+  }
 }
 
 /** 工作台那边拿到 /api/workbench/today 后，把「今日完成度」喂给模块顶部的进度条。 */
