@@ -8,7 +8,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\round.ps1 -Version 0.96.3
 #   ... -SkipBrowser          跳过浏览器探针（最快，只做本地校验 + 部署 + 自检）
 #   ... -SkipDeploy           只校验，不重启服务
-#   ... -Screenshot artifacts\某次验收.png
+#   ... -Screenshot artifacts\某次验收.png   兼容旧调用；四库探针的截图固定写到输出目录
 param(
   [string]$Version = '',
   [switch]$SkipCheck,
@@ -123,37 +123,16 @@ try {
   }
 
   if (-not $SkipBrowser) {
-    # 本机 headless Edge 不能由 Python 子进程拉起（会立刻退出），所以从这里 Start-Process，
-    # 探针用 --attach-port 附着。
-    Step '真实浏览器探针' {
-      $edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-      $debugPort = 9431
-      $profileDir = Join-Path $env:TEMP 'torch-round-edge'
-      if (Test-Path -LiteralPath $profileDir) { Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue }
-      # 异常退出的探针会留下 headless Edge（命令行带 --remote-debugging-port；
-      # 用户自己的 Edge 没有这个参数），先清一次，避免越积越多。
-      Get-CimInstance Win32_Process -Filter "Name = 'msedge.exe'" |
-        Where-Object { $_.CommandLine -like '*--remote-debugging-port*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-      if (Test-Path -LiteralPath $edge) {
-        Start-Process -FilePath $edge -ArgumentList @(
-          '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
-          "--remote-debugging-port=$debugPort", "--user-data-dir=$profileDir", '--window-size=1440,960', "$BaseUrl/#workbench"
-        ) | Out-Null
-        $up = Wait-For 'Edge 调试端口' {
-          (Invoke-WebRequest -Uri "http://127.0.0.1:$debugPort/json/version" -TimeoutSec 3 -UseBasicParsing).StatusCode -eq 200
-        } 40
-        if (-not $up) { throw 'Edge 调试端口未就绪' }
-        $report = if ($Version) { "data\diagnostics\browser-$Version-final.json" } else { 'data\diagnostics\browser-final.json' }
-        $args = @((Join-Path $root 'scripts\browser_smoke.py'), '--base-url', $BaseUrl, '--report', $report, '--attach-port', $debugPort)
-        if ($Screenshot) { $args += @('--screenshot', $Screenshot) }
-        & $python @args
-        $code = $LASTEXITCODE
-        Get-CimInstance Win32_Process -Filter "Name = 'msedge.exe'" |
-          Where-Object { $_.CommandLine -like "*$debugPort*" } |
-          ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-        Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue
-        $global:LASTEXITCODE = $code
+    # 四库探针自己拉起 headless Edge；只访问本机 BaseUrl，不执行提案、不调用模型。
+    Step '四库真实浏览器探针' {
+      $edge = @(
+        'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+        'C:\Program Files\Microsoft\Edge\Application\msedge.exe'
+      ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+      if ($edge) {
+        $output = if ($Version) { "data\diagnostics\pillar-probe-$Version" } else { 'data\diagnostics\pillar-probe' }
+        & $python (Join-Path $root 'scripts\browser_pillars_probe.py') --base-url $BaseUrl --output $output --port 9431
+        if ($LASTEXITCODE -ne 0) { throw '四库真实浏览器探针失败' }
       } else {
         Write-Host '  没找到 Edge，跳过（用 -SkipBrowser 可以静默跳过）' -ForegroundColor Yellow
       }

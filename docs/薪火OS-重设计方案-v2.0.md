@@ -438,6 +438,8 @@
   - 保守偏差：`goals`/`learning`/`body`/`journal` 后端仍服务任务导入、工作台学习分钟、
     导出与日记面板；`inbox.js`、`journal.js`、`journal-calendar.js`、`growth-model.js`、
     `habit-grid.js` 仍有活引用，均保留。大块旧 CSS 与旧 `browser_smoke.py` 留待后续。
+  - 发布脚本 `round.ps1` 的浏览器步骤已切换到 `browser_pillars_probe.py`；旧的
+    `browser_smoke.py` 仅保留给失败报告测试，不再作为验收证据。
 - UX 打磨（2026-10-21）：
   - 「写今日日记」直接复用工作台日记接口，打开当天权威文件，不再另建同名笔记；
   - 快速捕获默认只露出标题、正文、去向，标签/来源收进「更多选项」；结构化章节
