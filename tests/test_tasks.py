@@ -392,6 +392,7 @@ def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
     assert blocked.status_code == 409
 
     (folder / "附件.txt").unlink()
+    (folder / "临时任务.md.baiduyun.uploading.cfg").write_text("{}", encoding="utf-8")
     payload = board(client)
     removed = post(client, "/api/time/lists/delete", {
         "name": "临时清单", "revision": payload["revision"]})
@@ -405,6 +406,8 @@ def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
     trash = tmp_path / "vault" / data["trash"]
     assert any(item.name == "任务（tasks）.md" for item in trash.rglob("*"))
     assert any(item.name == "临时任务.md" for item in trash.rglob("*"))
+    assert any(item.name == "临时任务.md.baiduyun.uploading.cfg"
+               for item in trash.rglob("*"))
 
     payload = board(client)
     assert post(client, "/api/time/lists/delete", {

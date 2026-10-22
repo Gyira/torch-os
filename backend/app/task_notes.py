@@ -367,6 +367,17 @@ def _is_link(entry: Path) -> bool:
     return entry.is_symlink() or (hasattr(entry, "is_junction") and entry.is_junction())
 
 
+def _is_sync_sidecar(entry: Path) -> bool:
+    """网盘同步生成的临时 cfg（百度网盘为 *.baiduyun.uploading.cfg）。
+
+    它们不是用户笔记，也不是任务附件；删除清单时应随清单一起进回收站，
+    而不是把整个删除操作卡住。
+    """
+    name = entry.name.casefold()
+    return (not _is_link(entry) and entry.is_file()
+            and ".baiduyun." in name and name.endswith(".cfg"))
+
+
 def scan_task_notes(vault_dir: Path | str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """扫描任务根 + 一层清单目录；返回任务与读取警告。"""
     root = task_root(vault_dir)
@@ -646,6 +657,8 @@ def _folder_notes(vault_dir: Path | str, folder: Any) -> list[dict[str, Any]]:
     directory = task_folder(vault_dir, folder)
     notes: list[dict[str, Any]] = []
     for entry in _folder_entries(directory):
+        if _is_sync_sidecar(entry):
+            continue
         if entry.name.startswith(".") or _is_link(entry):
             raise HTTPException(409, "清单目录里有隐藏/链接文件，不能删除这个清单")
         if entry.is_dir() or entry.suffix.lower() != ".md":
@@ -679,6 +692,13 @@ def trash_list_folder(vault_dir: Path | str, folder: Any, *,
             os.replace(note["path"], target)
         except OSError as error:
             raise HTTPException(409, f"把清单任务移进回收站失败：{error}") from error
+    sidecars = [entry for entry in _folder_entries(directory) if _is_sync_sidecar(entry)]
+    for entry in sidecars:
+        target = _trash_target(batch, task_relative(entry, vault_dir))
+        try:
+            os.replace(entry, target)
+        except OSError as error:
+            raise HTTPException(409, f"把清单同步临时文件移进回收站失败：{error}") from error
     try:
         directory.rmdir()
     except OSError:

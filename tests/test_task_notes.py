@@ -177,6 +177,31 @@ def test_trash_note_and_list_folder_safety(tmp_path):
         trash_list_folder(tmp_path, INBOX)
 
 
+def test_trash_list_folder_moves_baidu_sync_sidecars(tmp_path):
+    note = create_task_note(tmp_path, "工作", "清单任务", fields())
+    sidecar = note["path"].with_name(note["path"].name + ".baiduyun.uploading.cfg")
+    sidecar.write_text('{"state":"uploading"}', encoding="utf-8")
+
+    result = trash_list_folder(tmp_path, "工作")
+
+    assert result["count"] == 1
+    assert not (task_root(tmp_path) / "工作").exists()
+    trashed = {path.name for path in (tmp_path / result["batch"]).rglob("*") if path.is_file()}
+    assert note["path"].name in trashed
+    assert sidecar.name in trashed
+
+
+def test_trash_list_folder_still_refuses_unknown_cfg(tmp_path):
+    note = create_task_note(tmp_path, "工作", "清单任务", fields())
+    (note["path"].parent / "附件.cfg").write_text("keep me", encoding="utf-8")
+
+    with pytest.raises(HTTPException) as error:
+        trash_list_folder(tmp_path, "工作")
+
+    assert error.value.status_code == 409
+    assert note["path"].exists()
+
+
 def test_board_revision_changes_when_any_note_changes(tmp_path):
     first = create_task_note(tmp_path, "", "A", fields())
     create_task_note(tmp_path, "工作", "B", fields())
