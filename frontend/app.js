@@ -92,6 +92,14 @@ function renderPanelNav() {
     scroll.appendChild(button);
   }
   nav.appendChild(scroll);
+  const help = document.createElement("button");
+  help.type = "button";
+  help.className = "panel-nav-help";
+  help.textContent = "?";
+  help.setAttribute("aria-label", "打开帮助");
+  help.title = "打开帮助：四库怎么用、快捷键与迁移";
+  help.addEventListener("click", () => { goTo("help"); });
+  nav.appendChild(help);
   const search = document.createElement("button");
   search.type = "button";
   search.className = "panel-nav-search";

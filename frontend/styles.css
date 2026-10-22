@@ -1099,6 +1099,8 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-ops-form input, .pillar-ops-form select { padding: 6px 8px; border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 12px; min-width: 90px; }
 .pillar-ops-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
 @media (max-width: 760px) { .pillar-ops-dashboard { grid-template-columns: 1fr; } }
+.panel-nav-help { flex: 0 0 auto; width: 30px; height: 30px; border: 1px solid var(--p-line); border-radius: 50%; background: transparent; color: var(--p-ink-4); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.panel-nav-help:hover { background: var(--p-hover); color: var(--p-ink); }
 .panel-nav-search { flex: 0 0 auto; margin-left: 6px; border: 1px solid var(--p-line); background: transparent; color: var(--p-ink-4); border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
 .panel-nav-search:hover { background: var(--p-hover); color: var(--p-ink); }
 .pillar-search-dialog { width: min(720px, 94vw); }

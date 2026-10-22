@@ -141,6 +141,15 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.call("Runtime.enable")
             await cdp.wait_for("document.readyState === 'complete'")
             await cdp.wait_for("document.querySelectorAll('.panel-nav-item').length === 6", timeout=45)
+            # 顶部「?」帮助入口：应直接打开设置里的帮助分区。
+            await cdp.evaluate("document.querySelector('.panel-nav-help').click()")
+            await cdp.wait_for(
+                "location.hash === '#settings' && document.querySelector('[data-settings-nav=\"help\"]')?.classList.contains('active') && !document.querySelector('[data-settings-section=\"help\"]')?.hidden",
+                timeout=20)
+            report["help_nav"] = await cdp.evaluate(
+                "document.querySelector('[data-settings-section=\"help\"] h2')?.textContent || ''")
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"life\"]').click()")
+            await cdp.wait_for("location.hash === '#life'")
             for view in ("life", "self", "ops", "knowledge"):
                 await cdp.evaluate(f"document.querySelector('.panel-nav-item[data-view=\"{view}\"]').click()")
                 await cdp.wait_for(
