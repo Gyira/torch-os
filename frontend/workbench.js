@@ -100,6 +100,8 @@ function renderWelcome(payload) {
     </div>`;
   banner.insertAdjacentElement("afterend", card);
   card.querySelector('[data-welcome="journal"]')?.addEventListener("click", () => {
+    dismissWelcome();
+    card.remove();
     location.hash = "#life";
     let attempts = 0;
     const timer = window.setInterval(() => {
@@ -113,11 +115,15 @@ function renderWelcome(payload) {
     }, 100);
   });
   card.querySelector('[data-welcome="task"]')?.addEventListener("click", () => {
+    dismissWelcome();
+    card.remove();
     const input = $("#time-add-input");
     input?.focus();
     input?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
   card.querySelector('[data-welcome="help"]')?.addEventListener("click", () => {
+    dismissWelcome();
+    card.remove();
     const help = document.querySelector(".panel-nav-help");
     if (help) help.click();
     else location.hash = "#settings";
