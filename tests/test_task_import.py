@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.db import Database
 from backend.app.goals import GoalCreate, GoalTaskService, TaskUpdate
-from backend.app.journal import JournalService
 from backend.app.task_import import TaskImportApply, TaskImportService, create_task_import_router, parse_checkboxes
 from backend.app.vault import MAX_NOTE_BYTES, parse_text, scan_vault
 
@@ -237,9 +236,6 @@ def test_import_only_selected_items_and_keep_completed_date_unknown(setup):
     assert all(row["source_hash"] == source_preview["sha256"] and row["source_revision"] == 1 for row in ledger)
     assert all(set(event) <= {"task_id", "task_ids", "document_id", "goal_id"} for event in audit)
     assert "阅读第二章" not in json.dumps(audit, ensure_ascii=False)
-    journal = JournalService(service.database, service.vault_dir)
-    today = date.fromisoformat(completed["created_at"][:10]).isoformat()
-    assert completed["id"] not in [task["id"] for task in journal.review(today)["completed_tasks"]]
 
 
 def test_exactly_twenty_items_and_private_personal_metadata_are_supported(setup):

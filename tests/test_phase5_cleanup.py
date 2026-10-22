@@ -31,6 +31,9 @@ def test_retired_http_routes_return_404(tmp_path):
         ('post', '/api/chat/preview', {'message': '你好'}),
         ('post', '/api/imports/share/preview', {'url': 'https://example.invalid/share'}),
         ('get', '/api/memories/1/usage', None),
+        ('get', '/api/journal/2026-10-02', None),
+        ('post', '/api/journal/2026-10-02/review', {}),
+        ('post', '/api/journal/monthly-review', {'month': '2026-10'}),
     ):
         response = getattr(client, method)(path, json=body) if body is not None else getattr(client, method)(path)
         assert response.status_code == 404, (method, path, response.status_code, response.text)
@@ -50,9 +53,11 @@ def test_legacy_tables_survive_and_have_no_writers(tmp_path):
         tables = {row['name'] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
-        assert {'bazi_profiles', 'suggestions'} <= tables
+        assert {'bazi_profiles', 'suggestions', 'journal_entries', 'journal_actions'} <= tables
         assert connection.execute('SELECT COUNT(*) FROM bazi_profiles').fetchone()[0] == 0
         assert connection.execute('SELECT COUNT(*) FROM suggestions').fetchone()[0] == 0
+        assert connection.execute('SELECT COUNT(*) FROM journal_entries').fetchone()[0] == 0
+        assert connection.execute('SELECT COUNT(*) FROM journal_actions').fetchone()[0] == 0
 
 
 def test_scheduler_no_longer_generates_suggestions(tmp_path):

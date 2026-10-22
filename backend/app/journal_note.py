@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict
 from . import vault_layout, workbench
 from .activity import list_day_activity
 from .db import Database, utc_now
-from .journal import validate_day
+from .journal_shared import validate_day
 from .vault import managed_note_path
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")

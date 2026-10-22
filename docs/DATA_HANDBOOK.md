@@ -46,11 +46,14 @@
 - 对话：`conversations`、`messages`、`harness_sessions` 保存对话与会话引用；
   正文是否保存取决于调用端与设置。
 - 目标与任务：`goals`、`tasks`、`task_import_ledger` 服务工作台任务、目标映射与导入账本。
-- 每日记录：`journal_entries`、`journal_actions`、`body_entries`、`inbox_items`、
-  `scheduler_settings` 是旧每日记录投影、动作、身体记录、收件箱与调度设置。
+- 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，
+  仅保留历史数据与导出读取）；`body_entries`、`inbox_items`、`scheduler_settings`
+  是身体记录、收件箱与调度设置。
 - 习惯与学习：`habit_definitions`、`habit_entries`、`study_subjects`、`study_sessions`。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。
 - 建议与提醒：`suggestions` 是旧每日建议表，deprecated。
+- 旧日记：`journal_entries`、`journal_actions` 自 0.99 起 deprecated；旧写入路由已退役，
+  导出接口仍可读取历史记录，表不会自动删除。
 - 系统：`audit_events`、`schema_migrations`、`dida_sync_settings`、`dida_task_links`、
   `dida_project_links`。
 

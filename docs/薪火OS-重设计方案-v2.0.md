@@ -435,11 +435,13 @@
   - 工具桥仍保留 13 个只读工具（`profile` 是计数快照，不是退役页面）；
     `docs/MCP_BRIDGE.md`、`FEATURE_MAP.md`、`WAKE_UP_START.md`、`RESTORE_DRILL.md`、
     `DATA_HANDBOOK.md` 已补齐。
-  - 保守偏差：`goals`/`learning`/`body`/`journal` 后端仍服务任务导入、工作台学习分钟、
-    导出与日记面板；`inbox.js`、`journal.js`、`growth-model.js`、`habit-grid.js` 仍有活引用，
-    均保留。旧 `browser_smoke.py` 留待后续。
+  - 保守偏差：`goals`/`learning`/`body` 后端仍服务任务导入、工作台学习分钟与导出；
+    `inbox.js`、`journal.js`、`growth-model.js`、`habit-grid.js` 仍有活引用，均保留。
+    旧 `browser_smoke.py` 留待后续。
   - 旧日记归档月历的前端代码已删除（`journal-calendar.js`、对应测试与 CSS）；
-    旧 `/api/journal` 路由暂留，待专门退役时再处理。
+    旧结构化日记后端 `journal.py` 及 `/api/journal/{day}` 等路由已退役，
+    `journal_entries` / `journal_actions` 保留为 deprecated，导出仍可读取历史数据；
+    工作台日记继续使用 `/api/journal/note` 与 Markdown。
   - 旧 CSS 清理（2026-10-22）：按精确类名白名单移除 275 个旧选择器（约 18 KB），
     同步删除因此不再使用的 `--p-invert-accent`、`--p-hero-bg`、`--p-hero-ink-2`、
     `--p-warm-ink-2`；前端测试、`check_all` 与真实浏览器探针通过，截图尺寸与
@@ -457,6 +459,6 @@
   - 日记列表与详情使用「日记 · 10月21日 周三」友好标题；人生路新增最近 7 天圆点；
   - 全局搜索支持 Ctrl/⌘ K 与 ↑↓/回车，并加了搜索竞态保护；
   - 小屏弹窗可滚动，底部按钮不再被裁掉。
-- 测试（2026-10-22）：后端 1071 通过、1 跳过；前端 174 项全部通过；真实浏览器探针四库、
+- 测试（2026-10-22）：后端 980 通过、1 跳过；前端 171 项全部通过；真实浏览器探针四库、
   工作台与管家抽屉正常。管家新增 6 项后端测试（健康检查、确认执行、提炼、本地/云端问答、
   模型降级与只读拒绝）；Phase 5 新增 4 项后端守卫与 4 项前端守卫。

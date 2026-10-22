@@ -83,15 +83,17 @@
 
 - 旧「数字分身 / 第二大脑」页面、目标页、记忆审核页、八字页、身体记录页、
   分享导入页、资料导入页、Vault 体检页已退出导航；对应前端文件已在 Phase 5 清理中删除。
-- `bazi_profiles`、`suggestions` 两张 SQLite 表保留为 deprecated（0.99 起无写入方），
-  不自动 DROP；`goal`/`learning`/`body`/`journal` 后端仍服务工作台、任务导入与导出。
-- 旧 SQLite 日记作者/导出读取已退役；日记权威源是 Markdown。
+- 旧结构化日记 `/api/journal/{day}`、`/api/journal/monthly-review` 等路由已退役；
+  `/api/journal/note` 仍是工作台日记接口，日记权威源是 Markdown。
+- `bazi_profiles`、`suggestions`、`journal_entries`、`journal_actions` 保留为 deprecated
+  （0.99 起无写入方），不自动 DROP；日记导出仍可读取历史 `journal_entries`。
+- `goals`/`learning`/`body` 后端仍服务工作台、任务导入与导出。
 
 ## 与设计书的偏差
 
 - 设计书 Phase 5 原本要求退役 `goals.py`、`learning.py`、`body.py`、`journal.py`；
-  本轮保守处理：这些模块仍被任务导入、工作台学习分钟、导出与日记面板使用，
-  因此保留，只退役 bazi/profile/suggestions/share_import。
+  本轮保守处理：`journal.py` 已退役，`goals`/`learning`/`body` 仍被任务导入、
+  工作台学习分钟与导出使用，因此保留；另已退役 bazi/profile/suggestions/share_import。
 - 设计书删除清单中的 `inbox.js`、`journal.js`、`journal-calendar.js`、`growth-model.js`、
   `habit-grid.js` 仍有活引用（设置页日程、工作台日记、四库习惯/日历），保留。
 - MCP 工具目录仍为 13 个：`profile` 是计数快照工具，不是已退役的 profile 页面。

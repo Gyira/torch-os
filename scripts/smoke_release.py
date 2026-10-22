@@ -1,8 +1,8 @@
 """Read-only release smoke for a running 薪火OS service.
 
 Checks health/version, the local session boundary, capability flags, and the
-read endpoints of the habit, learning, body, backup and journal modules. It
-creates no records, does not touch personal data and never calls the model.
+read endpoints of the habit, learning, body and backup modules. It creates no
+records, does not touch personal data and never calls the model.
 
 Usage:
     .venv\\Scripts\\python.exe scripts/smoke_release.py --base-url http://127.0.0.1:8765 --report data/diagnostics/release-0.4.1-smoke.json
@@ -105,21 +105,6 @@ def main() -> int:
                     failures.append("restored_copies: missing inventory payload")
             check("restored_copies_invalid_name", client.get("/api/backups/restored/not-a-copy/verify"), 400)
             check("restored_copies_missing", client.get(f"/api/backups/restored/{'a' * 32}/verify"), 404)
-
-            # Monthly review is a read-only deterministic draft: it creates no records.
-            current_month = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
-            monthly = client.post("/api/journal/monthly-review", json={"month": current_month})
-            check("monthly_review", monthly, 200)
-            if monthly.status_code == 200:
-                payload = monthly.json()
-                report["monthly_review_month"] = payload.get("month")
-                report["monthly_review_journal_days"] = (payload.get("journal") or {}).get("days_recorded")
-                if payload.get("month") != current_month or not isinstance(payload.get("summary"), str):
-                    failures.append("monthly_review: missing month summary")
-                if "不做评分" not in (payload.get("warning") or ""):
-                    failures.append("monthly_review: missing non-scoring warning")
-            check("monthly_review_invalid", client.post("/api/journal/monthly-review", json={"month": "2026-13"}), 422)
-            check("monthly_review_future", client.post("/api/journal/monthly-review", json={"month": "2099-01"}), 422)
 
             learning_monthly = client.get("/api/learning/monthly")
             check("learning_monthly", learning_monthly, 200)

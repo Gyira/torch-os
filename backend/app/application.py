@@ -56,7 +56,6 @@ from .export_bundle import create_export_bundle_router
 from .goals import GoalTaskService, create_goals_router
 from .growth_export import create_growth_export_router
 from .identity import create_identity_router
-from .journal import create_journal_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
 from .journal_note import create_journal_note_router
@@ -875,7 +874,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
     app.include_router(create_dida_sync_router(dida_service, data_lock))
-    app.include_router(create_journal_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_habits_router(database, vault_dir=vault_dir),
                        dependencies=[Depends(journal_data_guard)])

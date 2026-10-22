@@ -39,9 +39,11 @@
 - Phase 5 保守清理：
   - 删除旧「数字分身 / 第二大脑」页面遗留的前端文件与对应测试；
   - 退役 `/api/bazi/*`、`/api/profile*`、`/api/chat/preview`、`/api/memories/{id}/usage`、
-    `/api/suggestions*`、`/api/imports/share/*`；
-  - `bazi_profiles`、`suggestions` 两张 SQLite 表保留为 deprecated，不自动删除；
-  - `goals`、`learning`、`body`、`journal` 后端继续服务任务导入、工作台、导出与日记面板。
+    `/api/suggestions*`、`/api/imports/share/*`，以及旧结构化日记
+    `/api/journal/{day}`、`/api/journal/monthly-review` 等；`/api/journal/note` 仍用于工作台日记；
+  - `bazi_profiles`、`suggestions`、`journal_entries`、`journal_actions` 保留为 deprecated，
+    不自动删除；日记导出仍可读取历史 `journal_entries`；
+  - `goals`、`learning`、`body` 后端继续服务任务导入、工作台与导出。
 - 旧的 `#today`、`#identity`、`#profile`、`#bazi` 等 hash 仍会重定向到新页面。
 
 ## 5. 验证命令

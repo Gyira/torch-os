@@ -11,7 +11,7 @@ from backend.app.model_gateway import ModelGateway
 
 def build(tmp_path, monkeypatch):
     monkeypatch.setattr('backend.app.tools.shanghai_today', lambda: date(2026, 10, 4))
-    monkeypatch.setattr('backend.app.journal.shanghai_today', lambda: date(2026, 10, 4))
+    monkeypatch.setattr('backend.app.journal_shared.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.habits.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.learning.shanghai_today', lambda: date(2026, 10, 4))
     database = Database(tmp_path / 'torch_os.sqlite3')

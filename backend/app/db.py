@@ -151,9 +151,9 @@ CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
 END;
 """
 
-# Deprecated since 0.99: these tables belonged to the retired 八字 / 建议 modules.
-# Their DDL is kept here so existing databases keep their historical rows and new
-# databases keep the same schema shape for one release. They have no writers and
+# Deprecated since 0.99: these tables belonged to the retired 八字 / 建议 / 旧日记
+# modules. Their DDL is kept here so existing databases keep their historical rows and
+# new databases keep the same schema shape for one release. They have no writers and
 # must not be dropped by this project; removal requires an explicit migration.
 LEGACY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS bazi_profiles (
@@ -182,6 +182,35 @@ CREATE TABLE IF NOT EXISTS suggestions (
     task_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_suggestions_open ON suggestions(dismissed_at, created_at DESC);
+CREATE TABLE IF NOT EXISTS journal_entries (
+    date TEXT PRIMARY KEY,
+    content TEXT NOT NULL DEFAULT '',
+    highlights TEXT NOT NULL DEFAULT '',
+    obstacles TEXT NOT NULL DEFAULT '',
+    diet_summary TEXT NOT NULL DEFAULT '',
+    mood TEXT NOT NULL DEFAULT '',
+    next_action TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    reflection TEXT NOT NULL DEFAULT '',
+    weather TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    goal_id INTEGER,
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(goal_id) REFERENCES goals(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS journal_actions (
+    date TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('task', 'export')),
+    entity_id INTEGER NOT NULL,
+    source_path TEXT,
+    source_hash TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(date, revision, action),
+    FOREIGN KEY(date) REFERENCES journal_entries(date)
+);
 """
 
 

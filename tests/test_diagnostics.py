@@ -11,7 +11,7 @@ from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path, monkeypatch):
-    monkeypatch.setattr("backend.app.journal.shanghai_today", lambda: date(2026, 10, 4))
+    monkeypatch.setattr("backend.app.journal_shared.shanghai_today", lambda: date(2026, 10, 4))
     monkeypatch.setattr("backend.app.body.shanghai_today", lambda: date(2026, 10, 4))
     database = Database(tmp_path / "torch_os.sqlite3")
     gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
@@ -26,7 +26,13 @@ def test_diagnostics_summary_counts_without_leaking_content_or_writing_audit(tmp
     client.post("/api/notes", json={"title": "自检标题", "content": "虚构自检内容，不应出现在自检里。", "type": "note"})
     goal = client.post("/api/goals", json={"title": "自检目标"}).json()
     client.post("/api/tasks", json={"title": "自检任务", "goal_id": goal["id"]})
-    client.put("/api/journal/2026-10-04", json={"revision": 0, "content": "自检日记"})
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO journal_entries(date, content, revision, created_at, updated_at)
+               VALUES (?,?,?,?,?)""",
+            ("2026-10-04", "自检日记", 1,
+             "2026-10-04T00:00:00+00:00", "2026-10-04T00:00:00+00:00"),
+        )
     client.put("/api/body/entries/2026-10-04", json={"revision": 0, "weight_kg": 68.5})
     client.post("/api/schedule/run-now", json={"kind": "morning"})
 

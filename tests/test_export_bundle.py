@@ -13,7 +13,7 @@ from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path, monkeypatch):
-    for module in ("journal", "body", "habits", "learning"):
+    for module in ("body", "habits", "learning"):
         monkeypatch.setattr(f"backend.app.{module}.shanghai_today", lambda: date(2026, 10, 4))
     database = Database(tmp_path / "torch_os.sqlite3")
     gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
@@ -45,7 +45,13 @@ def test_export_bundle_contains_every_section_and_counts_only_audit(tmp_path, mo
         "request_key": "00000000-0000-4000-8000-000000000020",
     })
     client.post("/api/chat", json={"message": "打包问题？"})
-    client.put("/api/journal/2026-10-03", json={"revision": 0, "content": "打包日记"})
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO journal_entries(date, content, revision, created_at, updated_at)
+               VALUES (?,?,?,?,?)""",
+            ("2026-10-03", "打包日记", 1,
+             "2026-10-03T00:00:00+00:00", "2026-10-03T00:00:00+00:00"),
+        )
     client.put("/api/body/entries/2026-10-03", json={"revision": 0, "weight_kg": 68.5})
 
     response = client.get("/api/export/all.zip")
