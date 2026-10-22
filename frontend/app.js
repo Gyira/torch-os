@@ -97,6 +97,7 @@ function renderPanelNav() {
   search.className = "panel-nav-search";
   search.textContent = "搜索";
   search.setAttribute("aria-label", "在四库中搜索");
+  search.setAttribute("aria-keyshortcuts", "Control+K Meta+K");
   search.title = "在四库中搜索（Ctrl/⌘ K）";
   search.addEventListener("click", () => { openGlobalSearch(); });
   nav.appendChild(search);
