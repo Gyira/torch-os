@@ -1203,10 +1203,12 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .time-rail-item span { font-size: 15px; }
   .time-sidebar {
     flex: 1 1 100%;
+    order: 2;
     max-height: 160px;
     border-right: 0;
-    border-bottom: 1px solid var(--p-line);
+    border-top: 1px solid var(--p-line);
+    border-bottom: 0;
   }
-  .time-main, .time-page { flex: 1 1 100%; padding: 12px; }
+  .time-main, .time-page { flex: 1 1 100%; order: 1; padding: 12px; }
   .time-head { flex-wrap: wrap; gap: 8px; }
 }
