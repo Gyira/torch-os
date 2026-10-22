@@ -1,10 +1,13 @@
-"""Read-only local tools for agents: today, memories, goals, habits, learning, journal,
+"""Read-only local tools for agents: today, memories, goals, habits, journal,
 profile, vault, body, documents, imports, vault_audit, identity.
 
 Every tool is a GET, returns structure and (where noted) the user's own text, and
 never writes anything except one count-only audit row per call. No write tool is
 exposed here on purpose: an agent may look, but changes still go through the
 review surfaces the user controls.
+
+Goals, tasks and body records are read from Markdown (2026-10-22); the retired
+SQLite goals/learning/body backends are no longer consulted.
 """
 from __future__ import annotations
 
@@ -16,14 +19,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
-from . import journal_note
-from .body import BodyRecordService
+from . import body_source, goal_notes, journal_note, task_reports
 from .attachment_plan import ATTACHMENT_DIRECTORY
 from .db import Database
-from .goals import GoalTaskService
 from .habits import HabitService
 from .identity import read_identity
-from .learning import LearningService
 from .vault import parse_text
 from .vault_connection import describe_vault, read_only_enabled
 from .vault_audit import run_audit
@@ -41,31 +41,28 @@ def shanghai_today() -> date:
 def tool_catalog() -> dict[str, Any]:
     tools = [
         {'name': 'today', 'method': 'GET', 'path': '/api/tools/today',
-         'summary': '某一天的结构化概况：日记字段、任务计数与到期标题、习惯状态、学习分钟、身体记录标记、草稿数',
+         'summary': '某一天的结构化概况：日记字段、Markdown 任务计数与到期标题、习惯状态、身体记录标记、草稿数',
          'reads_text': True, 'parameters': ['day?(YYYY-MM-DD，默认今天)']},
         {'name': 'memories', 'method': 'GET', 'path': '/api/tools/memories?q=&limit=',
          'summary': '按问题检索“已确认且来源有效”的记忆，含来源路径与低置信标记；候选/拒绝/归档不会出现',
          'reads_text': True, 'parameters': ['q(必填)', 'limit(1–10，默认 6)']},
         {'name': 'goals', 'method': 'GET', 'path': '/api/tools/goals',
-         'summary': '进行中的目标与未完成任务（标题、截止日期、所属目标）',
+         'summary': '人生路目标笔记与未完成 Markdown 任务（标题、截止日期、关联目标路径）',
          'reads_text': True, 'parameters': ['limit(1–10，默认 5)']},
         {'name': 'habits', 'method': 'GET', 'path': '/api/tools/habits?days=',
          'summary': '每个启用习惯最近 N 天（7–90）的完成/跳过/未记录计数，不含备注',
          'reads_text': False, 'parameters': ['days(7–90，默认 30)']},
-        {'name': 'learning', 'method': 'GET', 'path': '/api/tools/learning?days=',
-         'summary': '最近 N 天（7–90）的学习分钟与科目分布',
-         'reads_text': False, 'parameters': ['days(7–90，默认 7)']},
         {'name': 'journal', 'method': 'GET', 'path': '/api/tools/journal?from=&to=',
          'summary': '一段日期里哪些天有记录、是否写了下一步（不含日记正文）',
          'reads_text': False, 'parameters': ['from(YYYY-MM-DD)', 'to(YYYY-MM-DD，最多 90 天)']},
         {'name': 'profile', 'method': 'GET', 'path': '/api/tools/profile',
-         'summary': '认识我的计数快照：可用/待确认记忆、资料数、进行中目标、未完成任务',
+         'summary': '认识我的计数快照：可用/待确认记忆、资料数、人生路进行中目标、未完成 Markdown 任务',
          'reads_text': False, 'parameters': []},
         {'name': 'vault', 'method': 'GET', 'path': '/api/tools/vault',
          'summary': 'Vault 现状：路径、是否 Obsidian 库、Markdown 篇数、跳过的目录、是否只读模式',
          'reads_text': False, 'parameters': []},
         {'name': 'body', 'method': 'GET', 'path': '/api/tools/body?days=',
-         'summary': '最近 N 天（7–90）身体记录汇总：有记录天数、睡眠与运动分钟合计（不含体重数值、不做健康评价）',
+         'summary': '来自健康月度 Markdown 表的最近 N 天（7–90）汇总：有记录天数、睡眠与运动分钟合计（不含体重数值、不做健康评价）',
          'reads_text': False, 'parameters': ['days(7–90，默认 7)']},
         {'name': 'documents', 'method': 'GET', 'path': '/api/tools/documents?limit=',
          'summary': '已索引资料摘要：总数、最近索引的几篇标题与路径、是否有未索引的变化',
@@ -94,10 +91,7 @@ class ToolService:
     def __init__(self, database: Database, vault_dir: Path):
         self.database = database
         self.vault_dir = Path(vault_dir)
-        self._goals = GoalTaskService(database)
         self._habits = HabitService(database, vault_dir)
-        self._learning = LearningService(database)
-        self._body = BodyRecordService(database)
 
     def _day(self, value: str | None) -> date:
         if not value:
@@ -131,19 +125,16 @@ class ToolService:
         except ValueError:
             journal_body = note.get("content") or ""
         next_action = journal_note.next_action_text(note.get("content") or "")
-        rows = self._goals.list_tasks()
-        open_tasks = [task for task in rows if task.get('status') in ('todo', 'in_progress')]
-        due_today = [task for task in open_tasks if task.get('due_date') == stamp]
-        overdue = [task for task in open_tasks if task.get('due_date') and task['due_date'] < stamp]
+        open_tasks = task_reports.open_tasks(self.vault_dir)
+        due_today = [task for task in open_tasks if task.get('date') == stamp]
+        overdue = [task for task in open_tasks if task.get('date') and task['date'] < stamp]
         habit_rows = []
         for habit in self._habits.list('active'):
             summary = self._habits.summary(habit['id'], stamp, stamp)
             entry = (summary.get('entries') or [{}])[0]
             habit_rows.append({'title': habit.get('title'), 'status': entry.get('status'),
                                'scheduled': entry.get('scheduled')})
-        sessions = self._learning.list_sessions(stamp, stamp)
-        session_rows = sessions if isinstance(sessions, list) else sessions.get('sessions', [])
-        body = self._body.get(stamp)
+        body = body_source.day_entry(self.vault_dir, stamp)
         with self.database.connect() as connection:
             drafts = connection.execute(
                 'SELECT COUNT(*) AS total FROM inbox_items WHERE source_date=? AND read_at IS NULL AND dismissed_at IS NULL',
@@ -166,10 +157,6 @@ class ToolService:
                 'due_titles': [task.get('title') for task in (due_today + overdue)][:5],
             },
             'habits': habit_rows,
-            'study': {
-                'minutes': sum(int(session.get('minutes') or 0) for session in session_rows),
-                'sessions': len(session_rows),
-            },
             'body': {'recorded': bool(body.get('recorded')),
                      'sleep_minutes': body.get('sleep_minutes'),
                      'exercise_minutes': body.get('exercise_minutes')},
@@ -197,21 +184,22 @@ class ToolService:
 
     def goals(self, limit: int = 5) -> dict[str, Any]:
         size = max(1, min(MAX_TOOL_LIMIT, int(limit)))
-        goals = [goal for goal in self._goals.list_goals('active')]
-        rows = self._goals.list_tasks()
-        open_tasks = [task for task in rows if task.get('status') in ('todo', 'in_progress')]
+        goals = goal_notes.active_goals(self.vault_dir, limit=size)
+        open_tasks = task_reports.open_tasks(self.vault_dir)
+        next_tasks = task_reports.sorted_due(open_tasks, size)
         return {
             'goals': [
-                {'id': goal.get('id'), 'title': goal.get('title'), 'category': goal.get('category'),
-                 'target_date': goal.get('target_date')}
-                for goal in goals[:size]
+                {'id': goal.get('id'), 'title': goal.get('title'), 'category': goal.get('chapter'),
+                 'target_date': goal.get('date') or ''}
+                for goal in goals
             ],
             'open_task_count': len(open_tasks),
             'next_tasks': [
-                {'title': task.get('title'), 'due_date': task.get('due_date'), 'goal_id': task.get('goal_id')}
-                for task in sorted(open_tasks, key=lambda task: (task.get('due_date') or '9999', task.get('id') or 0))[:size]
+                {'title': task.get('title'), 'due_date': task.get('date') or None,
+                 'goal': task.get('goal') or ''}
+                for task in next_tasks
             ],
-            'note': '只列出进行中目标与未完成任务，不包含已完成历史。',
+            'note': '目标来自人生路目标笔记，任务来自 Markdown 任务笔记；只列未完成项。',
         }
 
     def habits(self, days: int = 30) -> dict[str, Any]:
@@ -226,26 +214,6 @@ class ToolService:
                          'unrecorded': summary.get('unrecorded')})
         return {'from_date': first.isoformat(), 'to_date': last.isoformat(), 'habits': rows,
                 'note': '未记录不等于失败；这里没有备注与原因。'}
-
-    def learning(self, days: int = 7) -> dict[str, Any]:
-        window = max(7, min(90, int(days)))
-        last = shanghai_today()
-        first = last - timedelta(days=window - 1)
-        sessions = self._learning.list_sessions(first.isoformat(), last.isoformat())
-        rows = sessions if isinstance(sessions, list) else sessions.get('sessions', [])
-        subjects = self._learning.list_subjects()
-        names = {subject['id']: subject.get('title') for subject in subjects}
-        per_subject: dict[str, int] = {}
-        for session in rows:
-            name = names.get(session.get('subject_id')) or '未知科目'
-            per_subject[name] = per_subject.get(name, 0) + int(session.get('minutes') or 0)
-        return {
-            'from_date': first.isoformat(), 'to_date': last.isoformat(),
-            'total_minutes': sum(int(session.get('minutes') or 0) for session in rows),
-            'sessions': len(rows),
-            'by_subject': [{'title': name, 'minutes': minutes} for name, minutes in sorted(per_subject.items(), key=lambda item: -item[1])],
-            'note': '只反映你记录过的时长，不代表掌握程度。',
-        }
 
     def journal_range(self, from_date: str, to_date: str) -> dict[str, Any]:
         first = self._day(from_date)
@@ -280,13 +248,12 @@ class ToolService:
         memories = self.database.list_memories()
         active = [item for item in memories if item.get('status') == 'active']
         candidate = [item for item in memories if item.get('status') == 'candidate']
-        rows = self._goals.list_tasks()
         return {
             'confirmed_memories': len(active),
             'pending_candidates': len(candidate),
             'documents': len(self.database.list_documents()),
-            'active_goals': len(self._goals.list_goals('active')),
-            'open_tasks': len([task for task in rows if task.get('status') in ('todo', 'in_progress')]),
+            'active_goals': goal_notes.count_active(self.vault_dir),
+            'open_tasks': len(task_reports.open_tasks(self.vault_dir)),
             'note': '只有已确认且来源有效的记忆会参与问答；候选需要你逐条确认。',
         }
 
@@ -299,14 +266,13 @@ class ToolService:
         window = max(7, min(90, int(days)))
         last = shanghai_today()
         first = last - timedelta(days=window - 1)
-        payload = self._body.entries(first.isoformat(), last.isoformat())
-        rows = [row for row in payload.get('entries', []) if row.get('recorded')]
+        rows = body_source.entries_between(self.vault_dir, first, last)
         return {
             'from_date': first.isoformat(), 'to_date': last.isoformat(),
             'recorded_days': len(rows),
             'sleep_minutes_total': sum(int(row.get('sleep_minutes') or 0) for row in rows),
             'exercise_minutes_total': sum(int(row.get('exercise_minutes') or 0) for row in rows),
-            'note': '只统计你记录过的天数与分钟合计；不含体重数值，也不做健康评价。',
+            'note': '来自「健康与体重」月度 Markdown 表；只统计记录过的天数与分钟合计，不含体重数值，也不做健康评价。',
         }
 
     def documents_summary(self, limit: int = 5) -> dict[str, Any]:
@@ -408,10 +374,6 @@ def create_tools_router(database: Database, vault_dir: Path, prefix: str = '/api
     @router.get('/tools/habits')
     def habits(days: int = Query(default=30, ge=7, le=90)):
         return run('habits', lambda: service.habits(days))
-
-    @router.get('/tools/learning')
-    def learning(days: int = Query(default=7, ge=7, le=90)):
-        return run('learning', lambda: service.learning(days))
 
     @router.get('/tools/journal')
     def journal(from_date: str = Query(alias='from'), to_date: str = Query(alias='to')):

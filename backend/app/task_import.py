@@ -11,18 +11,24 @@ import hashlib
 import json
 import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, model_validator
 
 from .db import Database, utc_now
-from .goals import _task_row
 from .vault import MAX_NOTE_BYTES, parse_text, restricted_path, safe_note_path
 
 
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+# Deprecated (2026-10-22): new imports dedupe by the task note's `导入键`
+# frontmatter and no longer write this table. Historical rows are retained.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS task_import_ledger (
     document_id INTEGER NOT NULL,
@@ -57,7 +63,7 @@ class TaskImportApply(BaseModel):
     revision: StrictInt = Field(ge=1)
     sha256: HexDigest
     selected_keys: list[ItemKey] = Field(min_length=1, max_length=20)
-    goal_id: StrictInt | None = Field(default=None, gt=0)
+    goal_path: str = Field(default="", max_length=500)
     confirm: bool = Field(strict=True)
 
     @model_validator(mode="after")
@@ -298,64 +304,93 @@ class TaskImportService:
             return {"document_id": document_id, "revision": document["revision"],
                     "sha256": document["sha256"], "items": items, "warnings": warnings}
 
+    @staticmethod
+    def _public_task(note: dict[str, Any]) -> dict[str, Any]:
+        from . import task_notes
+        return {
+            "key": note["key"], "path": note["relpath"], "legacy": False,
+            "title": note["title"], "list_name": note["list_name"], "done": note["done"],
+            "done_on": note["done_on"], "date": note["date"], "time": note["time"],
+            "priority": note["priority"], "tags": list(note["tags"]),
+            "pinned": note["pinned"], "created": note["created"],
+            "goal": note.get("goal", ""),
+            # Compatibility for the import result card.
+            "status": "completed" if note["done"] else "todo",
+            "completed_at": note["done_on"] or None,
+            "description": task_notes.note_body(note),
+        }
+
+    @staticmethod
+    def _import_key(document_id: int, item_key: str) -> str:
+        # Stable across source revisions: the item key already identifies the
+        # exact checkbox line; the document id keeps two sources separate.
+        return hashlib.sha256(
+            f"{document_id}\0{item_key}".encode("utf-8")).hexdigest()
+
     def apply(self, document_id: int, payload: TaskImportApply) -> dict[str, Any]:
+        # Imported lazily: markdown_store imports this module for parsing helpers,
+        # so a top-level goal/task-note import would create a cycle.
+        from . import goal_notes, task_notes
         with self.database.connect() as connection:
+            # Serialize imports in this process/database. Note writes happen
+            # outside SQLite, but the scan-then-create critical section must not
+            # run twice concurrently for the same source key.
             connection.execute("BEGIN IMMEDIATE")
             document = self._current_source(connection, document_id)
             if document["revision"] != payload.revision or document["sha256"] != payload.sha256.lower():
                 raise HTTPException(409, "来源版本已变化，请重新预览并选择待办")
-            if payload.goal_id is not None and not connection.execute(
-                "SELECT 1 FROM goals WHERE id=?", (payload.goal_id,)
-            ).fetchone():
-                raise HTTPException(404, "关联目标不存在，请重新选择")
+            goal = None
+            if payload.goal_path:
+                goal = goal_notes.resolve_goal(self.vault_dir, payload.goal_path)
+                if goal is None:
+                    raise HTTPException(404, "关联目标不存在，请重新选择")
             items, warnings = parse_checkboxes(document["content"])
             by_key = {item["key"]: item for item in items}
             if any(key not in by_key for key in payload.selected_keys):
                 raise HTTPException(422, "所选待办不在当前来源预览中，请重新选择")
 
+            notes, _scan_warnings = task_notes.scan_task_notes(self.vault_dir)
+            by_import = {note.get("import_key"): note for note in notes if note.get("import_key")}
             tasks: list[dict[str, Any]] = []
-            created_ids: list[int] = []
+            created_paths: list[str] = []
             existing_count = 0
             for key in payload.selected_keys:
                 item = by_key[key]
-                previous = connection.execute(
-                    "SELECT task_id FROM task_import_ledger WHERE document_id=? AND source_hash=? AND item_key=?",
-                    (document_id, document["sha256"], key),
-                ).fetchone()
+                import_key = self._import_key(document_id, key)
+                previous = by_import.get(import_key)
                 if previous:
-                    task = connection.execute("SELECT * FROM tasks WHERE id=?", (previous["task_id"],)).fetchone()
-                    if task is None:
-                        raise HTTPException(409, "所选待办曾导入的任务已删除，不会自动重建；本批次未创建任务")
-                    tasks.append(_task_row(task))
+                    tasks.append(self._public_task(previous))
                     existing_count += 1
                     continue
-                now = utc_now()
-                cursor = connection.execute(
-                    """INSERT INTO tasks
-                    (goal_id,title,description,status,priority,due_date,completed_at,tags_json,created_at,updated_at)
-                    VALUES (?,?,?,?,'medium',NULL,NULL,?, ?,?)""",
-                    (payload.goal_id, item["title"], item["description"],
-                     "completed" if item["checked"] else "todo", json.dumps(["markdown-import"]), now, now),
-                )
-                task_id = int(cursor.lastrowid)
-                connection.execute(
-                    """INSERT INTO task_import_ledger
-                    (document_id,source_hash,item_key,source_revision,source_line,task_id,created_at)
-                    VALUES (?,?,?,?,?,?,?)""",
-                    (document_id, document["sha256"], key, document["revision"], item["line"], task_id, now),
-                )
-                _audit(connection, "task_created", {"task_id": task_id, "goal_id": payload.goal_id})
-                created_ids.append(task_id)
-                tasks.append(_task_row(connection.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()))
+                source = f"来源：{document['path']} 第 {item['line']} 行"
+                body = "\n\n".join(part for part in (str(item.get("description") or "").strip(), source) if part)
+                note = task_notes.create_task_note(self.vault_dir, "", item["title"], {
+                    "priority": "none",
+                    "tags": ["markdown-import"],
+                    "done": bool(item["checked"]),
+                    "done_on": "",
+                    "created": datetime.now(SHANGHAI).date().isoformat(),
+                    "goal": goal["path"] if goal else "",
+                    "import_key": import_key,
+                }, body=body)
+                by_import[import_key] = note
+                tasks.append(self._public_task(note))
+                created_paths.append(note["relpath"])
 
-            # The SQL lock covers cooperating writers; recheck the file before
-            # commit as external editors cannot participate in that lock.
+            # Recheck the source after writing notes. Files are not part of the
+            # SQL transaction, but each created note carries its stable import
+            # key, so a retry finds it instead of creating a duplicate.
             self._current_source(connection, document_id)
-            if created_ids:
-                _audit(connection, "markdown_tasks_imported", {"document_id": document_id, "task_ids": created_ids})
+            if created_paths:
+                # Paths contain task titles; the audit stays count-only.
+                _audit(connection, "markdown_tasks_imported", {
+                    "document_id": document_id,
+                    "created": len(created_paths),
+                    "existing": existing_count,
+                })
             if existing_count:
                 warnings.append("重复选择返回已有任务，保留其当前标题、目标、完成状态及其他编辑。")
-            return {"created_count": len(created_ids), "existing_count": existing_count,
+            return {"created_count": len(created_paths), "existing_count": existing_count,
                     "tasks": tasks, "warnings": warnings}
 
 

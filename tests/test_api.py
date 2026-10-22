@@ -1,6 +1,7 @@
 import json
 
 from fastapi.testclient import TestClient
+from backend.app import pillar_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
@@ -68,15 +69,26 @@ def test_source_delete_stops_future_answers(tmp_path):
     assert client.patch(f'/api/memories/{mid}/status',json={'status':'active'}).status_code == 409
 
 
-def test_goals_tasks_and_draft_are_integrated(tmp_path):
-    client,_ = make_client(tmp_path)
-    goal=client.post('/api/goals',json={'title':'学习计划'}).json()
-    task=client.post('/api/tasks',json={'title':'阅读十页','goal_id':goal['id'],'priority':'high'}).json()
-    assert client.post('/api/daily-plan/draft').json()['items'][0]['task_id']==task['id']
-    client.patch(f"/api/tasks/{task['id']}",json={'status':'completed'})
-    assert client.post('/api/daily-plan/draft').json()['items']==[]
-    assert client.patch(f"/api/tasks/{task['id']}",json={'title':None}).status_code==422
-    assert client.post('/api/goals',json={'title':'   '}).status_code==422
+def test_markdown_goals_and_tasks_replace_the_retired_backends(tmp_path):
+    client, app = make_client(tmp_path)
+    vault = app.state.vault_dir
+    goal = pillar_notes.create_note(vault, pillar='life', chapter='goal_year',
+                                    title='学习计划', note_type='goal')
+    task_notes.create_task_note(vault, '', '阅读十页', {
+        'goal': goal['path'], 'priority': 'high', 'created': '2026-10-01'})
+    goals = client.get('/api/goals').json()
+    assert goals[0]['id'] == goal['path'] and goals[0]['title'] == '学习计划'
+    tool = client.get('/api/tools/goals').json()
+    assert tool['goals'][0]['title'] == '学习计划'
+    assert tool['open_task_count'] == 1
+    assert tool['next_tasks'][0]['title'] == '阅读十页'
+    board = client.get('/api/time/tasks').json()
+    assert board['tasks'][0]['goal'] == goal['path']
+    # Retired write/learning/body/draft endpoints stay gone.
+    assert client.post('/api/goals', json={'title': '学习计划'}).status_code == 405
+    assert client.post('/api/learning/subjects', json={'title': 'x', 'weekly_target_minutes': 10}).status_code == 404
+    assert client.put('/api/body/entries/2026-10-04', json={'revision': 0, 'weight_kg': 70}).status_code == 404
+    assert client.post('/api/daily-plan/draft').status_code == 404
 
 
 def test_memory_list_exposes_origin_month_without_raw_metadata(tmp_path):

@@ -9,15 +9,14 @@
 |---|---|
 | `audit_events` | 系统 |
 | `bazi_profiles` | 个人参考 |
-| `body_entries` | 每日记录 |
 | `conversations` | 对话 |
 | `dida_project_links` | 系统 |
 | `dida_sync_settings` | 系统 |
 | `dida_task_links` | 系统 |
 | `documents` | 资料与记忆 |
 | `goals` | 目标与任务 |
-| `habit_definitions` | 习惯与学习 |
-| `habit_entries` | 习惯与学习 |
+| `habit_definitions` | 习惯 |
+| `habit_entries` | 习惯 |
 | `harness_sessions` | 对话 |
 | `inbox_items` | 每日记录 |
 | `journal_actions` | 每日记录 |
@@ -30,8 +29,6 @@
 | `messages` | 对话 |
 | `scheduler_settings` | 每日记录 |
 | `schema_migrations` | 系统 |
-| `study_sessions` | 习惯与学习 |
-| `study_subjects` | 习惯与学习 |
 | `suggestions` | 建议与提醒 |
 | `task_import_ledger` | 目标与任务 |
 | `tasks` | 目标与任务 |
@@ -45,11 +42,12 @@
   删除墓碑、引用与向量。
 - 对话：`conversations`、`messages`、`harness_sessions` 保存对话与会话引用；
   正文是否保存取决于调用端与设置。
-- 目标与任务：`goals`、`tasks`、`task_import_ledger` 服务工作台任务、目标映射与导入账本。
+- 目标与任务：`goals`、`tasks`、`task_import_ledger` 是旧 SQLite 结构（deprecated，无写入方）；
+  目标和任务以 Markdown 为权威，任务导入用任务笔记的稳定导入键去重。
 - 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，
-  仅保留历史数据与导出读取）；`body_entries`、`inbox_items`、`scheduler_settings`
-  是身体记录、收件箱与调度设置。
-- 习惯与学习：`habit_definitions`、`habit_entries`、`study_subjects`、`study_sessions`。
+  仅保留历史数据与导出读取）；`inbox_items`、`scheduler_settings` 是收件箱与调度设置。
+  身体记录改读健康月度 Markdown 表，旧 `body_entries` 表不再创建。
+- 习惯：`habit_definitions`、`habit_entries`；旧学习表已退役且不再创建。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。
 - 建议与提醒：`suggestions` 是旧每日建议表，deprecated。
 - 旧日记：`journal_entries`、`journal_actions` 自 0.99 起 deprecated；旧写入路由已退役，
@@ -67,7 +65,7 @@
 
 ## 导出
 
-设置页的一键导出 ZIP 包含可读文件：记忆、目标与任务、习惯与学习、对话、每日记录、
+设置页的一键导出 ZIP 包含可读文件：记忆、目标与任务、习惯与打卡、对话、每日记录、
 身体记录。它是阅读/迁移用的导出包，不是恢复包；恢复请使用备份与恢复演练。
 
 ## 恢复

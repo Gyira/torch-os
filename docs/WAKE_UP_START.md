@@ -44,7 +44,9 @@
     `/api/journal/{day}`、`/api/journal/monthly-review` 等；`/api/journal/note` 仍用于工作台日记；
   - `bazi_profiles`、`suggestions`、`journal_entries`、`journal_actions` 保留为 deprecated，
     不自动删除；日记导出仍可读取历史 `journal_entries`；
-  - `goals`、`learning`、`body` 后端继续服务任务导入、工作台与导出。
+  - **2026-10-22 退役 `goals` / `learning` / `body` 旧后端**：目标改读人生路目标笔记，
+    任务导入改写入 Markdown 任务笔记，身体汇总/导出改读健康月度表，学习能力下线；
+    旧表保留为 deprecated，不自动 DROP，工具桥收缩为 12 个只读工具。
 - 旧的 `#today`、`#identity`、`#profile`、`#bazi` 等 hash 仍会重定向到新页面。
 
 ## 5. 验证命令
@@ -71,7 +73,7 @@ node scripts\check_module_surface.mjs
 
 - 分享导入已退役；Wolai 导入仍有后端接口，但当前没有前端入口。
 - 旧「目标 / 记忆审核 / 八字 / 身体记录 / Vault 体检」页面不再提供 UI；
-  对应数据表与部分导出仍保留，避免丢数据。
+  旧数据表保留历史数据，新数据写入 Markdown（目标/任务/身体），学习能力已下线。
 - 备份恢复不会自动把副本切换为当前库；切换需要另行设计并明确确认。
 - 「实时」滴答同步是后台约每 15 秒轮询推送，不是长连接。
 - 云端模型默认关闭；开启与发送范围由设置页和当前对话端决定。

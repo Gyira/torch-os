@@ -175,26 +175,31 @@ def test_inbox_read_and_dismiss_are_idempotent_and_bounded(tmp_path):
     assert client.post("/api/inbox/9223372036854775808/dismiss").status_code == 422
 
 
-def test_report_bodies_summarize_local_facts_without_writing_them(tmp_path):
+def test_report_bodies_summarize_markdown_facts_without_writing_them(tmp_path):
+    from backend.app import pillar_notes, structured_notes, task_notes
+
     client, database = make_client(tmp_path)
+    vault = tmp_path / "vault"
     today = datetime.now(SHANGHAI).date()
     day = today.isoformat()
     yesterday = (today - timedelta(days=1)).isoformat()
-    goal = client.post("/api/goals", json={"title": "虚构目标"}).json()
-    task = client.post("/api/tasks", json={"title": "虚构任务", "goal_id": goal["id"], "due_date": day}).json()
-    journal_dir = tmp_path / "vault" / "00_人生路" / "01_日记"
+    goal = pillar_notes.create_note(vault, pillar="life", chapter="goal_year",
+                                    title="虚构目标", note_type="goal")
+    open_task = task_notes.create_task_note(vault, "", "虚构待办", {
+        "date": day, "goal": goal["path"], "created": day})
+    task_notes.create_task_note(vault, "", "虚构任务", {
+        "date": day, "goal": goal["path"], "created": day, "done": True, "done_on": day})
+    journal_dir = vault / "00_人生路" / "01_日记"
     journal_dir.mkdir(parents=True, exist_ok=True)
     (journal_dir / f"{yesterday}.md").write_text(
         f"---\ntype: journal\ndate: {yesterday}\n---\n\n昨日虚构记录\n", encoding="utf-8")
     (journal_dir / f"{day}.md").write_text(
         f"---\ntype: journal\ndate: {day}\n---\n\n今日虚构记录\n\n下一步：虚构下一步\n",
         encoding="utf-8")
-    client.put(f"/api/body/entries/{day}", json={"revision": 0, "weight_kg": 68.5, "sleep_minutes": 450, "exercise_minutes": 30})
+    structured_notes.upsert_row(vault, "health", day[:7], {
+        "date": day, "weight_kg": "68.5", "sleep_minutes": "450", "exercise_minutes": "30"})
     habit = client.post("/api/habits", json={"title": "虚构习惯", "minimum_action": "一页", "start_date": day}).json()
     client.put(f"/api/habits/{habit['id']}/entries/{day}", json={"revision": 0, "status": "done"})
-    subject = client.post("/api/learning/subjects", json={"title": "虚构科目", "weekly_target_minutes": 120}).json()
-    client.post("/api/learning/sessions", json={"subject_id": subject["id"], "study_date": day, "minutes": 30, "request_key": "00000000-0000-4000-8000-000000000001"})
-    client.patch(f"/api/tasks/{task['id']}", json={"status": "completed"})
 
     with database.connect() as connection:
         before = {name: connection.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
@@ -210,13 +215,13 @@ def test_report_bodies_summarize_local_facts_without_writing_them(tmp_path):
 
     assert before == after
     assert [row["title"] for row in morning["goals"]] == ["虚构目标"]
+    assert [row["title"] for row in morning["open_tasks"]] == ["虚构待办"]
     assert morning["journal_yesterday_recorded"] is True
-    assert morning["study_week"]["target_minutes"] == 120 and morning["study_week"]["minutes"] == 30
+    assert "study_week" not in morning
     assert "不会自动创建任务" in morning["disclaimer"]
 
     assert evening["completed_tasks"] == 1 and evening["open_overdue_tasks"] == 0
-    assert evening["study_today"]["minutes"] == 30
-    assert evening["study_today"]["subjects"] == [{"title": "虚构科目", "minutes": 30}]
+    assert "study_today" not in evening
     assert evening["habits"] == {"done": 1, "skipped": 0, "unrecorded": 0}
     assert evening["journal"] == {"recorded": True, "next_action": "虚构下一步"}
     assert evening["body_records"] == {"weight_kg": 68.5, "sleep_minutes": 450, "exercise_minutes": 30}
@@ -226,13 +231,13 @@ def test_report_bodies_summarize_local_facts_without_writing_them(tmp_path):
     weekly = client.post("/api/schedule/run-now", json={"kind": "weekly"}).json()["item"]["body"]
     assert weekly["completed_tasks"] == 1
     assert weekly["completed_examples"] == ["虚构任务"]
-    assert weekly["study_week"]["minutes"] == 30
-    assert weekly["study_week"]["subjects"] == [{"title": "虚构科目", "minutes": 30}]
+    assert "study_week" not in weekly
     assert weekly["habits"] == {"done": 1, "skipped": 0, "unrecorded": 0}
     assert weekly["journal_days"] == 2
     assert weekly["body_record_days"] == 1
     assert len(weekly["reflection_prompts"]) == 3
     assert all("虚构" not in row["detail_json"] for row in audit)
+    assert open_task["date"] == day
 
 
 def test_schedule_panel_reports_today_runs(tmp_path):

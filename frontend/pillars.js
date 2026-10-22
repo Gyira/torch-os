@@ -6,7 +6,9 @@ import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
 import { shanghaiDay } from "./journal-model.js";
-import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
+import { isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument } from "./task-open.js";
+
+const GOAL_CHAPTERS = new Set(["goal_year", "goal_quarter", "goal_month"]);
 
 const PILLAR_META = {
   life: {
@@ -440,13 +442,23 @@ export function openNote(path) {
   Promise.all([
     api(`/api/notes?path=${encodeURIComponent(path)}`),
     api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
-  ]).then(([note, links]) => {
+  ]).then(async ([note, links]) => {
     const backlinks = Array.isArray(links.items) ? links.items : [];
+    let linkedTasks = [];
+    if (GOAL_CHAPTERS.has(note.chapter)) {
+      try {
+        const board = await api("/api/time/tasks");
+        linkedTasks = (board.tasks || []).filter((task) => task.goal === note.path);
+      } catch {
+        linkedTasks = [];
+      }
+    }
     const dialog = document.createElement("dialog");
     dialog.className = "pillar-dialog pillar-note-dialog";
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
     const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
     const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
+    const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
     dialog.innerHTML = `
       <div class="pillar-dialog-head">
         <div>
@@ -457,6 +469,15 @@ export function openNote(path) {
         <button type="button" class="text-button" data-close-note>关闭</button>
       </div>
       <article class="pillar-note-body">${renderMarkdown(note.body || "")}</article>
+      ${GOAL_CHAPTERS.has(note.chapter) ? `<section class="pillar-linked-tasks">
+        <p class="eyebrow">关联任务（${openLinkedCount} 项未完成）</p>
+        ${linkedTasks.length ? `<ul>${linkedTasks.map((task) => `<li class="${task.done ? "is-done" : ""}">
+          <span>${escapeHtml(task.title)}</span>
+          <span class="meta">${task.done ? "已完成" : escapeHtml(task.date || "未排期")}</span>
+          <button type="button" class="text-button" data-open-linked-task="${escapeHtml(task.key)}">在 Obsidian 打开</button>
+        </li>`).join("")}</ul>` : `<p class="field-help">还没有任务关联到这个目标；可在资料导入时选择它，或直接在任务笔记 frontmatter 写「目标」。</p>`}
+        <p class="field-help">任务来自时间管理的一任务一笔记；这里只读，编辑请到工作台或 Obsidian。</p>
+      </section>` : ""}
       ${backlinks.length ? `<section class="pillar-backlinks">
         <p class="eyebrow">反向链接</p>
         ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
@@ -481,6 +502,15 @@ export function openNote(path) {
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
+    });
+    dialog.querySelectorAll("[data-open-linked-task]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const task = linkedTasks.find((item) => item.key === button.dataset.openLinkedTask);
+        if (!task) return;
+        if (!openTaskDocument(task, { vault_name: vaultName })) {
+          toast("没有可打开的任务文档，请刷新后重试。", "warning");
+        }
+      });
     });
     dialog.querySelectorAll("[data-backlink-path]").forEach((button) => {
       button.addEventListener("click", () => {

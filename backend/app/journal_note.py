@@ -203,9 +203,6 @@ def facts_summary(database: Database, vault_dir: Path | str, day: str) -> str:
             for habit in habits
         )
         lines.append(f"- 习惯：{rendered}")
-    study = payload.get("study") or {}
-    if study.get("minutes"):
-        lines.append(f"- 学习：{study['minutes']} 分钟（{study.get('sessions') or 0} 条记录）")
     try:
         touched = list_day_activity(database, vault_dir, day)
     except (OSError, ValueError):

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import journal_note, pillar_notes, reviews, steward_policy, vault_layout
+from . import goal_notes, journal_note, pillar_notes, reviews, steward_policy, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
@@ -153,6 +153,11 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
             raise HTTPException(422, "章节不属于这个库")
         return {"pillar": key, "items": pillar_notes.list_notes(
             vault_dir, pillar=key, chapter=chapter, query=q, limit=limit)}
+
+    @router.get("/goals")
+    def goals(limit: int = Query(default=100, ge=1, le=500)):
+        """目标选择器：只读人生路的年度/季度/月度目标笔记。"""
+        return goal_notes.list_goals(vault_dir, limit=limit)
 
     @router.get("/notes")
     def note_read(path: str = Query(min_length=1)):

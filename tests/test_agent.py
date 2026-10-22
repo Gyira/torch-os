@@ -43,7 +43,7 @@ class FakeTools:
     def today(self):
         self.calls.append(('today',))
         return {'journal': {'recorded': False}, 'tasks': {'open': 3, 'due_today': 1, 'overdue': 1},
-                'study': {'minutes': 20}, 'body': {'recorded': False}}
+                'body': {'recorded': False}}
 
     def goals(self, limit=5):
         self.calls.append(('goals', limit))
@@ -52,10 +52,6 @@ class FakeTools:
     def habits(self, days=30):
         self.calls.append(('habits', days))
         return {'from_date': '2026-09-05', 'habits': [{'title': '早睡', 'done': 4}]}
-
-    def learning(self, days=7):
-        self.calls.append(('learning', days))
-        return {'from_date': '2026-09-28', 'total_minutes': 45, 'by_subject': [{'title': '数学', 'minutes': 45}]}
 
     def vault(self):
         self.calls.append(('vault',))
@@ -84,7 +80,6 @@ def build(tmp_path, monkeypatch, gateway=None):
     monkeypatch.setattr('backend.app.tools.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.journal_shared.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.habits.shanghai_today', lambda: date(2026, 10, 4))
-    monkeypatch.setattr('backend.app.learning.shanghai_today', lambda: date(2026, 10, 4))
     database = Database(tmp_path / 'torch_os.sqlite3')
     gateway = gateway or ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
     app = create_app(database, tmp_path / 'vault', gateway, security_environ={}, env_file=tmp_path / '.env')
@@ -104,7 +99,7 @@ def test_plan_always_starts_with_memories_and_never_exceeds_three_steps():
     assert plan[0]['tool'] == 'memories'
     assert len(plan) == agent.MAX_STEPS
     tools = [step['tool'] for step in plan]
-    assert tools[1] in {'today', 'goals', 'habits', 'learning', 'vault'}
+    assert tools[1] in {'today', 'goals', 'habits', 'vault'}
     assert all(step['tool'] in agent.TOOL_LABELS for step in plan)
     quiet = agent.plan_steps('你好')
     assert [step['tool'] for step in quiet] == ['memories']

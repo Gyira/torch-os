@@ -13,7 +13,6 @@ def build(tmp_path, monkeypatch):
     monkeypatch.setattr('backend.app.tools.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.journal_shared.shanghai_today', lambda: date(2026, 10, 4))
     monkeypatch.setattr('backend.app.habits.shanghai_today', lambda: date(2026, 10, 4))
-    monkeypatch.setattr('backend.app.learning.shanghai_today', lambda: date(2026, 10, 4))
     database = Database(tmp_path / 'torch_os.sqlite3')
     gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
     app = create_app(database, tmp_path / 'vault', gateway, security_environ={}, env_file=tmp_path / '.env')
@@ -37,7 +36,7 @@ def test_catalog_lists_only_read_only_get_tools():
     catalog = tool_catalog()
     assert catalog['read_only'] is True
     names = [tool['name'] for tool in catalog['tools']]
-    assert names == ['today', 'memories', 'goals', 'habits', 'learning', 'journal', 'profile', 'vault',
+    assert names == ['today', 'memories', 'goals', 'habits', 'journal', 'profile', 'vault',
                      'body', 'documents', 'imports', 'vault_audit', 'identity']
     for tool in catalog['tools']:
         assert tool['method'] == 'GET'
@@ -49,14 +48,13 @@ def test_catalog_lists_only_read_only_get_tools():
 def test_every_tool_answers_on_an_empty_database_and_audits_counts(tmp_path, monkeypatch):
     app, database, client = build(tmp_path, monkeypatch)
     catalog = client.get('/api/tools').json()
-    assert catalog['count'] == 13
+    assert catalog['count'] == 12
 
     endpoints = [
         '/api/tools/today',
         '/api/tools/memories?q=我的目标',
         '/api/tools/goals',
         '/api/tools/habits?days=30',
-        '/api/tools/learning?days=7',
         '/api/tools/journal?from=2026-09-30&to=2026-10-04',
         '/api/tools/profile',
         '/api/tools/vault',
@@ -121,7 +119,6 @@ def test_today_reports_structure_and_marks_missing_days(tmp_path, monkeypatch):
     assert payload['journal']['recorded'] is False
     assert payload['tasks'] == {'open': 0, 'due_today': 0, 'overdue': 0, 'due_titles': []}
     assert payload['habits'] == []
-    assert payload['study'] == {'minutes': 0, 'sessions': 0}
     assert payload['body']['recorded'] is False
     assert payload['inbox_drafts'] == 0
     assert '未记录' in payload['note'] or '不代表' in payload['note']
@@ -155,16 +152,22 @@ def test_memories_tool_only_returns_confirmed_and_valid_items(tmp_path, monkeypa
     assert client.get('/api/tools/memories?q=跑步&limit=99').status_code == 422
 
 
-def test_goal_habit_and_learning_tools_report_counts(tmp_path, monkeypatch):
+def test_goal_habit_and_task_tools_report_markdown_counts(tmp_path, monkeypatch):
+    from backend.app import pillar_notes, task_notes
+
     _, _, client = build(tmp_path, monkeypatch)
-    goal = client.post('/api/goals', json={'title': '完成数据手册', 'category': 'project'}).json()
-    client.post('/api/tasks', json={'title': '写表清单', 'goal_id': goal['id'], 'due_date': '2026-10-04'})
-    client.post('/api/tasks', json={'title': '以后再做'})
+    vault = tmp_path / 'vault'
+    goal = pillar_notes.create_note(vault, pillar='life', chapter='goal_year',
+                                    title='完成数据手册', note_type='goal')
+    task_notes.create_task_note(vault, '', '写表清单', {
+        'date': '2026-10-04', 'goal': goal['path'], 'created': '2026-10-01'})
+    task_notes.create_task_note(vault, '', '以后再做', {'created': '2026-10-01'})
 
     goals = client.get('/api/tools/goals').json()
     assert goals['goals'][0]['title'] == '完成数据手册'
     assert goals['open_task_count'] == 2
     assert goals['next_tasks'][0]['due_date'] == '2026-10-04'
+    assert client.get('/api/goals').json()[0]['path'] == goal['path']
 
     habit = client.post('/api/habits', json={
         'title': '早睡', 'cue': '洗漱后', 'minimum_action': '关灯',
@@ -174,17 +177,7 @@ def test_goal_habit_and_learning_tools_report_counts(tmp_path, monkeypatch):
     habits = client.get('/api/tools/habits?days=30').json()
     assert habits['habits'][0]['done'] >= 1
     assert '备注' in habits['note']
-
-    subject = client.post('/api/learning/subjects', json={'title': '数学', 'weekly_target_minutes': 300}).json()
-    created = client.post('/api/learning/sessions', json={
-        'subject_id': subject['id'], 'study_date': '2026-10-04', 'minutes': 45,
-        'request_key': '11111111-2222-4333-8444-555555555555',
-    })
-    assert created.status_code == 200, created.text
-    learning = client.get('/api/tools/learning?days=7').json()
-    assert learning['total_minutes'] == 45
-    assert learning['by_subject'] == [{'title': '数学', 'minutes': 45}]
-    assert client.get('/api/tools/learning?days=3').status_code == 422
+    assert client.get('/api/tools/learning?days=7').status_code == 404
 
 
 def test_journal_and_vault_tools_never_leak_note_text(tmp_path, monkeypatch):
@@ -212,7 +205,9 @@ def test_journal_and_vault_tools_never_leak_note_text(tmp_path, monkeypatch):
 
 def test_body_documents_and_audit_tools_stay_summary_only(tmp_path, monkeypatch):
     _, _, client = build(tmp_path, monkeypatch)
-    client.put('/api/body/entries/2026-10-04', json={'revision': 0, 'sleep_minutes': 420, 'exercise_minutes': 30, 'weight_kg': 70.5})
+    created = client.post('/api/ops/health/months/2026-10/rows', json={
+        'date': '2026-10-04', 'sleep_minutes': '420', 'exercise_minutes': '30', 'weight_kg': '70.5'})
+    assert created.status_code == 200, created.text
     body = client.get('/api/tools/body?days=7').json()
     assert body['recorded_days'] == 1
     assert body['sleep_minutes_total'] == 420 and body['exercise_minutes_total'] == 30

@@ -396,6 +396,17 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.evaluate("document.querySelector('[data-settings-nav=\"status\"]').focus()")
             await cdp.evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))")
             report["arrow_nav"] = await cdp.evaluate("document.activeElement?.dataset?.settingsNav || ''")
+            # 工具目录收缩为 12 个，旧学习/身体能力标记不再出现。
+            await cdp.evaluate("document.querySelector('[data-settings-nav=\"data\"]').click()")
+            await cdp.wait_for("!document.querySelector('[data-settings-section=\"data\"]')?.hidden")
+            await cdp.evaluate("document.querySelector('#load-tools')?.click()")
+            await cdp.wait_for("document.querySelector('#tools-status')?.textContent?.includes('共 12 个只读工具')", timeout=20)
+            report["tools_count"] = 12
+            report["retired_capabilities"] = await cdp.evaluate("""(async () => {
+                const caps = (await fetch('/api/config/status').then((response) => response.json())).capabilities;
+                return ['learning', 'learning_monthly', 'body_records', 'body_export', 'body_summary']
+                    .filter((key) => key in caps);
+            })()""")
             report["ok"] = (all(item["chapters"] > 0 for item in report["views"].values())
                             and report["shortcut_sheet"]["rows"] >= 10
                             and report["chord_nav"] == "#life"
@@ -404,7 +415,9 @@ async def run(base_url: str, output: Path, port: int,
                             and report["ops_delete_confirm_danger"] is True
                             and report["ops_undo_prompt"] == "撤销"
                             and report["ops_rows_after_delete"] == report["ops_rows_before_delete"] - 1
-                            and report["ops_undo_restored"] == report["ops_rows_before_delete"])
+                            and report["ops_undo_restored"] == report["ops_rows_before_delete"]
+                            and report["tools_count"] == 12
+                            and report["retired_capabilities"] == [])
             (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                                 encoding="utf-8")
             return report

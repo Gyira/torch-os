@@ -124,3 +124,8 @@ export function syncBadge(status = {}) {
   if (status.last_error_code) return { text: "需处理", tone: "candidate" };
   return { text: status.enabled ? "已启用" : "已配置", tone: "active" };
 }
+
+/** 从“未开启”切到“开启”本地删除回写时，保存前需要一次明确确认。 */
+export function willArmPushDeletes(payload = {}, status = {}) {
+  return Boolean(payload?.push_deletes) && !Boolean(status?.push_deletes);
+}

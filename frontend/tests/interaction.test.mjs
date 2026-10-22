@@ -965,3 +965,20 @@ test("the task-list delete confirmation can opt into the danger style", async ()
   assert.equal(hasClass(plainSubmit, "primary"), true);
   assert.equal(hasClass(plainSubmit, "danger"), false);
 });
+
+test("task rows show the linked goal and can filter the board by it", async () => {
+  const { load } = await harness();
+  const { taskRow } = (await load("tasks.js")).namespace;
+  const selected = [];
+  const row = taskRow(calendarTask({ goal: "00_人生路/06_目标与计划/01_年度目标/学习.md" }), {
+    today: "2026-10-11", lists: [], draggable: false,
+    goalLabel: () => "学习",
+    onSelectGoal: (path) => selected.push(path),
+    actions: {},
+  });
+  const chip = byClass(row, "task-goal-chip")[0];
+  assert.equal(chip.textContent, "🎯 学习");
+  assert.match(chip.title, /只看这个目标/);
+  await chip.emit("click");
+  assert.deepEqual(selected, ["00_人生路/06_目标与计划/01_年度目标/学习.md"]);
+});

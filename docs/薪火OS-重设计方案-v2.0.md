@@ -432,11 +432,11 @@
   - 退役 `bazi.py`、`profile.py`、`suggestions.py`、`share_import.py` 及其路由；
     capabilities 从 55 收敛到 49；`bazi_profiles` / `suggestions` 表保留并标记 deprecated，
     DDL 集中到 `db.py` 的 `LEGACY_SCHEMA`，不 DROP。
-  - 工具桥仍保留 13 个只读工具（`profile` 是计数快照，不是退役页面）；
+  - 工具桥保留 12 个只读工具（`profile` 是计数快照，不是退役页面；`learning` 已退役）；
     `docs/MCP_BRIDGE.md`、`FEATURE_MAP.md`、`WAKE_UP_START.md`、`RESTORE_DRILL.md`、
     `DATA_HANDBOOK.md` 已补齐。
-  - 保守偏差：`goals`/`learning`/`body` 后端仍服务任务导入、工作台学习分钟与导出；
-    `inbox.js`、`journal.js`、`growth-model.js`、`habit-grid.js` 仍有活引用，均保留。
+  - 后续（2026-10-22）已完成 `goals`/`learning`/`body` 的迁移式退役：目标/任务/身体改读 Markdown，
+    学习能力下线；`inbox.js`、`journal.js`、`growth-model.js`、`habit-grid.js` 仍有活引用，均保留。
     旧 `browser_smoke.py` 留待后续。
   - 旧日记归档月历的前端代码已删除（`journal-calendar.js`、对应测试与 CSS）；
     旧结构化日记后端 `journal.py` 及 `/api/journal/{day}` 等路由已退役，
@@ -482,10 +482,10 @@
 
 ## 15. 当前状态与下一步（2026-10-22）
 
-- 当前代码提交：`0a1e724`（本次文档更新前）；工作树干净。
-- 验证：后端 980 passed / 1 skipped；前端 175 passed；`check_all.ps1` exit 0；
+- 当前代码提交：`0a1e724`（本次文档更新前）；工作树包含 2026-10-22 的键盘、撤销与旧后端退役改动。
+- 验证：后端 805 passed / 1 skipped；前端 184 passed；`check_all.ps1` exit 0；
   桌面、平板、390px 移动端真实浏览器探针通过。
-- 仍保留：`goals` / `learning` / `body` 后端（任务导入、学习分钟、身体记录导出与只读工具）；
-  旧 `browser_smoke.py` 仅保留给失败报告测试；deprecated 表不自动 DROP。
+- 已退役 `goals` / `learning` / `body` 旧后端：目标/任务/身体改读 Markdown，学习能力下线；
+  旧表保留为 deprecated、无写入方、不自动 DROP；旧 `browser_smoke.py` 仅保留给失败报告测试。
 - 详细交接、验证命令与下一步候选见 `docs/STATUS.md`；退役清单见 `docs/DEPRECATIONS.md`。
-- 下一步候选：更完整的键盘导航、危险操作统一确认、下一组产品功能；彻底退役旧后端需产品确认。
+- 下一步候选：下一组产品功能；清理 deprecated 表需用户确认并先做已验证备份。

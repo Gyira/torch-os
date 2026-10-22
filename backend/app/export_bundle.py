@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Response
 
+from . import body_source
 from .conversation_export import ConversationExportService
 from .conversation_export import render_markdown as render_conversations_markdown
 from .db import Database
@@ -44,23 +45,20 @@ def _body_csv(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_bundle(database: Database) -> tuple[bytes, dict[str, Any]]:
+def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
     generated_at = datetime.now(SHANGHAI).isoformat(timespec="seconds")
     memories = MemoryExportService(database).collect("all")
-    planning = PlanningExportService(database).collect()
+    planning = PlanningExportService(vault_dir).collect()
     growth = GrowthExportService(database).collect()
     conversations = ConversationExportService(database).collect()
     journal = JournalExportService(database).collect()
-    with database.connect() as connection:
-        body_rows = [dict(row) for row in connection.execute(
-            """SELECT date,weight_kg,sleep_minutes,exercise_minutes,revision,updated_at
-               FROM body_entries ORDER BY date"""
-        ).fetchall()]
+    body_rows = body_source.all_entries(vault_dir)
     body = {
         "schema": 1,
         "exported_at": generated_at,
         "total": len(body_rows),
         "entries": body_rows,
+        "note": "来自健康与体重月度 Markdown 表；每天多行时睡眠/运动相加、体重取最后一条。",
     }
 
     members: dict[str, str] = {
@@ -83,8 +81,6 @@ def build_bundle(database: Database) -> tuple[bytes, dict[str, Any]]:
         "tasks": planning["counts"]["tasks"],
         "habits": growth["counts"]["habits"],
         "habit_entries": growth["counts"]["habit_entries"],
-        "subjects": growth["counts"]["subjects"],
-        "study_sessions": growth["counts"]["sessions"],
         "conversations": conversations["counts"]["conversations"],
         "messages": conversations["counts"]["messages"],
         "journal_days": journal["counts"]["days"],
@@ -99,11 +95,11 @@ def build_bundle(database: Database) -> tuple[bytes, dict[str, Any]]:
         "",
         "内容：",
         "- memories.md / memories.json：记忆（含待确认、已拒绝、已归档）",
-        "- planning.md / planning.json：目标与任务",
-        "- growth.md / growth.json：习惯与打卡、学习科目与记录",
+        "- planning.md / planning.json：人生路目标笔记与 Markdown 任务",
+        "- growth.md / growth.json：习惯与打卡",
         "- conversations.md / conversations.json：保存过的对话与引用",
         "- journal.md / journal.json：每日记录（含情绪与饮食摘要）",
-        "- body.csv / body.json：身体记录（体重/睡眠/运动）",
+        "- body.csv / body.json：身体记录（来自健康月度 Markdown 表）",
         "",
         "数量："
         + " · ".join(f"{key} {value}" for key, value in counts.items()),
@@ -120,12 +116,12 @@ def build_bundle(database: Database) -> tuple[bytes, dict[str, Any]]:
     return buffer.getvalue(), {"files": len(members), "counts": counts, "generated_at": generated_at}
 
 
-def create_export_bundle_router(database: Database, prefix: str = "/api") -> APIRouter:
+def create_export_bundle_router(database: Database, vault_dir, prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["export-bundle"])
 
     @router.get("/export/all.zip")
     def export_all():
-        payload, summary = build_bundle(database)
+        payload, summary = build_bundle(database, vault_dir)
         database.audit("export_bundle_created", {"files": summary["files"]})
         stamp = datetime.now(SHANGHAI).strftime("%Y%m%d-%H%M%S")
         return Response(

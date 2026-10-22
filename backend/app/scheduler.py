@@ -17,7 +17,7 @@ from pathlib import Path as FilePath
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, field_validator
 
-from . import journal_note
+from . import body_source, goal_notes, journal_note, task_reports
 from .db import Database, utc_now
 
 
@@ -201,85 +201,44 @@ class SchedulerService:
     def _morning_body(self, local: datetime) -> dict[str, Any]:
         today = local.date()
         yesterday = (today - timedelta(days=1)).isoformat()
-        week_start = (today - timedelta(days=today.weekday())).isoformat()
-        week_end = (today - timedelta(days=today.weekday() - 6)).isoformat()
         day = today.isoformat()
-        with self.database.connect() as connection:
-            goals = []
-            if self._has_table(connection, "goals"):
-                goals = [dict(row) for row in connection.execute(
-                    "SELECT id,title,status,progress FROM goals WHERE status='active' ORDER BY updated_at DESC, id LIMIT 3"
-                ).fetchall()]
-            open_tasks = []
-            if self._has_table(connection, "tasks"):
-                open_tasks = [dict(row) for row in connection.execute(
-                    """SELECT title,priority,due_date FROM tasks
-                    WHERE status IN ('todo','in_progress') AND due_date IS NOT NULL AND due_date<=?
-                    ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                    due_date, id LIMIT 5""",
-                    (day,),
-                ).fetchall()]
-            journal_yesterday = False
-            if self.vault_dir is not None:
-                journal_yesterday = journal_note.note_abspath(
-                    self.vault_dir, yesterday
-                ).is_file()
-            elif self._has_table(connection, "journal_entries"):
-                journal_yesterday = connection.execute(
-                    "SELECT 1 FROM journal_entries WHERE date=?", (yesterday,)
-                ).fetchone() is not None
-            minutes = target = 0
-            if self._has_table(connection, "study_sessions") and self._has_table(connection, "study_subjects"):
-                minutes = connection.execute(
-                    "SELECT COALESCE(SUM(minutes),0) FROM study_sessions WHERE study_date>=? AND study_date<=?",
-                    (week_start, week_end),
-                ).fetchone()[0]
-                target = connection.execute(
-                    "SELECT COALESCE(SUM(weekly_target_minutes),0) FROM study_subjects WHERE status='active'"
-                ).fetchone()[0]
+        goals: list[dict[str, Any]] = []
+        open_tasks: list[dict[str, Any]] = []
+        if self.vault_dir is not None:
+            goals = [{"title": goal["title"], "status": goal["status"], "progress": 0,
+                      "path": goal["path"]} for goal in goal_notes.active_goals(self.vault_dir, 3)]
+            candidates = [note for note in task_reports.open_tasks(self.vault_dir)
+                          if note.get("date") and note["date"] <= day]
+            open_tasks = [{"title": note["title"],
+                           "priority": note.get("priority") or "none",
+                           "due_date": note.get("date")}
+                          for note in task_reports.sorted_due(candidates, 5)]
+        journal_yesterday = False
+        if self.vault_dir is not None:
+            journal_yesterday = journal_note.note_abspath(self.vault_dir, yesterday).is_file()
+        else:
+            with self.database.connect() as connection:
+                if self._has_table(connection, "journal_entries"):
+                    journal_yesterday = connection.execute(
+                        "SELECT 1 FROM journal_entries WHERE date=?", (yesterday,)
+                    ).fetchone() is not None
         return {
             "date": day,
             "goals": goals,
             "open_tasks": open_tasks,
             "journal_yesterday_recorded": journal_yesterday,
-            "study_week": {"week_start": week_start, "minutes": int(minutes), "target_minutes": int(target)},
             "disclaimer": DISCLAIMER,
         }
 
     def _evening_body(self, local: datetime) -> dict[str, Any]:
         today = local.date()
         day = today.isoformat()
+        completed = 0
+        overdue = 0
+        if self.vault_dir is not None:
+            completed = len(task_reports.completed_between(self.vault_dir, day, day))
+            overdue = len(task_reports.overdue(self.vault_dir, day))
         with self.database.connect() as connection:
-            completed = 0
-            completed_rows = []
-            overdue = 0
-            if self._has_table(connection, "tasks"):
-                completed_rows = connection.execute(
-                    "SELECT completed_at FROM tasks WHERE status='completed' AND completed_at IS NOT NULL"
-                ).fetchall()
-                overdue = connection.execute(
-                    "SELECT COUNT(*) FROM tasks WHERE status IN ('todo','in_progress') AND due_date IS NOT NULL AND due_date<=?",
-                    (day,),
-                ).fetchone()[0]
-            for row in completed_rows:
-                try:
-                    if datetime.fromisoformat(row["completed_at"]).astimezone(SHANGHAI).date() == today:
-                        completed += 1
-                except (TypeError, ValueError):
-                    continue
-            study_minutes = 0
-            study_subjects: list[dict[str, Any]] = []
-            if self._has_table(connection, "study_sessions"):
-                study_minutes = connection.execute(
-                    "SELECT COALESCE(SUM(minutes),0) FROM study_sessions WHERE study_date=?", (day,)
-                ).fetchone()[0]
-                if self._has_table(connection, "study_subjects"):
-                    study_subjects = [dict(row) for row in connection.execute(
-                        """SELECT sub.title AS title, SUM(s.minutes) AS minutes
-                        FROM study_sessions s JOIN study_subjects sub ON sub.id=s.subject_id
-                        WHERE s.study_date=? GROUP BY sub.id ORDER BY minutes DESC, sub.id""",
-                        (day,),
-                    ).fetchall()]
             habits = {"done": 0, "skipped": 0, "unrecorded": 0}
             if self._has_table(connection, "habit_definitions") and self._has_table(connection, "habit_entries"):
                 scheduled = []
@@ -316,22 +275,19 @@ class SchedulerService:
                 ).fetchone()
                 journal_recorded = row is not None
                 next_action = (row["next_action"] or "") if row else ""
-            body_records = None
-            if self._has_table(connection, "body_entries"):
-                row = connection.execute(
-                    "SELECT weight_kg,sleep_minutes,exercise_minutes FROM body_entries WHERE date=?", (day,)
-                ).fetchone()
-                if row is not None:
-                    body_records = {
-                        "weight_kg": row["weight_kg"],
-                        "sleep_minutes": row["sleep_minutes"],
-                        "exercise_minutes": row["exercise_minutes"],
-                    }
+        body_records = None
+        if self.vault_dir is not None:
+            body = body_source.day_entry(self.vault_dir, day)
+            if body.get("recorded"):
+                body_records = {
+                    "weight_kg": body.get("weight_kg"),
+                    "sleep_minutes": body.get("sleep_minutes"),
+                    "exercise_minutes": body.get("exercise_minutes"),
+                }
         return {
             "date": day,
             "completed_tasks": int(completed),
             "open_overdue_tasks": int(overdue),
-            "study_today": {"minutes": int(study_minutes), "subjects": study_subjects},
             "habits": habits,
             "journal": {"recorded": journal_recorded, "next_action": next_action},
             "body_records": body_records,
@@ -343,51 +299,23 @@ class SchedulerService:
         """Rolling seven days ending on the scheduled day (no scoring)."""
         week_start = week_end - timedelta(days=6)
         start, end = week_start.isoformat(), week_end.isoformat()
+        completed_tasks = 0
+        completed_examples: list[str] = []
+        overdue = 0
+        overdue_tasks: list[dict[str, Any]] = []
+        if self.vault_dir is not None:
+            completed = task_reports.completed_between(self.vault_dir, start, end)
+            completed.sort(key=lambda note: (note.get("done_on") or "", note.get("title") or ""), reverse=True)
+            completed_tasks = len(completed)
+            completed_examples = [note["title"] for note in completed[:3]]
+            overdue_rows = [note for note in task_reports.open_tasks(self.vault_dir)
+                            if note.get("date") and note["date"] <= end]
+            overdue = len(overdue_rows)
+            overdue_tasks = [{"title": note["title"],
+                              "priority": note.get("priority") or "none",
+                              "due_date": note.get("date")}
+                             for note in task_reports.sorted_due(overdue_rows, 5)]
         with self.database.connect() as connection:
-            completed_tasks = 0
-            completed_examples: list[str] = []
-            overdue = 0
-            overdue_tasks: list[dict[str, Any]] = []
-            if self._has_table(connection, "tasks"):
-                for row in connection.execute(
-                    """SELECT title,completed_at FROM tasks WHERE status='completed'
-                    AND completed_at IS NOT NULL ORDER BY completed_at DESC, id DESC"""
-                ).fetchall():
-                    try:
-                        finished = datetime.fromisoformat(row["completed_at"]).astimezone(SHANGHAI).date()
-                    except (TypeError, ValueError):
-                        continue
-                    if week_start <= finished <= week_end:
-                        completed_tasks += 1
-                        if len(completed_examples) < 3:
-                            completed_examples.append(row["title"])
-                overdue = connection.execute(
-                    """SELECT COUNT(*) FROM tasks WHERE status IN ('todo','in_progress')
-                    AND due_date IS NOT NULL AND due_date<=?""",
-                    (end,),
-                ).fetchone()[0]
-                overdue_tasks = [dict(row) for row in connection.execute(
-                    """SELECT title,priority,due_date FROM tasks
-                    WHERE status IN ('todo','in_progress') AND due_date IS NOT NULL AND due_date<=?
-                    ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                    due_date, id LIMIT 5""",
-                    (end,),
-                ).fetchall()]
-            study_minutes = 0
-            study_subjects: list[dict[str, Any]] = []
-            if self._has_table(connection, "study_sessions"):
-                study_minutes = connection.execute(
-                    "SELECT COALESCE(SUM(minutes),0) FROM study_sessions WHERE study_date>=? AND study_date<=?",
-                    (start, end),
-                ).fetchone()[0]
-                if self._has_table(connection, "study_subjects"):
-                    study_subjects = [dict(row) for row in connection.execute(
-                        """SELECT sub.title AS title, SUM(s.minutes) AS minutes
-                        FROM study_sessions s JOIN study_subjects sub ON sub.id=s.subject_id
-                        WHERE s.study_date>=? AND s.study_date<=? GROUP BY sub.id
-                        ORDER BY minutes DESC, sub.id LIMIT 3""",
-                        (start, end),
-                    ).fetchall()]
             habits = {"done": 0, "skipped": 0, "unrecorded": 0}
             if self._has_table(connection, "habit_definitions") and self._has_table(connection, "habit_entries"):
                 marks = {(row["habit_id"], row["date"]): row["status"] for row in connection.execute(
@@ -424,12 +352,9 @@ class SchedulerService:
                     "SELECT COUNT(*) FROM journal_entries WHERE date>=? AND date<=?",
                     (start, end),
                 ).fetchone()[0]
-            body_days = 0
-            if self._has_table(connection, "body_entries"):
-                body_days = connection.execute(
-                    "SELECT COUNT(*) FROM body_entries WHERE date>=? AND date<=?",
-                    (start, end),
-                ).fetchone()[0]
+        body_days = 0
+        if self.vault_dir is not None:
+            body_days = len(body_source.entries_between(self.vault_dir, week_start, week_end))
         return {
             "week_start": start,
             "week_end": end,
@@ -437,7 +362,6 @@ class SchedulerService:
             "completed_examples": completed_examples,
             "open_overdue_tasks": int(overdue),
             "overdue_tasks": overdue_tasks,
-            "study_week": {"minutes": int(study_minutes), "subjects": study_subjects},
             "habits": habits,
             "journal_days": int(journal_days),
             "body_record_days": int(body_days),

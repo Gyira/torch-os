@@ -15,7 +15,6 @@ PLAN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ('today', ('今天', '今日', '现在', '最近', '这周', '本周', '状态', '安排')),
     ('goals', ('目标', '任务', '计划', '待办', '要做', '截止', '进度')),
     ('habits', ('习惯', '坚持', '打卡', '连续')),
-    ('learning', ('学习', '复习', '科目', '分钟', '考研', '英语', '数学')),
     ('body', ('身体', '睡眠', '运动', '体重', '作息')),
     ('documents', ('资料', '笔记', '文档', '索引')),
     ('imports', ('导入', 'wolai', '附件', '历史')),
@@ -27,7 +26,6 @@ TOOL_LABELS = {
     'today': '今天的记录',
     'goals': '目标与任务',
     'habits': '习惯',
-    'learning': '学习',
     'vault': 'Vault 状态',
     'body': '身体记录',
     'documents': '资料索引',
@@ -54,17 +52,14 @@ def _summarize(tool: str, payload: dict[str, Any]) -> str:
     if tool == 'today':
         journal = '已记录' if payload.get('journal', {}).get('recorded') else '还没有记录'
         tasks = payload.get('tasks', {})
-        study = payload.get('study', {})
         return (f"日记{journal}；未完成任务 {tasks.get('open', 0)} 项、今天到期 {tasks.get('due_today', 0)} 项、逾期 {tasks.get('overdue', 0)} 项；"
-                f"学习 {study.get('minutes', 0)} 分钟；身体记录{'有' if payload.get('body', {}).get('recorded') else '无'}")
+                f"身体记录{'有' if payload.get('body', {}).get('recorded') else '无'}")
     if tool == 'goals':
         return f"进行中目标 {len(payload.get('goals', []))} 个，未完成任务 {payload.get('open_task_count', 0)} 项"
     if tool == 'habits':
         habits = payload.get('habits', [])
         done = sum(int(item.get('done') or 0) for item in habits)
         return f"{len(habits)} 个习惯，最近 {payload.get('from_date')} 起完成合计 {done} 次"
-    if tool == 'learning':
-        return f"最近 {payload.get('from_date')} 起学习 {payload.get('total_minutes', 0)} 分钟，涉及 {len(payload.get('by_subject', []))} 个科目"
     if tool == 'vault':
         mode = '只读模式' if payload.get('read_only') else '可写'
         return f"Vault 有 {payload.get('markdown_files', 0)} 篇 Markdown（{mode}）"
@@ -88,8 +83,6 @@ def _count(tool: str, payload: dict[str, Any]) -> int:
         return len(payload.get('goals') or [])
     if tool == 'habits':
         return len(payload.get('habits') or [])
-    if tool == 'learning':
-        return len(payload.get('by_subject') or [])
     if tool == 'today':
         return int(payload.get('tasks', {}).get('open') or 0)
     if tool == 'body':
@@ -118,8 +111,6 @@ def run(service, question: str, cloud_available: bool = False) -> dict[str, Any]
                 payload = service.goals(3)
             elif tool == 'habits':
                 payload = service.habits(30)
-            elif tool == 'learning':
-                payload = service.learning(7)
             elif tool == 'vault':
                 payload = service.vault()
             elif tool == 'body':

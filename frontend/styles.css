@@ -1271,3 +1271,17 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .toast-message { min-width: 0; }
 .toast-action { flex-shrink: 0; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 .toast-action:hover { background: var(--p-hover); }
+
+/* 任务 ↔ 目标联动（2026-10-22）：目标 chip 与筛选条。 */
+.task-goal-chip { flex-shrink: 0; border: 1px solid var(--p-accent-line); border-radius: 999px; background: var(--p-accent-soft); color: var(--p-warm-ink); font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+.task-goal-chip:hover { background: var(--p-accent-soft-3); }
+.time-goal-filter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; padding: 7px 10px; border: 1px solid var(--p-accent-line); border-radius: 8px; background: var(--p-accent-soft-3); color: var(--p-warm-ink); font-size: 12px; }
+.time-goal-filter .text-button { color: var(--p-warm-ink); }
+
+/* 目标笔记里的关联任务（2026-10-22）。 */
+.pillar-linked-tasks { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2); }
+.pillar-linked-tasks ul { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 7px; }
+.pillar-linked-tasks li { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.pillar-linked-tasks li.is-done span:first-child { text-decoration: line-through; color: var(--p-ink-5); }
+.pillar-linked-tasks li .text-button { margin-left: auto; }
+.pillar-linked-tasks .field-help:last-child { margin-bottom: 0; }

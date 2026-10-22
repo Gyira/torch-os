@@ -150,8 +150,6 @@ def test_the_todo_file_drives_the_day_list(tmp_path):
     """清单只看 00-System/待办（todos）.md：未完成 + 今天勾完的；更早勾完的不占列表；
     手动打勾（没有 ✅ 日期）视为今天完成；SQLite 任务不再上工作台。"""
     client = make_client(tmp_path)
-    old_task = client.post("/api/tasks", json={"title": "只在目标页出现的旧任务"}).json()
-    assert isinstance(old_task["id"], int)
     yesterday = (datetime.now(SHANGHAI).date() - timedelta(days=1)).isoformat()
     write_todo_note(tmp_path, todos=[
         ("很久以前就完成的", True, yesterday),

@@ -104,7 +104,7 @@ test("failures and older services stay safe", async () => {
 test("bridge self-test reports the handshake and tool count, and older services disable it", async () => {
   const ready = await harness({
     capabilities: { tools: true, mcp_bridge: true },
-    selftest: { ok: true, protocol_version: "2025-06-18", tool_count: 13, resources: 2, sample_tool: "imports", elapsed_ms: 123 },
+    selftest: { ok: true, protocol_version: "2025-06-18", tool_count: 12, resources: 2, sample_tool: "imports", elapsed_ms: 123 },
   });
   ready.namespace.initToolCatalog();
   assert.equal(ready.getNode("#run-bridge-selftest").disabled, false);
@@ -112,7 +112,7 @@ test("bridge self-test reports the handshake and tool count, and older services 
   const request = ready.requests.find(({ url }) => url.endsWith("/bridge/selftest"));
   assert.equal(request.options.method, "POST");
   assert.match(ready.getNode("#bridge-selftest-status").textContent,
-    /桥自检通过：协议 2025-06-18 · 13 个只读工具 · 2 个资源 · 示例调用 imports 成功（123 毫秒）/);
+    /桥自检通过：协议 2025-06-18 · 12 个只读工具 · 2 个资源 · 示例调用 imports 成功（123 毫秒）/);
 
   const failed = await harness({
     capabilities: { tools: true, mcp_bridge: true },

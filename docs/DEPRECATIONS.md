@@ -12,6 +12,11 @@
 - `/api/imports/share/*`：DeepSeek 分享导入。
 - `/api/journal/{day}`、`/api/journal/{day}/review`、`/api/journal/{day}/next-task`、
   `/api/journal/{day}/export`、`/api/journal/monthly-review`：旧 SQLite 结构化日记。
+- `/api/learning/*`：旧学习科目、学习记录与周统计。
+- `/api/body/*`：旧 SQLite 身体记录；身体数据现在只读「健康与体重」月度 Markdown 表。
+- `/api/goals` 的写接口与 `/api/tasks/*` 旧接口：目标写转人生路目标笔记，任务只用
+  `00-System/任务/**` 的 Markdown 笔记（`GET /api/goals` 保留，返回目标笔记）。
+- `/api/daily-plan/draft`：旧目标任务的今日计划草稿；时间管理页已替代。
 
 仍在使用的相邻接口：
 
@@ -29,16 +34,16 @@
 - `bazi_profiles`：旧八字资料。
 - `suggestions`：旧建议卡。
 - `journal_entries`、`journal_actions`：旧 SQLite 日记与动作；导出接口仍可读取历史记录。
+- `goals`、`tasks`：旧 SQLite 目标与任务；2026-10-22 起无写入方，任务导入改写 Markdown。
+- `study_subjects`、`study_sessions`：旧学习科目与记录；学习能力已下线。
+- `body_entries`：旧身体记录；汇总与导出改读健康月度 Markdown 表。
+- `task_import_ledger`：旧任务导入账本；新导入用任务笔记 frontmatter 的稳定导入键去重。
 
 ## 仍保留的旧后端
 
-以下模块仍有活跃用途，本轮没有删除：
-
-- `goals.py`：任务导入的目标关联、导出与只读工具。
-- `learning.py`：工作台「学习分钟」、调度草稿、导出与只读工具。
-- `body.py`：工作台/调度中的身体记录、导出与只读工具。
-
-对应的旧页面已经下线；这些能力现在只通过工作台、导出包或只读工具使用。
+`goals.py`、`learning.py`、`body.py` 已在 2026-10-22 退役并删除。
+目标、任务与身体数据现在分别来自人生路目标笔记、Markdown 任务笔记与健康月度表；
+学习分钟、学习工具与学习导出已下线。
 
 ## 兼容说明
 

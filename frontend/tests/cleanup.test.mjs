@@ -50,14 +50,14 @@ test("live frontend does not call retired endpoints", async () => {
   }
 });
 
-test("referenced docs exist and the tool count is 13", async () => {
+test("referenced docs exist and the tool count is 12", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const docs = new Set([...html.matchAll(/docs\/[A-Za-z0-9_./-]+\.(?:md|yml|yaml)/g)].map((match) => match[0]));
   assert.ok(docs.size > 0, "index.html should reference at least one docs file");
   for (const relative of docs) {
     await access(path.join(root, relative));
   }
-  assert.ok(html.includes("这 13 个只读工具"), "tool card should say 13");
+  assert.ok(html.includes("这 12 个只读工具"), "tool card should say 12");
   assert.equal(html.includes("torch-tools.cordis.yml"), false, "missing Cordis YAML must not be referenced");
 });
 

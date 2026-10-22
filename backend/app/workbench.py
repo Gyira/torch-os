@@ -26,7 +26,6 @@ from . import journal_note, todo_note, vault_layout
 from .db import Database, utc_now
 from .habits import HabitService
 from .identity import greeting_for, read_identity
-from .learning import LearningService
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 DONE_HABIT_STATES = ("done", "skipped")
@@ -82,7 +81,6 @@ def _entries_state(habit_service: HabitService, habit_id: int, day: str) -> tupl
 def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str, Any]:
     """Everything the workbench shows for one day. Read-only, no model call."""
     habit_service = HabitService(database, vault_dir)
-    learning_service = LearningService(database)
     identity = read_identity(vault_dir)
 
     todos_error = None
@@ -145,7 +143,6 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
     # 进度里的"日记"以**文件**为准（md-first）：今天的日记存在就算写了。
     journal = journal_note.read_note(vault_dir, day)
     journal_written = bool(journal.get("exists"))
-    sessions = learning_service.list_sessions(day, day)
 
     done_todos = [todo for todo in todos if todo["completed"]]
     done_daily = [item for item in daily if item["done"]]
@@ -187,10 +184,6 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
             "recorded": journal_written,
             "updated_at": journal.get("updated_at"),
             "has_next_action": _has_next_action(journal.get("content") or ""),
-        },
-        "study": {
-            "minutes": sum(int(session.get("minutes") or 0) for session in sessions),
-            "sessions": len(sessions),
         },
         "progress": {"done": done, "total": total, "percent": percent},
     }
@@ -249,7 +242,6 @@ def draft_parts(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "done_daily": [item["title"] for item in payload["daily"] if item["done"]],
         "open_daily": [item["title"] for item in payload["daily"] if not item["done"]],
         "done_habits": [habit["title"] for habit in payload["habits"] if habit["done"]],
-        "study_minutes": payload["study"]["minutes"],
         "journal_content": _strip_front_matter(journal.get("content") or "")[:1_000],
         "sessions": session_notes(vault_dir, day),
         "progress": payload["progress"],
@@ -267,8 +259,6 @@ def local_draft(parts: dict[str, Any]) -> str:
         lines.append("每日必做还差：" + "、".join(parts["open_daily"]) + "。")
     if parts["done_habits"]:
         lines.append("习惯：" + "、".join(parts["done_habits"]) + " 都做了。")
-    if parts["study_minutes"]:
-        lines.append(f"学习记录 {parts['study_minutes']} 分钟。")
     if parts["open_todos"]:
         lines.append("还没做完：" + "、".join(parts["open_todos"]) + "，明天继续。")
     for session in parts["sessions"]:

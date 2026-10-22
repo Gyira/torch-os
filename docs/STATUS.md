@@ -7,22 +7,30 @@
 
 - 分支：`main`
 - 最后代码提交：`0a1e724`（本文档单独提交在其后）
-- 工作树：本轮键盘导航与快捷键改动（尚未提交）
-- 后端：**982 passed / 1 skipped**
-- 前端：**183 passed**
+- 工作树：本轮键盘导航、危险操作撤销、旧后端退役改动（尚未提交）
+- 后端：**805 passed / 1 skipped**
+- 前端：**186 passed**
 - `scripts/check_all.ps1`：**exit 0**
-- 能力标记：**49**；SQLite：**28 张表**（其中 4 张 deprecated）；MCP 只读工具：**13 个**
+- 能力标记：**44**；用户表：**25 张**（其中 7 张 deprecated）；MCP 只读工具：**12 个**
 
 ## 已完成
 
 - Phase 1–4：四库布局迁移、六项导航、四库页面、捕获/搜索、体重账目月度表、
   习惯 Markdown 镜像、周/月复盘骨架、薪火管家与带引用问答。
-- Phase 5（保守清理）：
+- Phase 5（收尾）：
   - 退役 `bazi` / `profile` / `suggestions` / `share_import` / 旧结构化日记 `journal` 路由；
+  - **2026-10-22 退役 `goals` / `learning` / `body` 旧后端**：
+    - 目标改读人生路年度/季度/月度目标笔记；`GET /api/goals` 仅返回这些笔记，写接口已移除；
+    - 任务导入不再写旧 SQLite `tasks`，改为创建 Markdown 任务笔记（`00-System/任务/**`），
+      任务 frontmatter 写入 `目标` 与稳定 `导入键`，重名/移动后仍能去重；
+    - 身体汇总、调度草稿与导出改读「健康与体重」月度 Markdown 表；
+    - 学习分钟、学习工具、学习导出与 `/api/learning/*` 下线；工作台/日记草稿不再出现学习行；
+    - `goals.py` / `learning.py` / `body.py` 已删除；旧表保留为 deprecated，无写入方、不自动 DROP。
   - 删除无活引用的旧前端模块、旧日记归档月历、旧 CSS 选择器与无用依赖 `lunar-python`；
-  - `bazi_profiles` / `suggestions` / `journal_entries` / `journal_actions` 保留为 deprecated，
-    DDL 集中在 `db.py` 的 `LEGACY_SCHEMA`，不自动 DROP；
-  - 工具桥保留 13 个只读工具，`docs/MCP_BRIDGE.md` 已补齐。
+  - `bazi_profiles` / `suggestions` / `journal_entries` / `journal_actions` /
+    `goals` / `tasks` / `study_subjects` / `study_sessions` / `body_entries` /
+    `task_import_ledger` 保留历史数据，DDL 不自动 DROP；
+  - 工具桥收缩为 12 个只读工具，`docs/MCP_BRIDGE.md` 已同步。
 - UX 打磨：
   - 友好日期（今天 16:40 / 昨天 / 10月22日）、搜索回车打开第一条；
   - 顶部「?」帮助入口、首次使用引导卡、四库空状态示例与失败重试；
@@ -40,14 +48,15 @@
     toast 支持一个动作按钮；确认框默认焦点仍在“取消”。
 - QA/发布：
   - `browser_pillars_probe.py` 在 QA 工作区自备日记与搜索样本，真实库不写入；
+    探针新增快捷键总览、g 组合跳转、n 捕获、方向键与生活运营删除/撤销检查；
   - `round.ps1` 的浏览器步骤已切换到四库探针；旧 `browser_smoke.py` 仅保留给失败报告测试。
 
 ## 仍保留 / 已知限制
 
-- `goals.py`、`learning.py`、`body.py` 仍有活跃用途（任务导入、工作台学习分钟、
-  身体记录导出、只读工具），尚未彻底退役；需要先决定这些能力迁移还是保留。
+- 旧 `goals` / `tasks` / `study_subjects` / `study_sessions` / `body_entries` /
+  `task_import_ledger` 表只保留历史数据，没有写入方；删除/迁移需用户手动确认并先做已验证备份。
+- 学习分钟与学习导出已下线；旧的 `study_*` 数据仍可在数据库/备份里阅读，但产品不再展示。
 - `browser_smoke.py` 是 legacy，仅用于失败报告测试；不要作为验收证据。
-- deprecated 表保留历史数据，删除/迁移需用户手动确认并先做已验证备份。
 - 旧的已移除 HTTP 路由对仓库外客户端会返回 404；清单见 `docs/DEPRECATIONS.md`。
 - 首版仍不做复杂图谱、聊天页或完整 Markdown 编辑器；深度编辑交给 Obsidian。
 
@@ -67,12 +76,11 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 ```
 
 浏览器探针会截图到输出目录，并打印 `report.json`；检查 `ok: true`、
-`help_nav`、`help_hidden_outside_settings`、四库 chapter/row 指标。
+`help_nav`、`help_hidden_outside_settings`、快捷键/撤销检查与四库 chapter/row 指标。
 
 ## 下一步候选
 
-本轮用户指定顺序：**键盘导航（已完成）→ 危险操作确认与撤销（已完成）→ 退役旧后端 → 新产品功能**。
+本轮用户指定顺序：**键盘导航（已完成）→ 危险操作确认与撤销（已完成）→ 退役旧后端（已完成）→ 新产品功能（任务 ↔ 目标联动已完成）**。
 
-1. 彻底退役 `goals` / `learning` / `body` 旧后端，或把它们迁移到四库 Markdown；
-   这会改变任务导入、工作台学习分钟与身体记录导出，需先确定迁移方案。
-2. 下一组产品功能（按用户需求选）。
+1. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
+2. 继续选下一组产品功能（按用户需求）。
