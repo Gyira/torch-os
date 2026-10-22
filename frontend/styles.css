@@ -1061,8 +1061,22 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-capture-more .field { margin-bottom: 0; }
 .pillar-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 1180px) {
-  .pillar-layout { grid-template-columns: 190px minmax(0, 1fr); }
-  .pillar-aside { display: none; }
+  /* 平板起改为单列：章节轨横排，避免 23 个章节把页面拉得很长；
+     右栏内容保留在列表下方，不丢掉最近 7 天、收件箱、身份卡与快速记录。 */
+  .pillar-layout { grid-template-columns: 1fr; }
+  .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .pillar-rail::-webkit-scrollbar { display: none; }
+  .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
+  .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
+  .pillar-aside {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    position: static;
+  }
+  .pillar-aside > * { flex: 1 1 240px; min-width: 0; }
 }
 @media (max-width: 760px) {
   .pillar-head { flex-direction: column; align-items: stretch; gap: 12px; padding: 4px 0 14px; }
@@ -1072,6 +1086,7 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-head-actions { flex-wrap: wrap; }
   .pillar-search input { width: 100%; }
   .pillar-layout { grid-template-columns: 1fr; gap: 14px; padding-top: 14px; }
+  .pillar-aside { flex-direction: column; }
   .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
   .pillar-rail::-webkit-scrollbar { display: none; }
   .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
