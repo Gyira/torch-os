@@ -1,6 +1,6 @@
 // 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 快速捕获。
 // 工作台完全独立；这里只读写四库接口，不碰 time-module / workbench 的 DOM。
-import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
+import { $, api, confirmAction, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
@@ -235,6 +235,59 @@ function renderShell(view) {
   return root;
 }
 
+function updateInboxSelection(host) {
+  if (!host) return;
+  const boxes = [...host.querySelectorAll("[data-inbox-select]")];
+  const checked = boxes.filter((box) => box.checked);
+  const apply = host.querySelector("[data-inbox-apply]");
+  if (apply) {
+    apply.disabled = !checked.length;
+    apply.textContent = `整理选中（${checked.length}）`;
+  }
+  const all = host.querySelector("[data-inbox-select-all]");
+  if (all) {
+    all.checked = boxes.length > 0 && checked.length === boxes.length;
+    all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+  }
+}
+
+async function applyInboxProposals(ids, trigger) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return;
+  const rows = [...document.querySelectorAll("#knowledge-view [data-inbox-row]")];
+  const selectedRows = unique.map((id) => rows.find((row) => row.dataset.inboxRow === id)).filter(Boolean);
+  const preview = selectedRows.slice(0, 6).map((row) => {
+    const title = row.querySelector("strong")?.textContent?.trim() || "";
+    const target = row.dataset.inboxTarget || "";
+    return `• ${title} → ${target}`;
+  }).join("\n");
+  const more = unique.length > 6 ? `\n…另有 ${unique.length - 6} 条` : "";
+  const accepted = await confirmAction({
+    title: `按建议整理 ${unique.length} 条？`,
+    message: `${preview}${more}\n\n只会移动选中的笔记，不会删除；移动后可在目标章节找到。`,
+    confirmLabel: "整理选中",
+    trigger,
+  });
+  if (!accepted) return;
+  try {
+    const result = await api("/api/steward/proposals/apply-batch", {
+      method: "POST",
+      body: JSON.stringify({ proposal_ids: unique, confirm: true }),
+    });
+    const applied = Number(result.applied_count) || 0;
+    const failed = Number(result.failed_count) || 0;
+    if (failed) {
+      const firstError = result.failed?.[0]?.error || "请刷新后重试";
+      toast(`已整理 ${applied} 条，${failed} 条失败：${firstError}`, "warning");
+    } else {
+      toast(`已整理 ${applied} 条。`);
+    }
+    await loadPillar("knowledge", { keepChapter: true });
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
 async function mountInboxSuggestions() {
   const host = document.querySelector("#knowledge-view [data-inbox-suggestions]");
   if (!host) return;
@@ -242,13 +295,36 @@ async function mountInboxSuggestions() {
   const items = (payload.items || []).filter((item) => item.chapter !== "inbox");
   if (!items.length) { host.innerHTML = ""; return; }
   host.innerHTML = `<section class="pillar-suggestion-card">
-    <div class="pillar-suggestion-head"><p class="eyebrow">整理建议</p><p class="field-help">本地规则判断，不调用模型；点按钮才会移动。</p></div>
-    ${items.map((item) => `<div class="pillar-suggestion-row">
-      <div><strong>${escapeHtml(item.title)}</strong>
-        <p class="field-help">建议放到「${escapeHtml(item.pillar_title)} / ${escapeHtml(item.chapter_title)}」：${escapeHtml(item.reason)}</p></div>
-      <button type="button" class="button secondary" data-suggestion-path="${escapeHtml(item.path)}" data-suggestion-chapter="${escapeHtml(item.chapter)}">移到建议章节</button>
+    <div class="pillar-suggestion-head">
+      <div>
+        <p class="eyebrow">整理建议 · ${items.length} 条</p>
+        <p class="field-help">勾选后一次整理；只会移动，不会删除。</p>
+      </div>
+      <div class="pillar-suggestion-tools">
+        <label class="check-label"><input type="checkbox" data-inbox-select-all> 全选</label>
+        <button type="button" class="button secondary" data-inbox-apply disabled>整理选中（0）</button>
+      </div>
+    </div>
+    ${items.map((item) => `<div class="pillar-suggestion-row" data-inbox-row="${escapeHtml(item.proposal_id)}" data-inbox-target="${escapeHtml(`${item.pillar_title} / ${item.chapter_title}`)}">
+      <label class="pillar-suggestion-check">
+        <input type="checkbox" data-inbox-select value="${escapeHtml(item.proposal_id)}">
+        <span>
+          <strong>${escapeHtml(item.title)}</strong>
+          <span class="field-help">建议放到「${escapeHtml(item.pillar_title)} / ${escapeHtml(item.chapter_title)}」：${escapeHtml(item.reason)}</span>
+        </span>
+      </label>
+      <div class="pillar-suggestion-actions">
+        <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">打开</button>
+        <button type="button" class="small-button" data-inbox-single="${escapeHtml(item.proposal_id)}">移动</button>
+      </div>
     </div>`).join("")}
   </section>`;
+  // 已进入建议卡的条目不再在下方列表重复出现；想读原文用「打开」。
+  const suggestedPaths = new Set(items.map((item) => item.path));
+  document.querySelectorAll("#knowledge-view .pillar-note-row[data-note-path]").forEach((row) => {
+    if (suggestedPaths.has(row.dataset.notePath)) row.hidden = true;
+  });
+  updateInboxSelection(host);
 }
 
 async function loadPillar(view, { keepChapter = false } = {}) {
@@ -352,21 +428,17 @@ function bindPillarEvents() {
       }
       return;
     }
-    const suggestion = event.target.closest?.("[data-suggestion-path]");
-    if (suggestion) {
-      try {
-        await api("/api/notes/move", {
-          method: "POST",
-          body: JSON.stringify({
-            path: suggestion.dataset.suggestionPath,
-            chapter: suggestion.dataset.suggestionChapter,
-          }),
-        });
-        toast("已按建议移动。");
-        await loadPillar("knowledge", { keepChapter: true });
-      } catch (error) {
-        toast(error.message, "error");
-      }
+    const inboxApply = event.target.closest?.("[data-inbox-apply]");
+    if (inboxApply) {
+      const host = inboxApply.closest("[data-inbox-suggestions]");
+      const ids = [...(host?.querySelectorAll("[data-inbox-select]:checked") || [])]
+        .map((box) => box.value);
+      await applyInboxProposals(ids, inboxApply);
+      return;
+    }
+    const inboxSingle = event.target.closest?.("[data-inbox-single]");
+    if (inboxSingle) {
+      await applyInboxProposals([inboxSingle.dataset.inboxSingle], inboxSingle);
       return;
     }
     const identity = event.target.closest?.("[data-open-identity]");
@@ -407,6 +479,18 @@ function bindPillarEvents() {
     const row = event.target.closest?.("[data-note-path]");
     if (row) {
       openNote(row.dataset.notePath);
+    }
+  });
+  document.addEventListener("change", (event) => {
+    const selectAll = event.target.closest?.("[data-inbox-select-all]");
+    if (selectAll) {
+      const host = selectAll.closest("[data-inbox-suggestions]");
+      host?.querySelectorAll("[data-inbox-select]").forEach((box) => { box.checked = selectAll.checked; });
+      updateInboxSelection(host);
+      return;
+    }
+    if (event.target.closest?.("[data-inbox-select]")) {
+      updateInboxSelection(event.target.closest("[data-inbox-suggestions]"));
     }
   });
   document.addEventListener("input", (event) => {

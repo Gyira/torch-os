@@ -103,6 +103,19 @@ def seed_qa_workspace(base_url: str) -> dict:
                     "type": "note",
                 })
                 result["search_note"] = created.status_code
+            suggestions = client.get("/api/steward/inbox-suggestions")
+            if suggestions.status_code == 200 and not suggestions.json().get("items"):
+                seeded_inbox = []
+                for title, body in (
+                    ("QA 整理收件箱五步法", "第一步：列清单；第二步：分类。"),
+                    ("QA 读书笔记：原则", "作者说要做减法，读完记一条。"),
+                ):
+                    created = client.post("/api/capture", json={
+                        "title": title, "body": body, "chapter": "inbox",
+                    })
+                    if created.status_code == 200:
+                        seeded_inbox.append(title)
+                result["inbox_notes"] = seeded_inbox
             result["seeded"] = True
     except Exception as error:  # seeding is best-effort; the probe still reports what it can
         result["error"] = f"{type(error).__name__}: {error}"
@@ -175,7 +188,27 @@ async def run(base_url: str, output: Path, port: int,
                     await asyncio.sleep(0.6)
                     await cdp.screenshot(output / "knowledge-inbox.png")
                     report["inbox_suggestions"] = await cdp.evaluate(
-                        "document.querySelectorAll('#knowledge-view [data-suggestion-path]').length")
+                        "document.querySelectorAll('#knowledge-view [data-inbox-select]').length")
+                    report["inbox_batch"] = await cdp.evaluate("""(() => ({
+                        checkboxes: document.querySelectorAll('#knowledge-view [data-inbox-select]').length,
+                        applyDisabled: Boolean(document.querySelector('#knowledge-view [data-inbox-apply]')?.disabled),
+                    }))()""")
+                    if report["inbox_suggestions"]:
+                        await cdp.evaluate("document.querySelector('#knowledge-view [data-inbox-select-all]')?.click()")
+                        await cdp.wait_for("!document.querySelector('#knowledge-view [data-inbox-apply]')?.disabled")
+                        report["inbox_batch_selected"] = await cdp.evaluate(
+                            "document.querySelector('#knowledge-view [data-inbox-apply]')?.textContent || ''")
+                        await cdp.evaluate("document.querySelector('#knowledge-view [data-inbox-apply]')?.click()")
+                        await cdp.wait_for("document.querySelector('#confirm-dialog')?.open")
+                        report["inbox_batch_confirm"] = await cdp.evaluate(
+                            "document.querySelector('#confirm-message')?.textContent?.slice(0, 120) || ''")
+                        await cdp.screenshot(output / "knowledge-inbox-batch.png")
+                        await cdp.evaluate("document.querySelector('#confirm-accept')?.click()")
+                        await cdp.wait_for(
+                            "document.querySelectorAll('#knowledge-view [data-inbox-select]').length === 0",
+                            timeout=30)
+                        report["inbox_batch_applied"] = await cdp.evaluate(
+                            "document.querySelector('#toast')?.textContent || ''")
                 if view == "life":
                     report["life_week"] = await cdp.evaluate("""(() => ({
                         days: document.querySelectorAll('#life-view .pillar-week-day').length,

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import goal_notes, journal_note, pillar_notes, reviews, steward_policy, vault_layout
+from . import goal_notes, journal_note, pillar_notes, reviews, steward, steward_policy, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
@@ -203,9 +203,23 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
 
     @router.get("/steward/inbox-suggestions")
     def inbox_suggestions(limit: int = Query(default=50, ge=1, le=200)):
-        notes = pillar_notes.list_notes(vault_dir, pillar="knowledge",
-                                        chapter="inbox", limit=limit)
-        items = [steward_policy.suggestion_for_note(note) for note in notes]
+        # 直接复用管家提案，确保界面上的 id 和执行接口校验的是同一份提案。
+        items = []
+        for proposal in steward.inbox_proposals(vault_dir):
+            items.append({
+                "proposal_id": proposal["id"],
+                "path": proposal["path"],
+                "title": proposal["title"],
+                "chapter": proposal["target_chapter"],
+                "pillar": proposal["target_pillar"],
+                "reason": proposal["reason"],
+                "confidence": proposal["confidence"],
+                "matched": "",
+                "chapter_title": proposal["target_title"],
+                "pillar_title": proposal["target_pillar_title"],
+            })
+            if len(items) >= limit:
+                break
         return {"items": items, "count": len(items)}
 
     @router.post("/steward/suggest")

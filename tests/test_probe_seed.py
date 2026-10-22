@@ -20,10 +20,12 @@ class FakeResponse:
 
 
 class FakeClient:
-    def __init__(self, health: dict, note: dict, search: dict):
+    def __init__(self, health: dict, note: dict, search: dict,
+                 suggestions: dict | None = None):
         self.health = health
         self.note = note
         self.search = search
+        self.suggestions = suggestions or {}
         self.calls: list[tuple[str, str, dict | None]] = []
 
     def __enter__(self):
@@ -40,6 +42,8 @@ class FakeClient:
             return FakeResponse(200, self.note)
         if url == "/api/search":
             return FakeResponse(200, self.search)
+        if url == "/api/steward/inbox-suggestions":
+            return FakeResponse(200, self.suggestions)
         return FakeResponse(200, {})
 
     def post(self, url: str, json: dict | None = None):
@@ -73,6 +77,7 @@ def test_existing_qa_data_is_not_duplicated(monkeypatch):
         health={"runtime_label": "qa"},
         note={"exists": True},
         search={"items": [{"path": "03_知识库/00_收件箱/考研.md"}]},
+        suggestions={"items": [{"proposal_id": "st-existing"}]},
     ))
     result = probe.seed_qa_workspace("http://127.0.0.1:8766")
     assert result == {"seeded": True, "diary": None, "search_note": None}
@@ -89,5 +94,7 @@ def test_fresh_qa_workspace_gets_a_diary_and_search_note(monkeypatch):
     assert result["seeded"] is True
     assert result["diary"] == 200
     assert result["search_note"] == 201
+    assert result["inbox_notes"] == ["QA 整理收件箱五步法", "QA 读书笔记：原则"]
     posted = [call[1] for call in client.calls if call[0] == "POST"]
-    assert posted == ["/api/journal/note/generate", "/api/notes"]
+    assert posted == ["/api/journal/note/generate", "/api/notes",
+                     "/api/capture", "/api/capture"]

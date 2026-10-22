@@ -59,6 +59,23 @@ class ProposalApply(BaseModel):
         return self
 
 
+class ProposalBatchApply(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    proposal_ids: list[str] = Field(min_length=1, max_length=50)
+    confirm: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_batch(self):
+        if self.confirm is not True:
+            raise ValueError("请明确确认执行这批提案")
+        if len(set(self.proposal_ids)) != len(self.proposal_ids):
+            raise ValueError("提案不能重复")
+        if any(not item.strip() or len(item) > 64 for item in self.proposal_ids):
+            raise ValueError("提案 id 格式无效")
+        return self
+
+
 def _parse_day(value: Any) -> date | None:
     text = str(value or "").strip()[:10]
     try:
@@ -270,13 +287,8 @@ def _distill_target(note: dict[str, Any]) -> str:
     return "distill_work"
 
 
-def proposals(vault_dir: Path | str) -> list[dict[str, Any]]:
-    """确定性提案：收件箱分流 + 从反思/心得提炼原则。"""
-    vault = Path(vault_dir).resolve()
-    notes = _notes(vault)
+def _inbox_proposals(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    distilled = _distilled_sources(vault)
-
     for note in notes:
         if note.get("chapter") != "inbox":
             continue
@@ -300,6 +312,32 @@ def proposals(vault_dir: Path | str) -> list[dict[str, Any]]:
             "confidence": suggestion.get("confidence", "low"),
             "requires_confirmation": True,
         })
+    order = {"high": 0, "medium": 1, "low": 2}
+    items.sort(key=lambda item: (order.get(item["confidence"], 3), item["path"]))
+    return items
+
+
+def inbox_proposals(vault_dir: Path | str) -> list[dict[str, Any]]:
+    """只看收件箱的轻量提案，用于知识库整理卡。"""
+    vault = Path(vault_dir).resolve()
+    notes: list[dict[str, Any]] = []
+    for summary in pillar_notes.list_notes(vault, chapter="inbox", limit=MAX_NOTES):
+        try:
+            note = pillar_notes.read_note(vault, summary["path"])
+        except Exception:
+            continue
+        note["pillar"] = "knowledge"
+        note["chapter"] = "inbox"
+        notes.append(note)
+    return _inbox_proposals(notes)
+
+
+def proposals(vault_dir: Path | str) -> list[dict[str, Any]]:
+    """确定性提案：收件箱分流 + 从反思/心得提炼原则。"""
+    vault = Path(vault_dir).resolve()
+    notes = _notes(vault)
+    items = _inbox_proposals(notes)
+    distilled = _distilled_sources(vault)
 
     for note in notes:
         if note.get("pillar") != "life":
@@ -372,7 +410,11 @@ def _apply_proposal_locked(vault_dir: Path | str, database: Database,
     proposal = next((item for item in current if item["id"] == proposal_id), None)
     if proposal is None:
         raise ValueError("提案已失效：原笔记可能被移动、修改或已处理，请刷新后再看")
+    return _execute_proposal(vault, database, proposal)
 
+
+def _execute_proposal(vault: Path, database: Database,
+                      proposal: dict[str, Any]) -> dict[str, Any]:
     if proposal["action"] == "move":
         note = pillar_notes.move_note(vault, proposal["path"], proposal["target_chapter"])
     elif proposal["action"] == "distill":
@@ -558,6 +600,48 @@ def create_steward_router(database: Database, vault_dir: Path | str, gateway: Mo
             raise HTTPException(409, str(error)) from error
         except FileNotFoundError as error:
             raise HTTPException(409, "原笔记已不存在，请刷新提案") from error
+
+    @router.post("/steward/proposals/apply-batch")
+    def steward_apply_batch(payload: ProposalBatchApply):
+        """按顺序执行选中的提案；单条失败不会回滚已成功的条目。"""
+        if read_only:
+            raise HTTPException(409, "当前是只读模式")
+        ensure_vault_writable(read_only, "批量执行管家提案")
+        applied: list[dict[str, Any]] = []
+        failed: list[dict[str, str]] = []
+        with _APPLY_LOCK:
+            vault = Path(vault_dir).resolve()
+            current = {item["id"]: item for item in proposals(vault)}
+            for proposal_id in payload.proposal_ids:
+                proposal = current.get(proposal_id)
+                if proposal is None:
+                    failed.append({"proposal_id": proposal_id,
+                                   "error": "提案已失效，请刷新后重试"})
+                    continue
+                try:
+                    result = _execute_proposal(vault, database, proposal)
+                except HTTPException as error:
+                    failed.append({"proposal_id": proposal_id, "error": str(error.detail)})
+                except (ValueError, FileNotFoundError, OSError) as error:
+                    failed.append({"proposal_id": proposal_id, "error": str(error)})
+                else:
+                    applied.append({
+                        "proposal_id": proposal_id,
+                        "path": result["proposal"]["path"],
+                        "target_chapter": result["proposal"]["target_chapter"],
+                    })
+        database.audit("steward_batch_applied", {
+            "requested": len(payload.proposal_ids),
+            "applied": len(applied),
+            "failed": len(failed),
+        })
+        return {
+            "applied": applied,
+            "failed": failed,
+            "applied_count": len(applied),
+            "failed_count": len(failed),
+            "note": "逐条执行；失败项保留在原处，可刷新后重试。",
+        }
 
     @router.post("/steward/ask")
     async def steward_ask(payload: AskRequest):

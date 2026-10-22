@@ -115,6 +115,62 @@ def test_proposals_apply_requires_confirmation_and_moves(tmp_path):
     assert "body" not in detail
 
 
+def test_batch_apply_moves_selected_and_reports_stale(tmp_path):
+    client, vault, database = make_client(tmp_path)
+    method = capture(client, title="整理收件箱五步法", body="第一步：列清单；第二步：分类。")
+    reading = capture(client, title="读书笔记：原则", body="作者说要做减法。")
+    suggestions = client.get("/api/steward/inbox-suggestions").json()["items"]
+    ids = {item["path"]: item["proposal_id"] for item in suggestions}
+    assert set(ids) == {method["path"], reading["path"]}
+    assert all(value.startswith("st-") for value in ids.values())
+
+    result = client.post("/api/steward/proposals/apply-batch", json={
+        "proposal_ids": [ids[method["path"]], "st-missing", ids[reading["path"]]],
+        "confirm": True,
+    })
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["applied_count"] == 2
+    assert payload["failed_count"] == 1
+    assert payload["failed"][0]["proposal_id"] == "st-missing"
+    assert not (vault / method["path"]).exists()
+    assert not (vault / reading["path"]).exists()
+    remaining = client.get("/api/steward/inbox-suggestions").json()["items"]
+    assert remaining == []
+
+    with database.connect() as connection:
+        per_item = connection.execute(
+            "SELECT count(*) FROM audit_events WHERE event_type = ?",
+            ("steward_proposal_applied",)).fetchone()[0]
+        batches = connection.execute(
+            "SELECT detail_json FROM audit_events WHERE event_type = ?",
+            ("steward_batch_applied",)).fetchall()
+    assert per_item == 2
+    assert len(batches) == 1
+    assert json.loads(batches[0][0]) == {"requested": 3, "applied": 2, "failed": 1}
+
+
+def test_batch_apply_requires_confirmation_unique_ids_and_write_access(tmp_path):
+    client, _, _ = make_client(tmp_path)
+    capture(client, title="整理收件箱五步法", body="第一步：列清单。")
+    proposal_id = client.get("/api/steward/inbox-suggestions").json()["items"][0]["proposal_id"]
+
+    blocked = client.post("/api/steward/proposals/apply-batch", json={
+        "proposal_ids": [proposal_id], "confirm": False,
+    })
+    assert blocked.status_code == 422
+    duplicate = client.post("/api/steward/proposals/apply-batch", json={
+        "proposal_ids": [proposal_id, proposal_id], "confirm": True,
+    })
+    assert duplicate.status_code == 422
+
+    read_only_client, _, _ = make_client(tmp_path / "readonly", read_only=True)
+    read_only = read_only_client.post("/api/steward/proposals/apply-batch", json={
+        "proposal_ids": [proposal_id], "confirm": True,
+    })
+    assert read_only.status_code == 409
+
+
 def test_distill_proposal_creates_principle_with_source_link(tmp_path):
     client, vault, _ = make_client(tmp_path)
     source = capture(client, title="今天的教训", body="我学到：先完成再完美。下次先列清单。",

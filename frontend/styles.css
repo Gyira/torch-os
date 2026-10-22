@@ -1101,6 +1101,11 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
   .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
   .pillar-capture-grid { grid-template-columns: 1fr; }
+  .pillar-suggestion-head { flex-direction: column; align-items: flex-start; }
+  .pillar-suggestion-tools { width: 100%; justify-content: space-between; }
+  .pillar-suggestion-row { align-items: flex-start; flex-wrap: wrap; }
+  .pillar-suggestion-check { flex: 1 1 100%; }
+  .pillar-suggestion-actions { width: 100%; justify-content: flex-end; }
   /* 小屏弹窗可能比视口高：让整个弹窗可滚动，底部按钮不会被裁掉。 */
   .pillar-dialog { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
   .pillar-capture-form { padding-bottom: 16px; }
@@ -1134,9 +1139,15 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-suggestions { margin-bottom: 16px; }
 .pillar-suggestion-card { border: 1px solid var(--p-pillar-knowledge); border-radius: 14px; background: var(--p-pillar-knowledge-soft); padding: 14px 16px; }
 .pillar-suggestion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.pillar-suggestion-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pillar-suggestion-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-top: 1px solid var(--p-line); }
+.pillar-suggestion-check { display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0; cursor: pointer; }
+.pillar-suggestion-check input { width: 16px; height: 16px; margin-top: 3px; flex: 0 0 auto; accent-color: var(--p-pillar-knowledge); }
+.pillar-suggestion-check > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pillar-suggestion-row strong { color: var(--p-ink-strong); font-size: 13px; }
 .pillar-suggestion-row .field-help { margin: 2px 0 0; }
+.pillar-suggestion-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.pillar-suggestion-actions .small-button { flex: 0 0 auto; }
 .pillar-habits { margin-bottom: 16px; }
 .pillar-habit-list { display: grid; gap: 12px; }
 .pillar-habit-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px 16px; }
