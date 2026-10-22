@@ -141,13 +141,6 @@
 
 
 
-    <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
-      <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><span id="help-status" class="status-message" role="status"></span></div></div>
-      <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
-      <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
-    </section>
-
-
     <section id="settings-view" class="view" data-module="settings" aria-labelledby="page-title" hidden>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="设置分区">
@@ -318,6 +311,11 @@
               <div class="settings-card-head"><div><span class="eyebrow">ABOUT</span><h2 id="settings-about-heading" tabindex="-1">你的数据如何被使用</h2><p>四条边界说明；完整功能与数据去向见“帮助”页。</p></div><button class="text-button" type="button" data-go-view="help">打开帮助页</button></div>
               <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>新记忆需要人工确认；拒绝、撤回或归档后不再参与问答。</li><li>每次打开页面，云端选项默认关闭；开启后才允许发送当前问题和相关已确认记忆。</li><li>配置完成不等于已经测试连通，真实回答会标明云端回答、本地回答或本地回退。</li></ul></div>
             </article>
+          </section>
+          <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
+            <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><span id="help-status" class="status-message" role="status"></span></div></div>
+            <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
+            <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
           </section>
         </div>
       </div>

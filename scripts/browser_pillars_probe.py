@@ -150,6 +150,8 @@ async def run(base_url: str, output: Path, port: int,
                 "document.querySelector('[data-settings-section=\"help\"] h2')?.textContent || ''")
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"life\"]').click()")
             await cdp.wait_for("location.hash === '#life'")
+            report["help_hidden_outside_settings"] = await cdp.evaluate(
+                "document.querySelector('#help-view')?.offsetParent === null")
             for view in ("life", "self", "ops", "knowledge"):
                 await cdp.evaluate(f"document.querySelector('.panel-nav-item[data-view=\"{view}\"]').click()")
                 await cdp.wait_for(
