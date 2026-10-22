@@ -10,7 +10,11 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import httpx
 
 import websockets
 
@@ -71,9 +75,44 @@ class CDP:
         path.write_bytes(base64.b64decode(result["data"]))
 
 
+def seed_qa_workspace(base_url: str) -> dict:
+    """Give a disposable QA workspace the two facts the probe clicks on.
+
+    A real vault must never be written by a read-only probe, so this only runs
+    when /api/health reports runtime_label=qa.
+    """
+    result = {"seeded": False, "diary": None, "search_note": None}
+    try:
+        with httpx.Client(base_url=base_url, timeout=20) as client:
+            client.get("/")
+            health = client.get("/api/health")
+            if health.status_code != 200 or health.json().get("runtime_label") != "qa":
+                result["skipped"] = "not-qa"
+                return result
+            day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+            note = client.get("/api/journal/note", params={"day": day})
+            if note.status_code == 200 and not note.json().get("exists"):
+                generated = client.post("/api/journal/note/generate", json={"day": day, "mode": "create"})
+                result["diary"] = generated.status_code
+            search = client.get("/api/search", params={"q": "考研", "limit": 1})
+            items = search.json().get("items") if search.status_code == 200 else []
+            if not items:
+                created = client.post("/api/notes", json={
+                    "title": "考研规划",
+                    "content": "准备考研的示例笔记，用于 QA 探针的全局搜索。",
+                    "type": "note",
+                })
+                result["search_note"] = created.status_code
+            result["seeded"] = True
+    except Exception as error:  # seeding is best-effort; the probe still reports what it can
+        result["error"] = f"{type(error).__name__}: {error}"
+    return result
+
+
 async def run(base_url: str, output: Path, port: int,
               width: int = 1440, height: int = 1000):
     edge = find_edge()
+    seed = seed_qa_workspace(base_url)
     profile = tempfile.mkdtemp(prefix="torch-edge-pillars-")
     process = subprocess.Popen([
         edge, "--headless=new", "--disable-gpu", "--no-first-run",
@@ -81,7 +120,7 @@ async def run(base_url: str, output: Path, port: int,
         f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
         f"--window-size={width},{height}", f"{base_url}/#life",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    report = {"ok": False, "views": {}}
+    report = {"ok": False, "seed": seed, "views": {}}
     try:
         target = None
         deadline = time.monotonic() + 20
@@ -129,11 +168,14 @@ async def run(base_url: str, output: Path, port: int,
                         days: document.querySelectorAll('#life-view .pillar-week-day').length,
                         done: document.querySelectorAll('#life-view .pillar-week-day.is-done').length,
                     }))()""")
-                    await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done')?.click()")
-                    await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
-                    report["life_week_click"] = await cdp.evaluate(
-                        "document.querySelector('.pillar-note-dialog .meta')?.textContent || ''")
-                    await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+                    if await cdp.evaluate("Boolean(document.querySelector('#life-view .pillar-week-day.is-done'))"):
+                        await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done').click()")
+                        await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                        report["life_week_click"] = await cdp.evaluate(
+                            "document.querySelector('.pillar-note-dialog .meta')?.textContent || ''")
+                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+                    else:
+                        report["life_week_click"] = None
                     await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
                     await cdp.wait_for("document.querySelector('#life-view [data-habit-panel]')")
                     await asyncio.sleep(0.6)
