@@ -437,7 +437,11 @@
     `DATA_HANDBOOK.md` 已补齐。
   - 保守偏差：`goals`/`learning`/`body`/`journal` 后端仍服务任务导入、工作台学习分钟、
     导出与日记面板；`inbox.js`、`journal.js`、`journal-calendar.js`、`growth-model.js`、
-    `habit-grid.js` 仍有活引用，均保留。大块旧 CSS 与旧 `browser_smoke.py` 留待后续。
+    `habit-grid.js` 仍有活引用，均保留。旧 `browser_smoke.py` 留待后续。
+  - 旧 CSS 清理（2026-10-22）：按精确类名白名单移除 275 个旧选择器（约 18 KB），
+    同步删除因此不再使用的 `--p-invert-accent`、`--p-hero-bg`、`--p-hero-ink-2`、
+    `--p-warm-ink-2`；前端测试、`check_all` 与真实浏览器探针通过，截图尺寸与
+    四库/工作台结构指标无变化。
   - 发布脚本 `round.ps1` 的浏览器步骤已切换到 `browser_pillars_probe.py`；旧的
     `browser_smoke.py` 仅保留给失败报告测试，不再作为验收证据。
   - 四库探针只在 `runtime_label=qa` 的隔离工作区自动补当天日记与「考研」搜索样本，
