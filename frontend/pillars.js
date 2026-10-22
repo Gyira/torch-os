@@ -12,6 +12,7 @@ const PILLAR_META = {
   life: {
     title: "人生路",
     subtitle: "把每天过成可回看的成长线索。",
+    emptyHint: "例如：今天发生了什么，或此刻在想什么。",
     icon: "行",
     defaultChapter: "reflection",
     quick: [
@@ -23,6 +24,7 @@ const PILLAR_META = {
   self: {
     title: "自我档案",
     subtitle: "把经历沉淀成「我是谁」。",
+    emptyHint: "例如：一个刚冒出来的想法，或一段想记住的经历。",
     icon: "我",
     defaultChapter: "idea",
     quick: [
@@ -34,6 +36,7 @@ const PILLAR_META = {
   ops: {
     title: "生活运营",
     subtitle: "把身体、钱、事务照顾好，不让它们占用注意力。",
+    emptyHint: "例如：今天的体重，或一笔午餐支出。",
     icon: "生",
     defaultChapter: "affairs",
     quick: [
@@ -45,6 +48,7 @@ const PILLAR_META = {
   knowledge: {
     title: "知识库",
     subtitle: "先接住，再提炼，最后变成能用的东西。",
+    emptyHint: "例如：一条读到的观点，或一个想试的方法。",
     icon: "知",
     defaultChapter: "inbox",
     quick: [
@@ -167,7 +171,7 @@ function renderShell(view) {
           ? "" : `<div class="pillar-list">
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
-            <p class="field-help">${escapeHtml(meta.subtitle)}</p>
+            <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
             <button type="button" class="button secondary" data-pillar-capture="${view}" data-capture-chapter="${escapeHtml(chapter)}">＋ 记第一条</button>
           </div>`}
         </div>`}
