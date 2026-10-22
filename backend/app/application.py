@@ -30,16 +30,12 @@ from .backup import (
     RESTORED_NAME_PATTERN, BackupError, create_backup, list_restored_copies,
     plan_retention, render_restore_drill_report, restore_backup, verify_restored_copy,
 )
-from .body import create_body_router
-from .bazi import create_bazi_router, dependency_available as bazi_dependency_available
 from .conversation_export import create_conversation_export_router
 from .conversation_memory import create_conversation_memory_router
-from .share_import import create_share_import_router
 from .schema_export import create_schema_router
 from .tools import create_tools_router
 from .mcp_bridge import run_selftest as mcp_bridge_selftest
 from . import harness_brain
-from .suggestions import SuggestionService, create_suggestions_router
 from .tools import ToolService
 from . import agent as agent_module
 from .workspaces import create_workspaces_router
@@ -56,10 +52,8 @@ from .vault_connection import (
 )
 from .diagnostics import create_diagnostics_router
 from .export_bundle import create_export_bundle_router
-from .goals import GoalTaskService, create_goals_router
 from .growth_export import create_growth_export_router
 from .identity import create_identity_router
-from .journal import create_journal_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
 from .journal_note import create_journal_note_router
@@ -69,7 +63,6 @@ from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
-from .learning import create_learning_router
 from .task_import import create_task_import_router
 from .link_audit import audit_wolai_links
 from .attachment_plan import plan_wolai_attachment_localization
@@ -82,7 +75,6 @@ from .import_history import (
 from .memory_export import create_memory_export_router
 from .model_gateway import ModelGateway, ModelGatewayError
 from .planning_export import create_planning_export_router
-from .profile import create_profile_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
@@ -460,12 +452,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                 'runtime_label':runtime_label, 'vault_name':Path(vault_dir).name,
                 'vault_scoped':bool(vault_scoped),
                 'embedding_provider':getattr(database.embedding_provider, 'name', None),
-                'capabilities':{'link_audit':True,'habits':True,'learning':True,
+                'capabilities':{'link_audit':True,'habits':True,
                     'identity':True,'workbench':True,'workbench_polish':True,
-                                'profile':True,'chat_preview':True,'scheduler':True,
-                                'body_records':True,'memory_usage':True,'scheduler_weekly':True,
-                                'memory_export':True,'body_export':True,'diagnostics':True,
-                                'body_summary':True,
+                                'scheduler':True,
+                                'scheduler_weekly':True,
+                                'memory_export':True,'diagnostics':True,
                                 'planning_export':True,
                                 'task_reorder':True,
                                 'attachment_plan':True,
@@ -487,10 +478,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                                 'chat_memory_panel':True,
                                 'restored_copies':True,
                                 'monthly_review':True,
-                                'learning_monthly':True,
-                                'bazi':bazi_dependency_available(),
                                 'conversation_extract':True,
-                                'share_import':True,
                                 'vault_connection':not vault_scoped,
                                 'workspaces':runtime_label == 'personal' and not vault_scoped,
                                 'schema_export':True,
@@ -499,7 +487,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                                 'harness':bool(harness_brain.resolve_command()),
                                 'harness_reset':True,
                                 'agent':True,
-                                'suggestions':True,
                                 'weather':True,
                                 'tasks':True,
                                 'dida_sync':runtime_label == 'personal',
@@ -866,9 +853,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         return StreamingResponse(event_stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
-    app.include_router(create_goals_router(database))
-    goal_service = GoalTaskService(database)
-
     async def journal_data_guard():
         # Journal Markdown exports share the same filesystem/DB boundary as scans and imports.
         async with app.state.data_lock:
@@ -882,22 +866,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
     app.include_router(create_dida_sync_router(dida_service, data_lock))
-    app.include_router(create_journal_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_habits_router(database, vault_dir=vault_dir),
                        dependencies=[Depends(journal_data_guard)])
-    app.include_router(create_learning_router(database), dependencies=[Depends(journal_data_guard)])
-    # Body records share the daily-record database boundary; one optional row per day.
-    app.include_router(create_body_router(database), dependencies=[Depends(journal_data_guard)])
-    # Local four-pillars reference: birth data stays in this database, never sent anywhere.
-    app.include_router(create_bazi_router(database), dependencies=[Depends(journal_data_guard)])
     # Conversation snapshots are ordinary vault notes; keep them on the same data boundary.
     app.include_router(create_conversation_memory_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
-    # One allow-listed share link at a time; the snapshot note shares the same vault boundary.
-    app.include_router(create_share_import_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # Read-only live schema export: structure and counts only, no note text, no audit.
     app.include_router(create_schema_router(database))
-    # Read-only tools for agents (today, memories, goals, habits, learning, journal, profile, vault).
+    # Read-only tools for agents (Markdown goals/tasks/body + memories, habits, journal, vault).
     app.include_router(create_tools_router(database, vault_dir))
     # Identity lives in the Vault (`01-Identity/身份（identity）.md`): Markdown is the source of truth.
     app.include_router(create_identity_router(vault_dir, read_only=vault_read_only),
@@ -918,8 +894,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         database.audit('harness_reset', {'conversation_id': payload.conversation_id,
                                          'cleared': result['cleared_sessions']})
         return {'ok': True, **result}
-    # Proactive suggestion cards: deterministic local rules, never an action.
-    app.include_router(create_suggestions_router(database, vault_dir))
     # 时钟天气卡：白名单出站 + 30 分钟内存缓存，纯读不落盘。
     app.include_router(create_weather_router())
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
@@ -934,18 +908,16 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         data_dir=database.path.parent, vault_dir=vault_dir, read_only=vault_read_only,
         env_path=env_path, database=database, runtime_label=runtime_label,
         vault_scoped=bool(vault_scoped), **workspace_options))
-    suggestion_service = SuggestionService(database, vault_dir)
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
-    app.include_router(create_profile_router(database, vault_dir, app.state.data_lock, APP_VERSION))
     app.include_router(create_scheduler_router(
         database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
     # Read-only export of the user's own memories; no vault or review writes.
     app.include_router(create_memory_export_router(database))
     # Read-only self-check: counts and integrity only, no content and no audit.
     app.include_router(create_diagnostics_router(database, vault_dir, APP_VERSION))
-    # Read-only export of goals and tasks; no state changes.
-    app.include_router(create_planning_export_router(database))
-    # Read-only export of habits and study records; no state changes.
+    # Read-only export of Markdown goals/tasks; no state changes.
+    app.include_router(create_planning_export_router(database, vault_dir))
+    # Read-only export of habits and check-ins; no state changes.
     app.include_router(create_growth_export_router(database))
     # Read-only export of saved conversations and citations; no state changes.
     app.include_router(create_conversation_export_router(database))
@@ -967,7 +939,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     # Read-only export of every saved daily record.
     app.include_router(create_journal_export_router(database))
     # One ZIP with every human-readable export (not a restore package).
-    app.include_router(create_export_bundle_router(database))
+    app.include_router(create_export_bundle_router(database, vault_dir))
 
     def import_archives():
         folder = database.path.parent / 'imports'
@@ -1247,16 +1219,5 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         return PlainTextResponse(path.read_text(encoding='utf-8'),
                                  media_type='text/markdown; charset=utf-8',
                                  headers={'Content-Disposition': f'attachment; filename="{name}"'})
-
-    @app.post('/api/daily-plan/draft')
-    def daily_plan():
-        today = datetime.now(ZoneInfo('Asia/Shanghai')).date()
-        tasks = [task for task in goal_service.list_tasks() if task['status'] in {'todo','in_progress'}
-                 and (task['due_date'] is None or task['due_date'] <= today.isoformat())]
-        tasks.sort(key=lambda task: ({'urgent':0,'high':1,'medium':2,'low':3}[task['priority']],task['due_date'] or '9999'))
-        return {'status':'draft', 'title':'今日计划草稿', 'date':today.isoformat(),
-                'items':[{'task_id':task['id'],'title':task['title'],'reason':task['description'] or '来自尚未完成的任务',
-                          'confirmed':False} for task in tasks[:3]],
-                'message':'仅整理已有任务；草稿不会自动创建任务或标记完成。'}
 
     return app

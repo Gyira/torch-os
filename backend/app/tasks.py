@@ -524,6 +524,7 @@ def _note_public(note: dict[str, Any]) -> dict[str, Any]:
         "done_on": note["done_on"], "date": note["date"], "time": note["time"],
         "priority": note["priority"], "tags": list(note["tags"]), "pinned": note["pinned"],
         "created": note["created"], "sort_order": note.get("sort_order"),
+        "goal": note.get("goal", ""),
     }
 
 
@@ -534,6 +535,8 @@ def _note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
         "pinned": note["pinned"], "created": note["created"],
         "sort_order": note.get("sort_order"),
         "dida_id": note.get("dida_id", ""),
+        "goal": note.get("goal", ""),
+        "import_key": note.get("import_key", ""),
     }
     values.update(changes)
     return values
@@ -788,7 +791,8 @@ def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, 
         values={"date": date, "time": time, "priority": priority, "tags": tags,
                 "done": done, "done_on": done_on, "pinned": pinned,
                 "created": note["created"], "sort_order": note.get("sort_order"),
-                "dida_id": note.get("dida_id", "")})
+                "dida_id": note.get("dida_id", ""), "goal": note.get("goal", ""),
+                "import_key": note.get("import_key", "")})
     _audit(database, "task_updated", {"list": target, "moved": target != note["list_name"]})
     return {"revision": _revision_now(vault_dir), "task": _note_public(updated)}
 
@@ -946,7 +950,7 @@ def duplicate_task(vault_dir: Path | str, payload: TaskDuplicate, database: Data
     copy = task_notes.create_task_note(
         vault_dir, _folder_for_list(target), note["title"],
         _note_values(note, done=False, done_on="", created=_today(), dida_id="",
-                     sort_order=(order - 0.5) if order is not None else None),
+                     import_key="", sort_order=(order - 0.5) if order is not None else None),
         body=task_notes.note_body(note))
     _audit(database, "task_duplicated", {"list": target})
     return {"revision": _revision_now(vault_dir), "task": _note_public(copy)}
@@ -1024,7 +1028,7 @@ def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
                 task_notes.create_task_note(
                     vault_dir, _folder_for_list(note["list_name"]), note["title"],
                     _note_values(note, done=False, done_on="", created=_today(), dida_id="",
-                                 sort_order=(order - 0.5) if order is not None else None),
+                                 import_key="", sort_order=(order - 0.5) if order is not None else None),
                     body=task_notes.note_body(note))
     except Exception:
         # 跨多个文件的写入没有文件系统事务；失败时刷新页面看真实状态，并留下审计。
@@ -1234,7 +1238,7 @@ def duplicate_list(vault_dir: Path | str, payload: ListDuplicate, database: Data
             vault_dir, copy_name, note["title"],
             _note_values(note, done=note["done"] and payload.scope == "all_keep",
                          done_on=note["done_on"] if payload.scope == "all_keep" else "",
-                         created=_today(), dida_id=""),
+                         created=_today(), dida_id="", import_key=""),
             body=task_notes.note_body(note))
         created += 1
     task_notes.task_folder(vault_dir, copy_name, create=True)
@@ -1472,7 +1476,7 @@ def delete_tag(vault_dir: Path | str, payload: NamedPayload, database: Database,
 
 def create_tasks_router(vault_dir: Path | str, database: Database, *,
                         read_only: bool = False, prefix: str = "/api") -> APIRouter:
-    # `/api/tasks` 已被“数字分身 → 目标与任务”的 SQLite 任务占用，时间管理统一走 /api/time。
+    # `/api/tasks` 已被旧“目标与任务”的 SQLite 任务占用，时间管理统一走 /api/time。
     router = APIRouter(prefix=f"{prefix}/time", tags=["time-tasks"])
 
     @router.get("/tasks")

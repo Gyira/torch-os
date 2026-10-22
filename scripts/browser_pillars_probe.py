@@ -10,7 +10,11 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import httpx
 
 import websockets
 
@@ -71,9 +75,44 @@ class CDP:
         path.write_bytes(base64.b64decode(result["data"]))
 
 
+def seed_qa_workspace(base_url: str) -> dict:
+    """Give a disposable QA workspace the two facts the probe clicks on.
+
+    A real vault must never be written by a read-only probe, so this only runs
+    when /api/health reports runtime_label=qa.
+    """
+    result = {"seeded": False, "diary": None, "search_note": None}
+    try:
+        with httpx.Client(base_url=base_url, timeout=20) as client:
+            client.get("/")
+            health = client.get("/api/health")
+            if health.status_code != 200 or health.json().get("runtime_label") != "qa":
+                result["skipped"] = "not-qa"
+                return result
+            day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+            note = client.get("/api/journal/note", params={"day": day})
+            if note.status_code == 200 and not note.json().get("exists"):
+                generated = client.post("/api/journal/note/generate", json={"day": day, "mode": "create"})
+                result["diary"] = generated.status_code
+            search = client.get("/api/search", params={"q": "考研", "limit": 1})
+            items = search.json().get("items") if search.status_code == 200 else []
+            if not items:
+                created = client.post("/api/notes", json={
+                    "title": "考研规划",
+                    "content": "准备考研的示例笔记，用于 QA 探针的全局搜索。",
+                    "type": "note",
+                })
+                result["search_note"] = created.status_code
+            result["seeded"] = True
+    except Exception as error:  # seeding is best-effort; the probe still reports what it can
+        result["error"] = f"{type(error).__name__}: {error}"
+    return result
+
+
 async def run(base_url: str, output: Path, port: int,
               width: int = 1440, height: int = 1000):
     edge = find_edge()
+    seed = seed_qa_workspace(base_url)
     profile = tempfile.mkdtemp(prefix="torch-edge-pillars-")
     process = subprocess.Popen([
         edge, "--headless=new", "--disable-gpu", "--no-first-run",
@@ -81,7 +120,7 @@ async def run(base_url: str, output: Path, port: int,
         f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
         f"--window-size={width},{height}", f"{base_url}/#life",
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    report = {"ok": False, "views": {}}
+    report = {"ok": False, "seed": seed, "views": {}}
     try:
         target = None
         deadline = time.monotonic() + 20
@@ -102,6 +141,19 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.call("Runtime.enable")
             await cdp.wait_for("document.readyState === 'complete'")
             await cdp.wait_for("document.querySelectorAll('.panel-nav-item').length === 6", timeout=45)
+            # 顶部「?」帮助入口：应直接打开设置里的帮助分区。
+            await cdp.evaluate("document.querySelector('.panel-nav-help').click()")
+            await cdp.wait_for(
+                "location.hash === '#settings' && document.querySelector('[data-settings-nav=\"help\"]')?.classList.contains('active') && !document.querySelector('[data-settings-section=\"help\"]')?.hidden",
+                timeout=20)
+            report["help_nav"] = await cdp.evaluate(
+                "document.querySelector('[data-settings-section=\"help\"] h2')?.textContent || ''")
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"life\"]').click()")
+            await cdp.wait_for("location.hash === '#life'")
+            report["help_hidden_outside_settings"] = await cdp.evaluate(
+                "document.querySelector('#help-view')?.offsetParent === null")
+            undo_note = f"QA 撤销探针 {time.time_ns()}"
+            undo_note_literal = json.dumps(undo_note, ensure_ascii=False)
             for view in ("life", "self", "ops", "knowledge"):
                 await cdp.evaluate(f"document.querySelector('.panel-nav-item[data-view=\"{view}\"]').click()")
                 await cdp.wait_for(
@@ -129,11 +181,14 @@ async def run(base_url: str, output: Path, port: int,
                         days: document.querySelectorAll('#life-view .pillar-week-day').length,
                         done: document.querySelectorAll('#life-view .pillar-week-day.is-done').length,
                     }))()""")
-                    await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done')?.click()")
-                    await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
-                    report["life_week_click"] = await cdp.evaluate(
-                        "document.querySelector('.pillar-note-dialog .meta')?.textContent || ''")
-                    await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+                    if await cdp.evaluate("Boolean(document.querySelector('#life-view .pillar-week-day.is-done'))"):
+                        await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done').click()")
+                        await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                        report["life_week_click"] = await cdp.evaluate(
+                            "document.querySelector('.pillar-note-dialog .meta')?.textContent || ''")
+                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+                    else:
+                        report["life_week_click"] = None
                     await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
                     await cdp.wait_for("document.querySelector('#life-view [data-habit-panel]')")
                     await asyncio.sleep(0.6)
@@ -147,6 +202,38 @@ async def run(base_url: str, output: Path, port: int,
                     report["ops_quick_focus"] = await cdp.evaluate(
                         "document.activeElement?.getAttribute('name') || document.activeElement?.tagName || ''")
                     await cdp.screenshot(output / "ops-health.png")
+                    # 删除 → 危险色确认 → 撤销：真实写入 QA 月度表后按原 row_id 放回。
+                    await cdp.evaluate("""(() => {
+                        const form = document.querySelector('#ops-view [data-ops-form="health"]');
+                        form.querySelector('[name="weight_kg"]').value = '66.6';
+                        form.querySelector('[name="note"]').value = __NOTE__;
+                        form.requestSubmit();
+                    })()""".replace("__NOTE__", undo_note_literal))
+                    row_has_note = ("Array.from(document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr'))"
+                                    ".some((tr) => tr.textContent.includes(__NOTE__))")
+                    await cdp.wait_for(row_has_note.replace("__NOTE__", undo_note_literal))
+                    report["ops_rows_before_delete"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
+                    await cdp.evaluate("""(() => {
+                        const row = Array.from(document.querySelectorAll('#ops-view [data-ops-table="health"] tbody tr'))
+                            .find((tr) => tr.textContent.includes(__NOTE__));
+                        row?.querySelector('[data-ops-delete]')?.click();
+                    })()""".replace("__NOTE__", undo_note_literal))
+                    await cdp.wait_for("document.querySelector('#confirm-dialog[open]')")
+                    report["ops_delete_confirm_danger"] = await cdp.evaluate(
+                        "document.querySelector('#confirm-accept')?.classList.contains('danger') || false")
+                    await cdp.evaluate("document.querySelector('#confirm-accept')?.click()")
+                    await cdp.wait_for(f"!({row_has_note.replace('__NOTE__', undo_note_literal)})")
+                    report["ops_rows_after_delete"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
+                    await cdp.wait_for("document.querySelector('#toast.show .toast-action')")
+                    report["ops_undo_prompt"] = await cdp.evaluate(
+                        "document.querySelector('#toast.show .toast-action')?.textContent || ''")
+                    await cdp.screenshot(output / "ops-delete-undo.png")
+                    await cdp.evaluate("document.querySelector('#toast.show .toast-action')?.click()")
+                    await cdp.wait_for(row_has_note.replace("__NOTE__", undo_note_literal))
+                    report["ops_undo_restored"] = await cdp.evaluate(
+                        "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
             # 薪火管家抽屉：提案 → 健康检查 → 本地问答（不执行任何提案）。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view [data-steward-open]')")
@@ -283,7 +370,54 @@ async def run(base_url: str, output: Path, port: int,
                 results: document.querySelectorAll('[data-global-note]').length,
                 status: document.querySelector('[data-global-status]')?.textContent || '',
             }))()""")
-            report["ok"] = all(item["chapters"] > 0 for item in report["views"].values())
+            await cdp.evaluate("document.querySelector('.pillar-search-dialog [data-search-close]')?.click()")
+            # 快捷键总览：? 打开，包含分组与条目；关闭后能用 g 组合键与 n 快速记录。
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.shortcut-dialog')")
+            report["shortcut_sheet"] = await cdp.evaluate("""(() => ({
+                groups: document.querySelectorAll('.shortcut-dialog .shortcut-group').length,
+                rows: document.querySelectorAll('.shortcut-dialog .shortcut-row').length,
+                text: document.querySelector('.shortcut-dialog')?.textContent?.slice(0, 80) || '',
+            }))()""")
+            await cdp.screenshot(output / "shortcut-sheet.png")
+            await cdp.evaluate("document.querySelector('.shortcut-dialog [data-shortcut-close]')?.click()")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true }))")
+            await cdp.wait_for("location.hash === '#life'")
+            report["chord_nav"] = await cdp.evaluate("location.hash")
+            await cdp.wait_for("document.querySelector('#life-view [data-pillar-capture]')")
+            await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))")
+            await cdp.wait_for("document.querySelector('.pillar-capture-dialog')")
+            report["shortcut_capture"] = await cdp.evaluate("Boolean(document.querySelector('.pillar-capture-dialog'))")
+            await cdp.evaluate("document.querySelector('.pillar-capture-dialog [data-capture-close]')?.click()")
+            # 方向键：设置侧栏移动焦点，Enter 才切换分区。
+            await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"settings\"]').click()")
+            await cdp.wait_for("location.hash === '#settings'")
+            await cdp.evaluate("document.querySelector('[data-settings-nav=\"status\"]').focus()")
+            await cdp.evaluate("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))")
+            report["arrow_nav"] = await cdp.evaluate("document.activeElement?.dataset?.settingsNav || ''")
+            # 工具目录收缩为 12 个，旧学习/身体能力标记不再出现。
+            await cdp.evaluate("document.querySelector('[data-settings-nav=\"data\"]').click()")
+            await cdp.wait_for("!document.querySelector('[data-settings-section=\"data\"]')?.hidden")
+            await cdp.evaluate("document.querySelector('#load-tools')?.click()")
+            await cdp.wait_for("document.querySelector('#tools-status')?.textContent?.includes('共 12 个只读工具')", timeout=20)
+            report["tools_count"] = 12
+            report["retired_capabilities"] = await cdp.evaluate("""(async () => {
+                const caps = (await fetch('/api/config/status').then((response) => response.json())).capabilities;
+                return ['learning', 'learning_monthly', 'body_records', 'body_export', 'body_summary']
+                    .filter((key) => key in caps);
+            })()""")
+            report["ok"] = (all(item["chapters"] > 0 for item in report["views"].values())
+                            and report["shortcut_sheet"]["rows"] >= 10
+                            and report["chord_nav"] == "#life"
+                            and report["shortcut_capture"] is True
+                            and report["arrow_nav"] == "model"
+                            and report["ops_delete_confirm_danger"] is True
+                            and report["ops_undo_prompt"] == "撤销"
+                            and report["ops_rows_after_delete"] == report["ops_rows_before_delete"] - 1
+                            and report["ops_undo_restored"] == report["ops_rows_before_delete"]
+                            and report["tools_count"] == 12
+                            and report["retired_capabilities"] == [])
             (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                                 encoding="utf-8")
             return report

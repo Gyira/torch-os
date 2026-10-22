@@ -49,6 +49,7 @@ async function harness({ confirm = true } = {}) {
     $: (selector) => nodes.get(selector) || null,
     state,
     escapeHtml,
+    formatRelativeDate: (value) => String(value ?? ""),
     jsonBody: (method, body) => ({ method, body: JSON.stringify(body) }),
     setStatus: (selector, message, tone) => { const node = nodes.get(selector); if (node) { node.textContent = message; node.tone = tone || ""; } },
     toast: () => {},

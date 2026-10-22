@@ -355,3 +355,27 @@ test("colors, anchor shifting and the header labels", () => {
     task({ title: "干完的", date: TODAY, done: true }), task({ title: "没干完", date: TODAY })], { showDone: false });
   assert.deepEqual(byDay[TODAY].map((item) => item.title), ["没干完"]);
 });
+
+test("goal filters, grouping and titles use the goal path and label", () => {
+  const titles = (list) => list.map((item) => item.title);
+  const goal = "00_人生路/06_目标与计划/01_年度目标/学习.md";
+  const rows = [
+    task({ title: "目标内未完成", goal, done: false, date: "2026-10-11" }),
+    task({ title: "目标内已完成", goal, done: true, date: "2026-10-11" }),
+    task({ title: "没有目标", goal: "", done: false, date: "2026-10-11" }),
+  ];
+  assert.deepEqual(titles(filterTasks(rows, "today", { today: TODAY, goal })), ["目标内未完成"]);
+  assert.deepEqual(titles(filterTasks(rows, "today", { today: TODAY, goal, showDone: true })),
+    ["目标内未完成", "目标内已完成"]);
+  assert.equal(defaultTaskDate({ goal }, TODAY), "");
+  const groups = groupTasks(rows, "goal", { today: TODAY, goalLabel: () => "学习" });
+  assert.deepEqual(groups.map((group) => [group.label, group.tasks.length]),
+    [["学习", 2], ["未关联目标", 1]]);
+  assert.equal(boardTitle({ goal }), "目标任务");
+  assert.equal(boardTitle({ goal }, { goalLabel: "学习" }), "目标：学习");
+  const sameTitle = groupTasks([
+    task({ title: "甲", goal: "goal/a.md" }),
+    task({ title: "乙", goal: "goal/b.md" }),
+  ], "goal", { goalLabel: () => "同名" });
+  assert.equal(sameTitle.length, 2, "同名目标按 path 分开");
+});

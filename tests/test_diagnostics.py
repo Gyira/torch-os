@@ -5,14 +5,14 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
+from backend.app import pillar_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path, monkeypatch):
-    monkeypatch.setattr("backend.app.journal.shanghai_today", lambda: date(2026, 10, 4))
-    monkeypatch.setattr("backend.app.body.shanghai_today", lambda: date(2026, 10, 4))
+    monkeypatch.setattr("backend.app.journal_shared.shanghai_today", lambda: date(2026, 10, 4))
     database = Database(tmp_path / "torch_os.sqlite3")
     gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
     app = create_app(database, tmp_path / "vault", gateway, security_environ={})
@@ -24,10 +24,17 @@ def build_client(tmp_path, monkeypatch):
 def test_diagnostics_summary_counts_without_leaking_content_or_writing_audit(tmp_path, monkeypatch):
     client, database, app = build_client(tmp_path, monkeypatch)
     client.post("/api/notes", json={"title": "自检标题", "content": "虚构自检内容，不应出现在自检里。", "type": "note"})
-    goal = client.post("/api/goals", json={"title": "自检目标"}).json()
-    client.post("/api/tasks", json={"title": "自检任务", "goal_id": goal["id"]})
-    client.put("/api/journal/2026-10-04", json={"revision": 0, "content": "自检日记"})
-    client.put("/api/body/entries/2026-10-04", json={"revision": 0, "weight_kg": 68.5})
+    goal = pillar_notes.create_note(app.state.vault_dir, pillar="life", chapter="goal_year",
+                                    title="自检目标", note_type="goal")
+    task_notes.create_task_note(app.state.vault_dir, "", "自检任务", {"goal": goal["path"]})
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO journal_entries(date, content, revision, created_at, updated_at)
+               VALUES (?,?,?,?,?)""",
+            ("2026-10-04", "自检日记", 1,
+             "2026-10-04T00:00:00+00:00", "2026-10-04T00:00:00+00:00"),
+        )
+    client.post("/api/ops/health/months/2026-10/rows", json={"date": "2026-10-04", "weight_kg": "68.5"})
     client.post("/api/schedule/run-now", json={"kind": "morning"})
 
     with database.connect() as connection:
@@ -41,11 +48,11 @@ def test_diagnostics_summary_counts_without_leaking_content_or_writing_audit(tmp
     counts = payload["counts"]
     assert counts["documents_available"] == 1
     assert counts["memories_candidate"] == 1 and counts["memories_active"] == 0
-    assert counts["goals"] == 1 and counts["tasks"] == 1
+    assert counts["goals"] == 0 and counts["tasks"] == 0  # retired tables stay empty
     assert counts["journal_entries"] == 1
-    assert counts["body_entries"] == 1
+    assert counts["body_entries"] == 0  # body now lives in Markdown
     assert counts["inbox_items"] >= 1
-    assert payload["vault"]["markdown_files"] == 1
+    assert payload["vault"]["markdown_files"] == 4  # note + goal + task + health table
     assert payload["vault"]["relationships_present"] is False
     assert payload["backups"]["count"] == 0 and payload["backups"]["latest"] is None
 

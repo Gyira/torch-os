@@ -1,7 +1,7 @@
 import { $, api, escapeHtml, formatDate, jsonBody, setStatus, toast, confirmAction, changed, state } from "./core.js";
 import {
   conflictReasonText, syncBadge, syncCountsText, syncErrorText, syncWarningText,
-  validateSyncForm,
+  validateSyncForm, willArmPushDeletes,
 } from "./dida-sync-model.js";
 
 let loadId = 0;
@@ -209,6 +209,19 @@ async function saveSettings(event) {
     setStatus("#dida-feedback", check.message, "error");
     return;
   }
+  if (willArmPushDeletes(payload, status)) {
+    const accepted = await confirmAction({
+      title: "启用“本地删除同步到滴答”？",
+      message: "开启后，本机删除已同步的任务或清单会在下一次推送时从滴答删除，滴答回收站可能还能恢复；缺少 _csrf_token 时不会执行。",
+      confirmLabel: "启用回写删除",
+      danger: true,
+    });
+    if (!accepted) {
+      if ($("#dida-push-deletes")) $("#dida-push-deletes").checked = Boolean(status?.push_deletes);
+      setStatus("#dida-feedback", "没有启用“本地删除同步到滴答”。", "warning");
+      return;
+    }
+  }
   const body = { ...payload };
   if (!body.cookie) delete body.cookie;
   if (!body.csrf_token) delete body.csrf_token;
@@ -295,6 +308,7 @@ async function clearCredentials() {
     title: "清除滴答凭据",
     message: "会删除当前工作区数据目录里的 cookie/CSRF，并关闭定时同步；已经同步的任务笔记不会被删除。",
     confirmLabel: "清除凭据",
+    danger: true,
   });
   if (!accepted) return;
   try {

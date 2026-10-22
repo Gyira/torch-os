@@ -3,7 +3,7 @@
 The bridge only issues GET requests to the loopback API (fetching the local
 session cookie first). It never writes, never leaves this machine, and never
 sees model keys. Any MCP client (for example DeepSeek Harness via
-``@deepseek-ai/dsh-mcp-client``) can spawn it and call the 12 read-only tools.
+``@deepseek-ai/dsh-mcp-client``) can spawn it and call the 13 read-only tools.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ RESOURCE_CATALOG_URI = 'torch://tools/catalog'
 RESOURCE_GUIDE_URI = 'torch://guide/readonly'
 INSTRUCTIONS = (
     '薪火OS 把用户自己的本机记录暴露为只读工具（名称形如 mcp__torch__<tool>）。'
-    '用法：当用户问到“今天/任务/目标/习惯/学习/日记/资料/导入健康/身体/Vault”，先调用对应工具再回答；'
+    '用法：当用户问到“今天/任务/目标/习惯/日记/资料/导入健康/身体/Vault”，先调用对应工具再回答；'
     '“记忆”工具只返回用户已确认的内容，没有证据时明确说不知道，不要编造个人信息。'
     '所有工具都是只读：不要承诺创建任务、写日记、确认记忆或修改文件；需要写入时请用户回到 薪火OS 界面操作。'
     '回答时说明用了哪些本地工具结果；除非用户要求，不要整段复述原始 JSON。'
@@ -40,7 +40,7 @@ _DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 TOOLS: dict[str, dict[str, Any]] = {
     'today': {
         'path': '/api/tools/today',
-        'description': '某一天的结构化概况：日记字段、任务计数与到期标题、习惯状态、学习分钟、身体记录标记、草稿数。',
+        'description': '某一天的结构化概况：日记字段、Markdown 任务计数与到期标题、习惯状态、身体记录标记、草稿数。',
         'properties': {'day': {'type': 'string', 'description': 'YYYY-MM-DD，默认今天'}},
         'required': [],
     },
@@ -55,7 +55,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     'goals': {
         'path': '/api/tools/goals',
-        'description': '进行中的目标与未完成任务（标题、截止日期、所属目标）。',
+        'description': '人生路目标笔记与未完成 Markdown 任务（标题、截止日期、关联目标路径）。',
         'properties': {'limit': {'type': 'integer', 'description': '返回条数 1–10，默认 5', 'minimum': 1, 'maximum': 10}},
         'required': [],
     },
@@ -63,12 +63,6 @@ TOOLS: dict[str, dict[str, Any]] = {
         'path': '/api/tools/habits',
         'description': '每个启用习惯最近 N 天的完成/跳过/未记录计数（不含备注）。',
         'properties': {'days': {'type': 'integer', 'description': '7–90，默认 30', 'minimum': 7, 'maximum': 90}},
-        'required': [],
-    },
-    'learning': {
-        'path': '/api/tools/learning',
-        'description': '最近 N 天的学习分钟与科目分布。',
-        'properties': {'days': {'type': 'integer', 'description': '7–90，默认 7', 'minimum': 7, 'maximum': 90}},
         'required': [],
     },
     'journal': {
@@ -94,7 +88,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     'body': {
         'path': '/api/tools/body',
-        'description': '最近 N 天身体记录汇总：有记录天数、睡眠/运动分钟合计（不含体重数值、不做健康评价）。',
+        'description': '来自健康月度 Markdown 表的最近 N 天汇总：有记录天数、睡眠/运动分钟合计（不含体重数值、不做健康评价）。',
         'properties': {'days': {'type': 'integer', 'description': '7–90，默认 7', 'minimum': 7, 'maximum': 90}},
         'required': [],
     },
@@ -258,7 +252,7 @@ def handle_message(bridge: Bridge, message: dict[str, Any]) -> dict[str, Any] | 
             'jsonrpc': '2.0', 'id': message_id,
             'result': {'resources': [
                 {'uri': RESOURCE_CATALOG_URI, 'name': 'tools-catalog', 'title': '只读工具目录',
-                 'description': '12 个只读工具的名称、参数与说明（本地静态目录，不含用户数据）',
+                 'description': '13 个只读工具的名称、参数与说明（本地静态目录，不含用户数据）',
                  'mimeType': 'application/json'},
                 {'uri': RESOURCE_GUIDE_URI, 'name': 'readonly-guide', 'title': '只读使用说明',
                  'description': '如何选择工具、只读边界与不要编造个人信息', 'mimeType': 'text/markdown'},

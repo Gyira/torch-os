@@ -30,7 +30,7 @@ async function harness(preview = samplePreview()) {
   }
   const getNode = (selector) => { if (!nodes.has(selector)) nodes.set(selector, new Element(selector)); return nodes.get(selector); };
   const requests = [];
-  let response = (url) => url.endsWith("/preview") ? preview : url === "/api/goals" ? [{ id: 21, title: "虚构目标", status: "active" }] : { created_count: 1, existing_count: 0, tasks: [], warnings: [] };
+  let response = (url) => url.endsWith("/preview") ? preview : url === "/api/goals" ? [{ id: "00_人生路/06_目标与计划/01_年度目标/虚构目标.md", title: "虚构目标", status: "active" }] : { created_count: 1, existing_count: 0, tasks: [], warnings: [] };
   const context = vm.createContext({
     document: { querySelector: getNode, querySelectorAll: () => [], addEventListener() {}, dispatchEvent() {} },
     window: { setTimeout: () => 1, clearTimeout() {} },
@@ -70,7 +70,7 @@ test("task preview selects nothing, caps displayed rows, and escapes all source 
   preview.items[0] = { ...preview.items[0], title: "<script>title()</script>", description: "<img src=x>", heading: "<b>heading</b>" };
   const { open, getNode, requests } = await harness(preview);
   await open();
-  assert.match(getNode("#dialog-content").innerHTML, /复制为独立任务，不反向同步/);
+  assert.match(getNode("#dialog-content").innerHTML, /复制为独立的 Markdown 任务笔记，不反向同步/);
   assert.match(getNode("#dialog-content").innerHTML, /&lt;unsafe&gt;/);
   const html = getNode("#task-import-items").innerHTML;
   assert.equal((html.match(/data-task-import-key=/g) || []).length, 50);
@@ -112,12 +112,12 @@ test("explicit task apply sends selection and version guards and labels unknown 
   await open();
   await select(keyFor(1));
   await select(keyFor(2));
-  getNode("#task-import-goal").value = "21";
+  getNode("#task-import-goal").value = "00_人生路/06_目标与计划/01_年度目标/虚构目标.md";
   setResponse(() => ({ created_count: 1, existing_count: 1, tasks: [{ title: "<任务>", description: "<script>raw</script>", status: "completed", completed_at: null }], warnings: ["<版本提示>"] }));
   await getNode("#task-import-apply").emit("click");
   const request = requests.find(({ options }) => options.method === "POST");
   assert.equal(request.url, "/api/documents/7/tasks/apply");
-  assert.deepEqual(JSON.parse(request.options.body), { revision: 3, sha256: "a".repeat(64), selected_keys: [keyFor(1), keyFor(2)], goal_id: 21, confirm: true });
+  assert.deepEqual(JSON.parse(request.options.body), { revision: 3, sha256: "a".repeat(64), selected_keys: [keyFor(1), keyFor(2)], goal_path: "00_人生路/06_目标与计划/01_年度目标/虚构目标.md", confirm: true });
   const result = getNode("#task-import-result").innerHTML;
   assert.match(result, /已创建 1 项 · 已有 1 项/);
   assert.match(result, /完成日期未知，不计入今天完成/);

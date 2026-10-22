@@ -56,7 +56,7 @@ RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL",
                   *(f"COM{index}" for index in range(1, 10)),
                   *(f"LPT{index}" for index in range(1, 10))}
 KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于",
-              "置顶", "创建", "排序", "dida_id")
+              "置顶", "创建", "排序", "dida_id", "目标", "导入键")
 
 
 def order_value(value: Any) -> float | int | None:
@@ -315,6 +315,8 @@ def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
         "created": _date_text(metadata.get("创建")),
         "sort_order": order_value(metadata.get("排序")),
         "dida_id": _coerce_text(metadata.get("dida_id")),
+        "goal": _coerce_text(metadata.get("目标")),
+        "import_key": _coerce_text(metadata.get("导入键")),
         "metadata": metadata,
         "exists": True,
         "raw": loaded["raw"],
@@ -421,6 +423,12 @@ def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dic
     dida_id = str(fields.get("dida_id") or existing.get("dida_id") or "").strip()
     if dida_id:
         metadata["dida_id"] = dida_id
+    goal = str(fields.get("goal") or existing.get("目标") or "").strip()
+    if goal:
+        metadata["目标"] = goal[:500]
+    import_key = str(fields.get("import_key") or existing.get("导入键") or "").strip()
+    if import_key:
+        metadata["导入键"] = import_key[:64]
     for key, value in existing.items():
         if key not in KNOWN_KEYS:
             metadata[key] = value
@@ -479,6 +487,8 @@ def _fields_from(values: dict[str, Any]) -> dict[str, Any]:
         "created": _date_text(values.get("created")),
         "sort_order": values.get("sort_order"),
         "dida_id": _coerce_text(values.get("dida_id")),
+        "goal": _coerce_text(values.get("goal")),
+        "import_key": _coerce_text(values.get("import_key")),
     }
 
 

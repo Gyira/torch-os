@@ -1,10 +1,12 @@
 """Reverse references: which stored answers actually cited which memories.
 
 The contract under test: only saved assistant messages create usage rows;
-previews and drafts stay silent, withdrawn memories keep their history with
-the current status attached, and deleting a conversation removes the links.
+withdrawn memories keep their history with the current status attached, and
+deleting a conversation removes the links. The retired profile/usage HTTP
+pages are gone, so the remaining assertions read the database methods that
+still back the chat feature.
 """
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
@@ -13,8 +15,7 @@ from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
 
 
-def build_client(tmp_path, monkeypatch):
-    monkeypatch.setattr('backend.app.profile.shanghai_today', lambda: date(2026, 10, 4))
+def build_client(tmp_path):
     database = Database(tmp_path / 'torch_os.sqlite3')
     gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
     app = create_app(database, tmp_path / 'vault', gateway, security_environ={})
@@ -46,8 +47,8 @@ def table_count(database, table):
         return connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
 
 
-def test_chat_records_usage_only_for_stored_assistant_answers(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_chat_records_usage_only_for_stored_assistant_answers(tmp_path):
+    client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     assert table_count(database, 'memory_usages') == 0
 
@@ -68,19 +69,8 @@ def test_chat_records_usage_only_for_stored_assistant_answers(tmp_path, monkeypa
     assert table_count(database, 'messages') == 2
 
 
-def test_preview_never_creates_usage_rows(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
-    add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
-
-    for _ in range(2):
-        assert client.post('/api/chat/preview', json={'message': '我是谁？'}).status_code == 200
-    assert table_count(database, 'memory_usages') == 0
-    assert table_count(database, 'messages') == 0
-    assert table_count(database, 'conversations') == 0
-
-
-def test_duplicate_or_unknown_citations_are_collapsed_and_skipped(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_duplicate_or_unknown_citations_are_collapsed_and_skipped(tmp_path):
+    client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     conversation_id = database.create_conversation('手工校验')
     database.add_message(conversation_id, 'assistant', '回答', [
@@ -92,50 +82,48 @@ def test_duplicate_or_unknown_citations_are_collapsed_and_skipped(tmp_path, monk
     assert [row['memory_id'] for row in rows] == [memory_id]
 
 
-def test_usage_detail_and_profile_summary_expose_reverse_references(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_usage_detail_and_recent_usage_expose_reverse_references(tmp_path):
+    client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     client.post('/api/chat', json={'message': '我是谁？'})
 
-    detail = client.get(f'/api/memories/{memory_id}/usage')
-    assert detail.status_code == 200, detail.text
-    payload = detail.json()
-    assert payload['total'] == 1
-    assert payload['memory']['memory_id'] == memory_id
-    assert payload['memory']['status'] == 'active'
-    assert payload['items'][0]['question'] == '我是谁？'
-    assert payload['items'][0]['used_at']
+    detail = database.memory_usage_detail(memory_id)
+    assert detail is not None
+    assert detail['total'] == 1
+    assert detail['memory']['memory_id'] == memory_id
+    assert detail['memory']['status'] == 'active'
+    assert detail['items'][0]['question'] == '我是谁？'
+    assert detail['items'][0]['used_at']
 
-    summary = client.get('/api/profile')
-    assert summary.status_code == 200, summary.text
-    body = summary.json()
-    entry = next(item for item in body['active_memories'] if item['id'] == memory_id)
-    assert entry['usage']['uses'] == 1 and entry['usage']['last_used_at']
-    assert body['usage']['window_days'] == 30
-    assert body['usage']['memories_used'] == 1
-    assert body['usage']['recent'][0]['memory_id'] == memory_id
-    assert body['usage']['recent'][0]['question'] == '我是谁？'
+    stats = database.memory_usage_stats()
+    assert stats[memory_id]['uses'] == 1 and stats[memory_id]['last_used_at']
 
-    assert client.get('/api/memories/99999/usage').status_code == 404
+    recent = database.recent_memory_usage()
+    assert recent[0]['memory_id'] == memory_id
+    assert recent[0]['question'] == '我是谁？'
+
+    assert database.memory_usage_detail(99999) is None
 
 
-def test_withdrawn_memory_keeps_history_with_current_status(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_withdrawn_memory_keeps_history_with_current_status(tmp_path):
+    client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     client.post('/api/chat', json={'message': '我是谁？'})
     archived = client.patch(f'/api/memories/{memory_id}/status', json={'status': 'archived'})
     assert archived.status_code == 200, archived.text
 
-    detail = client.get(f'/api/memories/{memory_id}/usage').json()
+    detail = database.memory_usage_detail(memory_id)
     assert detail['total'] == 1
     assert detail['memory']['status'] == 'archived'
-    body = client.get('/api/profile').json()
-    assert all(item['id'] != memory_id for item in body['active_memories'])
-    assert any(item['memory_id'] == memory_id and item['status'] == 'archived' for item in body['usage']['recent'])
+    with database.connect() as connection:
+        active_ids = {row['id'] for row in connection.execute("SELECT id FROM memories WHERE status='active'")}
+    assert memory_id not in active_ids
+    recent = database.recent_memory_usage()
+    assert any(item['memory_id'] == memory_id and item['status'] == 'archived' for item in recent)
 
 
-def test_deleting_a_conversation_removes_only_the_usage_links(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_deleting_a_conversation_removes_only_the_usage_links(tmp_path):
+    client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     client.post('/api/chat', json={'message': '我是谁？'})
     assert table_count(database, 'memory_usages') == 1
@@ -148,8 +136,8 @@ def test_deleting_a_conversation_removes_only_the_usage_links(tmp_path, monkeypa
     assert status == 'active'
 
 
-def test_candidate_pool_distribution_counts_sources_and_months(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+def test_candidate_pool_distribution_counts_sources_and_months(tmp_path):
+    client, database = build_client(tmp_path)
     first_id = add_note(client, '候选一', '我偏爱清晨散步，这条尚未确认。', 'preference')
     add_note(client, '候选二', '我计划学习写周记，这条尚未确认。', 'goal')
     journal_id, _ = database.upsert_document(
@@ -169,8 +157,7 @@ def test_candidate_pool_distribution_counts_sources_and_months(tmp_path, monkeyp
         'source_quote': '这是一条没有明确日期的导入内容。', 'confidence': 'explicit',
     }])
 
-    body = client.get('/api/profile').json()
-    pool = body['candidate_pool']
+    pool = database.candidate_pool_distribution()
     assert pool['total'] == 4
     assert sum(item['count'] for item in pool['by_source']) == 4
     assert all(item['path'] for item in pool['by_source'])
@@ -199,7 +186,7 @@ def test_candidate_pool_distribution_counts_sources_and_months(tmp_path, monkeyp
             "SELECT d.path FROM memories m JOIN documents d ON d.id=m.document_id WHERE m.id=?",
             (first_id,),
         ).fetchone()["path"]
-    pool = client.get("/api/profile").json()["candidate_pool"]
+    pool = database.candidate_pool_distribution()
     assert pool["total"] == 3
     progress = {item["path"]: item for item in pool["by_source_progress"]}
     assert progress[reviewed_path] == {"path": reviewed_path, "candidate": 0, "reviewed": 1, "total": 1}

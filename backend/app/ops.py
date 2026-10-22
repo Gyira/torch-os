@@ -62,6 +62,16 @@ def create_ops_router(vault_dir: Path | str, *, read_only: bool = False,
         ensure_vault_writable(read_only, "删除生活数据")
         return structured_notes.delete_row(vault_dir, dataset, month, row_id)
 
+    @router.post("/{dataset}/months/{month}/rows/{row_id}/restore")
+    def restore_row(dataset: str, month: str, row_id: str, payload: OpsRow,
+                    position: int | None = Query(default=None, ge=0)):
+        if read_only:
+            raise HTTPException(409, "当前是只读模式")
+        ensure_vault_writable(read_only, "恢复生活数据")
+        return structured_notes.restore_row(
+            vault_dir, dataset, month, payload.model_dump(exclude_none=True),
+            row_id, position)
+
     return router
 
 

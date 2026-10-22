@@ -33,6 +33,7 @@ EXPORT_MEMBERS = [
     'memories.md/json', 'planning.md/json', 'growth.md/json', 'conversations.md/json',
     'journal.md/json', 'body.csv/json', 'README.txt',
 ]
+DEPRECATED_TABLES = {'bazi_profiles', 'suggestions', 'journal_entries', 'journal_actions'}
 
 
 def _group_of(table: str) -> str:
@@ -58,6 +59,7 @@ def collect_schema(database: Database) -> dict[str, Any]:
             tables.append({
                 'name': name,
                 'group': _group_of(name),
+                'deprecated': name in DEPRECATED_TABLES,
                 'rows': count,
                 'columns': [
                     {'name': column['name'], 'type': column['type'] or '', 'not_null': bool(column['notnull']),
@@ -80,6 +82,7 @@ def collect_schema(database: Database) -> dict[str, Any]:
             'fts_helpers': len(names) - len(tables),
         },
         'groups': groups,
+        'deprecated_tables': sorted(DEPRECATED_TABLES),
         'tables': tables,
         'backup_and_export': {
             'backup': '备份是整个 SQLite 文件的一致快照，因此上表全部包含在备份 ZIP 内（另有 Vault 的 Markdown 副本与哈希清单）。',
@@ -112,6 +115,13 @@ def render_schema_markdown(schema: dict[str, Any]) -> str:
         f"| `{table['name']}` | {table['group']} | {table['rows']} | {len(table['columns'])} | {('、'.join(table['indexes']) or '—')} |"
         for table in schema['tables']
     ]
+    deprecated = schema.get('deprecated_tables') or []
+    if deprecated:
+        lines += [
+            '',
+            '以下表自 0.99 起标记为 deprecated：' + '、'.join(f'`{name}`' for name in deprecated)
+            + '。它们只保留历史数据，没有写入方，也不会被自动删除。',
+        ]
     lines += ['', '## 列定义', '']
     for table in schema['tables']:
         lines.append(f"### `{table['name']}`")

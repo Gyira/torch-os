@@ -34,6 +34,7 @@ export const VIEWS = [
 export const GROUP_OPTIONS = [
   { id: "time", label: "时间" },
   { id: "list", label: "清单" },
+  { id: "goal", label: "目标" },
   { id: "created", label: "创建时间" },
   { id: "tag", label: "标签" },
   { id: "priority", label: "优先级" },
@@ -77,8 +78,10 @@ export function filterTasks(tasks, view, options = {}) {
   const today = options.today || shanghaiDay();
   const list = options.list || "";
   const tag = options.tag || "";
+  const goal = options.goal || "";
   const showDone = Boolean(options.showDone);
   const all = Array.isArray(tasks) ? tasks : [];
+  if (goal) return all.filter((task) => task.goal === goal && (showDone || !task.done));
   if (list) return all.filter((task) => task.list_name === list);
   if (tag) return all.filter((task) => (task.tags || []).includes(tag));
   if (view === "inbox") {
@@ -93,7 +96,7 @@ export function filterTasks(tasks, view, options = {}) {
  * 这样收集箱任务不会因为默认日期而出现在今天视图；拖动清单只改清单、保留原日期。
  */
 export function defaultTaskDate(selection = {}, today = "") {
-  if (selection.list || selection.tag) return "";
+  if (selection.list || selection.tag || selection.goal) return "";
   return (selection.view || "today") === "today" ? today : "";
 }
 
@@ -148,6 +151,11 @@ export function groupTasks(tasks, groupBy, options = {}) {
     if (!buckets.has(label)) buckets.set(label, { label, order, tasks: [] });
     buckets.get(label).tasks.push(task);
   };
+  // 目标按 path 分组，但显示标题：两个同名目标不能被合并。
+  const pushKeyed = (key, label, order, task) => {
+    if (!buckets.has(key)) buckets.set(key, { label, order, tasks: [] });
+    buckets.get(key).tasks.push(task);
+  };
   const listOrder = Array.isArray(options.listOrder) ? options.listOrder : [];
   for (const task of all) {
     if (groupBy === "list") {
@@ -161,6 +169,9 @@ export function groupTasks(tasks, groupBy, options = {}) {
       const tags = task.tags || [];
       if (!tags.length) push("无标签", 99, task);
       else tags.forEach((tag) => push(`#${tag}`, 0, task));
+    } else if (groupBy === "goal") {
+      if (!task.goal) pushKeyed("__no_goal__", "未关联目标", 99, task);
+      else pushKeyed(task.goal, options.goalLabel?.(task.goal) || "目标任务", 0, task);
     } else if (groupBy === "created") {
       const bucket = createdBucket(task, today);
       push(bucket.label, bucket.order, task);
@@ -541,7 +552,8 @@ export function calendarTitle(state = {}) {
 }
 
 /** 主区的标题：视图名 / 清单名 / 标签名。 */
-export function boardTitle(selection = {}) {
+export function boardTitle(selection = {}, options = {}) {
+  if (selection.goal) return options.goalLabel ? `目标：${options.goalLabel}` : "目标任务";
   if (selection.list) return selection.list;
   if (selection.tag) return `#${selection.tag}`;
   const view = VIEWS.find((item) => item.id === (selection.view || "today"));

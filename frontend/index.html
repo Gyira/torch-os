@@ -40,20 +40,24 @@
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
             <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
-              <button type="button" class="time-rail-item is-active" data-time-page="tasks" role="tab" aria-selected="true"><span aria-hidden="true">☰</span>任务</button>
-              <button type="button" class="time-rail-item" data-time-page="calendar" role="tab" aria-selected="false"><span aria-hidden="true">🗓</span>日历</button>
-              <button type="button" class="time-rail-item" data-time-page="habits" role="tab" aria-selected="false"><span aria-hidden="true">✅</span>习惯打卡</button>
-              <button type="button" class="time-rail-item" data-time-page="quadrant" role="tab" aria-selected="false"><span aria-hidden="true">▦</span>四象限</button>
-              <button type="button" class="time-rail-item" data-time-page="trash" role="tab" aria-selected="false"><span aria-hidden="true">🗑</span>回收站</button>
+              <button type="button" class="time-rail-item is-active" id="time-tab-tasks" data-time-page="tasks" role="tab" aria-selected="true" aria-controls="time-tasks-page"><span aria-hidden="true">☰</span>任务</button>
+              <button type="button" class="time-rail-item" id="time-tab-calendar" data-time-page="calendar" role="tab" aria-selected="false" aria-controls="time-calendar-page" tabindex="-1"><span aria-hidden="true">🗓</span>日历</button>
+              <button type="button" class="time-rail-item" id="time-tab-habits" data-time-page="habits" role="tab" aria-selected="false" aria-controls="time-habits-page" tabindex="-1"><span aria-hidden="true">✅</span>习惯打卡</button>
+              <button type="button" class="time-rail-item" id="time-tab-quadrant" data-time-page="quadrant" role="tab" aria-selected="false" aria-controls="time-quadrant-page" tabindex="-1"><span aria-hidden="true">▦</span>四象限</button>
+              <button type="button" class="time-rail-item" id="time-tab-trash" data-time-page="trash" role="tab" aria-selected="false" aria-controls="time-trash-page" tabindex="-1"><span aria-hidden="true">🗑</span>回收站</button>
             </nav>
             <aside class="time-sidebar" id="time-sidebar" aria-label="任务侧边栏"><p class="field-help">正在读取任务…</p></aside>
-            <div class="time-main" id="time-tasks-page">
+            <div class="time-main" id="time-tasks-page" role="tabpanel" aria-labelledby="time-tab-tasks">
               <header class="time-head">
                 <h3 id="time-board-title">今天</h3>
-                <div class="time-progress" role="group" aria-label="今日完成度"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
+                <div class="time-progress" role="group" aria-label="今日闭环完成度（含日记）"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
                 <button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="true">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="time-dida-sync" class="text-button" title="从滴答清单拉取最新任务" hidden>立即同步</button>
               </header>
               <p id="time-board-hint" class="field-help" hidden></p>
+              <div id="time-goal-filter" class="time-goal-filter" role="status" hidden>
+                <span data-goal-filter-label></span>
+                <button type="button" class="text-button" data-goal-filter-clear>清除目标筛选</button>
+              </div>
               <p id="time-vault-note" class="meta" hidden></p>
               <div class="time-bulk" id="time-bulk" hidden role="group" aria-label="批量操作">
                 <span id="time-bulk-count" class="meta" role="status">已选 0 项</span>
@@ -69,7 +73,7 @@
               </div>
               <div class="time-add" id="time-add">
                 <label class="visually-hidden" for="time-add-input">新增任务</label>
-                <input id="time-add-input" maxlength="200" placeholder="准备做什么？" autocomplete="off" />
+                <input id="time-add-input" maxlength="200" placeholder="准备做什么？" autocomplete="off" aria-keyshortcuts="N" />
                 <div class="time-add-tools" id="time-add-tools" hidden>
                   <button type="button" class="time-tool" id="time-tool-date">📅 日期</button>
                   <button type="button" class="time-tool" id="time-tool-time">⏰ 时间</button>
@@ -82,14 +86,14 @@
               <p id="time-status" class="status-message" role="status" aria-live="polite"></p>
               <div class="time-board" id="time-board"></div>
             </div>
-            <section class="time-page" id="time-habits-page" hidden aria-label="习惯打卡">
+            <section class="time-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
               <header class="time-head"><h3>习惯打卡</h3><span id="time-habits-count" class="meta" role="status"></span></header>
               <p id="time-habits-hint" class="field-help">每日必做在 Obsidian 的 <code>00-System/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。习惯每天勾一次。</p>
               <ul id="time-habits-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
             </section>
-            <section class="time-page" id="time-calendar-page" hidden aria-label="日历"></section>
-            <section class="time-page" id="time-quadrant-page" hidden aria-label="四象限"></section>
-            <section class="time-page" id="time-trash-page" hidden aria-label="回收站">
+            <section class="time-page" id="time-calendar-page" role="tabpanel" aria-labelledby="time-tab-calendar" hidden aria-label="日历"></section>
+            <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
+            <section class="time-page" id="time-trash-page" role="tabpanel" aria-labelledby="time-tab-trash" hidden aria-label="回收站">
               <header class="time-head"><h3>回收站</h3><span id="time-trash-count" class="meta" role="status"></span><button type="button" id="time-trash-refresh" class="text-button">刷新</button></header>
               <p class="field-help">任务删除后会先移到这里（<code>.torch-os/task-trash</code>），包括滴答清单远端删除的任务。只有这里的“彻底删除”才会真正删除 md 文件。</p>
               <p id="time-trash-status" class="status-message" role="status"></p>
@@ -141,13 +145,6 @@
 
 
 
-    <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
-      <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><span id="help-status" class="status-message" role="status"></span></div></div>
-      <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
-      <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
-    </section>
-
-
     <section id="settings-view" class="view" data-module="settings" aria-labelledby="page-title" hidden>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="设置分区">
@@ -177,7 +174,7 @@
           <section class="settings-section" data-settings-section="schedule" aria-labelledby="settings-schedule-heading" hidden>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">SCHEDULE</span><h2 id="settings-schedule-heading" tabindex="-1">定时提醒（本地草稿）</h2><p>到点在“今日”生成晨报/晚报/周报草稿；不调用模型，不自动创建任务或发送消息。</p></div><span id="schedule-status" class="status-message" role="status"></span></div>
-              <form id="schedule-form"><div class="form-grid schedule-grid"><div class="field"><label class="check-label" for="schedule-morning-enabled"><input id="schedule-morning-enabled" type="checkbox" />早报</label></div><div class="field"><label for="schedule-morning-time">早报时间</label><input id="schedule-morning-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-evening-enabled"><input id="schedule-evening-enabled" type="checkbox" />晚报</label></div><div class="field"><label for="schedule-evening-time">晚报时间</label><input id="schedule-evening-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-weekly-enabled"><input id="schedule-weekly-enabled" type="checkbox" />周报</label></div><div class="field"><label for="schedule-weekly-day">周报日期</label><select id="schedule-weekly-day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></div><div class="field"><label for="schedule-weekly-time">周报时间</label><input id="schedule-weekly-time" type="time" required /></div></div><p id="schedule-weekly-help" class="field-help">周报汇总截至触发日的最近 7 天（任务、学习、习惯、日记与身体记录天数），只列事实，不做评分。</p><div class="form-actions"><span id="schedule-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">保存时间</button><button id="schedule-run-morning" class="button secondary" type="button">立即生成晨报草稿</button><button id="schedule-run-evening" class="button secondary" type="button">立即生成晚报草稿</button><button id="schedule-run-weekly" class="button secondary" type="button">立即生成周报草稿</button></div></form>
+              <form id="schedule-form"><div class="form-grid schedule-grid"><div class="field"><label class="check-label" for="schedule-morning-enabled"><input id="schedule-morning-enabled" type="checkbox" />早报</label></div><div class="field"><label for="schedule-morning-time">早报时间</label><input id="schedule-morning-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-evening-enabled"><input id="schedule-evening-enabled" type="checkbox" />晚报</label></div><div class="field"><label for="schedule-evening-time">晚报时间</label><input id="schedule-evening-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-weekly-enabled"><input id="schedule-weekly-enabled" type="checkbox" />周报</label></div><div class="field"><label for="schedule-weekly-day">周报日期</label><select id="schedule-weekly-day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></div><div class="field"><label for="schedule-weekly-time">周报时间</label><input id="schedule-weekly-time" type="time" required /></div></div><p id="schedule-weekly-help" class="field-help">周报汇总截至触发日的最近 7 天（任务、习惯、日记与身体记录天数），只列事实，不做评分。</p><div class="form-actions"><span id="schedule-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">保存时间</button><button id="schedule-run-morning" class="button secondary" type="button">立即生成晨报草稿</button><button id="schedule-run-evening" class="button secondary" type="button">立即生成晚报草稿</button><button id="schedule-run-weekly" class="button secondary" type="button">立即生成周报草稿</button></div></form>
             </article>
           </section>
           <section class="settings-section" data-settings-section="dida" aria-labelledby="settings-dida-heading" hidden>
@@ -237,7 +234,7 @@
               <div id="diagnostics-panel" class="panel"></div>
             </article>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">EXPORT ALL</span><h3>一键导出（可读格式）</h3><p>把记忆、目标与任务、习惯与学习、对话、每日记录、身体记录打包成一个 ZIP；只读快照，用于阅读与迁移，不用于恢复。</p></div><button id="download-export-bundle" class="button secondary" disabled>下载 ZIP</button></div>
+              <div class="settings-card-head"><div><span class="eyebrow">EXPORT ALL</span><h3>一键导出（可读格式）</h3><p>把记忆、目标与任务、习惯与打卡、对话、每日记录、身体记录打包成一个 ZIP；只读快照，用于阅读与迁移，不用于恢复。</p></div><button id="download-export-bundle" class="button secondary" disabled>下载 ZIP</button></div>
             </article>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">DATA HANDBOOK</span><h3>数据手册</h3><p>运行中服务的实时结构：每张表的列、索引与行数，加上备份、导出、恢复与“什么会离开本机”的边界说明。</p></div><div class="section-actions"><button id="load-schema" class="text-button" disabled>读取结构</button><button id="download-schema-md" class="button secondary" disabled>下载 Markdown</button></div></div>
@@ -246,7 +243,7 @@
               <p id="schema-support" class="meta" role="status" hidden></p>
             </article>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给外部智能体（例如 DeepSeek Harness）看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、学习、日记索引、认识我计数、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 MCP 客户端（例如 DeepSeek Harness）直接调用这 12 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code> 与 <code>docs/harness/torch-tools.cordis.yml</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
+              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给外部智能体（例如 DeepSeek Harness）看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、日记索引、认识我计数、我是谁、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 MCP 客户端（例如 DeepSeek Harness）直接调用这 12 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
               <div id="tools-summary" class="panel">尚未读取。</div>
               <p id="tools-status" class="status-message" role="status"></p>
               <p id="tools-support" class="meta" role="status" hidden></p>
@@ -272,7 +269,7 @@
                 <div class="form-actions"><button id="vault-save" class="button primary" type="submit" disabled>保存连接设置</button><span id="vault-restart-note" class="meta"></span></div>
               </form>
               <p id="vault-connection-support" class="meta" role="status" hidden></p>
-              <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 分享导入 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
+              <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
             </article>
             <article class="settings-card" id="workspace-card">
               <div class="settings-card-head"><div><span class="eyebrow">WORKSPACES</span><h2 id="settings-workspaces-heading" tabindex="-1">工作区（用户文件夹）</h2><p>换用户就是换文件夹：一个文件夹 = 一个人的 Obsidian 库 + 应用数据。切换会写入本地 <code>.env</code>（<code>DATA_DIR</code>、<code>VAULT_DIR</code>、读写模式），重启本地服务后生效。</p></div><div class="section-actions"><button id="workspace-new" class="text-button" type="button" disabled>新建工作区</button></div></div>
@@ -283,7 +280,7 @@
                   <div class="field"><label for="workspace-name">名字</label><input id="workspace-name" type="text" autocomplete="off" maxlength="40" placeholder="例如 我的 / 家人A" /></div>
                   <div class="field"><label for="workspace-folder">用户文件夹（Obsidian 库根目录）</label><input id="workspace-folder" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
                 </div>
-                <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进第二大脑索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
+                <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
                 <div class="field"><label class="check-label" for="workspace-read-only"><input id="workspace-read-only" type="checkbox" />只读安全模式（扫描照常，所有写入拒绝）</label></div>
                 <div class="form-actions"><div><button id="workspace-save" class="button primary" type="submit" disabled>保存工作区</button> <button id="workspace-cancel" class="button secondary" type="button" disabled>取消</button></div></div>
               </form>
@@ -318,6 +315,11 @@
               <div class="settings-card-head"><div><span class="eyebrow">ABOUT</span><h2 id="settings-about-heading" tabindex="-1">你的数据如何被使用</h2><p>四条边界说明；完整功能与数据去向见“帮助”页。</p></div><button class="text-button" type="button" data-go-view="help">打开帮助页</button></div>
               <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>新记忆需要人工确认；拒绝、撤回或归档后不再参与问答。</li><li>每次打开页面，云端选项默认关闭；开启后才允许发送当前问题和相关已确认记忆。</li><li>配置完成不等于已经测试连通，真实回答会标明云端回答、本地回答或本地回退。</li></ul></div>
             </article>
+          </section>
+          <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
+            <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><button id="open-shortcuts" class="text-button" type="button" aria-keyshortcuts="?">键盘快捷键</button><span id="help-status" class="status-message" role="status"></span></div></div>
+            <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
+            <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
           </section>
         </div>
       </div>

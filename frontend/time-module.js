@@ -38,6 +38,8 @@ let multi = false;              // 多选模式（点「多选」开）
 let picked = new Set();         // 多选模式下选中的任务 key
 let activeKey = "";             // 单击选中的那一条（底色变灰一点）
 let page = "tasks";
+let goalTitles = new Map();     // 目标笔记 path → title（任务行 chip、筛选与分组共用）
+let goalSignature = "";
 
 function readStore(key, fallback) {
   try {
@@ -69,9 +71,16 @@ export function initTimeModule() {
   paintTools();
   paintBulkBar();
   initTrashPage();
+  $("#time-goal-filter")?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-goal-filter-clear]")) selectView({ view: "today" });
+  });
 
-  // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限
+  // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限。
+  // 这是一组 tab：只有当前页在 Tab 顺序里，左右/上下键由 shortcuts.js 移动并切换。
   for (const button of document.querySelectorAll("[data-time-page]")) {
+    const active = button.classList.contains("is-active");
+    button.tabIndex = active ? 0 : -1;
+    button.setAttribute("aria-selected", String(active));
     button.addEventListener("click", () => switchPage(button.dataset.timePage));
   }
   // 添加栏
@@ -238,6 +247,7 @@ export function switchPage(next) {
     const active = button.dataset.timePage === next;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
   }
   $("#time-sidebar").hidden = next !== "tasks";
   $("#time-tasks-page").hidden = next !== "tasks";
@@ -265,8 +275,12 @@ export function renderTimeProgress(progress) {
 
 export async function loadTimeTasks({ silent = false } = {}) {
   let next;
+  let goals = null;
   try {
-    next = await api("/api/time/tasks");
+    [next, goals] = await Promise.all([
+      api("/api/time/tasks"),
+      api("/api/goals").catch(() => null),
+    ]);
   } catch (error) {
     if (silent) return;  // 自动重读失败时别打扰用户，保留当前画面
     board = null;
@@ -274,8 +288,14 @@ export async function loadTimeTasks({ silent = false } = {}) {
     toast(`任务没读出来：${error.message}`, "error");   // 状态行在任务页；别的页也要看得见
     return;
   }
-  // 自动重读：文件没变（revision 相同）就不重画，避免打断正在进行的操作。
-  if (silent && board && next.revision === board.revision) return;
+  if (Array.isArray(goals)) {
+    goalTitles = new Map(goals.map((goal) => [goal.path || goal.id, goal.title]));
+  }
+  const nextGoalSignature = JSON.stringify([...goalTitles.entries()].sort());
+  const goalsChanged = nextGoalSignature !== goalSignature;
+  goalSignature = nextGoalSignature;
+  // 自动重读：任务文件与目标标题都没变就不重画，避免打断正在进行的操作。
+  if (silent && board && next.revision === board.revision && !goalsChanged) return;
   board = next;
   const keys = new Set((next.tasks || []).map((task) => task.key));
   if (activeKey && !keys.has(activeKey)) activeKey = "";
@@ -603,6 +623,7 @@ function listAction(action, entry) {
       title: `删除清单「${entry.name}」？`,
       message: "新任务笔记会移到当前库的 .torch-os/task-trash（清单定义与原任务文件同时备份）；"
         + "这个清单里的旧任务行也会从 任务（tasks）.md 移除。可在文件系统回收站里找回。",
+      danger: true,
       onConfirm: async () => {
         if (viewState.selection?.list === entry.name) selectView({ view: "today" });
         await post("/api/time/lists/delete", { name: entry.name }, "清单已删除。");
@@ -683,6 +704,8 @@ function taskOptions(selection, options = {}) {
     selection,
     draggable: Boolean(options.draggable),
     ...(options.withSelection ? { multi, selectedKeys: picked, activeKey, onPick: onPickTask } : {}),
+    goalLabel,
+    onSelectGoal: (path) => selectView({ goal: path }),
     onOpenDocument: (task) => openTask(task),
     onToggle: (task, done) => {
       if (task.legacy) return;
@@ -719,15 +742,33 @@ function taskOptions(selection, options = {}) {
   };
 }
 
+function goalLabel(path) {
+  const key = String(path || "");
+  if (!key) return "";
+  return goalTitles.get(key) || key.split("/").pop().replace(/\.md$/i, "") || "目标";
+}
+
+function paintGoalFilter(selection) {
+  const node = $("#time-goal-filter");
+  if (!node) return;
+  const active = Boolean(selection.goal);
+  node.hidden = !active;
+  if (active) {
+    node.querySelector("[data-goal-filter-label]").textContent = `只看目标：${goalLabel(selection.goal)}`;
+  }
+}
+
 function paintBoard() {
   const today = shanghaiDay();
   const selection = viewState.selection || { view: "today" };
   const tasks = board?.tasks || [];
-  $("#time-board-title").textContent = boardTitle(selection);
+  $("#time-board-title").textContent = boardTitle(selection, { goalLabel: goalLabel(selection.goal) });
+  paintGoalFilter(selection);
   // 收集箱的说明文本：只在选中它时出现，其它视图不占地方。
   const boardHint = $("#time-board-hint");
   if (boardHint) {
-    const inboxSelected = !selection.list && !selection.tag && (selection.view || "today") === "inbox";
+    const inboxSelected = !selection.list && !selection.tag && !selection.goal
+      && (selection.view || "today") === "inbox";
     boardHint.hidden = !inboxSelected;
     boardHint.textContent = inboxSelected ? INBOX_HINT : "";
   }
@@ -735,12 +776,14 @@ function paintBoard() {
     today,
     list: selection.list || "",
     tag: selection.tag || "",
+    goal: selection.goal || "",
     showDone: viewState.showDone !== false,
   });
   const sorted = sortTasks(picked, viewState.sort, viewState.order);
   const groups = groupTasks(sorted, viewState.group, {
     today,
     listOrder: (board?.lists || []).map((entry) => entry.name),
+    goalLabel,
   });
   renderTaskBoard($("#time-board"), groups, taskOptions(selection, { withSelection: true, draggable: true }));
 }

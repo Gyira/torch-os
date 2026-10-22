@@ -7,20 +7,21 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
+from backend.app import pillar_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path, monkeypatch):
-    for module in ("journal", "body", "habits", "learning"):
-        monkeypatch.setattr(f"backend.app.{module}.shanghai_today", lambda: date(2026, 10, 4))
+    monkeypatch.setattr("backend.app.habits.shanghai_today", lambda: date(2026, 10, 4))
     database = Database(tmp_path / "torch_os.sqlite3")
     gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
-    app = create_app(database, tmp_path / "vault", gateway, security_environ={})
+    vault = tmp_path / "vault"
+    app = create_app(database, vault, gateway, security_environ={})
     client = TestClient(app)
     client.get("/")
-    return client, database
+    return client, database, vault
 
 
 EXPECTED_MEMBERS = {
@@ -31,22 +32,28 @@ EXPECTED_MEMBERS = {
 
 
 def test_export_bundle_contains_every_section_and_counts_only_audit(tmp_path, monkeypatch):
-    client, database = build_client(tmp_path, monkeypatch)
+    client, database, vault = build_client(tmp_path, monkeypatch)
     client.post("/api/notes", json={"title": "打包档案", "content": "包内正文不应进入审计。", "type": "fact"})
-    goal = client.post("/api/goals", json={"title": "打包目标"}).json()
-    client.post("/api/tasks", json={"title": "打包任务", "goal_id": goal["id"]})
+    goal = pillar_notes.create_note(vault, pillar="life", chapter="goal_year",
+                                    title="打包目标", note_type="goal")
+    task_notes.create_task_note(vault, "", "打包任务", {
+        "goal": goal["path"], "created": "2026-10-01",
+    })
     habit = client.post("/api/habits", json={
         "title": "打包习惯", "minimum_action": "一页", "start_date": "2026-09-28",
     }).json()
     client.put(f"/api/habits/{habit['id']}/entries/2026-10-03", json={"revision": 0, "status": "done"})
-    subject = client.post("/api/learning/subjects", json={"title": "打包科目", "weekly_target_minutes": 60}).json()
-    client.post("/api/learning/sessions", json={
-        "subject_id": subject["id"], "study_date": "2026-10-03", "minutes": 20,
-        "request_key": "00000000-0000-4000-8000-000000000020",
-    })
     client.post("/api/chat", json={"message": "打包问题？"})
-    client.put("/api/journal/2026-10-03", json={"revision": 0, "content": "打包日记"})
-    client.put("/api/body/entries/2026-10-03", json={"revision": 0, "weight_kg": 68.5})
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO journal_entries(date, content, revision, created_at, updated_at)
+               VALUES (?,?,?,?,?)""",
+            ("2026-10-03", "打包日记", 1,
+             "2026-10-03T00:00:00+00:00", "2026-10-03T00:00:00+00:00"),
+        )
+    client.post("/api/ops/health/months/2026-10/rows", json={
+        "date": "2026-10-03", "weight_kg": "68.5", "sleep_minutes": "450",
+    })
 
     response = client.get("/api/export/all.zip")
     assert response.status_code == 200
@@ -57,12 +64,17 @@ def test_export_bundle_contains_every_section_and_counts_only_audit(tmp_path, mo
         readme = archive.read("README.txt").decode("utf-8")
         assert "不是恢复包" in readme
         assert "memories 1" in readme and "journal_days 1" in readme and "body_days 1" in readme
+        assert "study" not in readme and "学习科目" not in readme
         memories = json.loads(archive.read("memories.json"))
         assert memories["total"] == 1
         journal = json.loads(archive.read("journal.json"))
         assert journal["counts"]["days"] == 1 and journal["entries"][0]["content"] == "打包日记"
+        planning = json.loads(archive.read("planning.json"))
+        assert planning["counts"]["goals"] == 1 and planning["counts"]["tasks"] == 1
+        growth = json.loads(archive.read("growth.json"))
+        assert growth["counts"]["habits"] == 1 and "subjects" not in growth["counts"]
         body_lines = archive.read("body.csv").decode("utf-8").strip().splitlines()
-        assert body_lines[1] == "2026-10-03,68.5,,"
+        assert body_lines[1] == "2026-10-03,68.5,450,"
 
     with database.connect() as connection:
         audit = [dict(row) for row in connection.execute(
@@ -74,7 +86,7 @@ def test_export_bundle_contains_every_section_and_counts_only_audit(tmp_path, mo
 
 
 def test_export_bundle_works_on_empty_data_and_requires_the_local_session(tmp_path, monkeypatch):
-    client, _ = build_client(tmp_path, monkeypatch)
+    client, _, _ = build_client(tmp_path, monkeypatch)
     response = client.get("/api/export/all.zip")
     assert response.status_code == 200
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:

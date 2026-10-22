@@ -33,7 +33,7 @@ export async function loadSchedulePanel() {
     const weeklyHelp = $("#schedule-weekly-help");
     if (weeklyHelp) {
       weeklyHelp.textContent = weekly
-        ? "周报汇总截至触发日的最近 7 天（任务、学习、习惯、日记与身体记录天数），只列事实，不做评分。"
+        ? "周报汇总截至触发日的最近 7 天（任务、习惯、日记与身体记录天数），只列事实，不做评分。"
         : "当前服务版本未提供周报草稿，请更新并重启本地服务后再设置。";
     }
     if (weekly) {

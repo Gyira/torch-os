@@ -114,16 +114,8 @@ def test_habits_scheduled_today_join_the_loop_and_count_when_done(tmp_path):
     assert stale.status_code == 409
 
 
-def test_journal_completes_the_loop_and_keeps_the_new_template_fields(tmp_path):
+def test_journal_completes_the_loop_from_the_markdown_file(tmp_path):
     client = make_client(tmp_path)
-    saved = client.put(f"/api/journal/{TODAY}", json={
-        "revision": 0, "content": "今天把工作台做完了", "weather": "晴", "location": "家",
-        "notes": "下午效率高", "reflection": "明天先做难的事", "next_action": "继续重构",
-    })
-    assert saved.status_code == 200, saved.text
-    record = saved.json()
-    assert record["weather"] == "晴" and record["location"] == "家"
-    assert record["notes"] == "下午效率高" and record["reflection"] == "明天先做难的事"
 
     # 进度里的"日记"以**文件**为准（md-first）：今天日记存在才算完成闭环。
     note = tmp_path / "vault" / "02-Life" / "journal" / f"{TODAY}.md"
@@ -158,8 +150,6 @@ def test_the_todo_file_drives_the_day_list(tmp_path):
     """清单只看 00-System/待办（todos）.md：未完成 + 今天勾完的；更早勾完的不占列表；
     手动打勾（没有 ✅ 日期）视为今天完成；SQLite 任务不再上工作台。"""
     client = make_client(tmp_path)
-    old_task = client.post("/api/tasks", json={"title": "只在目标页出现的旧任务"}).json()
-    assert isinstance(old_task["id"], int)
     yesterday = (datetime.now(SHANGHAI).date() - timedelta(days=1)).isoformat()
     write_todo_note(tmp_path, todos=[
         ("很久以前就完成的", True, yesterday),

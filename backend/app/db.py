@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS memory_embeddings (
     updated_at TEXT NOT NULL,
     FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
+-- Deprecated (2026-10-22): retained for historical rows only. Goal notes under
+-- 00_人生路/06_目标与计划 and Markdown task notes are the live authorities.
 CREATE TABLE IF NOT EXISTS goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -149,6 +151,68 @@ CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
     INSERT INTO documents_fts(rowid, title, content, path)
     VALUES (new.id, new.title, new.content, new.path);
 END;
+"""
+
+# Deprecated since 0.99: these tables belonged to the retired 八字 / 建议 / 旧日记
+# modules. Their DDL is kept here so existing databases keep their historical rows and
+# new databases keep the same schema shape for one release. They have no writers and
+# must not be dropped by this project; removal requires an explicit migration.
+LEGACY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS bazi_profiles (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    birth_date TEXT NOT NULL CHECK(length(birth_date) = 10),
+    birth_time TEXT NOT NULL CHECK(length(birth_time) = 5),
+    longitude REAL CHECK(longitude IS NULL OR (longitude >= -180 AND longitude <= 180)),
+    use_true_solar INTEGER NOT NULL DEFAULT 0 CHECK(use_true_solar IN (0, 1)),
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    action_text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read_at TEXT,
+    dismissed_at TEXT,
+    snoozed_until TEXT,
+    done_at TEXT,
+    link_view TEXT,
+    link_label TEXT,
+    task_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_open ON suggestions(dismissed_at, created_at DESC);
+CREATE TABLE IF NOT EXISTS journal_entries (
+    date TEXT PRIMARY KEY,
+    content TEXT NOT NULL DEFAULT '',
+    highlights TEXT NOT NULL DEFAULT '',
+    obstacles TEXT NOT NULL DEFAULT '',
+    diet_summary TEXT NOT NULL DEFAULT '',
+    mood TEXT NOT NULL DEFAULT '',
+    next_action TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    reflection TEXT NOT NULL DEFAULT '',
+    weather TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    goal_id INTEGER,
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(goal_id) REFERENCES goals(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS journal_actions (
+    date TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('task', 'export')),
+    entity_id INTEGER NOT NULL,
+    source_path TEXT,
+    source_hash TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(date, revision, action),
+    FOREIGN KEY(date) REFERENCES journal_entries(date)
+);
 """
 
 
@@ -231,6 +295,7 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            connection.executescript(LEGACY_SCHEMA)
             # Additive migration preserves the existing demo database and decisions.
             columns = {row['name'] for row in connection.execute('PRAGMA table_info(documents)')}
             for name, declaration in {

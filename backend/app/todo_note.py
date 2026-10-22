@@ -29,7 +29,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .db import Database, utc_now
-from .journal import validate_day
+from .journal_shared import validate_day
 from .markdown_store import (
     guarded_write as _guarded_write,
     heading_line as _heading_line,

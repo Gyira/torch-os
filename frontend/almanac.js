@@ -125,7 +125,7 @@ export function almanacHtml(day, name, progress) {
     `<span class="almanac-note">${esc(note)}</span>`
   )).join("");
   const meta = progress && progress.total
-    ? `<p class="almanac-meta">今日完成 ${Number(progress.done) || 0} / ${Number(progress.total) || 0} 项</p>`
+    ? `<p class="almanac-meta">今日闭环 ${Number(progress.done) || 0} / ${Number(progress.total) || 0} 项（含日记）</p>`
     : "";
   return [
     '<div class="almanac-card">',

@@ -106,7 +106,7 @@ const EVENT_LABELS = {
   habit_created: "新建习惯", habit_updated: "更新习惯", habit_entry_saved: "保存习惯打卡",
   body_entry_saved: "保存身体记录", body_entry_cleared: "清除身体记录", body_exported: "身体记录导出",
   body_summary_exported: "身体记录汇总导出",
-  planning_exported: "目标与任务导出", growth_exported: "习惯与学习导出",
+  planning_exported: "目标与任务导出", growth_exported: "习惯与打卡导出",
   conversations_exported: "对话导出", export_bundle_created: "一键导出包",
   scheduler_report_created: "生成定时草稿", scheduler_loop_error: "调度循环错误",
   dida_sync_completed: "滴答同步完成", dida_sync_failed: "滴答同步失败",
@@ -134,11 +134,16 @@ function showSettingsSection(name, { focus = true } = {}) {
   const target = sections.find((section) => section.dataset.settingsSection === name) || sections[0];
   currentSettingsSection = target.dataset.settingsSection;
   sections.forEach((section) => { section.hidden = section !== target; });
+  let activeButton = null;
   document.querySelectorAll("[data-settings-nav]").forEach((button) => {
     const active = button.dataset.settingsNav === currentSettingsSection;
     button.classList.toggle("active", active);
     button.setAttribute("aria-current", String(active));
+    if (active) activeButton = button;
   });
+  if (activeButton && window.innerWidth <= 860) {
+    activeButton.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
 }
@@ -254,8 +259,8 @@ function renderDiagnostics(payload) {
     line("资料（可用）", `${counts.documents_available ?? 0} 份`) +
     line("记忆", `已确认 ${counts.memories_active ?? 0} · 待确认 ${counts.memories_candidate ?? 0} · 已拒绝 ${counts.memories_rejected ?? 0} · 已归档 ${counts.memories_archived ?? 0}`) +
     line("对话 / 消息", `${counts.conversations ?? 0} / ${counts.messages ?? 0}`) +
-    line("目标 / 任务", `${counts.goals ?? 0} / ${counts.tasks ?? 0}`) +
-    line("日记 / 习惯打卡 / 学习 / 身体记录", `${counts.journal_entries ?? 0} / ${counts.habit_entries ?? 0} / ${counts.study_sessions ?? 0} / ${counts.body_entries ?? 0}`) +
+    line("旧目标 / 旧任务（历史，不再写入）", `${counts.goals ?? 0} / ${counts.tasks ?? 0}`) +
+    line("日记 / 习惯打卡 / 旧学习 / 旧身体记录（历史）", `${counts.journal_entries ?? 0} / ${counts.habit_entries ?? 0} / ${counts.study_sessions ?? 0} / ${counts.body_entries ?? 0}`) +
     line("收件箱草稿", `${counts.inbox_items ?? 0} 条`) +
     line("Vault Markdown", `${vault.markdown_files ?? 0} 个${vault.relationships_present ? "（检测到关系分区，未计入）" : ""}`) +
     line("本地备份", backups.count ? `${backups.count} 份 · 最近 ${latest.filename || "备份"}（${formatDate(latest.modified_at)}）` : "还没有备份") +

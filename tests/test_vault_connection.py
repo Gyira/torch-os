@@ -10,7 +10,6 @@ from backend.app.application import create_app
 from backend.app.conversation_memory import ConversationMemoryService
 from backend.app.db import Database
 from backend.app.model_gateway import ModelGateway
-from backend.app.share_import import ShareImportService
 from backend.app.vault_connection import (
     VaultReadOnlyError,
     describe_vault,
@@ -254,11 +253,4 @@ def test_read_only_mode_refuses_every_vault_write(tmp_path):
     with pytest.raises(VaultReadOnlyError):
         service.apply(conversation_id)
 
-    payload = {'code': 0, 'data': {'biz_data': {'title': '只读分享', 'model_type': 'default', 'messages': [
-        {'message_id': 1, 'role': 'USER', 'inserted_at': 1790000000.0,
-         'fragments': [{'id': 1, 'type': 'REQUEST', 'content': '我在练习写作。'}]},
-    ]}}}
-    share_service = ShareImportService(database, vault, fetcher=lambda share_id: payload, read_only=True)
-    with pytest.raises(VaultReadOnlyError):
-        share_service.apply('read-only-share')
     assert database.list_memories() == []

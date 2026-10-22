@@ -48,6 +48,46 @@ def test_health_month_table_roundtrip(tmp_path):
     assert deleted.json()["rows"] == []
 
 
+def test_deleted_row_restores_in_place_with_the_same_row_id(tmp_path):
+    client, vault = make_client(tmp_path)
+    created = []
+    for weight, note in (("70.2", "周一"), ("69.8", "周二"), ("69.5", "周三")):
+        response = client.post("/api/ops/health/months/2026-10/rows", json={
+            "date": "2026-10-21", "weight_kg": weight, "note": note,
+        })
+        assert response.status_code == 200, response.text
+        created.append(response.json()["rows"][-1])
+
+    deleted = client.delete(f"/api/ops/health/months/2026-10/rows/{created[1]['row_id']}")
+    assert deleted.status_code == 200
+    assert [row["weight_kg"] for row in deleted.json()["rows"]] == ["70.2", "69.5"]
+
+    restored = client.post(
+        f"/api/ops/health/months/2026-10/rows/{created[1]['row_id']}/restore?position=1",
+        json={"date": created[1]["date"], "weight_kg": created[1]["weight_kg"],
+              "sleep_minutes": created[1]["sleep_minutes"],
+              "exercise_minutes": created[1]["exercise_minutes"], "note": created[1]["note"]})
+    assert restored.status_code == 200, restored.text
+    rows = restored.json()["rows"]
+    assert [row["row_id"] for row in rows] == [row["row_id"] for row in created]
+    assert [row["weight_kg"] for row in rows] == ["70.2", "69.8", "69.5"]
+    assert created[1]["row_id"] in (vault / restored.json()["path"]).read_text(encoding="utf-8")
+
+    # 重复撤销是冲突，不会写出第二行。
+    again = client.post(
+        f"/api/ops/health/months/2026-10/rows/{created[1]['row_id']}/restore",
+        json={"date": created[1]["date"], "weight_kg": created[1]["weight_kg"]})
+    assert again.status_code == 409
+    assert len(client.get("/api/ops/health/months/2026-10").json()["rows"]) == 3
+
+
+def test_restore_rejects_an_invalid_row_id(tmp_path):
+    client, _ = make_client(tmp_path)
+    response = client.post("/api/ops/health/months/2026-10/rows/not-a-row/restore",
+                           json={"date": "2026-10-21", "weight_kg": "68"})
+    assert response.status_code == 422
+
+
 def test_finance_month_summary(tmp_path):
     client, vault = make_client(tmp_path)
     for kind, amount in (("支出", "12.5"), ("收入", "100")):
@@ -68,3 +108,7 @@ def test_ops_is_read_only_when_vault_is_read_only(tmp_path):
         "date": "2026-10-21", "weight_kg": "68",
     })
     assert blocked.status_code == 409
+    blocked_restore = client.post(
+        "/api/ops/health/months/2026-10/rows/abcdef123456/restore",
+        json={"date": "2026-10-21", "weight_kg": "68"})
+    assert blocked_restore.status_code == 409

@@ -1,17 +1,20 @@
 // 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 快速捕获。
 // 工作台完全独立；这里只读写四库接口，不碰 time-module / workbench 的 DOM。
-import { $, api, escapeHtml, toast } from "./core.js";
+import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
 import { shanghaiDay } from "./journal-model.js";
-import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
+import { isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument } from "./task-open.js";
+
+const GOAL_CHAPTERS = new Set(["goal_year", "goal_quarter", "goal_month"]);
 
 const PILLAR_META = {
   life: {
     title: "人生路",
     subtitle: "把每天过成可回看的成长线索。",
+    emptyHint: "例如：今天发生了什么，或此刻在想什么。",
     icon: "行",
     defaultChapter: "reflection",
     quick: [
@@ -23,6 +26,7 @@ const PILLAR_META = {
   self: {
     title: "自我档案",
     subtitle: "把经历沉淀成「我是谁」。",
+    emptyHint: "例如：一个刚冒出来的想法，或一段想记住的经历。",
     icon: "我",
     defaultChapter: "idea",
     quick: [
@@ -34,6 +38,7 @@ const PILLAR_META = {
   ops: {
     title: "生活运营",
     subtitle: "把身体、钱、事务照顾好，不让它们占用注意力。",
+    emptyHint: "例如：今天的体重，或一笔午餐支出。",
     icon: "生",
     defaultChapter: "affairs",
     quick: [
@@ -45,6 +50,7 @@ const PILLAR_META = {
   knowledge: {
     title: "知识库",
     subtitle: "先接住，再提炼，最后变成能用的东西。",
+    emptyHint: "例如：一条读到的观点，或一个想试的方法。",
     icon: "知",
     defaultChapter: "inbox",
     quick: [
@@ -101,7 +107,7 @@ function noteRow(note) {
   const dayLabel = journal ? journalDayLabel(note) : "";
   const title = dayLabel ? `日记 · ${dayLabel}` : note.title;
   const excerpt = journal ? "打开这篇日记" : (note.excerpt || "");
-  const meta = journal ? "" : `${escapeHtml(note.date || "")}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}`;
+  const meta = journal ? "" : `${escapeHtml(formatRelativeDate(note.date))}${note.tags?.length ? ` · ${escapeHtml(note.tags.slice(0, 3).join(" "))}` : ""}`;
   return `<button type="button" class="pillar-note-row" data-note-path="${escapeHtml(note.path)}">
     <span class="pillar-note-main">
       <span class="pillar-note-title">${escapeHtml(title)}</span>
@@ -136,7 +142,7 @@ function renderShell(view) {
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
         <button type="button" class="button secondary" data-steward-open="${view}" title="提案、健康检查与问答">管家</button>
-        <button type="button" class="button primary" data-pillar-capture="${view}">＋ 记一条</button>
+        <button type="button" class="button primary" data-pillar-capture="${view}" title="记一条（按 N）" aria-keyshortcuts="N">＋ 记一条</button>
       </div>
     </header>
     <div class="pillar-layout">
@@ -167,7 +173,7 @@ function renderShell(view) {
           ? "" : `<div class="pillar-list">
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
-            <p class="field-help">${escapeHtml(meta.subtitle)}</p>
+            <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
             <button type="button" class="button secondary" data-pillar-capture="${view}" data-capture-chapter="${escapeHtml(chapter)}">＋ 记第一条</button>
           </div>`}
         </div>`}
@@ -191,7 +197,7 @@ function renderShell(view) {
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
-          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(String(overview.today.journal_updated_at || "").replace("T", " ").slice(0, 16))}` : "先写一句也算记录。"}</p>
+          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
             <button type="button" class="pillar-quick-button" data-review="weekly">生成本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">生成本月复盘</button>
@@ -288,6 +294,11 @@ function bindPillarEvents() {
       });
       return;
     }
+    const retry = event.target.closest?.("[data-pillar-retry]");
+    if (retry) {
+      loadPillarModule(retry.dataset.pillarRetry);
+      return;
+    }
     const opsQuick = event.target.closest?.("[data-ops-quick]");
     if (opsQuick) {
       const dataset = opsQuick.dataset.opsQuick;
@@ -306,6 +317,7 @@ function bindPillarEvents() {
     const chapter = event.target.closest?.("[data-pillar-chapter]");
     if (chapter) {
       const view = chapter.dataset.pillarChapter;
+      const fromRail = chapter.classList?.contains("pillar-rail-item");
       state.chapter[view] = chapter.dataset.chapter || "";
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
@@ -316,6 +328,11 @@ function bindPillarEvents() {
           state.notes[view] = state.overviews[view]?.recent || [];
         }
         renderShell(view);
+        // 章节轨会被整块重绘：从键盘切章节后把焦点放回新的当前项，
+        // 否则用户下一次按 Tab 会从页面开头重新开始。
+        if (fromRail) {
+          document.querySelector(`#${view}-view .pillar-rail-item.is-active`)?.focus?.({ preventScroll: true });
+        }
       } catch (error) {
         toast(error.message, "error");
       }
@@ -425,23 +442,42 @@ export function openNote(path) {
   Promise.all([
     api(`/api/notes?path=${encodeURIComponent(path)}`),
     api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
-  ]).then(([note, links]) => {
+  ]).then(async ([note, links]) => {
     const backlinks = Array.isArray(links.items) ? links.items : [];
+    let linkedTasks = [];
+    if (GOAL_CHAPTERS.has(note.chapter)) {
+      try {
+        const board = await api("/api/time/tasks");
+        linkedTasks = (board.tasks || []).filter((task) => task.goal === note.path);
+      } catch {
+        linkedTasks = [];
+      }
+    }
     const dialog = document.createElement("dialog");
     dialog.className = "pillar-dialog pillar-note-dialog";
     const vaultName = state.overviews[note.pillar]?.vault_name || "";
     const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
     const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
+    const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
     dialog.innerHTML = `
       <div class="pillar-dialog-head">
         <div>
           <p class="eyebrow">${escapeHtml(chapterTitle(note.pillar, note.chapter))}</p>
           <h2>${escapeHtml(displayTitle)}</h2>
-          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(note.date)}` : ""}</p>
+          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(formatRelativeDate(note.date))}` : ""}</p>
         </div>
         <button type="button" class="text-button" data-close-note>关闭</button>
       </div>
       <article class="pillar-note-body">${renderMarkdown(note.body || "")}</article>
+      ${GOAL_CHAPTERS.has(note.chapter) ? `<section class="pillar-linked-tasks">
+        <p class="eyebrow">关联任务（${openLinkedCount} 项未完成）</p>
+        ${linkedTasks.length ? `<ul>${linkedTasks.map((task) => `<li class="${task.done ? "is-done" : ""}">
+          <span>${escapeHtml(task.title)}</span>
+          <span class="meta">${task.done ? "已完成" : escapeHtml(task.date || "未排期")}</span>
+          <button type="button" class="text-button" data-open-linked-task="${escapeHtml(task.key)}">在 Obsidian 打开</button>
+        </li>`).join("")}</ul>` : `<p class="field-help">还没有任务关联到这个目标；可在资料导入时选择它，或直接在任务笔记 frontmatter 写「目标」。</p>`}
+        <p class="field-help">任务来自时间管理的一任务一笔记；这里只读，编辑请到工作台或 Obsidian。</p>
+      </section>` : ""}
       ${backlinks.length ? `<section class="pillar-backlinks">
         <p class="eyebrow">反向链接</p>
         ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
@@ -466,6 +502,15 @@ export function openNote(path) {
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
+    });
+    dialog.querySelectorAll("[data-open-linked-task]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const task = linkedTasks.find((item) => item.key === button.dataset.openLinkedTask);
+        if (!task) return;
+        if (!openTaskDocument(task, { vault_name: vaultName })) {
+          toast("没有可打开的任务文档，请刷新后重试。", "warning");
+        }
+      });
     });
     dialog.querySelectorAll("[data-backlink-path]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -642,7 +687,7 @@ export async function loadPillarModule(view) {
     await loadPillar(view);
   } catch (error) {
     const root = $(`#${view}-view .pillar-shell`);
-    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p></div>`;
+    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
   }
 }
 

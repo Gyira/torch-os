@@ -98,6 +98,21 @@ export function taskRow(task, options) {
     tags.append(chip);
   }
 
+  let goalChip = null;
+  if (task.goal) {
+    const label = options.goalLabel?.(task.goal)
+      || String(task.goal).split("/").pop().replace(/\.md$/i, "");
+    goalChip = document.createElement("button");
+    goalChip.type = "button";
+    goalChip.className = "task-goal-chip";
+    goalChip.textContent = `🎯 ${label || "目标"}`;
+    goalChip.title = `只看这个目标：${label || task.goal}`;
+    goalChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      options.onSelectGoal?.(task.goal);
+    });
+  }
+
   const where = document.createElement("span");
   where.className = "task-meta";
   const parts = [];
@@ -162,7 +177,8 @@ export function taskRow(task, options) {
     row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
   }
 
-  row.append(box, ...(legacyBadge ? [legacyBadge] : []), title, flags, tags, where,
+  row.append(box, ...(legacyBadge ? [legacyBadge] : []), title, flags, tags,
+             ...(goalChip ? [goalChip] : []), where,
              ...(openButton ? [openButton] : []), more);
   return row;
 }
@@ -431,7 +447,9 @@ function taskItem(task, options, shape) {
   item.dataset.taskPath = task.path || "";
   const color = taskColor(task, colors);
   if (color) item.style.setProperty("--item-color", color);
-  item.title = [task.title, timeLabel(task.time), task.list_name, legacy ? "旧任务（只读）" : ""]
+  const goalLabel = task.goal ? options.goalLabel?.(task.goal) : "";
+  item.title = [task.title, timeLabel(task.time), task.list_name,
+                goalLabel ? `目标：${goalLabel}` : "", legacy ? "旧任务（只读）" : ""]
     .filter(Boolean).join(" · ");
 
   const box = document.createElement("input");

@@ -129,6 +129,7 @@ async function rollbackMigration(runId) {
     title: `回滚迁移 ${runId}？`,
     message: "会按迁移日志反向移动文件，并从快照恢复被改写的链接。回滚前请确认没有在同一批文件上继续编辑。",
     confirmLabel: "回滚",
+    danger: true,
   });
   if (!ok) return;
   busy = true;

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Response
 
 from .db import Database
-from .journal import FIELD_LABELS, TEXT_FIELDS
+from .journal_shared import FIELD_LABELS, TEXT_FIELDS
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")

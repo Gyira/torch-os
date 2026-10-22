@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Query
 
 from .db import Database
-from .journal import validate_day
+from .journal_shared import validate_day
 from .vault import restricted_path
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")

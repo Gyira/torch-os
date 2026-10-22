@@ -23,3 +23,6 @@ obsidian-plugin/data.json
 .idea/
 .vscode/
 Start.cmd
+
+# QA probe typo output (generated, never versioned)
+.test-datapillar-probe/
