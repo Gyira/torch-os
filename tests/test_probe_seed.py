@@ -94,7 +94,7 @@ def test_fresh_qa_workspace_gets_a_diary_and_search_note(monkeypatch):
     assert result["seeded"] is True
     assert result["diary"] == 200
     assert result["search_note"] == 201
-    assert result["inbox_notes"] == ["QA 整理收件箱五步法", "QA 读书笔记：原则"]
+    assert result["inbox_notes"] == ["QA 整理收件箱五步法", "QA 读书笔记：原则", "QA 触动"]
     posted = [call[1] for call in client.calls if call[0] == "POST"]
     assert posted == ["/api/journal/note/generate", "/api/notes",
-                     "/api/capture", "/api/capture"]
+                     "/api/capture", "/api/capture", "/api/capture"]

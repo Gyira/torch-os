@@ -288,12 +288,21 @@ async function applyInboxProposals(ids, trigger) {
   }
 }
 
+const CONFIDENCE_LABEL = { high: "高置信", medium: "可参考", low: "低置信" };
+
 async function mountInboxSuggestions() {
   const host = document.querySelector("#knowledge-view [data-inbox-suggestions]");
   if (!host) return;
   const payload = await api("/api/steward/inbox-suggestions");
   const items = (payload.items || []).filter((item) => item.chapter !== "inbox");
   if (!items.length) { host.innerHTML = ""; return; }
+  const highCount = items.filter((item) => item.confidence === "high").length;
+  const groups = new Map();
+  for (const item of items) {
+    const target = `${item.pillar_title} / ${item.chapter_title}`;
+    if (!groups.has(target)) groups.set(target, []);
+    groups.get(target).push(item);
+  }
   host.innerHTML = `<section class="pillar-suggestion-card">
     <div class="pillar-suggestion-head">
       <div>
@@ -302,21 +311,25 @@ async function mountInboxSuggestions() {
       </div>
       <div class="pillar-suggestion-tools">
         <label class="check-label"><input type="checkbox" data-inbox-select-all> 全选</label>
+        <button type="button" class="text-button" data-inbox-high${highCount ? "" : " disabled"}>只选高置信（${highCount}）</button>
         <button type="button" class="button secondary" data-inbox-apply disabled>整理选中（0）</button>
       </div>
     </div>
-    ${items.map((item) => `<div class="pillar-suggestion-row" data-inbox-row="${escapeHtml(item.proposal_id)}" data-inbox-target="${escapeHtml(`${item.pillar_title} / ${item.chapter_title}`)}">
-      <label class="pillar-suggestion-check">
-        <input type="checkbox" data-inbox-select value="${escapeHtml(item.proposal_id)}">
-        <span>
-          <strong>${escapeHtml(item.title)}</strong>
-          <span class="field-help">建议放到「${escapeHtml(item.pillar_title)} / ${escapeHtml(item.chapter_title)}」：${escapeHtml(item.reason)}</span>
-        </span>
-      </label>
-      <div class="pillar-suggestion-actions">
-        <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">打开</button>
-        <button type="button" class="small-button" data-inbox-single="${escapeHtml(item.proposal_id)}">移动</button>
-      </div>
+    ${[...groups.entries()].map(([target, group]) => `<div class="pillar-suggestion-group">
+      <p class="pillar-suggestion-group-title"><span>${escapeHtml(target)}</span><span>${group.length} 条</span></p>
+      ${group.map((item) => `<div class="pillar-suggestion-row" data-inbox-row="${escapeHtml(item.proposal_id)}" data-inbox-target="${escapeHtml(target)}" data-confidence="${escapeHtml(item.confidence)}">
+        <label class="pillar-suggestion-check">
+          <input type="checkbox" data-inbox-select value="${escapeHtml(item.proposal_id)}">
+          <span>
+            <span class="pillar-suggestion-title"><strong>${escapeHtml(item.title)}</strong><span class="pillar-confidence ${escapeHtml(item.confidence)}">${escapeHtml(CONFIDENCE_LABEL[item.confidence] || item.confidence)}</span></span>
+            <span class="field-help">${escapeHtml(item.reason)}</span>
+          </span>
+        </label>
+        <div class="pillar-suggestion-actions">
+          <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">打开</button>
+          <button type="button" class="small-button" data-inbox-single="${escapeHtml(item.proposal_id)}">移动</button>
+        </div>
+      </div>`).join("")}
     </div>`).join("")}
   </section>`;
   // 已进入建议卡的条目不再在下方列表重复出现；想读原文用「打开」。
@@ -426,6 +439,16 @@ function bindPillarEvents() {
       } catch (error) {
         toast(error.message, "error");
       }
+      return;
+    }
+    const inboxHigh = event.target.closest?.("[data-inbox-high]");
+    if (inboxHigh) {
+      const host = inboxHigh.closest("[data-inbox-suggestions]");
+      host?.querySelectorAll("[data-inbox-row]").forEach((row) => {
+        const box = row.querySelector("[data-inbox-select]");
+        if (box) box.checked = row.dataset.confidence === "high";
+      });
+      updateInboxSelection(host);
       return;
     }
     const inboxApply = event.target.closest?.("[data-inbox-apply]");

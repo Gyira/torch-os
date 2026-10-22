@@ -1150,10 +1150,18 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-suggestion-card { border: 1px solid var(--p-pillar-knowledge); border-radius: 14px; background: var(--p-pillar-knowledge-soft); padding: 14px 16px; }
 .pillar-suggestion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .pillar-suggestion-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pillar-suggestion-group { margin-top: 8px; }
+.pillar-suggestion-group:first-of-type { margin-top: 0; }
+.pillar-suggestion-group-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 2px; color: var(--p-ink-4); font-size: 11px; font-weight: 600; }
+.pillar-suggestion-group-title span:last-child { color: var(--p-ink-5); font-weight: 400; font-variant-numeric: tabular-nums; }
 .pillar-suggestion-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-top: 1px solid var(--p-line); }
 .pillar-suggestion-check { display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0; cursor: pointer; }
 .pillar-suggestion-check input { width: 16px; height: 16px; margin-top: 3px; flex: 0 0 auto; accent-color: var(--p-pillar-knowledge); }
 .pillar-suggestion-check > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pillar-suggestion-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pillar-confidence { border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface-2); color: var(--p-ink-4); padding: 0 6px; font-size: 10px; line-height: 1.7; }
+.pillar-confidence.high { border-color: var(--p-ok-line); background: var(--p-ok-soft); color: var(--p-ok-ink); }
+.pillar-confidence.medium { border-color: var(--p-warn-line); background: var(--p-warn-soft); color: var(--p-warn-ink); }
 .pillar-suggestion-row strong { color: var(--p-ink-strong); font-size: 13px; }
 .pillar-suggestion-row .field-help { margin: 2px 0 0; }
 .pillar-suggestion-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }

@@ -145,6 +145,7 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     body.innerHTML = `<p class="field-help">正在整理提案…</p>`;
     try {
       const payload = await api("/api/steward/proposals");
+      if (active !== "proposals") return;
       const items = payload.items || [];
       body.innerHTML = `<div class="steward-section-head">
           <p class="field-help">${escapeHtml(payload.note || "")}${payload.truncated ? ` 共 ${Number(payload.total) || items.length} 条，先显示 ${items.length} 条。` : ""}</p>
@@ -152,7 +153,7 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
         </div>
         ${items.length ? items.map(proposalMarkup).join("") : `<div class="pillar-empty"><p>暂时没有需要处理的提案。</p><p class="field-help">收件箱分流与原则提炼都由本地规则判断，不会自动执行。</p></div>`}`;
     } catch (error) {
-      body.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
+      if (active === "proposals") body.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
     }
   }
 
@@ -160,17 +161,19 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     body.innerHTML = `<p class="field-help">正在检查四库结构…</p>`;
     try {
       healthData = await api("/api/steward/health");
+      if (active !== "health") return;
       const counts = healthData.counts || {};
       healthFilter = (Number(counts.warning) || Number(counts.error)) ? "issues" : "all";
       body.innerHTML = healthMarkup(healthData, healthFilter);
     } catch (error) {
       healthData = null;
-      body.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
+      if (active === "health") body.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
     }
   }
 
   async function loadAsk() {
     const status = await modelStatus();
+    if (active !== "ask") return;
     body.innerHTML = askMarkup(Boolean(status.model_configured));
   }
 

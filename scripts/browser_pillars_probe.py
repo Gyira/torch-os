@@ -109,6 +109,7 @@ def seed_qa_workspace(base_url: str) -> dict:
                 for title, body in (
                     ("QA 整理收件箱五步法", "第一步：列清单；第二步：分类。"),
                     ("QA 读书笔记：原则", "作者说要做减法，读完记一条。"),
+                    ("QA 触动", "我觉得这件事很触动我。"),
                 ):
                     created = client.post("/api/capture", json={
                         "title": title, "body": body, "chapter": "inbox",
@@ -191,9 +192,14 @@ async def run(base_url: str, output: Path, port: int,
                         "document.querySelectorAll('#knowledge-view [data-inbox-select]').length")
                     report["inbox_batch"] = await cdp.evaluate("""(() => ({
                         checkboxes: document.querySelectorAll('#knowledge-view [data-inbox-select]').length,
+                        groups: document.querySelectorAll('#knowledge-view .pillar-suggestion-group').length,
+                        highLabel: document.querySelector('#knowledge-view [data-inbox-high]')?.textContent || '',
                         applyDisabled: Boolean(document.querySelector('#knowledge-view [data-inbox-apply]')?.disabled),
                     }))()""")
                     if report["inbox_suggestions"]:
+                        await cdp.evaluate("document.querySelector('#knowledge-view [data-inbox-high]')?.click()")
+                        report["inbox_batch_high"] = await cdp.evaluate(
+                            "document.querySelector('#knowledge-view [data-inbox-apply]')?.textContent || ''")
                         await cdp.evaluate("document.querySelector('#knowledge-view [data-inbox-select-all]')?.click()")
                         await cdp.wait_for("!document.querySelector('#knowledge-view [data-inbox-apply]')?.disabled")
                         report["inbox_batch_selected"] = await cdp.evaluate(
