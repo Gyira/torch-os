@@ -1,4 +1,4 @@
-// 工作台 2.0（2026-10-05）：两大模块——今日待办（左清单 / 右每日勾选）＋ 日记（见 journal-note.js）。
+// 工作台 2.0（2026-10-05）：今日待办（左清单 / 右每日勾选）；与神对话在 agent-chat.js。
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
 // 待办在 00_人生路/08_任务与待办/_系统/待办（todos）.md，每日必做勾在当天日记，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";

@@ -1,9 +1,7 @@
 import { $, state, api, escapeHtml } from "./core.js";
 import { askHarnessToCompose } from "./harness-bridge.js";
 import { initSettings, loadSettings } from "./settings.js";
-import { initJournal, openJournalDay } from "./journal.js";
-import { initJournalNote, loadJournalNote, loadActivity } from "./journal-note.js";
-import { shanghaiDay } from "./journal-model.js";
+import { initAgentChat, loadAgentChat } from "./agent-chat.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
@@ -21,12 +19,12 @@ import { initKeyboardShortcuts } from "./shortcuts.js";
 
 const titles = NAV_LABELS;
 
-// 五大模块（对话在 dsh 里，帮助并进设置）：侧边栏只选模块，模块内再选分区。
-// stacked 的模块一页到底，module-nav 只做锚点跳转——工作台的日记必须在流程下面。
+// 五大模块（工作台内含「与神对话」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
+// stacked 的模块一页到底，module-nav 只做锚点跳转——与神对话在待办事项下面。
 const MODULES = {
   workbench: {
     stacked: true,
-    panes: [["workbench-view", "待办事项"], ["journal-view", "日记"]],
+    panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"]],
   },
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
   life: { panes: [], ownNav: true },
@@ -39,7 +37,7 @@ const paneChoice = {};
 const PANE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
-  "journal-view": () => { loadJournalNote(); loadActivity(); },
+  "agent-view": () => { initAgentChat(); loadAgentChat(); },
   "life-view": () => loadPillarModule("life"),
   "self-view": () => loadPillarModule("self"),
   "ops-view": () => loadPillarModule("ops"),
@@ -131,7 +129,7 @@ if (embedMode) {
 
 /** 旧的 data-go-view 目标映射到新的模块 + 分区。 */
 const GO_TARGETS = {
-  workbench: ["workbench", ""], today: ["workbench", ""], journal: ["workbench", "journal-view"],
+  workbench: ["workbench", ""], today: ["workbench", ""],
   identity: ["self", ""], self: ["self", ""], profile: ["self", ""], memory: ["self", ""],
   bazi: ["self", ""], goals: ["life", ""], habits: ["life", ""],
   life: ["life", ""], ops: ["ops", ""],
@@ -314,7 +312,7 @@ function runModuleLoaders(view, visiblePanes) {
   }
 }
 
-initSettings(); initJournal(); initJournalNote(); initInbox();
+initSettings(); initAgentChat(); initInbox();
 initWorkbench(); initPillars();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
@@ -327,13 +325,11 @@ initRestoreDrill();
 initDidaSync();
 applyNavOrder();
 renderPanelNav();
-// 对话统一交给 dsh（用户 2026-10-05 定调）：产品里不再有自己的对话页；
-// 页面上的快捷问题入口只把问题交给宿主 dsh 的输入框。
+// 工作台内已有「与神对话」页；其它页面的快捷问题入口仍可交给宿主 dsh。
 document.addEventListener("click", async (event) => {
   const navigation = event.target.closest("[data-view], [data-go-view]");
   if (navigation) {
-    const switched = await goTo(navigation.dataset.view || navigation.dataset.goView);
-    if (switched && navigation.hasAttribute("data-journal-today")) openJournalDay(shanghaiDay());
+    await goTo(navigation.dataset.view || navigation.dataset.goView);
   }
   const ask = event.target.closest("[data-ask-question]");
   if (ask) askHarnessToCompose(ask.dataset.askQuestion || "");

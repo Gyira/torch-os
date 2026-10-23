@@ -289,7 +289,7 @@ test("document reextraction conflicts require a fresh document before retry", as
 
 test("page confirmation defaults to cancel, Escape rejects, and focus returns to its trigger", async () => {
   const { core, getNode, context } = await harness();
-  const trigger = getNode("#journal-reload");
+  const trigger = getNode("#agent-new");
   trigger.focus();
   const pending = core.confirmAction({ message: "确认提示", confirmLabel: "明确继续" });
   assert.equal(getNode("#confirm-dialog").open, true);
@@ -394,7 +394,7 @@ test("a host navigate message switches modules before locating the pane", async 
   assert.equal(await app.switchView("self"), true);
   assert.equal(context.location.hash, "#self");
 
-  await emitWindow("message", { data: { type: "torch:navigate", view: "workbench", pane: "journal-view" } });
+  await emitWindow("message", { data: { type: "torch:navigate", view: "workbench", pane: "agent-view" } });
   for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(core.state.view, "workbench", "带 pane 的消息要先切到那个模块");
   assert.equal(context.location.hash, "#workbench");

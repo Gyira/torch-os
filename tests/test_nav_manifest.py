@@ -57,7 +57,9 @@ def test_learning_and_daily_pages_are_gone_from_the_shell(tmp_path):
     markup = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
     assert 'id="learning-view"' not in markup, "学习页已移除：学了什么写进日记"
     assert 'data-settings-section="help"' in markup, "帮助并进了设置"
-    assert 'id="journal-view"' in markup and 'data-module="workbench"' in markup, "日记在工作台里"
+    assert 'id="agent-view"' in markup and 'data-module="workbench"' in markup, "与神对话在工作台里"
+    assert 'data-pane-label="与神对话"' in markup, "工作台锚点叫与神对话"
+    assert 'id="journal-view"' not in markup, "旧日记面板已移除"
     assert 'id="me-view"' not in markup and 'id="notes-view"' not in markup, "旧模块入口已移除"
     for view in ("life", "self", "ops", "knowledge"):
         assert f'id="{view}-view"' in markup, f"{view} 四库页面存在"

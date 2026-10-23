@@ -20,6 +20,14 @@
 
 ## 已完成
 
+- **2026-10-23 与神对话**：工作台移除「今天你动过哪些文件」「今天的日记」两个面板，
+  改为 `agent-view`「与神对话」；`/api/chat/stream` 合并 dsh ACP 控制面与
+  `agent/assistant-stream` 实时流（思考/正文/工具增量），新增 `/api/agent/cancel`；
+  dsh 使用独立 `torch-live` profile 与 `agent/dsh-torch-live` 插件；
+  旧前端 `journal.js` / `journal-note.js` 已删除，后端日记 API 保留给今日工具与导出。
+- **2026-10-23 对话上下文持久化**：会话/消息存 SQLite；dsh ACP session 通过
+  `harness_sessions` 跨进程 resume；前端优先恢复本地会话指针，否则自动接最近会话；
+  SSE 客户端中途断开时由后台 worker 完成并保存回答，不丢最后一轮。
 - **2026-10-22 清单删除修复**：清单目录里的百度网盘同步临时文件
   （`*.baiduyun.uploading.cfg`）不再阻止删除清单，会随任务一起移入回收站；
   其它未知非任务文件仍会拦截，避免误删附件。
@@ -74,6 +82,7 @@
 
 ## 仍保留 / 已知限制
 
+- 「与神对话」当前只读：读取四库/任务/记忆可用；任务、知识笔记、日记的写入提案尚未接入。
 - 旧 `goals` / `tasks` / `study_subjects` / `study_sessions` / `body_entries` /
   `task_import_ledger` 表只保留历史数据，没有写入方；删除/迁移需用户手动确认并先做已验证备份。
 - 学习分钟与学习导出已下线；旧的 `study_*` 数据仍可在数据库/备份里阅读，但产品不再展示。
@@ -111,3 +120,4 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 1. 四库笔记详情操作已完成：复制 Obsidian 双链/路径、增删标签、移动章节、反向链接。
 2. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
 3. 继续选下一组产品功能（按用户需求）。
+4. 与神对话的写入提案：任务、知识笔记、日记；保持「提案 → 确认 → 落库 → 审计」。

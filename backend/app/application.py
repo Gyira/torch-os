@@ -110,6 +110,10 @@ class ChatRequest(InputModel):
     agent: bool = True
 
 
+class AgentCancelRequest(InputModel):
+    conversation_id: int = Field(gt=0)
+
+
 class HarnessResetRequest(InputModel):
     conversation_id: int | None = Field(default=None, gt=0)
 
@@ -799,59 +803,88 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         base_url = f"http://{request.headers.get('host') or '127.0.0.1:8765'}"
 
         async def event_stream():
-            async with app.state.chat_lock:
-                events: asyncio.Queue = asyncio.Queue()
-                loop = asyncio.get_running_loop()
+            events: asyncio.Queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
 
-                def on_delta(text: str) -> None:
-                    loop.call_soon_threadsafe(events.put_nowait, ('delta', text))
-
-                async def worker() -> None:
-                    try:
-                        turn = await run_in_threadpool(
-                            harness_service.run_turn, conversation_id, payload.message, base_url, on_delta)
-                        await events.put(('done', turn))
-                    except Exception as error:  # HarnessError or unexpected: fall back locally
-                        await events.put(('fallback', str(error)))
-
-                task = asyncio.create_task(worker())
-                turn, warning = None, None
+            def on_event(event: dict[str, Any]) -> None:
                 try:
-                    while True:
-                        kind, value = await events.get()
-                        if kind == 'delta':
-                            yield sse_event({'type': 'delta', 'text': value})
-                            continue
-                        if kind == 'done':
-                            turn = value
-                        else:
-                            warning = f'Harness 未完成：{value} 已使用本地回答。'
+                    loop.call_soon_threadsafe(events.put_nowait, ('event', event))
+                except RuntimeError:
+                    pass
+
+            def consume_task_error(task: asyncio.Task) -> None:
+                if not task.cancelled():
+                    task.exception()
+
+            async def worker() -> None:
+                # The accepted turn owns the lock and persistence. Closing the
+                # workbench (and therefore cancelling the SSE response) must not
+                # lose the answer the user asked for.
+                try:
+                    async with app.state.chat_lock:
+                        mode, warning, harness_meta = 'harness', None, None
+                        try:
+                            turn = await run_in_threadpool(
+                                harness_service.run_turn, conversation_id, payload.message, base_url,
+                                None, on_event)
+                            answer, citations = turn['answer'], []
+                            harness_meta = {
+                                'session_id': turn['session_id'], 'resumed': turn['resumed'],
+                                'tools': turn['tools'], 'stop_reason': turn['stop_reason']}
+                            database.audit('harness_turn', {
+                                'conversation_id': conversation_id, 'ok': True,
+                                'tools': len(turn['tools']), 'stop_reason': turn['stop_reason']})
+                        except Exception as error:  # HarnessError or unexpected: fall back locally
+                            mode, warning = 'fallback', f'Harness 未完成：{error} 已使用本地回答。'
+                            database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': False})
+                            async with app.state.data_lock:
+                                await run_in_threadpool(scan_vault, vault_dir, database)
+                                evidence = await run_in_threadpool(database.search_memories, payload.message, 6)
+                            answer = local_answer(evidence, cloud_available=gateway.configured)
+                            citations = citation_payload(evidence)
+                        database.add_message(conversation_id, 'assistant', answer, citations)
+                        database.audit('chat_completed', {'conversation_id': conversation_id, 'mode': mode,
+                                                          'evidence_count': len(citations), 'stream': True})
+                        events.put_nowait(('done', {
+                            'type': 'done', 'conversation_id': conversation_id, 'answer': answer,
+                            'citations': citations, 'mode': mode, 'warning': warning,
+                            'harness': harness_meta}))
+                except Exception as error:
+                    try:
+                        database.audit('chat_error', {'conversation_id': conversation_id,
+                                                      'detail': str(error)[:300]})
+                    except Exception:
+                        pass
+                    events.put_nowait(('done', {
+                        'type': 'done', 'conversation_id': conversation_id,
+                        'answer': '对话未能完成，请重试。', 'citations': [], 'mode': 'error',
+                        'warning': str(error), 'harness': None}))
+
+            task = asyncio.create_task(worker())
+            yield sse_event({'type': 'start', 'conversation_id': conversation_id})
+            try:
+                while True:
+                    kind, value = await events.get()
+                    if kind == 'event':
+                        yield sse_event(value)
+                        continue
+                    if kind == 'done':
+                        yield sse_event(value)
                         break
-                finally:
-                    await task
-                if turn is not None:
-                    mode, answer, citations, harness_meta = 'harness', turn['answer'], [], {
-                        'session_id': turn['session_id'], 'resumed': turn['resumed'],
-                        'tools': turn['tools'], 'stop_reason': turn['stop_reason']}
-                    database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': True,
-                                                    'tools': len(turn['tools']), 'stop_reason': turn['stop_reason']})
-                else:
-                    mode, harness_meta, warning = 'fallback', None, warning or 'Harness 未完成，已使用本地回答。'
-                    database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': False})
-                    async with app.state.data_lock:
-                        await run_in_threadpool(scan_vault, vault_dir, database)
-                        evidence = await run_in_threadpool(database.search_memories, payload.message, 6)
-                    answer = local_answer(evidence, cloud_available=gateway.configured)
-                    citations = citation_payload(evidence)
-                database.add_message(conversation_id, 'assistant', answer, citations)
-                database.audit('chat_completed', {'conversation_id': conversation_id, 'mode': mode,
-                                                  'evidence_count': len(citations), 'stream': True})
-                yield sse_event({'type': 'done', 'conversation_id': conversation_id, 'answer': answer,
-                                 'citations': citations, 'mode': mode, 'warning': warning,
-                                 'harness': harness_meta})
+            finally:
+                # The worker is independent of this response. If the browser
+                # closed, let it finish and persist; never cancel an accepted turn.
+                if not task.done():
+                    task.add_done_callback(consume_task_error)
 
         return StreamingResponse(event_stream(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    @app.post('/api/agent/cancel')
+    async def agent_cancel(payload: AgentCancelRequest):
+        ok = await run_in_threadpool(harness_service.cancel, payload.conversation_id)
+        database.audit('agent_cancel', {'conversation_id': payload.conversation_id, 'ok': ok})
+        return {'ok': ok}
 
     async def journal_data_guard():
         # Journal Markdown exports share the same filesystem/DB boundary as scans and imports.

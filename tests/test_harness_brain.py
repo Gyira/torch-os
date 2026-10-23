@@ -183,9 +183,9 @@ def test_chat_stream_endpoint_emits_deltas_and_falls_back_locally(tmp_path, monk
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(response.iter_text())
     events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
-    deltas = [event for event in events if event["type"] == "delta"]
-    assert len(deltas) == 2
-    assert "".join(event["text"] for event in deltas) == "你好，这是假 harness 的回答。"
+    texts = [event for event in events if event["type"] == "text"]
+    assert len(texts) == 2
+    assert "".join(event["text"] for event in texts) == "你好，这是假 harness 的回答。"
     done = next(event for event in events if event["type"] == "done")
     assert done["mode"] == "harness"
     assert done["answer"] == "你好，这是假 harness 的回答。"

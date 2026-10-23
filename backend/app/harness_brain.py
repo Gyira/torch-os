@@ -14,12 +14,17 @@ auto-allowed for ``torch`` tool calls and rejected for everything else.
 from __future__ import annotations
 
 import json
+import os
 import queue
+import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -29,6 +34,9 @@ from .db import Database, utc_now
 PROTOCOL_VERSION = 1
 MAX_PROMPT_SECONDS = 240.0
 STARTUP_SECONDS = 30.0
+LIVE_HEALTH_SECONDS = 0.6
+LIVE_ATTACH_SECONDS = 3.0
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _SESSION_SCHEMA = """
 CREATE TABLE IF NOT EXISTS harness_sessions (
     conversation_id INTEGER PRIMARY KEY,
@@ -44,12 +52,98 @@ class HarnessError(RuntimeError):
     """The harness could not start, connect or finish the turn."""
 
 
+def _dsh_home() -> Path:
+    return Path(os.environ.get('DSH_HOME') or (Path.home() / '.dsh'))
+
+
+def resolve_profile() -> str:
+    """Use the torch-live profile when it exists; otherwise keep the shipped acp profile."""
+    requested = (os.environ.get('TORCH_DSH_PROFILE') or 'torch-live').strip()
+    profiles = _dsh_home() / 'profiles'
+    if requested and (profiles / requested).is_dir():
+        return requested
+    return 'acp'
+
+
 def resolve_command() -> list[str] | None:
     """Return the ACP server command, or None when dsh is not installed."""
     dsh = shutil.which('dsh')
     if not dsh:
         return None
-    return [dsh, '--profile', 'acp']
+    return [dsh, '--profile', resolve_profile()]
+
+
+def _spawn_argv(command: list[str]) -> list[str]:
+    """Windows npm shims are .CMD files; CreateProcess cannot execute them directly."""
+    if os.name == 'nt' and command and command[0].lower().endswith(('.cmd', '.bat')):
+        return [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', *command]
+    return list(command)
+
+
+def _free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(('127.0.0.1', 0))
+        return int(sock.getsockname()[1])
+
+
+class LiveStreamReader:
+    """Read the dsh live-stream plugin's loopback SSE for one ACP session."""
+
+    def __init__(self, port: int, token: str, session_id: str,
+                 on_event: Callable[[dict[str, Any]], None]):
+        self.port = int(port)
+        self.token = token
+        self.session_id = session_id
+        self.on_event = on_event
+        self.stop_event = threading.Event()
+        self._response = None
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        response, self._response = self._response, None
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+    def _run(self) -> None:
+        query = urllib.parse.urlencode({'session': self.session_id, 'token': self.token})
+        url = f'http://127.0.0.1:{self.port}/events?{query}'
+        deadline = time.monotonic() + LIVE_ATTACH_SECONDS
+        while not self.stop_event.is_set():
+            try:
+                response = _LOOPBACK_OPENER.open(url, timeout=60)
+                self._response = response
+                with response:
+                    for raw in response:
+                        if self.stop_event.is_set():
+                            return
+                        line = raw.decode('utf-8', 'replace').strip()
+                        if not line.startswith('data: '):
+                            continue
+                        try:
+                            payload = json.loads(line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(payload, dict):
+                            deadline = time.monotonic() + 30.0
+                            try:
+                                self.on_event(payload)
+                            except Exception:
+                                pass
+                self._response = None
+            except Exception:
+                self._response = None
+                if self.stop_event.is_set():
+                    return
+                if time.monotonic() > deadline:
+                    return
+                time.sleep(0.1)
 
 
 class HarnessBrain:
@@ -70,7 +164,14 @@ class HarnessBrain:
         self._initialized = False
         self._turn: dict[str, Any] | None = None
         self._on_delta: Callable[[str], None] | None = None
+        self._on_event: Callable[[dict[str, Any]], None] | None = None
+        self._live_reader: LiveStreamReader | None = None
+        self._live_active = False
         self._version: str | None = None
+        self.profile = resolve_profile()
+        self.live_port = _free_loopback_port()
+        self.live_token = secrets.token_urlsafe(18)
+        self.live_enabled = os.environ.get('TORCH_LIVE', '1') != '0'
         with self.database.connect() as connection:
             connection.executescript(_SESSION_SCHEMA)
 
@@ -85,13 +186,24 @@ class HarnessBrain:
             return self._version
         try:
             completed = subprocess.run(
-                [self.command[0], '--version'], capture_output=True, text=True,
+                _spawn_argv(self.command[:1] + ['--version']), capture_output=True, text=True,
                 encoding='utf-8', timeout=20)
             self._version = (completed.stdout or completed.stderr or '').strip().splitlines()[-1:]
             self._version = self._version[0] if self._version else None
         except (OSError, subprocess.SubprocessError, IndexError):
             self._version = None
         return self._version
+
+    def live_health(self) -> bool:
+        if not self.live_enabled:
+            return False
+        try:
+            with _LOOPBACK_OPENER.open(
+                    f'http://127.0.0.1:{self.live_port}/health',
+                    timeout=LIVE_HEALTH_SECONDS) as response:
+                return bool(json.loads(response.read().decode('utf-8')).get('ok'))
+        except Exception:
+            return False
 
     def status(self) -> dict[str, Any]:
         available = self.available()
@@ -101,6 +213,9 @@ class HarnessBrain:
             'version': self.version(),
             'workspace': str(self.workspace_dir),
             'running': self._process is not None and self._process.poll() is None,
+            'profile': self.profile,
+            'model': os.environ.get('TORCH_AGENT_MODEL', 'deepseek-v4-flash'),
+            'live': {'enabled': self.live_enabled, 'port': self.live_port, 'ok': self.live_health()},
             'note': ('Harness 模式会把对话与工具读到的本机内容交给 dsh，由其决定发往 DeepSeek 的上下文；'
                      '使用你 DSH 里的凭据。只读工具自动放行，其它工具调用会被拒绝。'),
         }
@@ -112,10 +227,13 @@ class HarnessBrain:
         if not self.command:
             raise HarnessError('未检测到 dsh：请先安装 DeepSeek Harness（npm install -g @deepseek-ai/dsh）')
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env['TORCH_LIVE_PORT'] = str(self.live_port)
+        env['TORCH_LIVE_TOKEN'] = self.live_token
         try:
             self._process = subprocess.Popen(
-                self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding='utf-8', bufsize=1, cwd=str(self.workspace_dir))
+                _spawn_argv(self.command), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding='utf-8', bufsize=1, cwd=str(self.workspace_dir), env=env)
         except OSError as error:
             raise HarnessError(f'无法启动 dsh：{error}') from error
         self._messages = queue.Queue()
@@ -185,6 +303,15 @@ class HarnessBrain:
             raise HarnessError(f'{method} 失败：{detail}')
         return response.get('result') or {}
 
+    def _emit(self, payload: dict[str, Any]) -> None:
+        callback = self._on_event
+        if callback is None:
+            return
+        try:
+            callback(payload)
+        except Exception:  # never let a consumer break the pump or live thread
+            pass
+
     def _handle_notification(self, message: dict[str, Any]) -> None:
         if message.get('method') != 'session/update':
             return
@@ -197,25 +324,45 @@ class HarnessBrain:
             text = ((update.get('content') or {}).get('text')) or ''
             if text:
                 turn['texts'].append(text)
-                callback = self._on_delta
-                if callback is not None:
+                if self._on_event is not None:
+                    if not self._live_active:
+                        self._emit({'type': 'text', 'text': text})
+                elif self._on_delta is not None:
                     try:
-                        callback(text)
-                    except Exception:  # never let a consumer break the pump thread
+                        self._on_delta(text)
+                    except Exception:
                         pass
         elif kind == 'agent_thought_chunk':
             turn['thoughts'] += 1
+            text = ((update.get('content') or {}).get('text')) or ''
+            if text and self._on_event is not None and not self._live_active:
+                self._emit({'type': 'thought', 'text': text})
         elif kind in {'tool_call', 'tool_call_update'}:
             title = str(update.get('title') or update.get('toolCallId') or '工具调用')
             if title not in turn['tools']:
                 turn['tools'].append(title)
+            if self._on_event is not None:
+                status = str(update.get('status') or '')
+                event = {
+                    'type': 'tool_result' if status in {'completed', 'failed', 'cancelled'} else 'tool_call',
+                    'id': update.get('toolCallId') or update.get('tool_call_id'),
+                    'title': update.get('title'),
+                    'name': update.get('name'),
+                    'kind': update.get('kind'),
+                    'status': status or None,
+                    'input': update.get('rawInput') or update.get('input'),
+                    'content': update.get('content'),
+                }
+                self._emit(event)
 
     def _answer_agent_request(self, message: dict[str, Any]) -> None:
         method = message.get('method')
         message_id = message.get('id')
         if method == 'session/request_permission':
             params = message.get('params') or {}
-            allow = 'torch' in json.dumps(params.get('toolCall') or {}, ensure_ascii=False)
+            serialized = json.dumps(params.get('toolCall') or {}, ensure_ascii=False)
+            # Only the torch MCP server is auto-approved. Everything else is denied.
+            allow = 'mcp__torch' in serialized or 'torch__' in serialized
             options = params.get('options') or []
             wanted = 'allow_once' if allow else 'reject_once'
             option_id = next((item.get('optionId') for item in options if item.get('kind') == wanted), None)
@@ -276,7 +423,10 @@ class HarnessBrain:
                     'sessionId': stored['session_id'], 'cwd': cwd,
                     'mcpServers': self._mcp_servers(base_url),
                 }, timeout=self.startup_timeout)
-                return result.get('sessionId') or stored['session_id'], True
+                session_id = result.get('sessionId') or stored['session_id']
+                if session_id != stored['session_id']:
+                    self._store_session(conversation_id, session_id, cwd)
+                return session_id, True
             except HarnessError:
                 pass
         result = self._request('session/new', {
@@ -289,21 +439,41 @@ class HarnessBrain:
         return session_id, False
 
     def run_turn(self, conversation_id: int, message: str, base_url: str = 'http://127.0.0.1:8765',
-                 on_delta: Callable[[str], None] | None = None) -> dict[str, Any]:
-        """Send one prompt and collect the streamed answer. Blocking; one turn at a time."""
+                 on_delta: Callable[[str], None] | None = None,
+                 on_event: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+        """Send one prompt and collect the answer. Blocking; one turn at a time.
+
+        ``on_event`` receives display events: live token/thinking/tool deltas from
+        the loopback plugin, plus ACP tool updates and a committed-text fallback.
+        """
         with self._lock:
             self._ensure_ready()
             session_id, resumed = self._open_session(conversation_id, base_url)
             self._turn = {'texts': [], 'tools': [], 'thoughts': 0}
             self._on_delta = on_delta
+            self._on_event = on_event
+            self._live_active = False
+            reader = None
+            if on_event is not None:
+                self._emit({'type': 'session', 'session_id': session_id, 'resumed': resumed})
+                if self.live_enabled and self.live_health():
+                    self._live_active = True
+                    reader = LiveStreamReader(self.live_port, self.live_token, session_id, self._emit)
+                    reader.start()
+                    self._live_reader = reader
             try:
                 result = self._request('session/prompt', {
                     'sessionId': session_id,
                     'prompt': [{'type': 'text', 'text': message}],
                 }, timeout=self.prompt_timeout)
             finally:
+                if reader is not None:
+                    reader.close()
                 turn, self._turn = self._turn, None
                 self._on_delta = None
+                self._on_event = None
+                self._live_reader = None
+                self._live_active = False
             answer = ''.join(turn['texts']).strip()
             if not answer:
                 answer = '（Harness 没有返回文本内容；可能是工具调用后停止或需要更明确的提示。）'
@@ -314,6 +484,18 @@ class HarnessBrain:
                 'session_id': session_id,
                 'resumed': resumed,
             }
+
+    def cancel(self, conversation_id: int) -> bool:
+        """Ask the ACP session to cancel its in-flight turn. Safe to call from another thread."""
+        stored = self._stored_session(conversation_id)
+        if not stored:
+            return False
+        try:
+            self._write({'jsonrpc': '2.0', 'method': 'session/cancel',
+                         'params': {'sessionId': stored['session_id']}})
+            return True
+        except Exception:
+            return False
 
     def close(self) -> None:
         process, self._process = self._process, None

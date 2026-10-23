@@ -1,0 +1,23 @@
+{
+  "name": "@local/torch-live-stream",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Loopback SSE bridge for DeepSeek Harness live assistant streams.",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Torch Live Stream",
+    "description": "Publishes DeepSeek Harness live assistant text, reasoning and tool-call deltas on a loopback SSE endpoint for the torch workbench."
+  }
+}

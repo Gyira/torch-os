@@ -10,7 +10,7 @@
       <button class="nav-item active" data-view="workbench" aria-current="page" aria-expanded="true" aria-controls="nav-sub-workbench"><span aria-hidden="true">◷</span>工作台</button>
       <div class="nav-sublist" id="nav-sub-workbench" data-sublist="workbench" role="group" aria-label="工作台分区">
         <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">待办事项</button>
-        <button type="button" class="nav-subitem" data-pane="journal-view" aria-current="false">日记</button>
+        <button type="button" class="nav-subitem" data-pane="agent-view" aria-current="false">与神对话</button>
       </div>
       <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
       <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
@@ -116,16 +116,41 @@
 
 
 
-    <section id="journal-view" class="pane workbench-journal" data-module="workbench" data-pane-label="日记" aria-labelledby="page-title" hidden>
-      <section class="panel journal-activity-panel" aria-labelledby="journal-activity-heading">
-        <div class="section-head"><div><span class="eyebrow">ACTIVITY</span><h2 id="journal-activity-heading">今天你动过哪些文件</h2><p class="section-description">按保险库文件的真实修改时间记录——这就是日记「自动汇总」的原料，不用手填。</p></div><div class="section-actions"><button id="journal-activity-refresh" class="text-button" type="button">刷新</button></div></div>
-        <div id="journal-activity" class="journal-activity"><div class="empty-state">正在扫描今天的记录…</div></div>
-      </section>
-      <section class="panel journal-note" aria-labelledby="journal-note-heading">
-        <div class="section-head"><div><span class="eyebrow">TODAY'S DIARY</span><h2 id="journal-note-heading">今天的日记（写在 Obsidian）</h2><p class="section-description">一天一篇 Markdown 存在你的知识库里，<strong>Obsidian 就是编辑器</strong>；产品按模板起草、自动汇总，可选 AI 润色——<strong>不覆盖你写过的字</strong>。</p></div></div>
-        <div class="journal-toolbar"><div class="field compact-field"><label for="journal-date">日期（北京时间）</label><input id="journal-date" type="date" required /></div><button id="journal-today" class="text-button" type="button">回到今天</button><button id="journal-reload" class="text-button" type="button">重新读取</button><span id="journal-note-status" class="status-message" role="status"></span></div>
-        <div class="journal-toolbar"><label class="check-label" for="journal-note-use-model"><input id="journal-note-use-model" type="checkbox" />创建时用 AI 润色（把本地汇总发给已配置的模型）</label><button id="journal-note-generate" class="button primary" type="button" disabled>创建今天的日记</button></div>
-        <div id="journal-note-body"><div class="empty-state">正在读取日记…</div></div>
+    <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-labelledby="page-title" hidden>
+      <section class="panel agent-panel" aria-labelledby="agent-heading">
+        <div class="section-head agent-head">
+          <div>
+            <span class="eyebrow">DIALOGUE</span>
+            <h2 id="agent-heading" tabindex="-1">与神对话</h2>
+            <p class="section-description">和 DeepSeek V4 Flash 对话。它能读你的四库、任务与记忆；当前只读，不会改动你的数据。</p>
+          </div>
+          <div class="section-actions agent-head-actions">
+            <span id="agent-status" class="status-message" role="status">正在连接…</span>
+            <button id="agent-new" class="text-button" type="button">新对话</button>
+            <button id="agent-history-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="agent-history-list">会话</button>
+          </div>
+        </div>
+        <div id="agent-history-list" class="agent-history" hidden></div>
+        <div id="agent-messages" class="agent-messages" role="log" aria-live="polite" aria-relevant="additions text">
+          <div class="agent-empty" id="agent-empty">
+            <p class="agent-empty-title">与神对话</p>
+            <p class="field-help">问它今天该做什么、让它帮你分析任务与知识库，或者读你的画像一起做决定。</p>
+            <div class="agent-suggestions">
+              <button type="button" class="agent-suggestion" data-agent-suggestion="今天我最该推进什么？">今天我最该推进什么？</button>
+              <button type="button" class="agent-suggestion" data-agent-suggestion="帮我梳理今天最重要的三件事，并说明理由">帮我梳理今天的重点</button>
+              <button type="button" class="agent-suggestion" data-agent-suggestion="读一下我的自我档案，帮我分析最近的一个决定">读画像做分析</button>
+            </div>
+          </div>
+        </div>
+        <form id="agent-form" class="agent-composer">
+          <label class="visually-hidden" for="agent-input">与神对话输入</label>
+          <textarea id="agent-input" rows="2" maxlength="4000" placeholder="跟它说你要做什么；Enter 发送，Shift+Enter 换行" aria-label="与神对话输入"></textarea>
+          <div class="agent-composer-actions">
+            <span id="agent-hint" class="field-help">只读工具已连接；当前不会改动你的数据。</span>
+            <button id="agent-stop" class="button secondary" type="button" hidden>停止</button>
+            <button id="agent-send" class="button primary" type="submit">发送</button>
+          </div>
+        </form>
       </section>
     </section>
     <section id="life-view" class="view pillar-view" data-module="life" hidden>
