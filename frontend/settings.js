@@ -328,7 +328,7 @@ export async function loadSettings() {
     ["版本", health.status === "fulfilled" ? health.value.version || "未报告" : "未读取"],
     ["语义检索", config.status === "fulfilled" ? (config.value.capabilities?.semantic_search ? `已启用（${config.value.embedding_provider || "本地向量"}）` : "词法检索（未启用本地向量）") : "未读取"],
     // 对话统一在 dsh（2026-10-05）：产品里不再有自己的对话入口。
-    ["对话", "在 dsh 里进行（本工作台不再自带对话页）"],
+    ["对话", "与神对话（工作台内，DeepSeek V4 Flash）"],
     ["最近检查", formatDate(new Date().toISOString())],
   ];
   const modelRows = [

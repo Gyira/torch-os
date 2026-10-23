@@ -25,6 +25,10 @@
   `agent/assistant-stream` 实时流（思考/正文/工具增量），新增 `/api/agent/cancel`；
   dsh 使用独立 `torch-live` profile 与 `agent/dsh-torch-live` 插件；
   旧前端 `journal.js` / `journal-note.js` 已删除，后端日记 API 保留给今日工具与导出。
+- **2026-10-23 全产品 UI 打磨**：主列统一为 1240px 并让顶部导航、工作台、四库、设置
+  对齐；窄屏边距 18/14px；统一卡片 14px 圆角与按钮节奏；四库移动端操作区、设置页
+  操作换行、开始提示关闭按钮、时间模块横向滚动条、空状态、日历格与「与神对话」
+  窄屏头部/正文列宽均已修正。
 - **2026-10-23 对话上下文持久化**：会话/消息存 SQLite；dsh ACP session 通过
   `harness_sessions` 跨进程 resume；前端优先恢复本地会话指针，否则自动接最近会话；
   SSE 客户端中途断开时由后台 worker 完成并保存回答，不丢最后一轮。

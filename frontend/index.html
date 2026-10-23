@@ -118,37 +118,47 @@
 
     <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-labelledby="page-title" hidden>
       <section class="panel agent-panel" aria-labelledby="agent-heading">
-        <div class="section-head agent-head">
-          <div>
-            <span class="eyebrow">DIALOGUE</span>
-            <h2 id="agent-heading" tabindex="-1">与神对话</h2>
-            <p class="section-description">和 DeepSeek V4 Flash 对话。它能读你的四库、任务与记忆；当前只读，不会改动你的数据。</p>
-          </div>
-          <div class="section-actions agent-head-actions">
-            <span id="agent-status" class="status-message" role="status">正在连接…</span>
-            <button id="agent-new" class="text-button" type="button">新对话</button>
-            <button id="agent-history-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="agent-history-list">会话</button>
-          </div>
-        </div>
-        <div id="agent-history-list" class="agent-history" hidden></div>
-        <div id="agent-messages" class="agent-messages" role="log" aria-live="polite" aria-relevant="additions text">
-          <div class="agent-empty" id="agent-empty">
-            <p class="agent-empty-title">与神对话</p>
-            <p class="field-help">问它今天该做什么、让它帮你分析任务与知识库，或者读你的画像一起做决定。</p>
-            <div class="agent-suggestions">
-              <button type="button" class="agent-suggestion" data-agent-suggestion="今天我最该推进什么？">今天我最该推进什么？</button>
-              <button type="button" class="agent-suggestion" data-agent-suggestion="帮我梳理今天最重要的三件事，并说明理由">帮我梳理今天的重点</button>
-              <button type="button" class="agent-suggestion" data-agent-suggestion="读一下我的自我档案，帮我分析最近的一个决定">读画像做分析</button>
+        <div class="agent-top">
+          <div class="agent-head">
+            <div class="agent-title-block">
+              <span class="eyebrow">DIALOGUE</span>
+              <h2 id="agent-heading" tabindex="-1">与神对话</h2>
+              <p class="section-description">和 DeepSeek V4 Flash 对话。它能读你的四库、任务与记忆；当前只读，不会改动你的数据。</p>
+            </div>
+            <div class="agent-head-actions">
+              <span id="agent-status" class="status-message agent-status" role="status" aria-live="polite">正在连接…</span>
+              <span class="agent-readonly" title="当前只读，不会改动你的数据">只读</span>
+              <button id="agent-new" class="button secondary agent-action" type="button">＋ 新对话</button>
+              <button id="agent-history-toggle" class="text-button agent-action" type="button" aria-expanded="false" aria-controls="agent-history-list">会话</button>
             </div>
           </div>
+          <div id="agent-history-list" class="agent-history" hidden></div>
+        </div>
+        <div class="agent-stage">
+          <div id="agent-messages" class="agent-messages" role="log" aria-live="polite" aria-relevant="additions text">
+            <div class="agent-empty" id="agent-empty">
+              <div class="agent-empty-mark" aria-hidden="true">✦</div>
+              <p class="agent-empty-title">与神对话</p>
+              <p class="field-help">问它今天该做什么、让它帮你分析任务与知识库，或者读你的画像一起做决定。</p>
+              <div class="agent-suggestions">
+                <button type="button" class="agent-suggestion" data-agent-suggestion="今天我最该推进什么？">今天我最该推进什么？</button>
+                <button type="button" class="agent-suggestion" data-agent-suggestion="帮我梳理今天最重要的三件事，并说明理由">帮我梳理今天的重点</button>
+                <button type="button" class="agent-suggestion" data-agent-suggestion="读一下我的自我档案，帮我分析最近的一个决定">读画像做分析</button>
+              </div>
+            </div>
+          </div>
+          <button id="agent-scroll-bottom" class="agent-scroll-bottom" type="button" aria-label="回到最新消息" hidden>↓</button>
         </div>
         <form id="agent-form" class="agent-composer">
-          <label class="visually-hidden" for="agent-input">与神对话输入</label>
-          <textarea id="agent-input" rows="2" maxlength="4000" placeholder="跟它说你要做什么；Enter 发送，Shift+Enter 换行" aria-label="与神对话输入"></textarea>
-          <div class="agent-composer-actions">
-            <span id="agent-hint" class="field-help">只读工具已连接；当前不会改动你的数据。</span>
-            <button id="agent-stop" class="button secondary" type="button" hidden>停止</button>
-            <button id="agent-send" class="button primary" type="submit">发送</button>
+          <div class="agent-composer-shell">
+            <label class="visually-hidden" for="agent-input">与神对话输入</label>
+            <textarea id="agent-input" rows="2" maxlength="4000" placeholder="跟它说你要做什么；Enter 发送，Shift+Enter 换行" aria-label="与神对话输入"></textarea>
+            <div class="agent-composer-row">
+              <span id="agent-hint" class="field-help">只读工具已连接；当前不会改动你的数据。</span>
+              <span class="agent-kbd" aria-hidden="true">Enter 发送 · Shift+Enter 换行</span>
+              <button id="agent-stop" class="button secondary" type="button" hidden>停止</button>
+              <button id="agent-send" class="button primary agent-send" type="submit" disabled>发送 <span aria-hidden="true">↑</span></button>
+            </div>
           </div>
         </form>
       </section>

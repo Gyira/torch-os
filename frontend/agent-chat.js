@@ -1,7 +1,7 @@
 // 「与神对话」：工作台内的 agent 聊天页。
 // 后端把 dsh 的 ACP 控制面与实时 assistant-stream 合并成 SSE；
 // 这个模块只负责渲染：思考面板、正文流、工具卡片、会话与停止。
-import { $, api, escapeHtml, setStatus, toast } from "./core.js";
+import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 
 const STORAGE_KEY = "torch-os:agent-conversation";
@@ -12,6 +12,30 @@ const STATUS_LABELS = {
   failed: "失败",
   cancelled: "已取消",
 };
+const MODEL_LABELS = {
+  "deepseek-v4-flash": "DeepSeek V4 Flash",
+};
+const TOOL_LABELS = {
+  "mcp__torch__imports": "导入记录",
+  "mcp__torch__today": "今日概览",
+  "mcp__torch__goals": "目标",
+  "mcp__torch__habits": "习惯",
+  "mcp__torch__journal": "日记",
+  "mcp__torch__body": "身体记录",
+  "mcp__torch__documents": "资料",
+  "mcp__torch__identity": "个人画像",
+  "mcp__torch__profile": "档案概览",
+  "mcp__torch__memories": "记忆",
+  "mcp__torch__vault": "知识库",
+  "mcp__torch__vault_audit": "库体检",
+};
+
+function toolLabel(value) {
+  const name = String(value || "").trim();
+  if (!name) return "工具调用";
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+  return name.replace(/^mcp__torch__/, "").replaceAll("_", " ");
+}
 
 const agent = {
   initialized: false,
@@ -47,11 +71,21 @@ function showEmpty(show) {
   if (empty) empty.hidden = !show;
 }
 
+function syncScrollButton() {
+  const root = messagesRoot();
+  const button = $("#agent-scroll-bottom");
+  if (!root || !button) return;
+  const hasMessages = Boolean(root.querySelector(".agent-msg"));
+  const away = root.scrollHeight - root.scrollTop - root.clientHeight > 140;
+  button.hidden = !hasMessages || !away;
+}
+
 function scrollToBottom(force = false) {
   const root = messagesRoot();
   if (!root) return;
   const nearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 90;
   if (force || nearBottom) root.scrollTop = root.scrollHeight;
+  syncScrollButton();
 }
 
 function nowSeconds(start) {
@@ -74,6 +108,22 @@ function makeAssistantShell() {
   if (!root) return null;
   const wrap = document.createElement("div");
   wrap.className = "agent-msg assistant";
+
+  const head = document.createElement("div");
+  head.className = "agent-msg-head";
+  const avatar = document.createElement("span");
+  avatar.className = "agent-avatar";
+  avatar.setAttribute("aria-hidden", "true");
+  avatar.textContent = "✦";
+  const name = document.createElement("span");
+  name.className = "agent-name";
+  name.textContent = "与神";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "agent-copy";
+  copy.textContent = "复制";
+  copy.setAttribute("aria-label", "复制回答");
+  head.append(avatar, name, copy);
 
   const thinking = document.createElement("details");
   thinking.className = "agent-thinking";
@@ -100,17 +150,28 @@ function makeAssistantShell() {
   const meta = document.createElement("div");
   meta.className = "agent-meta field-help";
 
-  wrap.append(thinking, tools, answer, meta);
+  wrap.append(head, thinking, tools, answer, meta);
   root.appendChild(wrap);
   showEmpty(false);
   scrollToBottom(true);
 
-  return {
-    wrap, thinking, summary, thinkingBody,
+  const shell = {
+    wrap, head, copy, thinking, summary, thinkingBody,
     answer, answerText, caret, tools, meta,
     text: "", thought: "", started: performance.now(), done: false,
     toolCards: new Map(),
   };
+  copy.addEventListener("click", async () => {
+    const text = (shell.text || shell.answerText.textContent || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("已复制回答", "success");
+    } catch {
+      toast("复制失败，请手动选择文本", "error");
+    }
+  });
+  return shell;
 }
 
 function toolCard(shell, id, fallbackName) {
@@ -122,7 +183,8 @@ function toolCard(shell, id, fallbackName) {
   const summary = document.createElement("summary");
   const name = document.createElement("span");
   name.className = "agent-tool-name";
-  name.textContent = fallbackName || "工具调用";
+  name.textContent = toolLabel(fallbackName);
+  name.title = String(fallbackName || "");
   const status = document.createElement("span");
   status.className = "agent-tool-status";
   status.textContent = "准备中…";
@@ -161,7 +223,10 @@ function updateTool(shell, event, kind) {
   const card = toolCard(shell, id, event.title || event.name || "工具调用");
   if (!card) return;
   if (kind === "delta") {
-    if (event.name) card.name.textContent = event.name;
+    if (event.name) {
+      card.name.textContent = toolLabel(event.name);
+      card.name.title = String(event.name);
+    }
     if (event.arguments) {
       card.arguments += event.arguments;
       card.input.hidden = false;
@@ -169,8 +234,11 @@ function updateTool(shell, event, kind) {
     }
     card.status.textContent = "运行中…";
   } else if (kind === "call") {
-    if (event.title) card.name.textContent = event.title;
-    if (event.name) card.name.textContent = event.name;
+    const rawName = event.name || event.title;
+    if (rawName) {
+      card.name.textContent = toolLabel(rawName);
+      card.name.title = String(rawName);
+    }
     const status = String(event.status || "in_progress");
     card.status.textContent = STATUS_LABELS[status] || status;
     const input = event.input ?? event.arguments ?? event.rawInput;
@@ -228,16 +296,19 @@ function renderFinalAnswer(shell, fallback = "") {
 }
 
 function currentStatus(text, tone = "neutral") {
-  setStatus("#agent-status", text, tone);
+  const node = $("#agent-status");
+  if (!node) return;
+  node.dataset.tone = tone;
+  node.textContent = text;
 }
 
 function setBusy(busy) {
   agent.busy = busy;
   const send = $("#agent-send");
   const stop = $("#agent-stop");
-  if (send) send.disabled = busy;
-  if (stop) stop.hidden = !busy;
   const input = $("#agent-input");
+  if (send) send.disabled = busy || !String(input?.value || "").trim();
+  if (stop) stop.hidden = !busy;
   if (input) input.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
@@ -254,14 +325,14 @@ function handleEvent(shell, payload) {
       if (payload.session_id && shell) shell.meta.dataset.session = String(payload.session_id);
       break;
     case "stream_start":
-      currentStatus("思考中…");
+      currentStatus("思考中…", "busy");
       break;
     case "block_start":
       if (payload.blockType === "reasoning" && shell) {
         shell.thinking.hidden = false;
         shell.thinking.open = true;
         shell.summary.textContent = "思考中…";
-        currentStatus("思考中…");
+        currentStatus("思考中…", "busy");
       }
       break;
     case "block_end":
@@ -275,7 +346,7 @@ function handleEvent(shell, payload) {
         shell.thinking.open = true;
         shell.thinkingBody.textContent = shell.thought;
         shell.summary.textContent = "思考中…";
-        currentStatus("思考中…");
+        currentStatus("思考中…", "busy");
         scrollToBottom();
       }
       break;
@@ -284,7 +355,7 @@ function handleEvent(shell, payload) {
       if (payload.text) {
         if (!shell.text) {
           finishThinking(shell);
-          currentStatus("生成中…");
+          currentStatus("生成中…", "busy");
         }
         shell.text += payload.text;
         renderStreamingAnswer(shell);
@@ -292,15 +363,15 @@ function handleEvent(shell, payload) {
       break;
     case "tool_delta":
       updateTool(shell, payload, "delta");
-      currentStatus("调用工具…");
+      currentStatus("调用工具…", "busy");
       break;
     case "tool_call":
       updateTool(shell, payload, "call");
-      currentStatus("调用工具…");
+      currentStatus("调用工具…", "busy");
       break;
     case "tool_result":
       updateTool(shell, payload, "result");
-      currentStatus("生成中…");
+      currentStatus("生成中…", "busy");
       break;
     case "done":
       if (payload.conversation_id) {
@@ -326,7 +397,7 @@ async function streamChat(message, shell) {
   const controller = new AbortController();
   agent.controller = controller;
   setBusy(true);
-  currentStatus("思考中…");
+  currentStatus("思考中…", "busy");
   try {
     const response = await fetch("/api/chat/stream", {
       method: "POST",
@@ -400,6 +471,7 @@ function clearMessages() {
   if (!root) return;
   root.querySelectorAll(".agent-msg").forEach((node) => node.remove());
   showEmpty(true);
+  syncScrollButton();
 }
 
 async function loadConversation(id, { quiet = false } = {}) {
@@ -472,7 +544,13 @@ function renderSessions() {
     button.type = "button";
     button.className = "agent-history-item";
     if (Number(session.id) === Number(agent.conversationId)) button.classList.add("is-active");
-    button.textContent = session.title || `会话 ${session.id}`;
+    const title = document.createElement("span");
+    title.className = "agent-history-title";
+    title.textContent = session.title || `会话 ${session.id}`;
+    const meta = document.createElement("span");
+    meta.className = "agent-history-meta";
+    meta.textContent = formatRelativeDate(session.updated_at || session.created_at || "");
+    button.append(title, meta);
     button.addEventListener("click", async () => {
       list.hidden = true;
       const toggle = $("#agent-history-toggle");
@@ -488,9 +566,8 @@ async function loadStatus() {
     const status = await api("/api/harness/status");
     agent.lastStatus = status;
     if (status && status.available) {
-      const model = status.model || "DeepSeek V4 Flash";
-      const profile = status.profile ? ` · ${status.profile}` : "";
-      currentStatus(`${status.running ? "已连接" : "就绪"} · ${model}${profile}`, "success");
+      const model = MODEL_LABELS[status.model] || status.model || "DeepSeek V4 Flash";
+      currentStatus(`${status.running ? "已连接" : "就绪"} · ${model}`, "success");
       const hint = $("#agent-hint");
       if (hint) hint.textContent = status.live && status.live.ok
         ? "实时思考与逐字输出已连接；当前只读，不会改动你的数据。"
@@ -531,6 +608,8 @@ export function initAgentChat() {
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(180, input.scrollHeight)}px`;
+    const send = $("#agent-send");
+    if (send && !agent.busy) send.disabled = !String(input.value || "").trim();
   });
 
   $("#agent-stop")?.addEventListener("click", () => {
@@ -550,6 +629,7 @@ export function initAgentChat() {
     storageSet(null);
     clearMessages();
     currentStatus(agent.lastStatus?.available ? "已连接" : "dsh 未连接", agent.lastStatus?.available ? "success" : "error");
+    void loadStatus();
     input.focus();
   });
 
@@ -566,9 +646,16 @@ export function initAgentChat() {
     button.addEventListener("click", () => {
       const text = button.dataset.agentSuggestion || "";
       input.value = text;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
       input.focus();
     });
   });
+
+  messagesRoot()?.addEventListener("scroll", syncScrollButton, { passive: true });
+  $("#agent-scroll-bottom")?.addEventListener("click", () => scrollToBottom(true));
+  const send = $("#agent-send");
+  if (send) send.disabled = !String(input.value || "").trim();
+  syncScrollButton();
 }
 
 export async function loadAgentChat() {
