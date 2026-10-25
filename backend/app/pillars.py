@@ -1,4 +1,4 @@
-"""四库只读接口与快速捕获（2026-10-21）。"""
+"""四库只读接口（2026-10-26 起写入统一在 Obsidian 完成）。"""
 
 from __future__ import annotations
 
@@ -9,47 +9,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import goal_notes, journal_note, pillar_notes, reviews, steward, steward_policy, vault_layout
+from . import goal_notes, journal_note, pillar_notes, steward, steward_policy, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
-from .vault_connection import ensure_vault_writable
-
-
-class CaptureRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    title: str = Field(min_length=1, max_length=200)
-    body: str = Field(default="", max_length=200_000)
-    pillar: str = Field(default="knowledge", max_length=32)
-    chapter: str = Field(default="inbox", max_length=32)
-    note_type: str = Field(default="", max_length=32)
-    tags: list[str] = Field(default_factory=list, max_length=24)
-    source: str = Field(default="", max_length=500)
-    date: str = Field(default="", max_length=10)
-
-
-class NoteUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    body: str | None = Field(default=None, max_length=200_000)
-    title: str = Field(default="", max_length=200)
-    tags: list[str] | None = Field(default=None, max_length=24)
-    status: str = Field(default="", max_length=32)
-
-
-class NoteMove(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    path: str = Field(min_length=1, max_length=500)
-    chapter: str = Field(min_length=1, max_length=32)
-
-
-class ReviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    day: str = Field(default="", max_length=10)
-    month: str = Field(default="", max_length=7)
 
 
 class SuggestRequest(BaseModel):
@@ -167,32 +130,6 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
     def note_backlinks(path: str = Query(min_length=1)):
         return {"items": pillar_notes.backlinks(vault_dir, path)}
 
-    @router.post("/notes/update")
-    def note_update(payload: NoteUpdate, path: str = Query(min_length=1)):
-        if read_only:
-            raise HTTPException(409, "当前是只读模式")
-        ensure_vault_writable(read_only, "更新笔记")
-        return pillar_notes.update_note(
-            vault_dir, path, body=payload.body, title=payload.title,
-            tags=payload.tags, status=payload.status)
-
-    @router.post("/notes/move")
-    def note_move(payload: NoteMove):
-        if read_only:
-            raise HTTPException(409, "当前是只读模式")
-        ensure_vault_writable(read_only, "移动笔记")
-        return pillar_notes.move_note(vault_dir, payload.path, payload.chapter)
-
-    @router.post("/capture")
-    def capture(payload: CaptureRequest):
-        if read_only:
-            raise HTTPException(409, "当前是只读模式")
-        ensure_vault_writable(read_only, "快速捕获")
-        return pillar_notes.create_note(
-            vault_dir, pillar=payload.pillar, chapter=payload.chapter,
-            title=payload.title, body=payload.body, note_type=payload.note_type,
-            tags=payload.tags, source=payload.source, date=payload.date)
-
     @router.get("/search")
     def search(q: str = Query(min_length=1), pillar: str = Query(default=""),
                limit: int = Query(default=40, ge=1, le=200)):
@@ -203,7 +140,7 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
 
     @router.get("/steward/inbox-suggestions")
     def inbox_suggestions(limit: int = Query(default=50, ge=1, le=200)):
-        # 直接复用管家提案，确保界面上的 id 和执行接口校验的是同一份提案。
+        # 直接复用管家提案，确保界面上的 id 与只读提案一致。
         items = []
         for proposal in steward.inbox_proposals(vault_dir):
             items.append({
@@ -231,20 +168,6 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
         result["pillar_title"] = vault_layout.PILLAR_TITLES.get(
             result["pillar"], result["pillar"])
         return result
-
-    @router.post("/reviews/weekly")
-    def weekly_review(payload: ReviewRequest | None = None):
-        if read_only:
-            raise HTTPException(409, "当前是只读模式")
-        ensure_vault_writable(read_only, "生成周复盘")
-        return reviews.weekly_skeleton(vault_dir, (payload.day if payload else ""))
-
-    @router.post("/reviews/monthly")
-    def monthly_review(payload: ReviewRequest | None = None):
-        if read_only:
-            raise HTTPException(409, "当前是只读模式")
-        ensure_vault_writable(read_only, "生成月复盘")
-        return reviews.monthly_skeleton(vault_dir, (payload.month if payload else ""))
 
     return router
 

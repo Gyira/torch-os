@@ -43,6 +43,68 @@ export function openNoteMessage(path) {
   return { type: "torch:open-note", path: String(path || "") };
 }
 
+/** Obsidian 新建笔记深链接：文件由 Obsidian 自己创建并打开，插件不写盘。 */
+export function obsidianNewUri(vaultName, path, content = "") {
+  const vault = String(vaultName || "").trim();
+  const file = String(path || "").trim();
+  if (!vault || !file) return "";
+  const query = `vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`;
+  const text = String(content || "");
+  return text ? `obsidian://new?${query}&content=${encodeURIComponent(text)}` : `obsidian://new?${query}`;
+}
+
+/** 新建并打开笔记的消息体（插件会先建文件再打开）。 */
+export function newNoteMessage(path, content = "") {
+  return { type: "torch:new-note", path: String(path || ""), content: String(content || "") };
+}
+
+/** 在 Obsidian 里打开一篇已有笔记；返回 false = 没有可打开的目标。 */
+export function openObsidianNote(path, vaultName) {
+  const target = String(path || "").trim();
+  if (!target) return false;
+  if (isObsidianHost() && globalThis.parent && globalThis.parent !== globalThis) {
+    try {
+      globalThis.parent.postMessage(openNoteMessage(target), "*");
+      return true;
+    } catch {
+      // 落到 obsidian:// 兜底
+    }
+  }
+  const uri = obsidianOpenUri(vaultName, target);
+  if (!uri) return false;
+  try {
+    globalThis.open?.(uri, "_blank", "noopener");
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 在 Obsidian 里新建并打开一篇笔记（写入由 Obsidian 完成），返回 false = 没有可用目标。
+ * 插件里走宿主桥（插件建文件 + 打开）；浏览器里走 obsidian://new。
+ */
+export function createObsidianNote(path, vaultName, content = "") {
+  const target = String(path || "").trim();
+  if (!target) return false;
+  if (isObsidianHost() && globalThis.parent && globalThis.parent !== globalThis) {
+    try {
+      globalThis.parent.postMessage(newNoteMessage(target, content), "*");
+      return true;
+    } catch {
+      // 落到 obsidian:// 兜底
+    }
+  }
+  const uri = obsidianNewUri(vaultName, target, content);
+  if (!uri) return false;
+  try {
+    globalThis.open?.(uri, "_blank", "noopener");
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 /**
  * 打开任务文档。返回 false = 没有可打开的目标（调用方负责提示）。
  * 在 Obsidian 内由插件调用 app.vault.getAbstractFileByPath → openFile；

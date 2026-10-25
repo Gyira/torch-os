@@ -38,6 +38,7 @@ from .schema_export import create_schema_router
 from .tools import create_tools_router
 from .mcp_bridge import run_selftest as mcp_bridge_selftest
 from .workspaces import create_workspaces_router
+from .vault_admin import create_vault_admin_router
 from .vault_connection import (
     READ_ONLY_ENV,
     VaultReadOnlyError,
@@ -437,6 +438,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
                     'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
                     'tasks':True,'tools':True,'vault_audit':True,
+                    'vault_admin':runtime_label == 'personal',
                     'vault_connection':not vault_scoped,'weather':True,'workbench':True,
                     'workspaces':runtime_label == 'personal' and not vault_scoped,
                 }}
@@ -667,6 +669,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         data_dir=database.path.parent, vault_dir=vault_dir, read_only=vault_read_only,
         env_path=env_path, database=database, runtime_label=runtime_label,
         vault_scoped=bool(vault_scoped), **workspace_options))
+    # 设置页「个人数据库」：按四库模板创建新库（含 .obsidian 预设与插件），只写新文件夹。
+    app.include_router(create_vault_admin_router(
+        database=database, vault_dir=vault_dir, runtime_label=runtime_label,
+        vault_scoped=bool(vault_scoped), registry_path=workspace_registry))
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_scheduler_router(
         database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
@@ -683,7 +689,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # 四库布局迁移：预览只读，执行/回滚需要显式确认并持有 data_lock。
     app.include_router(create_migration_router(
         database, vault_dir, app.state.data_lock, read_only=vault_read_only))
-    # 四库只读浏览、笔记读写与快速捕获。
+    # 四库只读浏览：新建、修改与捕获都在 Obsidian 里完成。
     app.include_router(create_pillars_router(
         database, vault_dir, read_only=vault_read_only))
     # 薪火管家：确定性提案与健康检查。

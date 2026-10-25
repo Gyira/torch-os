@@ -1,6 +1,6 @@
-// 薪火管家：确定性提案与健康检查。
-// 所有执行都要在界面上点“确认应用”；问答统一交给「与神对话」里的 dsh。
-import { api, escapeHtml, toast } from "./core.js";
+// 薪火管家：确定性提案与健康检查（2026-10-26 起只读）。
+// 这里只给建议，不移动/不新建任何笔记；要动手请到 Obsidian。问答统一交给「与神对话」。
+import { api, escapeHtml } from "./core.js";
 
 const CONFIDENCE_LABEL = { high: "高置信", medium: "可参考", low: "低置信" };
 const SEVERITY_LABEL = { error: "错误", warning: "需要留意", info: "提示" };
@@ -20,7 +20,7 @@ function proposalMarkup(item) {
     <p class="steward-route"><span>${escapeHtml(item.path)}</span><b aria-hidden="true">→</b><strong>${escapeHtml(target)}</strong></p>
     <p class="field-help">${escapeHtml(item.reason)}</p>
     <div class="steward-proposal-actions">
-      <button type="button" class="button primary" data-steward-apply="${escapeHtml(item.id)}">确认应用</button>
+      <button type="button" class="button secondary" data-steward-open-note="${escapeHtml(item.path)}">在 Obsidian 打开原文</button>
     </div>
   </article>`;
 }
@@ -58,7 +58,7 @@ function healthMarkup(payload, filter = "all") {
     <p class="field-help steward-footnote">${escapeHtml(payload.note || "")}${payload.truncated ? " 结果较多，已只显示前一部分。" : ""}</p>`;
 }
 
-export function openSteward(view, { onApplied, onOpenNote } = {}) {
+export function openSteward(view, { onOpenNote } = {}) {
   const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "pillar-dialog pillar-steward-dialog";
@@ -67,8 +67,8 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     <div class="pillar-dialog-head">
       <div>
         <p class="eyebrow">薪火管家</p>
-        <h2>只提议，不替你动手</h2>
-        <p class="meta">提案只是建议；应用前请核对源路径与目标章节。问答请到「与神对话」。</p>
+        <h2>只读建议与体检</h2>
+        <p class="meta">提案和健康检查都只读；这里不会移动或新建笔记，动手请到 Obsidian。问答请到「与神对话」。</p>
       </div>
       <button type="button" class="text-button" data-steward-close>关闭</button>
     </div>
@@ -155,26 +155,6 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     }
     const open = event.target.closest?.("[data-steward-open-note]");
     if (open) { openNote(open.dataset.stewardOpenNote); return; }
-    const apply = event.target.closest?.("[data-steward-apply]");
-    if (apply) {
-      const proposalId = apply.dataset.stewardApply;
-      if (!proposalId) return;
-      apply.disabled = true;
-      apply.textContent = "应用中…";
-      try {
-        const result = await api("/api/steward/proposals/apply", {
-          method: "POST",
-          body: JSON.stringify({ proposal_id: proposalId, confirm: true }),
-        });
-        toast(result.proposal?.action === "distill" ? "已生成原则草稿。" : "已按提案移动。");
-        await onApplied?.();
-        await loadProposals();
-      } catch (error) {
-        toast(error.message, "error");
-        apply.disabled = false;
-        apply.textContent = "确认应用";
-      }
-    }
   });
 
   if (typeof dialog.showModal === "function") dialog.showModal();

@@ -1,20 +1,20 @@
-"""四库浏览、捕获、笔记读写与搜索。"""
+"""四库浏览、笔记读取与搜索（2026-10-26 起四库只读，写入在 Obsidian）。"""
 
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from backend.app import pillar_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 
 
-def make_client(tmp_path, *, read_only=False):
+def make_client(tmp_path):
     vault = tmp_path / "vault"
     vault.mkdir(parents=True)
-    environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
     app = create_app(
         Database(tmp_path / "torch_os.sqlite3"), vault,
-        security_environ=environ, env_file=tmp_path / ".env")
+        security_environ={}, env_file=tmp_path / ".env")
     client = TestClient(app)
     client.get("/")
     return client, vault
@@ -32,17 +32,14 @@ def test_manifest_lists_four_pillars(tmp_path):
     assert inbox["path"] == "03_知识库/00_收件箱"
 
 
-def test_capture_writes_inbox_and_notes_are_listed(tmp_path):
+def test_inbox_note_is_listed_in_chapter_and_overview(tmp_path):
     client, vault = make_client(tmp_path)
-    created = client.post("/api/capture", json={
-        "title": "一条灵感", "body": "值得记住的想法", "tags": ["灵感"],
-    })
-    assert created.status_code == 200, created.text
-    note = created.json()
+    note = pillar_notes.create_note(
+        vault, pillar="knowledge", chapter="inbox",
+        title="一条灵感", body="值得记住的想法", tags=["灵感"])
     assert note["pillar"] == "knowledge"
     assert note["chapter"] == "inbox"
     assert note["status"] == "inbox"
-    assert (vault / note["path"]).is_file()
 
     listed = client.get("/api/pillars/knowledge/notes?chapter=inbox").json()["items"]
     assert [item["title"] for item in listed] == ["一条灵感"]
@@ -50,84 +47,40 @@ def test_capture_writes_inbox_and_notes_are_listed(tmp_path):
     assert overview["inbox_count"] == 1
 
 
-def test_read_update_move_and_search(tmp_path):
+def test_read_and_search(tmp_path):
     client, vault = make_client(tmp_path)
-    note = client.post("/api/capture", json={"title": "待提炼", "body": "原始内容"}).json()
+    note = pillar_notes.create_note(vault, title="待提炼", body="原始内容")
     read = client.get("/api/notes", params={"path": note["path"]}).json()
     assert read["body"] == "原始内容"
-    updated = client.post("/api/notes/update", params={"path": note["path"]}, json={
-        "body": "提炼后的内容", "tags": ["已整理"], "status": "active",
-    })
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["body"] == "提炼后的内容"
-    assert "已整理" in updated.json()["tags"]
 
-    moved = client.post("/api/notes/move", json={
-        "path": note["path"], "chapter": "concept",
-    })
-    assert moved.status_code == 200, moved.text
-    moved_note = moved.json()
-    assert moved_note["chapter"] == "concept"
-    assert moved_note["path"].startswith("03_知识库/04_概念卡片/")
-    assert (vault / moved_note["path"]).is_file()
+    missing = client.get("/api/notes", params={"path": "03_知识库/00_收件箱/不存在.md"})
+    assert missing.status_code == 404
 
     found = client.get("/api/search", params={"q": "提炼"}).json()["items"]
-    assert any(item["path"] == moved_note["path"] for item in found)
+    assert any(item["path"] == note["path"] for item in found)
 
 
-def test_capture_and_update_respect_read_only(tmp_path):
-    client, _ = make_client(tmp_path, read_only=True)
-    blocked = client.post("/api/capture", json={"title": "写不进去", "body": "只读"})
-    assert blocked.status_code == 409
-
-
-def test_create_does_not_overwrite_same_title(tmp_path):
-    client, vault = make_client(tmp_path)
-    first = client.post("/api/capture", json={"title": "同名", "body": "一"}).json()
-    second = client.post("/api/capture", json={"title": "同名", "body": "二"}).json()
+def test_create_note_does_not_overwrite_same_title(tmp_path):
+    _, vault = make_client(tmp_path)
+    first = pillar_notes.create_note(vault, title="同名", body="一")
+    second = pillar_notes.create_note(vault, title="同名", body="二")
     assert first["path"] != second["path"]
     assert (vault / first["path"]).is_file() and (vault / second["path"]).is_file()
 
 
-def test_weekly_and_monthly_review_skeletons_are_idempotent(tmp_path):
-    client, vault = make_client(tmp_path)
-    journal_dir = vault / "00_人生路" / "01_日记"
-    journal_dir.mkdir(parents=True)
-    (journal_dir / "2026-10-20.md").write_text(
-        "---\ntype: journal\ndate: 2026-10-20\n---\n\n今天很充实，完成了复盘，心情平静。\n",
-        encoding="utf-8")
-    weekly = client.post("/api/reviews/weekly", json={"day": "2026-10-20"})
-    assert weekly.status_code == 200, weekly.text
-    assert weekly.json()["created"] is True
-    assert "2026-W43" in weekly.json()["path"]
-    again = client.post("/api/reviews/weekly", json={"day": "2026-10-20"})
-    assert again.json()["created"] is False
-
-    monthly = client.post("/api/reviews/monthly", json={"month": "2026-10"})
-    assert monthly.status_code == 200, monthly.text
-    assert monthly.json()["path"].startswith("00_人生路/05_月复盘/")
-    assert "2026-10" in monthly.json()["body"]
-
-
-def test_steward_suggestions_are_deterministic_and_confirmable(tmp_path):
+def test_steward_suggestions_are_deterministic_and_inbox_is_listed(tmp_path):
     from backend.app.steward_policy import suggest
     assert suggest("整理收件箱五步法", "第一步……第二步……")["chapter"] == "method_general"
     assert suggest("读书笔记：原则", "作者说……")["chapter"] == "reading"
     assert suggest("一个想法", "我觉得这件事很触动我")["chapter"] == "idea"
     assert suggest("随手记", "")["chapter"] == "inbox"
 
-    client, _ = make_client(tmp_path)
-    note = client.post("/api/capture", json={
-        "title": "整理收件箱五步法", "body": "第一步：列清单；第二步：分类。",
-    }).json()
+    client, vault = make_client(tmp_path)
+    note = pillar_notes.create_note(
+        vault, title="整理收件箱五步法", body="第一步：列清单；第二步：分类。")
     items = client.get("/api/steward/inbox-suggestions").json()["items"]
     assert items and items[0]["path"] == note["path"]
     assert items[0]["chapter"] == "method_general"
-    moved = client.post("/api/notes/move", json={
-        "path": note["path"], "chapter": items[0]["chapter"],
-    })
-    assert moved.status_code == 200, moved.text
-    assert moved.json()["chapter"] == "method_general"
 
 
 def test_life_overview_marks_the_last_seven_days(tmp_path):
@@ -161,10 +114,9 @@ def test_note_location_comes_from_path_not_stale_frontmatter(tmp_path):
 
 
 def test_backlinks_find_wiki_and_markdown_links(tmp_path):
-    client, _ = make_client(tmp_path)
-    target = client.post("/api/capture", json={"title": "目标概念", "body": "概念正文"}).json()
-    source = client.post("/api/capture", json={
-        "title": "引用来源", "body": f"见 [[{target['path']}|目标概念]]",
-    }).json()
+    client, vault = make_client(tmp_path)
+    target = pillar_notes.create_note(vault, title="目标概念", body="概念正文")
+    source = pillar_notes.create_note(
+        vault, title="引用来源", body=f"见 [[{target['path']}|目标概念]]")
     links = client.get("/api/notes/backlinks", params={"path": target["path"]}).json()["items"]
     assert [item["path"] for item in links] == [source["path"]]

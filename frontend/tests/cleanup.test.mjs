@@ -51,6 +51,34 @@ test("live frontend does not call retired endpoints", async () => {
   }
 });
 
+// 2026-10-26：四库只读。前端不再调用任何四库写接口，也不再渲染编辑控件。
+const fourLibraryWrites = [
+  "/api/capture", "/api/notes/update", "/api/notes/move",
+  "/api/reviews/weekly", "/api/reviews/monthly",
+  "/api/steward/proposals/apply", "/api/journal/note/generate",
+];
+const retiredEditHooks = [
+  "data-pillar-capture", "data-steward-apply", "data-inbox-apply",
+  "data-ops-form", "data-ops-delete",
+];
+
+test("four-library UI stays read-only and only jumps to Obsidian", async () => {
+  const sources = await liveSources();
+  for (const { name, text } of sources) {
+    for (const endpoint of fourLibraryWrites) {
+      assert.equal(text.includes(endpoint), false, `${name} still calls ${endpoint}`);
+    }
+    for (const hook of retiredEditHooks) {
+      assert.equal(text.includes(hook), false, `${name} still renders ${hook}`);
+    }
+  }
+  const pillars = await readFile(path.join(frontend, "pillars.js"), "utf8");
+  assert.ok(pillars.includes("createObsidianNote"), "四库应通过 Obsidian 跳转新建笔记");
+  assert.ok(pillars.includes("在 Obsidian 新建"));
+  const steward = await readFile(path.join(frontend, "pillar-steward.js"), "utf8");
+  assert.equal(steward.includes("/apply"), false, "管家不能再执行提案");
+});
+
 test("referenced docs exist and the tool count is 12", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const docs = new Set([...html.matchAll(/docs\/[A-Za-z0-9_./-]+\.(?:md|yml|yaml)/g)].map((match) => match[0]));

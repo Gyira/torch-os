@@ -29,8 +29,7 @@ export const SHORTCUT_GROUPS = [
     id: "actions",
     title: "常用操作",
     items: [
-      { keys: ["N"], label: "四库：打开「记一条」；工作台：聚焦新任务输入" },
-      { keys: ["Ctrl/⌘", "Enter"], label: "在捕获弹窗里直接保存" },
+      { keys: ["N"], label: "四库：在 Obsidian 新建笔记；工作台：聚焦新任务输入" },
     ],
   },
   {

@@ -7,7 +7,7 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
-from backend.app import pillar_notes, task_notes
+from backend.app import pillar_notes, structured_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
 
@@ -49,7 +49,7 @@ def test_export_bundle_contains_every_section_and_counts_only_audit(tmp_path, mo
             ("2026-10-03", "打包日记", 1,
              "2026-10-03T00:00:00+00:00", "2026-10-03T00:00:00+00:00"),
         )
-    client.post("/api/ops/health/months/2026-10/rows", json={
+    structured_notes.upsert_row(vault, "health", "2026-10", {
         "date": "2026-10-03", "weight_kg": "68.5", "sleep_minutes": "450",
     })
 

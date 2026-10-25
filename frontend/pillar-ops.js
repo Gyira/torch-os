@@ -1,23 +1,35 @@
-// 生活运营：体重/账目月度表 + 极简 SVG 趋势。数据来自 Markdown 月度表。
-import { api, confirmAction, escapeHtml, toast } from "./core.js";
+// 生活运营：体重/账目月度表 + 极简 SVG 趋势（2026-10-26 起只读）。
+// 表格只做浏览；记录、修改、删除都在 Obsidian 的 Markdown 月度表里完成。
+import { api, escapeHtml, toast } from "./core.js";
+import { openObsidianNote } from "./task-open.js";
 
 const DATASETS = {
   health: { title: "健康与体重", accent: "var(--p-pillar-ops)", unit: "kg" },
   finance: { title: "财富与记账", accent: "var(--p-pillar-ops)" },
 };
 
-// 删除前的整行快照 + 原位置，用于右下角“撤销”。只在本次页面会话里保留；
-// 撤销成功后后端按原 row_id 写回，不会生成第二行。
-const rowSnapshots = new Map();
-const snapshotKey = (dataset, month, rowId) => `${dataset}:${month}:${rowId}`;
+let vaultName = "";
+let chapterPaths = null;
 
-function rememberRows(dataset, month, rows) {
-  rows.forEach((row, position) => {
-    if (!row.row_id) return;
-    rowSnapshots.set(snapshotKey(dataset, month, row.row_id), {
-      row: { ...row }, position, month,
-    });
-  });
+async function ensureVaultName() {
+  if (!vaultName) {
+    try {
+      const health = await api("/api/health");
+      vaultName = health?.vault_name || "";
+    } catch { /* 拿不到库名时只提示 */ }
+  }
+  return vaultName;
+}
+
+async function ensureChapterPaths() {
+  if (chapterPaths) return chapterPaths;
+  chapterPaths = {};
+  try {
+    const manifest = await api("/api/pillars");
+    const ops = (manifest.pillars || []).find((item) => item.key === "ops");
+    for (const chapter of ops?.chapters || []) chapterPaths[chapter.key] = chapter.path || "";
+  } catch { /* 用空表兜底 */ }
+  return chapterPaths;
 }
 
 function monthNow() {
@@ -46,11 +58,26 @@ function monthOptions(rows, selected) {
   return rows.map((row) => `<option value="${escapeHtml(row.month)}"${row.month === selected ? " selected" : ""}>${escapeHtml(row.month)}</option>`).join("");
 }
 
-async function saveRow(dataset, month, values, rowId = "") {
-  const path = rowId
-    ? `/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(rowId)}`
-    : `/api/ops/${dataset}/months/${month}/rows`;
-  return api(path, { method: "POST", body: JSON.stringify(values) });
+async function openOpsFile(dataset, month, pathHint) {
+  const monthKey = month || monthNow();
+  let target = String(pathHint || "");
+  if (!target) {
+    const paths = await ensureChapterPaths();
+    const root = paths[dataset] || (dataset === "health" ? "02_生活运营/01_健康与体重" : "02_生活运营/02_财富与记账");
+    target = `${root}/${monthKey}.md`;
+  }
+  await ensureVaultName();
+  try {
+    await api(`/api/notes?path=${encodeURIComponent(target)}`);
+  } catch {
+    toast(`这个月还没有表。在 Obsidian 里复制上个月的文件，改名成 ${monthKey} 即可。`, "warning");
+    return;
+  }
+  if (!openObsidianNote(target, vaultName)) toast("没有可用的 Obsidian 库名，请在 Obsidian 里打开。", "warning");
+}
+
+function openButton(dataset, month, path) {
+  return `<button type="button" class="button secondary" data-ops-open-file="${escapeHtml(dataset)}" data-ops-month-file="${escapeHtml(path || "")}" data-ops-month-key="${escapeHtml(month || "")}">在 Obsidian 打开月度表</button>`;
 }
 
 function financeTotals(rows) {
@@ -65,14 +92,13 @@ function financeTotals(rows) {
   return { income, expense, balance: income - expense };
 }
 
-async function renderHealth(host, dataset, month) {
+async function renderHealth(host, month) {
   const summary = await api(`/api/ops/health/summary?months=12`);
   const months = summary.months || [];
   const current = months.find((item) => item.month === month) || months[0] || { month, rows: [] };
   const selected = current.month || month;
   host.dataset.month = selected;
   const rows = current.rows || [];
-  rememberRows("health", selected, rows);
   const weights = rows.map((row) => Number(row.weight_kg)).filter((value) => Number.isFinite(value));
   host.innerHTML = `<section class="pillar-ops-card">
     <div class="pillar-ops-head">
@@ -84,34 +110,25 @@ async function renderHealth(host, dataset, month) {
       <div><span>本月记录</span><strong>${rows.length}</strong></div>
       ${sparkline(weights)}
     </div>
-    <table class="pillar-ops-table"><thead><tr><th>日期</th><th>体重 kg</th><th>睡眠 min</th><th>运动 min</th><th>备注</th><th></th></tr></thead>
+    <table class="pillar-ops-table"><thead><tr><th>日期</th><th>体重 kg</th><th>睡眠 min</th><th>运动 min</th><th>备注</th></tr></thead>
       <tbody>${rows.map((row) => `<tr>
         <td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.weight_kg)}</td>
         <td>${escapeHtml(row.sleep_minutes)}</td><td>${escapeHtml(row.exercise_minutes)}</td>
         <td>${escapeHtml(row.note)}</td>
-        <td><button type="button" class="text-button" data-ops-delete="health" data-row-id="${escapeHtml(row.row_id)}">删除</button></td>
       </tr>`).join("")}</tbody>
     </table>
-    <form class="pillar-ops-form" data-ops-form="health">
-      <input name="date" type="date" required value="${new Date().toISOString().slice(0, 10)}">
-      <input name="weight_kg" inputmode="decimal" placeholder="体重 kg">
-      <input name="sleep_minutes" inputmode="numeric" placeholder="睡眠 min">
-      <input name="exercise_minutes" inputmode="numeric" placeholder="运动 min">
-      <input name="note" placeholder="备注" maxlength="200">
-      <button type="submit" class="button secondary">记一条</button>
-    </form>
-    <p class="field-help">数据写在 ${escapeHtml(current.path || `02_生活运营/01_健康与体重/${selected}.md`)}；Obsidian 里可以直接改。</p>
+    <div class="form-actions">${openButton("health", selected, current.path)}</div>
+    <p class="field-help">这里只读；记录与修改都在 Obsidian 的月度 Markdown 表里做。</p>
   </section>`;
 }
 
-async function renderFinance(host, dataset, month) {
+async function renderFinance(host, month) {
   const summary = await api(`/api/ops/finance/summary?months=12`);
   const months = summary.months || [];
   const current = months.find((item) => item.month === month) || months[0] || { month, rows: [] };
   const selected = current.month || month;
   host.dataset.month = selected;
   const rows = current.rows || [];
-  rememberRows("finance", selected, rows);
   const totals = financeTotals(rows);
   host.innerHTML = `<section class="pillar-ops-card">
     <div class="pillar-ops-head">
@@ -123,23 +140,14 @@ async function renderFinance(host, dataset, month) {
       <div><span>支出</span><strong>${totals.expense.toFixed(2)}</strong></div>
       <div><span>结余</span><strong>${totals.balance.toFixed(2)}</strong></div>
     </div>
-    <table class="pillar-ops-table"><thead><tr><th>日期</th><th>类型</th><th>金额</th><th>分类</th><th>账户</th><th>备注</th><th></th></tr></thead>
+    <table class="pillar-ops-table"><thead><tr><th>日期</th><th>类型</th><th>金额</th><th>分类</th><th>账户</th><th>备注</th></tr></thead>
       <tbody>${rows.map((row) => `<tr>
         <td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(row.amount)}</td>
         <td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.account)}</td><td>${escapeHtml(row.note)}</td>
-        <td><button type="button" class="text-button" data-ops-delete="finance" data-row-id="${escapeHtml(row.row_id)}">删除</button></td>
       </tr>`).join("")}</tbody>
     </table>
-    <form class="pillar-ops-form" data-ops-form="finance">
-      <input name="date" type="date" required value="${new Date().toISOString().slice(0, 10)}">
-      <select name="kind"><option value="支出">支出</option><option value="收入">收入</option></select>
-      <input name="amount" inputmode="decimal" placeholder="金额" required>
-      <input name="category" placeholder="分类" maxlength="40">
-      <input name="account" placeholder="账户" maxlength="40">
-      <input name="note" placeholder="备注" maxlength="200">
-      <button type="submit" class="button secondary">记一笔</button>
-    </form>
-    <p class="field-help">数据写在 ${escapeHtml(current.path || `02_生活运营/02_财富与记账/${selected}.md`)}；Obsidian 里可以直接改。</p>
+    <div class="form-actions">${openButton("finance", selected, current.path)}</div>
+    <p class="field-help">这里只读；记账与修改都在 Obsidian 的月度 Markdown 表里做。</p>
   </section>`;
 }
 
@@ -157,12 +165,12 @@ async function renderDashboard(host) {
       <p class="pillar-stat">${weights.length ? `${weights[weights.length - 1]} kg` : "还没有数据"}</p>
       ${sparkline(weights)}
       <p class="field-help">${escapeHtml(latestHealth?.month || monthNow())} · ${latestHealth?.rows?.length || 0} 条记录</p>
-      <button type="button" class="text-button" data-ops-quick="health">${weights.length ? "打开月度表" : "记第一次体重"}</button>
+      ${openButton("health", latestHealth?.month || monthNow(), latestHealth?.path)}
     </section>
     <section class="pillar-card"><p class="eyebrow">财富与记账</p>
       <p class="pillar-stat">${totals.balance.toFixed(2)}</p>
       <p class="field-help">${escapeHtml(latestFinance?.month || monthNow())} · 收入 ${totals.income.toFixed(2)} · 支出 ${totals.expense.toFixed(2)}</p>
-      <button type="button" class="text-button" data-ops-quick="finance">${latestFinance?.rows?.length ? "打开月度表" : "记第一笔"}</button>
+      ${openButton("finance", latestFinance?.month || monthNow(), latestFinance?.path)}
     </section>
   </div>`;
 }
@@ -172,8 +180,8 @@ export async function mountOps(view) {
   if (!host) return;
   const dataset = host.dataset.opsTable || "";
   try {
-    if (dataset === "health") await renderHealth(host, dataset, host.dataset.month || monthNow());
-    else if (dataset === "finance") await renderFinance(host, dataset, host.dataset.month || monthNow());
+    if (dataset === "health") await renderHealth(host, host.dataset.month || monthNow());
+    else if (dataset === "finance") await renderFinance(host, host.dataset.month || monthNow());
     else await renderDashboard(host);
   } catch (error) {
     host.innerHTML = `<p class="inline-error">${escapeHtml(error.message)}</p>`;
@@ -189,63 +197,11 @@ export function bindOpsEvents() {
     host.dataset.month = select.value;
     await mountOps(select.closest(".pillar-view").id.replace("-view", ""));
   });
-  document.addEventListener("submit", async (event) => {
-    const form = event.target.closest?.("[data-ops-form]");
-    if (!form) return;
-    event.preventDefault();
-    const dataset = form.dataset.opsForm;
-    const host = form.closest("[data-ops-table]");
-    const month = host?.dataset.month || monthNow();
-    const values = Object.fromEntries(new FormData(form).entries());
-    try {
-      await saveRow(dataset, month, values);
-      toast("已记录。");
-      await mountOps("ops");
-    } catch (error) {
-      toast(error.message, "error");
-    }
-  });
   document.addEventListener("click", async (event) => {
-    const remove = event.target.closest?.("[data-ops-delete]");
-    if (remove) {
-      const confirmed = await confirmAction({
-        title: "删除这条记录？",
-        message: "记录会从月度 Markdown 表里移除。删除后 15 秒内可以点右下角的“撤销”放回原位置。",
-        confirmLabel: "删除",
-        cancelLabel: "保留",
-        danger: true,
-        trigger: remove,
-      });
-      if (!confirmed) return;
-      const dataset = remove.dataset.opsDelete;
-      const rowId = remove.dataset.rowId;
-      const host = remove.closest("[data-ops-table]");
-      const month = host?.dataset.month || monthNow();
-      const snapshot = rowSnapshots.get(snapshotKey(dataset, month, rowId));
-      try {
-        await api(`/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(rowId)}`, { method: "DELETE" });
-        await mountOps("ops");
-        if (!snapshot) {
-          toast("已删除这条记录。", "success");
-          return;
-        }
-        toast("已删除这条记录。", "success", {
-          label: "撤销",
-          timeout: 15000,
-          errorMessage: "撤销失败",
-          onAction: async () => {
-            await api(`/api/ops/${dataset}/months/${month}/rows/${encodeURIComponent(rowId)}/restore?position=${snapshot.position}`, {
-              method: "POST",
-              body: JSON.stringify(snapshot.row),
-            });
-            await mountOps("ops");
-            toast("已恢复这条记录。", "success");
-          },
-        });
-      } catch (error) {
-        toast(error.message, "error");
-      }
-      return;
-    }
+    const open = event.target.closest?.("[data-ops-open-file]");
+    if (!open) return;
+    await openOpsFile(open.dataset.opsOpenFile,
+                      open.dataset.opsMonthKey || "",
+                      open.dataset.opsMonthFile || "");
   });
 }

@@ -1,12 +1,15 @@
-// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 快速捕获。
-// 工作台完全独立；这里只读写四库接口，不碰 time-module / workbench 的 DOM。
-import { $, api, confirmAction, escapeHtml, formatRelativeDate, toast } from "./core.js";
+// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
+// 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
+// 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
+import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
 import { renderMarkdown } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
 import { shanghaiDay } from "./journal-model.js";
-import { isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument } from "./task-open.js";
+import {
+  createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
+} from "./task-open.js";
 
 const GOAL_CHAPTERS = new Set(["goal_year", "goal_quarter", "goal_month"]);
 
@@ -141,8 +144,8 @@ function renderShell(view) {
         <label class="pillar-search"><span class="sr-only">搜索${escapeHtml(meta.title)}</span>
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
-        <button type="button" class="button secondary" data-steward-open="${view}" title="提案、健康检查与问答">管家</button>
-        <button type="button" class="button primary" data-pillar-capture="${view}" title="记一条（按 N）" aria-keyshortcuts="N">＋ 记一条</button>
+        <button type="button" class="button secondary" data-steward-open="${view}" title="提案与健康检查（只读）">管家</button>
+        <button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>
       </div>
     </header>
     <div class="pillar-layout">
@@ -174,18 +177,19 @@ function renderShell(view) {
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
             <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
-            <button type="button" class="button secondary" data-pillar-capture="${view}" data-capture-chapter="${escapeHtml(chapter)}">＋ 记第一条</button>
+            <button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter)}">＋ 在 Obsidian 新建</button>
           </div>`}
         </div>`}
       </section>
       <aside class="pillar-aside">
         <section class="pillar-card">
-          <p class="eyebrow">快速记录</p>
+          <p class="eyebrow">在 Obsidian 写</p>
           <div class="pillar-quick">
             ${meta.quick.map((item) => item.ops
-              ? `<button type="button" class="pillar-quick-button" data-ops-quick="${escapeHtml(item.ops)}">${escapeHtml(item.label)}</button>`
-              : `<button type="button" class="pillar-quick-button" data-pillar-capture="${view}" data-capture-chapter="${item.chapter}" data-capture-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
+              ? `<button type="button" class="pillar-quick-button" data-ops-open="${escapeHtml(item.ops)}">${escapeHtml(item.label)}</button>`
+              : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
           </div>
+          <p class="field-help">这里只读；点按钮会在 Obsidian 里新建/打开对应笔记。</p>
         </section>
         ${view === "self" && overview?.identity ? `<section class="pillar-card pillar-identity-card">
           <p class="eyebrow">身份卡</p>
@@ -199,8 +203,8 @@ function renderShell(view) {
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
           <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
-            <button type="button" class="pillar-quick-button" data-review="weekly">生成本周复盘</button>
-            <button type="button" class="pillar-quick-button" data-review="monthly">生成本月复盘</button>
+            <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
+            <button type="button" class="pillar-quick-button" data-review="monthly">打开本月复盘</button>
           </div>
         </section>` : ""}
         ${view === "life" && week.length ? `<section class="pillar-card">
@@ -215,11 +219,11 @@ function renderShell(view) {
         ${view === "knowledge" && overview ? `<section class="pillar-card">
           <p class="eyebrow">收件箱</p>
           <p class="pillar-stat">${overview.inbox_count ?? 0} 条待分流</p>
-          <button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="inbox">去整理</button>
+          <button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="inbox">去看看（只读）</button>
         </section>` : ""}
         <section class="pillar-card pillar-card-quiet">
           <p class="eyebrow">说明</p>
-          <p class="field-help">${escapeHtml(meta.subtitle)}所有内容都是 Vault 里的 Markdown；这里只做浏览与捕获，深度编辑请打开 Obsidian。</p>
+          <p class="field-help">${escapeHtml(meta.subtitle)}四库在这里只读浏览；新建与修改都在 Obsidian 里完成，插件只负责跳过去。</p>
         </section>
       </aside>
     </div>`;
@@ -233,59 +237,6 @@ function renderShell(view) {
     mountHabits().catch((error) => toast(error.message, "error"));
   }
   return root;
-}
-
-function updateInboxSelection(host) {
-  if (!host) return;
-  const boxes = [...host.querySelectorAll("[data-inbox-select]")];
-  const checked = boxes.filter((box) => box.checked);
-  const apply = host.querySelector("[data-inbox-apply]");
-  if (apply) {
-    apply.disabled = !checked.length;
-    apply.textContent = `整理选中（${checked.length}）`;
-  }
-  const all = host.querySelector("[data-inbox-select-all]");
-  if (all) {
-    all.checked = boxes.length > 0 && checked.length === boxes.length;
-    all.indeterminate = checked.length > 0 && checked.length < boxes.length;
-  }
-}
-
-async function applyInboxProposals(ids, trigger) {
-  const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) return;
-  const rows = [...document.querySelectorAll("#knowledge-view [data-inbox-row]")];
-  const selectedRows = unique.map((id) => rows.find((row) => row.dataset.inboxRow === id)).filter(Boolean);
-  const preview = selectedRows.slice(0, 6).map((row) => {
-    const title = row.querySelector("strong")?.textContent?.trim() || "";
-    const target = row.dataset.inboxTarget || "";
-    return `• ${title} → ${target}`;
-  }).join("\n");
-  const more = unique.length > 6 ? `\n…另有 ${unique.length - 6} 条` : "";
-  const accepted = await confirmAction({
-    title: `按建议整理 ${unique.length} 条？`,
-    message: `${preview}${more}\n\n只会移动选中的笔记，不会删除；移动后可在目标章节找到。`,
-    confirmLabel: "整理选中",
-    trigger,
-  });
-  if (!accepted) return;
-  try {
-    const result = await api("/api/steward/proposals/apply-batch", {
-      method: "POST",
-      body: JSON.stringify({ proposal_ids: unique, confirm: true }),
-    });
-    const applied = Number(result.applied_count) || 0;
-    const failed = Number(result.failed_count) || 0;
-    if (failed) {
-      const firstError = result.failed?.[0]?.error || "请刷新后重试";
-      toast(`已整理 ${applied} 条，${failed} 条失败：${firstError}`, "warning");
-    } else {
-      toast(`已整理 ${applied} 条。`);
-    }
-    await loadPillar("knowledge", { keepChapter: true });
-  } catch (error) {
-    toast(error.message, "error");
-  }
 }
 
 const CONFIDENCE_LABEL = { high: "高置信", medium: "可参考", low: "低置信" };
@@ -307,27 +258,18 @@ async function mountInboxSuggestions() {
     <div class="pillar-suggestion-head">
       <div>
         <p class="eyebrow">整理建议 · ${items.length} 条</p>
-        <p class="field-help">勾选后一次整理；只会移动，不会删除。</p>
-      </div>
-      <div class="pillar-suggestion-tools">
-        <label class="check-label"><input type="checkbox" data-inbox-select-all> 全选</label>
-        <button type="button" class="text-button" data-inbox-high${highCount ? "" : " disabled"}>只选高置信（${highCount}）</button>
-        <button type="button" class="button secondary" data-inbox-apply disabled>整理选中（0）</button>
+        <p class="field-help">这里只读：建议只是提示，移动/改名请到 Obsidian 里做。</p>
       </div>
     </div>
     ${[...groups.entries()].map(([target, group]) => `<div class="pillar-suggestion-group">
       <p class="pillar-suggestion-group-title"><span>${escapeHtml(target)}</span><span>${group.length} 条</span></p>
       ${group.map((item) => `<div class="pillar-suggestion-row" data-inbox-row="${escapeHtml(item.proposal_id)}" data-inbox-target="${escapeHtml(target)}" data-confidence="${escapeHtml(item.confidence)}">
-        <label class="pillar-suggestion-check">
-          <input type="checkbox" data-inbox-select value="${escapeHtml(item.proposal_id)}">
-          <span>
-            <span class="pillar-suggestion-title"><strong>${escapeHtml(item.title)}</strong><span class="pillar-confidence ${escapeHtml(item.confidence)}">${escapeHtml(CONFIDENCE_LABEL[item.confidence] || item.confidence)}</span></span>
-            <span class="field-help">${escapeHtml(item.reason)}</span>
-          </span>
-        </label>
+        <div>
+          <p class="pillar-suggestion-title"><strong>${escapeHtml(item.title)}</strong><span class="pillar-confidence ${escapeHtml(item.confidence)}">${escapeHtml(CONFIDENCE_LABEL[item.confidence] || item.confidence)}</span></p>
+          <p class="field-help">${escapeHtml(item.reason)}</p>
+        </div>
         <div class="pillar-suggestion-actions">
-          <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">打开</button>
-          <button type="button" class="small-button" data-inbox-single="${escapeHtml(item.proposal_id)}">移动</button>
+          <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">在 Obsidian 打开</button>
         </div>
       </div>`).join("")}
     </div>`).join("")}
@@ -337,7 +279,6 @@ async function mountInboxSuggestions() {
   document.querySelectorAll("#knowledge-view .pillar-note-row[data-note-path]").forEach((row) => {
     if (suggestedPaths.has(row.dataset.notePath)) row.hidden = true;
   });
-  updateInboxSelection(host);
 }
 
 async function loadPillar(view, { keepChapter = false } = {}) {
@@ -358,28 +299,12 @@ async function loadPillar(view, { keepChapter = false } = {}) {
   renderShell(view);
 }
 
-function focusOpsForm(dataset) {
-  let attempts = 0;
-  const timer = window.setInterval(() => {
-    const input = document.querySelector(`#ops-view [data-ops-form="${dataset}"] input[name="date"]`);
-    if (input) {
-      window.clearInterval(timer);
-      input.focus({ preventScroll: true });
-      input.scrollIntoView({ block: "center", behavior: "smooth" });
-      return;
-    }
-    attempts += 1;
-    if (attempts > 40) window.clearInterval(timer);
-  }, 80);
-}
-
 function bindPillarEvents() {
   document.addEventListener("click", async (event) => {
     const steward = event.target.closest?.("[data-steward-open]");
     if (steward) {
       openSteward(steward.dataset.stewardOpen, {
         onOpenNote: (path) => openNote(path),
-        onApplied: () => loadPillar(steward.dataset.stewardOpen, { keepChapter: true }),
       });
       return;
     }
@@ -388,19 +313,16 @@ function bindPillarEvents() {
       loadPillarModule(retry.dataset.pillarRetry);
       return;
     }
-    const opsQuick = event.target.closest?.("[data-ops-quick]");
+    const opsQuick = event.target.closest?.("[data-ops-open]");
     if (opsQuick) {
-      const dataset = opsQuick.dataset.opsQuick;
-      const target = document.querySelector(`#ops-view [data-pillar-chapter="ops"][data-chapter="${dataset}"]`);
-      target?.click();
-      focusOpsForm(dataset);
+      openOpsTable(opsQuick.dataset.opsOpen);
       return;
     }
-    const capture = event.target.closest?.("[data-pillar-capture]");
-    if (capture) {
-      openCapture(capture.dataset.pillarCapture,
-                  capture.dataset.captureChapter || "",
-                  capture.dataset.captureType || "");
+    const create = event.target.closest?.("[data-pillar-new]");
+    if (create) {
+      openNewNote(create.dataset.pillarNew,
+                  create.dataset.newChapter || "",
+                  create.dataset.newType || "");
       return;
     }
     const chapter = event.target.closest?.("[data-pillar-chapter]");
@@ -429,60 +351,12 @@ function bindPillarEvents() {
     }
     const review = event.target.closest?.("[data-review]");
     if (review) {
-      try {
-        const kind = review.dataset.review;
-        const result = kind === "monthly"
-          ? await api("/api/reviews/monthly", { method: "POST", body: JSON.stringify({}) })
-          : await api("/api/reviews/weekly", { method: "POST", body: JSON.stringify({}) });
-        toast(result.created ? "已生成复盘骨架。" : "这周的复盘已经存在，直接打开。");
-        openNote(result.path);
-      } catch (error) {
-        toast(error.message, "error");
-      }
-      return;
-    }
-    const inboxHigh = event.target.closest?.("[data-inbox-high]");
-    if (inboxHigh) {
-      const host = inboxHigh.closest("[data-inbox-suggestions]");
-      host?.querySelectorAll("[data-inbox-row]").forEach((row) => {
-        const box = row.querySelector("[data-inbox-select]");
-        if (box) box.checked = row.dataset.confidence === "high";
-      });
-      updateInboxSelection(host);
-      return;
-    }
-    const inboxApply = event.target.closest?.("[data-inbox-apply]");
-    if (inboxApply) {
-      const host = inboxApply.closest("[data-inbox-suggestions]");
-      const ids = [...(host?.querySelectorAll("[data-inbox-select]:checked") || [])]
-        .map((box) => box.value);
-      await applyInboxProposals(ids, inboxApply);
-      return;
-    }
-    const inboxSingle = event.target.closest?.("[data-inbox-single]");
-    if (inboxSingle) {
-      await applyInboxProposals([inboxSingle.dataset.inboxSingle], inboxSingle);
+      openReview(review.dataset.review);
       return;
     }
     const identity = event.target.closest?.("[data-open-identity]");
     if (identity) {
-      if (!identity.dataset.openIdentity) return;
-      if (!state.overviews.self?.identity?.exists) {
-        try {
-          await api("/api/identity", {
-            method: "PUT",
-            body: JSON.stringify({
-              revision: "",
-              notes: "在这里写下：我是谁、我相信什么、我要去哪里。\n",
-            }),
-          });
-          await loadPillar("self", { keepChapter: true });
-        } catch (error) {
-          toast(error.message, "error");
-          return;
-        }
-      }
-      openVaultNote(state.overviews.self?.vault_name || "", identity.dataset.openIdentity);
+      openIdentityCard();
       return;
     }
     const journalDay = event.target.closest?.("[data-journal-day]");
@@ -502,18 +376,6 @@ function bindPillarEvents() {
     const row = event.target.closest?.("[data-note-path]");
     if (row) {
       openNote(row.dataset.notePath);
-    }
-  });
-  document.addEventListener("change", (event) => {
-    const selectAll = event.target.closest?.("[data-inbox-select-all]");
-    if (selectAll) {
-      const host = selectAll.closest("[data-inbox-suggestions]");
-      host?.querySelectorAll("[data-inbox-select]").forEach((box) => { box.checked = selectAll.checked; });
-      updateInboxSelection(host);
-      return;
-    }
-    if (event.target.closest?.("[data-inbox-select]")) {
-      updateInboxSelection(event.target.closest("[data-inbox-suggestions]"));
     }
   });
   document.addEventListener("input", (event) => {
@@ -614,25 +476,13 @@ export function openNote(path) {
         <p class="eyebrow">反向链接</p>
         ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
       </section>` : ""}
-      ${isTaskNote ? "" : `<section class="pillar-note-tags">
-        <p class="eyebrow">标签</p>
-        <div class="pillar-tag-list" data-tag-list></div>
-        <form class="pillar-tag-form" data-tag-form>
-          <input name="tag" maxlength="32" placeholder="添加标签，回车保存" aria-label="添加标签">
-          <button type="submit" class="small-button">添加</button>
-        </form>
-      </section>`}
       <div class="pillar-dialog-foot">
         <div class="pillar-note-actions">
-          ${isTaskNote ? "" : `<select data-note-target aria-label="移动到章节">
-            ${chapterList(note.pillar).map((item) => `<option value="${escapeHtml(item.key)}"${item.key === note.chapter ? " selected" : ""}>${escapeHtml(item.title)}</option>`).join("")}
-          </select>
-          <button type="button" class="button secondary" data-move-note>移动</button>`}
-          <button type="button" class="button secondary" data-open-note>在 Obsidian 打开</button>
+          <button type="button" class="button primary" data-open-note>在 Obsidian 打开并编辑</button>
           <button type="button" class="small-button" data-copy-wikilink title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
           <button type="button" class="small-button" data-copy-path>复制路径</button>
         </div>
-        ${isTaskNote ? `<span class="field-help">任务由工作台管理；清单、日期和完成状态请在工作台修改。</span>` : ""}
+        <span class="field-help">这里只是阅读视图；标签、正文和所在章节都在 Obsidian 里改。</span>
       </div>`;
     document.body.append(dialog);
     const close = () => {
@@ -642,60 +492,6 @@ export function openNote(path) {
     };
     dialog.querySelector("[data-close-note]")?.addEventListener("click", close);
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
-    note.tags = Array.isArray(note.tags) ? note.tags : [];
-    const tagList = dialog.querySelector("[data-tag-list]");
-    const tagForm = dialog.querySelector("[data-tag-form]");
-    let tagSaving = false;
-    if (tagList && tagForm) {
-    const renderTags = () => {
-      tagList.innerHTML = note.tags.length
-        ? note.tags.map((tag) => `<span class="pillar-tag">#${escapeHtml(tag)}<button type="button" data-remove-tag="${escapeHtml(tag)}" aria-label="移除标签 ${escapeHtml(tag)}" title="移除标签">×</button></span>`).join("")
-        : `<span class="field-help">还没有标签。</span>`;
-    };
-    const saveTags = async (nextTags) => {
-      if (tagSaving) return;
-      tagSaving = true;
-      const input = tagForm.querySelector('input[name="tag"]');
-      const button = tagForm.querySelector('button[type="submit"]');
-      if (input) input.disabled = true;
-      if (button) button.disabled = true;
-      try {
-        const updated = await api(`/api/notes/update?path=${encodeURIComponent(note.path)}`, {
-          method: "POST",
-          body: JSON.stringify({ tags: nextTags }),
-        });
-        note.tags = Array.isArray(updated.tags) ? updated.tags : [];
-        renderTags();
-        toast("标签已更新。");
-        loadPillar(note.pillar, { keepChapter: true }).catch(() => {});
-      } catch (error) {
-        toast(error.message, "error");
-      } finally {
-        tagSaving = false;
-        if (input) input.disabled = false;
-        if (button) button.disabled = false;
-      }
-    };
-    renderTags();
-    tagForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (tagSaving) return;
-      const input = tagForm.querySelector('input[name="tag"]');
-      const additions = String(input?.value || "").split(/[,，]/)
-        .map((item) => item.trim().replace(/^#/, ""))
-        .filter(Boolean);
-      if (!additions.length) return;
-      const next = [...note.tags];
-      for (const tag of additions) if (!next.includes(tag)) next.push(tag);
-      input.value = "";
-      await saveTags(next);
-    });
-    tagList.addEventListener("click", async (event) => {
-      const remove = event.target.closest?.("[data-remove-tag]");
-      if (!remove || tagSaving) return;
-      await saveTags(note.tags.filter((tag) => tag !== remove.dataset.removeTag));
-    });
-    }
     dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
       openVaultNote(vaultName, note.path);
     });
@@ -723,21 +519,6 @@ export function openNote(path) {
         if (target) openNote(target);
       });
     });
-    dialog.querySelector("[data-move-note]")?.addEventListener("click", async () => {
-      const chapter = dialog.querySelector("[data-note-target]")?.value;
-      if (!chapter || chapter === note.chapter) return;
-      try {
-        const moved = await api("/api/notes/move", {
-          method: "POST",
-          body: JSON.stringify({ path: note.path, chapter }),
-        });
-        close();
-        toast(`已移动到「${chapterTitle(moved.pillar, moved.chapter)}」。`);
-        await loadPillar(note.pillar, { keepChapter: true });
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
     if (typeof dialog.showModal === "function") dialog.showModal();
   }).catch((error) => toast(error.message, "error"));
 }
@@ -751,133 +532,119 @@ function openVaultNote(vaultName, path) {
   try { globalThis.open?.(uri, "_blank", "noopener"); } catch { /* ignore */ }
 }
 
-async function openTodayJournal() {
-  // 日记只有一份权威文件：直接复用工作台的日记接口，绝不另建同名笔记。
-  const day = shanghaiDay();
-  try {
-    const result = await api("/api/journal/note/generate", {
-      method: "POST",
-      body: JSON.stringify({ day, mode: "create" }),
-    });
-    const relpath = result.relpath || `00_人生路/01_日记/${day}.md`;
-    if (!String(relpath).startsWith("00_人生路/")) {
-      toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
-      return;
-    }
-    toast(result.created ? "已创建今天的日记。" : "今天已经有日记，直接打开。");
-    openNote(relpath);
-    loadPillar("life", { keepChapter: true }).catch(() => {});
-  } catch (error) {
-    // 只读模式下不允许生成；已有日记仍然可以打开。
-    if (error.status === 409) {
-      try {
-        const existing = await api(`/api/journal/note?day=${encodeURIComponent(day)}`);
-        if (existing.exists && String(existing.relpath || "").startsWith("00_人生路/")) {
-          openNote(existing.relpath);
-          return;
-        }
-        if (existing.exists) {
-          toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
-          return;
-        }
-      } catch { /* 使用下面统一的错误提示 */ }
-    }
-    toast(error.message, "error");
-  }
+
+function chapterEntry(view, key) {
+  return chapterList(view).find((item) => item.key === key) || null;
 }
 
-function openCapture(view, chapter = "", type = "") {
+function vaultNameFor(view) {
+  return state.overviews[view]?.vault_name || state.overviews.life?.vault_name || "";
+}
+
+function localStamp() {
+  const now = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+function noteTemplate(type) {
+  const kind = type ? `type: ${type}\n` : "";
+  return `---\n${kind}创建: ${shanghaiDay()}\n---\n\n# \n`;
+}
+
+/** 四库新建：只在 Obsidian 里建文件，插件不写盘（2026-10-26 新原则）。 */
+function openNewNote(view, chapter = "", type = "") {
   const meta = PILLAR_META[view];
-  const chapters = chapterList(view);
-  const defaultChapter = chapter || meta.defaultChapter || chapters[0]?.key || "inbox";
-  if (view === "life" && chapter === "journal") {
+  if (!meta) return;
+  const entry = chapterEntry(view, chapter)
+    || chapterEntry(view, meta.defaultChapter)
+    || chapterList(view)[0];
+  if (!entry) {
+    toast("还没拿到库结构，请刷新后重试。", "warning");
+    return;
+  }
+  if (entry.key === "journal") {
     openTodayJournal();
     return;
   }
-  if (["habit", "health", "finance"].includes(chapter)) {
-    toast("习惯、体重和账目请用页面上的专用面板记录。", "warning");
+  if (entry.key === "habit") {
+    openVaultNote(vaultNameFor(view), `${entry.path}/习惯定义.md`);
     return;
   }
-  // 日记、习惯、体重、账目各有专用入口；普通捕获不再列出这些结构化章节，避免写错格式。
-  const structured = new Set(["journal", "habit", "health", "finance"]);
-  const captureChapters = chapters.filter((item) => !structured.has(item.key));
-  const trigger = document.activeElement;
-  const dialog = document.createElement("dialog");
-  dialog.className = "pillar-dialog pillar-capture-dialog";
-  dialog.innerHTML = `
-    <form method="dialog" class="pillar-capture-form">
-      <div class="pillar-dialog-head">
-        <div><p class="eyebrow">${escapeHtml(meta.title)}</p><h2>记一条</h2></div>
-        <button type="button" class="text-button" data-capture-close>关闭</button>
-      </div>
-      <label class="field"><span>标题</span><input name="title" maxlength="200" required autofocus></label>
-      <label class="field"><span>正文</span><textarea name="body" rows="6" maxlength="200000"></textarea></label>
-      <label class="field"><span>放到</span>
-        <select name="chapter">
-          ${captureChapters.map((item) => `<option value="${escapeHtml(item.key)}"${item.key === defaultChapter ? " selected" : ""}>${escapeHtml(item.title)}</option>`).join("")}
-        </select>
-        <span class="pillar-capture-hint">不确定放哪也没关系，之后可以再移动。</span>
-      </label>
-      <details class="pillar-capture-more">
-        <summary>更多选项（标签、来源）</summary>
-        <div class="pillar-capture-grid">
-          <label class="field"><span>标签（逗号分隔）</span><input name="tags" maxlength="200"></label>
-          <label class="field"><span>来源（链接 / 书名 / 课程）</span><input name="source" maxlength="500"></label>
-        </div>
-      </details>
-      <p class="status-message" data-capture-status role="status"></p>
-      <div class="form-actions">
-        <button type="button" class="button secondary" data-capture-close>取消</button>
-        <button type="submit" class="button primary" title="Ctrl/⌘ Enter 保存">保存</button>
-      </div>
-    </form>`;
-  document.body.append(dialog);
-  const close = () => {
-    dialog.close();
-    dialog.remove();
-    trigger?.focus?.({ preventScroll: true });
-  };
-  dialog.querySelectorAll("[data-capture-close]").forEach((button) => button.addEventListener("click", close));
-  dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
-  dialog.querySelector("form").addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      dialog.querySelector('form button[type="submit"]')?.click();
-    }
-  });
-  dialog.querySelector("form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const title = String(data.get("title") || "").trim();
-    if (!title) return;
-    const status = dialog.querySelector("[data-capture-status]");
-    const submit = form.querySelector('button[type="submit"]');
-    submit.disabled = true;
-    status.textContent = "保存中…";
-    try {
-      const created = await api("/api/capture", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          body: String(data.get("body") || ""),
-          pillar: view,
-          chapter: String(data.get("chapter") || defaultChapter),
-          note_type: type,
-          tags: String(data.get("tags") || "").split(/[,，]/).map((item) => item.trim()).filter(Boolean),
-          source: String(data.get("source") || ""),
-        }),
-      });
-      close();
-      toast(`已记录到「${chapterTitle(view, created.chapter)}」。`);
-      await loadPillar(view, { keepChapter: true });
-    } catch (error) {
-      status.textContent = error.message;
-      status.classList.add("error");
-      submit.disabled = false;
-    }
-  });
-  if (typeof dialog.showModal === "function") dialog.showModal();
+  const target = `${entry.path}/未命名-${localStamp()}.md`;
+  if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || entry.default_type))) {
+    toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
+  }
+}
+
+/** 体重/账目：直接打开 Obsidian 里的当月表，插件里只读。 */
+async function openOpsTable(dataset) {
+  const entry = chapterEntry("ops", dataset);
+  if (!entry) return;
+  const now = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const target = `${entry.path}/${month}.md`;
+  try {
+    await api(`/api/notes?path=${encodeURIComponent(target)}`);
+  } catch {
+    toast(`这个月还没有表。在 Obsidian 里复制上个月的文件，改名成 ${month} 即可。`, "warning");
+    return;
+  }
+  openVaultNote(vaultNameFor("ops"), target);
+}
+
+function isoWeek(date) {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((target - yearStart) / 86400000 + 1) / 7);
+  return { year: target.getUTCFullYear(), week };
+}
+
+/** 周/月复盘：打开已有那篇；没有就让 Obsidian 新建一个同名骨架。 */
+function openReview(kind) {
+  const entry = chapterEntry("life", kind === "monthly" ? "review_month" : "review_week");
+  if (!entry) return;
+  const today = new Date(`${shanghaiDay()}T00:00:00Z`);
+  const monthly = kind === "monthly";
+  const label = monthly
+    ? `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")} 月复盘`
+    : (() => { const { year, week } = isoWeek(today); return `${year}-W${String(week).padStart(2, "0")} 周复盘`; })();
+  const type = monthly ? "monthly_review" : "weekly_review";
+  if (!createObsidianNote(`${entry.path}/${label}.md`, vaultNameFor("life"), noteTemplate(type))) {
+    toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建复盘。", "warning");
+  }
+}
+
+/** 身份卡：有就打开，没有就让 Obsidian 建一份空骨架。 */
+function openIdentityCard() {
+  const identity = state.overviews.self?.identity || {};
+  const target = identity.path || "01_自我档案/01_内核与三观/身份（identity）.md";
+  const content = identity.exists
+    ? ""
+    : "---\ntype: identity\n---\n\n# 我是谁\n\n## 三观\n\n## 我要去哪里\n";
+  if (!createObsidianNote(target, vaultNameFor("self"), content)) {
+    toast("没有可用的 Obsidian 库名，请在 Obsidian 里打开身份文件。", "warning");
+  }
+}
+
+/** 今日日记：存在就打开，不存在就让 Obsidian 新建，插件不写盘。 */
+async function openTodayJournal() {
+  const day = shanghaiDay();
+  let target = `00_人生路/01_日记/${day}.md`;
+  try {
+    const existing = await api(`/api/journal/note?day=${encodeURIComponent(day)}`);
+    if (existing?.exists) target = existing.relpath || target;
+  } catch { /* 查询失败时按默认路径打开 */ }
+  if (!String(target).startsWith("00_人生路/")) {
+    toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
+    return;
+  }
+  const content = noteTemplate("journal").replace("# \n", `# ${day}\n`);
+  if (!createObsidianNote(target, vaultNameFor("life"), content)) {
+    toast("没有可用的 Obsidian 库名，请在 Obsidian 里打开。", "warning");
+  }
 }
 
 export function initPillars() {

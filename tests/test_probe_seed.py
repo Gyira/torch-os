@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import browser_pillars_probe as probe  # noqa: E402
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class FakeResponse:
@@ -20,13 +25,12 @@ class FakeResponse:
 
 
 class FakeClient:
-    def __init__(self, health: dict, note: dict, search: dict,
-                 suggestions: dict | None = None):
+    """按 URL 分派的假客户端：只记录调用，不碰网络。"""
+
+    def __init__(self, health: dict, vault: Path | None = None):
         self.health = health
-        self.note = note
-        self.search = search
-        self.suggestions = suggestions or {}
-        self.calls: list[tuple[str, str, dict | None]] = []
+        self.vault = vault
+        self.calls: list[tuple[str, str]] = []
 
     def __enter__(self):
         return self
@@ -35,23 +39,17 @@ class FakeClient:
         return False
 
     def get(self, url: str, params: dict | None = None):
-        self.calls.append(("GET", url, params))
+        self.calls.append(("GET", url))
         if url == "/api/health":
             return FakeResponse(200, self.health)
-        if url == "/api/journal/note":
-            return FakeResponse(200, self.note)
-        if url == "/api/search":
-            return FakeResponse(200, self.search)
-        if url == "/api/steward/inbox-suggestions":
-            return FakeResponse(200, self.suggestions)
+        if url == "/api/vault/connection":
+            return FakeResponse(200, {"path": str(self.vault or "")})
+        if url == "/api/time/tasks":
+            return FakeResponse(200, {"tasks": [], "revision": "qa-rev"})
         return FakeResponse(200, {})
 
     def post(self, url: str, json: dict | None = None):
-        self.calls.append(("POST", url, json))
-        if url == "/api/journal/note/generate":
-            return FakeResponse(200, {"exists": True})
-        if url == "/api/notes":
-            return FakeResponse(201, {"document": {"id": 1}})
+        self.calls.append(("POST", url))
         return FakeResponse(200, {})
 
 
@@ -61,40 +59,45 @@ def install(monkeypatch, client: FakeClient):
 
 
 def test_real_vault_is_never_written(monkeypatch):
-    client = install(monkeypatch, FakeClient(
-        health={"runtime_label": "personal"},
-        note={"exists": False},
-        search={"items": []},
-    ))
+    client = install(monkeypatch, FakeClient({"runtime_label": "personal"}))
     result = probe.seed_qa_workspace("http://127.0.0.1:8765")
     assert result["skipped"] == "not-qa"
     assert [call[0] for call in client.calls] == ["GET", "GET"]
     assert not any(call[0] == "POST" for call in client.calls)
 
 
-def test_existing_qa_data_is_not_duplicated(monkeypatch):
-    client = install(monkeypatch, FakeClient(
-        health={"runtime_label": "qa"},
-        note={"exists": True},
-        search={"items": [{"path": "03_知识库/00_收件箱/考研.md"}]},
-        suggestions={"items": [{"proposal_id": "st-existing"}]},
-    ))
+def test_qa_workspace_without_marker_is_skipped(monkeypatch, tmp_path):
+    workspace = tmp_path / "qa-no-marker"
+    vault = workspace / "vault"
+    vault.mkdir(parents=True)
+    client = install(monkeypatch, FakeClient({"runtime_label": "qa"}, vault=vault))
     result = probe.seed_qa_workspace("http://127.0.0.1:8766")
-    assert result == {"seeded": True, "diary": None, "search_note": None}
+    assert result["skipped"] == "not-a-disposable-qa-vault"
+    assert list(tmp_path.rglob("*.md")) == []
     assert not any(call[0] == "POST" for call in client.calls)
 
 
-def test_fresh_qa_workspace_gets_a_diary_and_search_note(monkeypatch):
-    client = install(monkeypatch, FakeClient(
-        health={"runtime_label": "qa"},
-        note={"exists": False},
-        search={"items": []},
-    ))
+def test_disposable_qa_workspace_gets_readonly_fixtures(monkeypatch, tmp_path):
+    workspace = tmp_path / "qa-probe"
+    vault = workspace / "vault"
+    vault.mkdir(parents=True)
+    (workspace / probe.WORKSPACE_MARKER).write_text(json.dumps({
+        "schema": 1, "environment": "qa", "workspace": workspace.name,
+    }), encoding="utf-8")
+    client = install(monkeypatch, FakeClient({"runtime_label": "qa"}, vault=vault))
+
     result = probe.seed_qa_workspace("http://127.0.0.1:8766")
+
     assert result["seeded"] is True
-    assert result["diary"] == 200
-    assert result["search_note"] == 201
-    assert result["inbox_notes"] == ["QA 整理收件箱五步法", "QA 读书笔记：原则", "QA 触动"]
+    assert result["scan"] == 200
+    day = datetime.now(SHANGHAI).date()
+    written = sorted(path.relative_to(vault).as_posix() for path in vault.rglob("*.md"))
+    assert f"00_人生路/01_日记/{day.isoformat()}.md" in written
+    assert "03_知识库/00_收件箱/QA 整理收件箱五步法.md" in written
+    assert "03_知识库/01_主题笔记/考研规划.md" in written
+    assert f"02_生活运营/01_健康与体重/{day.strftime('%Y-%m')}.md" in written
+    assert len(written) == 6
     posted = [call[1] for call in client.calls if call[0] == "POST"]
-    assert posted == ["/api/journal/note/generate", "/api/notes",
-                     "/api/capture", "/api/capture", "/api/capture"]
+    assert posted[0] == "/api/vault/scan"
+    # 旧的 /api/capture 已经下线，种子不应再调用它。
+    assert "/api/capture" not in posted

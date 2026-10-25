@@ -72,9 +72,9 @@ function openNewCapture() {
     return true;
   }
   if (["life", "self", "ops", "knowledge"].includes(state.view)) {
-    const capture = document.querySelector(`#${state.view}-view [data-pillar-capture]`);
-    if (!capture) return false;
-    capture.click();
+    const target = document.querySelector(`#${state.view}-view [data-pillar-new]`);
+    if (!target) return false;
+    target.click();
     return true;
   }
   return false;

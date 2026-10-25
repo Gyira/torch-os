@@ -1,4 +1,4 @@
-/* 薪火OS · Obsidian 插件（0.99.1，免构建的 CommonJS 单文件）。
+/* 薪火OS · Obsidian 插件（0.99.2，免构建的 CommonJS 单文件）。
  *
  * 把整个工作台以 iframe 的方式住进 Obsidian（`?embed=1&panel=1&host=obsidian`）。
  *
@@ -172,6 +172,7 @@ class WorkbenchView extends ItemView {
       const data = event.data;
       if (data?.type === 'torch:theme-request') { this.plugin.pushTheme(this.frame); return; }
       if (data?.type === 'torch:open-note') { this.plugin.openNote(data.path, event.origin); }
+      if (data?.type === 'torch:new-note') { this.plugin.createNote(data.path, data.content, event.origin); }
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
@@ -446,6 +447,46 @@ module.exports = class TorchPlugin extends Plugin {
       try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
     } catch (error) {
       new Notice(`打开任务文档失败：${String(error?.message || error)}`);
+    }
+  }
+
+  /**
+   * 在 Obsidian 里新建并打开四库笔记（2026-10-26）。
+   * 四库改为只读浏览：内容在 Obsidian 里写，这里只负责建空白文件并打开。
+   */
+  async createNote(pathValue, contentValue, origin) {
+    if (!this.instanceUrl || !this.frameOriginMatches(origin)) return;
+    if (typeof pathValue !== 'string' || !pathValue || pathValue.length > 1024) return;
+    if (pathValue.includes('\\') || pathValue.startsWith('/') || pathValue.split('/').includes('..')) {
+      return;
+    }
+    const normalized = normalizePath(pathValue);
+    const isPillar = /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(normalized)
+      && normalized.endsWith('.md');
+    if (!isPillar) return;
+    const content = typeof contentValue === 'string' ? contentValue.slice(0, 20000) : '';
+    const existing = this.app.vault.getAbstractFileByPath(normalized);
+    if (existing instanceof TFile) {
+      try {
+        const leaf = this.app.workspace.getLeaf('tab');
+        await leaf.openFile(existing);
+        try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
+      } catch (error) {
+        new Notice(`打开笔记失败：${String(error?.message || error)}`);
+      }
+      return;
+    }
+    const folder = normalized.split('/').slice(0, -1).join('/');
+    try {
+      if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
+        await this.app.vault.createFolder(folder);
+      }
+      const file = await this.app.vault.create(normalized, content);
+      const leaf = this.app.workspace.getLeaf('tab');
+      await leaf.openFile(file);
+      try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
+    } catch (error) {
+      new Notice(`新建笔记失败：${String(error?.message || error)}`);
     }
   }
 

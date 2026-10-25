@@ -202,10 +202,10 @@ def test_journal_and_vault_tools_never_leak_note_text(tmp_path, monkeypatch):
 
 
 def test_body_documents_and_audit_tools_stay_summary_only(tmp_path, monkeypatch):
-    _, _, client = build(tmp_path, monkeypatch)
-    created = client.post('/api/ops/health/months/2026-10/rows', json={
+    app, _, client = build(tmp_path, monkeypatch)
+    from backend.app import structured_notes
+    structured_notes.upsert_row(app.state.vault_dir, 'health', '2026-10', {
         'date': '2026-10-04', 'sleep_minutes': '420', 'exercise_minutes': '30', 'weight_kg': '70.5'})
-    assert created.status_code == 200, created.text
     body = client.get('/api/tools/body?days=7').json()
     assert body['recorded_days'] == 1
     assert body['sleep_minutes_total'] == 420 and body['exercise_minutes_total'] == 30

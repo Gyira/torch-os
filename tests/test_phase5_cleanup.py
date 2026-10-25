@@ -37,6 +37,30 @@ def test_retired_http_routes_return_404(tmp_path):
         assert response.status_code == 404, (method, path, response.status_code, response.text)
 
 
+def test_retired_four_library_write_routes_return_404(tmp_path):
+    _, client = build(tmp_path)
+    for method, path, body in (
+        ('post', '/api/capture', {'title': '一条灵感', 'body': '正文'}),
+        ('post', '/api/notes/update', {'body': '改过的正文'}),
+        ('post', '/api/notes/move', {'path': '03_知识库/00_收件箱/笔记.md', 'chapter': 'concept'}),
+        ('post', '/api/reviews/weekly', {}),
+        ('post', '/api/reviews/monthly', {}),
+        ('post', '/api/ops/health/months/2026-10/rows', {'date': '2026-10-21'}),
+        ('post', '/api/ops/health/months/2026-10/rows/abcdef123456',
+         {'date': '2026-10-21', 'weight_kg': '68.1'}),
+        ('delete', '/api/ops/health/months/2026-10/rows/abcdef123456', None),
+        ('post', '/api/ops/health/months/2026-10/rows/abcdef123456/restore',
+         {'date': '2026-10-21', 'weight_kg': '68.1'}),
+        ('post', '/api/steward/proposals/apply', {'proposal_id': 'st-missing', 'confirm': True}),
+        ('post', '/api/steward/proposals/apply-batch',
+         {'proposal_ids': ['st-missing'], 'confirm': True}),
+        ('post', '/api/journal/note/generate', {'day': '2026-10-21', 'mode': 'create'}),
+    ):
+        response = getattr(client, method)(path, json=body) if body is not None else getattr(client, method)(path)
+        assert response.status_code == 404, (method, path, response.status_code, response.text)
+
+
+
 def test_retired_capabilities_are_not_advertised(tmp_path):
     _, client = build(tmp_path)
     capabilities = client.get('/api/config/status').json()['capabilities']

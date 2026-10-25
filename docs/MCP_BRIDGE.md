@@ -14,6 +14,37 @@
 桥使用本地会话与回环地址；不会把工具调用发往外部。具体 MCP 客户端配置由客户端
 自己的工作区负责，本仓库只提供这个 stdio 入口。
 
+### 接进 DeepSeek Harness（2026-10-26 已验证）
+
+在 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 里插入一个 stdio 服务器。注意：顶层
+条目默认是「覆盖已有 id」，**新增服务器必须写在 `insert` 列表里**，否则只会得到
+`patch: entry "mcp-torch" not found` 的警告：
+
+```yaml
+- insert:
+    - id: mcp-torch
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: torch
+        transport: stdio
+        command: 'C:\path\to\torch-os\.venv\Scripts\python.exe'
+        args:
+          - 'C:\path\to\torch-os\scripts\mcp_bridge.py'
+          - '--base-url'
+          - 'http://127.0.0.1:9168'
+        cwd: 'C:\path\to\torch-os'
+        toolCallTimeoutMs: 20000
+        failOnStartupError: false
+```
+
+- `--base-url` 指向当前工作台实例：Obsidian 插件模式用插件挑的端口（默认从 `9168` 起），
+  浏览器模式用 `.env` 的 `8765`；端口变了要同步改这里。
+- 改完先 `dsh --profile web --dump-config` 确认能看到 `mcp-torch` 且没有 not-found 警告。
+  `web` profile 默认开着 HMR，正在运行的 dsh 会自动重载 patch，不需要重启。
+- 工具名是 `mcp__torch__<tool>`（例如 `mcp__torch__today`），契约仍是只读；
+  后端没起时只是这些工具不可用，dsh 本身照常启动（`failOnStartupError: false`）。
+- 手动确认桥本身可用：`POST /api/bridge/selftest`，请求体 `{"base_url":"http://127.0.0.1:9168"}`。
+
 ## 工具目录（12 个）
 
 | 工具 | 读取内容 |

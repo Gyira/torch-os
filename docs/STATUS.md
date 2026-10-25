@@ -6,13 +6,13 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`b015cb2`（以 `git log -1` 为准）
-- 工作树：DeepSeek Harness 全界面内嵌与旧 AI 清理尚未提交
+- 代码基线：`413619a`（以 `git log -1` 为准）
+- 工作树：四库只读改造（后端、前端、插件）与文档改动未提交（2026-10-26）
 - 后端：**707 passed / 1 skipped / 0 failed**（2026-10-25 全量，269.03 秒）
-- 前端：**180 passed**
+- 前端：**184 passed**（2026-10-26，四库只读改造后）
 - `scripts/check_all.ps1`：**exit 0**
 - 能力标记：**38**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
-- 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\个人数据库`）；
+- 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\Torch\个人数据库`）；
   后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。
 - 排障提示：如果全量测试突然出现大量 setup `PermissionError`（`%TEMP%\torch-pytest`
   被占用），通常是有两个 pytest 全量进程同时在跑、共用并互删同一个临时根目录；
@@ -20,6 +20,24 @@
 
 ## 已完成
 
+- **2026-10-26 四库只读 + 跳转 Obsidian**：四库（人生路/自我档案/生活运营/知识库）在插件里
+  改为只读浏览，手动 Markdown 写入统一回到 Obsidian 原生编辑器；新建、改标签、移章节、
+  复盘、体重/账目行、习惯文件与管家提案都只做跳转（「＋ 在 Obsidian 新建」、
+  「在 Obsidian 打开并编辑」、「在 Obsidian 打开月度表」、「打开本周复盘 / 打开本月复盘」、
+  「在 Obsidian 打开习惯文件」、「在 Obsidian 打开原文」）。插件用 `torch:new-note`
+  宿主桥建文件并打开，浏览器模式退回 `obsidian://new`；新建仍按四库章节落到对应目录。
+  退役写接口 `POST /api/capture`、`/api/notes/update`、`/api/notes/move`、
+  `/api/reviews/weekly`、`/api/reviews/monthly`、`/api/ops/{dataset}/months/{month}/rows`
+  （新增）、`POST .../rows/{row_id}`（更新）、`DELETE .../rows/{row_id}`、`.../restore`、
+  `/api/steward/proposals/apply`、`/apply-batch`、`/api/journal/note/generate`（均 404）。
+  工作台任务、日历、习惯打卡、四象限、滴答同步、备份与迁移不变。前端测试 **184 passed**
+  （含宿主桥/只读守卫）。
+- **2026-10-26 收尾**：仓库与库整体搬进 `Desktop\Torch`（`torch-os` + `个人数据库`），
+  插件 `repoRoot` 与 `.env` 已同步；重建索引（30 条移动前残留标记为不可用，21 条可用
+  记录与磁盘一一对应）；真实库备份 + 一键恢复演练 `ok: true`、`sqlite_integrity: ok`；
+  清理 deprecated 表 13 行（`suggestions` 10 / `conversations` 1 / `messages` 2），
+  CSV 与 `restore.sql` 在 `.torch-os/diagnostics/deprecated-20261026T002919/`；
+  12 个只读工具已接进 dsh（`mcp__torch__*`，配置方式见 `docs/MCP_BRIDGE.md`）。
 - **2026-10-25 唯一 AI：DeepSeek Harness**：工作台「与神对话」改为完整 dsh Web UI，
   经 torch 同源 `/harness/` 反向代理加载（HTTP + WebSocket，服务端 cookie，兼容
   Obsidian 跨站 iframe）。torch 自动检测 `dsh`，缺失时用 `npx` 启动；模型、密钥与
@@ -66,23 +84,27 @@
 - UX 打磨：
   - 知识库收件箱整理建议按目标章节分组、标注置信度，支持勾选/全选/只选高置信后批量移动，
     执行前确认；单条失败不回滚已成功项，建议卡内可直接「打开」原文，
-    已进入建议卡的条目不再在下方重复。
+    已进入建议卡的条目不再在下方重复。2026-10-26 起四库只读：建议只读展示，移动/改名回 Obsidian。
   - 四库笔记详情支持复制 Obsidian 双链/路径、增删标签、移动章节与查看反向链接。
+    2026-10-26 起只读：仅保留复制双链/路径与反向链接，编辑点「在 Obsidian 打开并编辑」回 Obsidian。
   - 「与神对话」右上角新增 DeepSeek Harness 官网入口，新标签页打开。
   - 友好日期（今天 16:40 / 昨天 / 10月22日）、搜索回车打开第一条；
   - 顶部「?」帮助入口、首次使用引导卡、四库空状态示例与失败重试；
   - 小屏顶部标签单行滚动并自动定位当前页、设置侧栏自动定位；
   - 1180px 以下四库单列、章节轨横向、右栏信息下移保留；
   - 小屏任务主区优先、时间管理按钮横向 chips；
-  - 页面切换淡入、toast 改用主题表面与语义边框、生活运营删除确认。
+  - 页面切换淡入、toast 改用主题表面与语义边框、生活运营删除确认
+    （2026-10-26 起生活运营行只在 Obsidian 里改，插件没有删除入口）。
   - 键盘导航与快捷键：`?` 打开快捷键总览，帮助页有同一入口；`g` 后按
-    `w/l/s/o/k/,`/`h` 跳转，`n` 在四库打开「记一条」、在工作台聚焦任务输入；
+    `w/l/s/o/k/,`/`h` 跳转，`n` 在四库打开「记一条」、在工作台聚焦任务输入
+    （2026-10-26 起四库为「在 Obsidian 新建」）；
     顶部标签、设置侧栏、四库章节轨、最近 7 天与任务页标签支持方向键，Home/End 到两端；
     时间页标签改为 roving tabindex，只有当前标签在 Tab 顺序里。
   - 危险操作策略：`confirmAction` 新增危险色选项，清空/彻底删除回收站、回滚迁移、
     清除滴答凭据、开启本地删除回写使用它；生活运营删除行后 15 秒内可撤销，
     按原 row_id 与位置写回，后端新增 `POST /api/ops/{dataset}/months/{month}/rows/{row_id}/restore`。
     toast 支持一个动作按钮；确认框默认焦点仍在“取消”。
+    （2026-10-26 起生活运营删除/撤销与 restore 路由已退役；危险色仍用于回收站、迁移回滚与凭据清理）
   - 任务 ↔ 目标联动：任务行显示目标 chip，点击只看该目标；分组菜单新增「目标」，
     未关联任务归入「未关联目标」；目标笔记详情列出关联任务，可直接打开任务文档。
     任务板加载时并行读取 `GET /api/goals`，目标标题变化会触发重画。
@@ -108,6 +130,8 @@
   `.gitignore`，只在本机保留，不提交。
 - `browser_smoke.py` 是 legacy，仅用于失败报告测试；不要作为验收证据。
 - 旧的已移除 HTTP 路由对仓库外客户端会返回 404；清单见 `docs/DEPRECATIONS.md`。
+- 四库在插件里只读（2026-10-26 起）：新建、编辑、移动、复盘和体重/账目行都在 Obsidian 里完成，
+  插件只做浏览、搜索与跳转。
 - 首版仍不做复杂图谱、聊天页或完整 Markdown 编辑器；深度编辑交给 Obsidian。
 
 ## 验证命令
@@ -130,12 +154,13 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 
 ## 下一步候选
 
-本轮用户指定顺序：**键盘导航（已完成）→ 危险操作确认与撤销（已完成）→ 退役旧后端（已完成）→ 新产品功能（任务 ↔ 目标联动、知识库收件箱批量整理已完成）**。
+本轮用户指定顺序：**键盘导航（已完成）→ 危险操作确认与撤销（已完成）→ 退役旧后端（已完成）→ 新产品功能（任务 ↔ 目标联动、知识库收件箱批量整理已完成；2026-10-26 起四库只读，批量整理入口已退役）**。
 
-1. 四库笔记详情操作已完成：复制 Obsidian 双链/路径、增删标签、移动章节、反向链接。
+1. 四库已改为只读＋跳转 Obsidian（2026-10-26）：浏览、搜索、复制双链/路径、反向链接保留；
+   增删标签与移动章节退役，编辑统一回 Obsidian。
 2. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
 3. 继续选下一组产品功能（按用户需求）。
-4. dsh 后续：在 dsh 内配置模型/账号；如需 torch 的 12 个只读工具，按
-   `docs/MCP_BRIDGE.md` 把 MCP 桥加入 dsh profile；再验证 dsh 的 OAuth 回调。
+4. dsh 后续：12 个只读工具已接入（2026-10-26，见 `docs/MCP_BRIDGE.md`）；还剩
+   dsh 的 OAuth 回调验证与模型/账号配置。
 5. 用真实 dsh 版本跑一次浏览器/ Obsidian 验收，确认 `/harness/` 的 HTTP + WebSocket
    与 npx 首次启动提示；后续 dsh 升级时回归代理契约。

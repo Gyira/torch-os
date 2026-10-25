@@ -1,7 +1,7 @@
 # 退役与兼容（0.99）
 
 这份清单记录 0.99 清理后**已经移除**、**保留但不再写入**、以及**仍然保留**的旧接口和表。
-原则：不删除用户文件，不自动 DROP SQLite 表；旧数据保留，新写入走 Markdown 或四库页面。
+原则：不删除用户文件，不自动 DROP SQLite 表；旧数据保留，新写入走 Markdown（工作台或 Obsidian）。
 
 ## 已移除的 HTTP 路由
 
@@ -22,11 +22,25 @@
 - `/api/steward/ask` 与 `/api/steward/status`：旧管家问答；问答统一交给 dsh。
 - `/api/workbench/summarize`：旧模型润色接口；`/api/workbench/draft` 仍保留。
 - `/api/conversations`、`/api/conversations/{id}`：旧对话读取；历史数据仍可通过导出接口读取。
+- **2026-10-26 四库只读**（手动写入改为在 Obsidian 原生编辑器里做）：
+  - `POST /api/capture`：旧快速捕获对话框。
+  - `POST /api/notes/update`、`POST /api/notes/move`：笔记标签/状态更新与章节移动。
+  - `POST /api/reviews/weekly`、`POST /api/reviews/monthly`：周/月复盘骨架生成。
+  - `POST /api/ops/{dataset}/months/{month}/rows`、`POST /api/ops/{dataset}/months/{month}/rows/{row_id}`、
+    `DELETE /api/ops/{dataset}/months/{month}/rows/{row_id}`、
+    `POST /api/ops/{dataset}/months/{month}/rows/{row_id}/restore`：生活运营月度行的新增、更新、删除与撤销。
+  - `POST /api/steward/proposals/apply`、`POST /api/steward/proposals/apply-batch`：管家提案执行。
+  - `POST /api/journal/note/generate`：日记骨架生成与追加。
+
+  以上接口现在都返回 404。界面对应按钮改为跳转 Obsidian：「＋ 在 Obsidian 新建」、
+  「在 Obsidian 打开并编辑」、「在 Obsidian 打开月度表」、「打开本周复盘 / 打开本月复盘」、
+  「在 Obsidian 打开习惯文件」、「在 Obsidian 打开原文」。插件内用 `torch:new-note` /
+  `torch:open-note` 宿主桥，浏览器模式退回 `obsidian://new` / `obsidian://open`；
+  工作台的任务、日历、习惯打卡、四象限、滴答同步、备份与迁移不受影响。
 
 仍在使用的相邻接口：
 
-- `/api/journal/note`：工作台日记（Markdown 权威文件）。
-- `/api/reviews/weekly`、`/api/reviews/monthly`：四库复盘骨架。
+- `/api/journal/note`：工作台日记读取（Markdown 权威文件；生成/追加写入已退役）。
 - `/api/export/journal.json|md`：历史日记导出（只读）。
 - `/api/time/*`：工作台任务（Markdown 一任务一笔记）。
 - `/api/goals`：任务导入的目标选择与计数工具仍在使用。
@@ -63,4 +77,6 @@
 - 旧 hash（`#today`、`#identity`、`#profile`、`#memory`、`#bazi`、`#goals`、`#habits`、
   `#brain`、`#documents`、`#notes`、`#archive`、`#help`）仍会重定向到新页面。
 - 旧书签/外部客户端调用已移除路由会得到 404；请改用上表中的相邻接口或 Markdown 文件。
+- 2026-10-26 起四库编辑统一在 Obsidian：插件只读浏览与跳转，写接口返回 404；
+  外部客户端请直接改 Vault 里的 Markdown，工作台操作仍走 `/api/time/*` 等既有接口。
 - 备份、恢复副本与导出包仍包含历史数据；迁移或清理表前先做一次已验证备份。

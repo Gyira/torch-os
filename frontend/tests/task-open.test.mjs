@@ -1,7 +1,10 @@
 // 打开任务文档：宿主检测、obsidian:// 编码、插件消息形状与浏览器兜底。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument } from "../task-open.js";
+import {
+  createObsidianNote, isObsidianHost, newNoteMessage, obsidianNewUri, obsidianOpenUri,
+  openNoteMessage, openTaskDocument,
+} from "../task-open.js";
 
 test("only the Obsidian embedded query counts as a host bridge", () => {
   assert.equal(isObsidianHost("?embed=1&host=obsidian&theme=dark"), true);
@@ -20,6 +23,21 @@ test("obsidian:// URI encodes vault and relative path", () => {
 test("open message only carries the relative path", () => {
   assert.deepEqual(openNoteMessage("00-System/任务/a.md"),
     { type: "torch:open-note", path: "00-System/任务/a.md" });
+});
+
+test("obsidian://new encodes vault, path and optional content", () => {
+  const vault = "我的 库";
+  const target = "03_知识库/00_收件箱/未命名.md";
+  assert.equal(obsidianNewUri(vault, target),
+    `obsidian://new?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(target)}`);
+  assert.match(obsidianNewUri(vault, target, "正文"), /&content=/);
+  assert.equal(obsidianNewUri("", target), "");
+  assert.equal(obsidianNewUri(vault, ""), "");
+});
+
+test("new-note message carries the path and prefilled content", () => {
+  assert.deepEqual(newNoteMessage("01_自我档案/想法/a.md", "hello"),
+    { type: "torch:new-note", path: "01_自我档案/想法/a.md", content: "hello" });
 });
 
 function withEnvironment({ search = "", parent, open }, run) {
@@ -67,4 +85,18 @@ test("in a plain browser it falls back to obsidian://", () => {
   assert.equal(opened[0][0],
     "obsidian://open?vault=%E7%9F%A5%E8%AF%86%20%E5%BA%93&file=00-System%2F%E4%BB%BB%E5%8A%A1%EF%BC%88tasks%EF%BC%89.md");
   assert.equal(opened[0][1], "_blank");
+});
+
+test("inside Obsidian a new note is created by the host bridge", () => {
+  const posted = [];
+  withEnvironment({
+    search: "?embed=1&host=obsidian",
+    parent: { postMessage: (...args) => posted.push(args) },
+    open: () => { throw new Error("不应在宿主桥里打开外部链接"); },
+  }, () => {
+    assert.equal(createObsidianNote("03_知识库/00_收件箱/a.md", "我的库", "预填正文"), true);
+  });
+  assert.deepEqual(posted, [[
+    { type: "torch:new-note", path: "03_知识库/00_收件箱/a.md", content: "预填正文" }, "*",
+  ]]);
 });
