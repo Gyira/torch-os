@@ -259,6 +259,31 @@
             </article>
           </section>
           <section class="settings-section" data-settings-section="obsidian" aria-labelledby="settings-obsidian-heading" hidden>
+            <article class="settings-card" id="vault-admin-card" hidden>
+              <div class="settings-card-head"><div><span class="eyebrow">PERSONAL DATABASE</span><h2 id="settings-vault-admin-heading" tabindex="-1">个人数据库</h2><p>创建新的个人数据库 = 按四库模板生成文件夹、<code>.obsidian</code> 预设和 torch 插件；不会改动当前库。</p></div></div>
+              <div id="vault-admin-current" class="panel workspace-list">正在读取当前数据库…</div>
+              <details id="vault-template" class="vault-template" hidden>
+                <summary>模板结构（<span id="vault-template-summary">正在读取…</span>）</summary>
+                <div id="vault-template-body" class="vault-template-body"></div>
+              </details>
+              <form id="vault-create-form" class="vault-create-form" novalidate hidden>
+                <div class="form-grid">
+                  <div class="field"><label for="vault-create-parent">父文件夹</label><input id="vault-create-parent" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Users\你\Desktop" /></div>
+                  <div class="field"><label for="vault-create-name">名称</label><input id="vault-create-name" type="text" autocomplete="off" maxlength="40" placeholder="例如：我的数据库" /></div>
+                </div>
+                <p id="vault-create-preview" class="field-help">填写父文件夹和名称后显示目标路径。</p>
+                <div class="form-actions"><button id="vault-create-submit" class="button primary" type="submit" disabled>创建个人数据库</button><span class="meta">只写新文件夹；当前库不会被改动。</span></div>
+              </form>
+              <div id="vault-create-result" class="panel form-panel" hidden></div>
+              <p id="vault-admin-status" class="status-message" role="status" aria-live="polite"></p>
+              <p id="vault-admin-support" class="meta" role="status" hidden></p>
+              <section id="vault-database-section" class="vault-database-section" aria-labelledby="vault-database-heading" hidden>
+                <h3 id="vault-database-heading">切换数据库</h3>
+                <p id="vault-database-hint" class="field-help"></p>
+                <div id="vault-database-list" class="panel workspace-list">正在读取数据库…</div>
+                <p id="vault-database-status" class="status-message" role="status" aria-live="polite"></p>
+              </section>
+            </article>
             <article class="settings-card" id="vault-scoped-card" hidden>
               <div class="settings-card-head"><div><span class="eyebrow">OBSIDIAN SCOPED</span><h2 tabindex="-1">当前由 Obsidian 库承载</h2><p id="vault-scoped-text"></p></div></div>
               <p class="field-help">切换库 = 在 Obsidian 里打开另一个库；工作台会自动使用那个库自己的 <code>.torch-os</code> 数据，不需要在这里切工作区，也不会和其它库混在一起。</p>

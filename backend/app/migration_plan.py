@@ -1,7 +1,8 @@
-"""只读迁移预览（2026-10-21）：旧布局 → 四库的逐文件计划。
+"""只读迁移预览（2026-10-26）：旧布局 / 人生路 v1 → 四库 v2 的逐文件计划。
 
 不写任何文件。每个条目带源/目标/动作/理由/哈希，冲突单独列出；
 apply 阶段必须携带这里生成的 plan_hash，避免“预览后文件又变了”却照旧执行。
+v1 章节搬迁只认 `vault_layout.V1_CHAPTER_MOVES`：日记、任务、习惯等未移动目录保持 keep_v1。
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ MAX_FILE_BYTES = 64 * 1024 * 1024
 class PlanItem:
     source: str
     target: str
-    action: str          # move / keep_system / keep_foreign / keep_legacy
+    action: str          # move / keep_v1 / keep_system / keep_foreign / keep_legacy
     reason: str
     kind: str            # markdown / file
     sha256: str
@@ -153,42 +154,49 @@ def plan_migration(vault_dir: Path | str) -> MigrationPlan:
         metadata = _safe_metadata(path)
         kind = "markdown" if relative.casefold().endswith(".md") else "file"
         lowered = relative.casefold()
-        if vault_layout.pillar_of(relative):
+        # 人生路 v2：v1 章节目录里的文件按相对子路径搬到新章节；其余四库文件原地保留。
+        planned_v1 = vault_layout.v1_chapter_move(relative)
+        if planned_v1 is not None:
+            target, reason = planned_v1
+            reason = f"layout-v2:{reason}"
+        elif vault_layout.pillar_of(relative):
             items.append(PlanItem(relative, relative, "keep_v1", "已在四库",
                                   kind, digest, size, metadata))
             continue
         # 计划笔记不是任务：即使放在 00-System/任务 里也归入人生路。
-        if str(metadata.get("type") or "").casefold() == "plan":
+        elif str(metadata.get("type") or "").casefold() == "plan":
             name = relative.rsplit("/", 1)[-1]
             target = f"{vault_layout.chapter_dir('project_plan')}/{name}"
             items.append(PlanItem(relative, target, "move", "plan", kind,
                                   digest, size, metadata))
             targets[target] = relative
             continue
-        if lowered.startswith("00-system/"):
+        elif lowered.startswith("00-system/"):
             items.append(PlanItem(relative, relative, "keep_system", "工作台系统区",
                                   kind, digest, size, metadata))
             continue
-        if _is_foreign(relative, metadata):
+        elif _is_foreign(relative, metadata):
             items.append(PlanItem(relative, relative, "keep_foreign", "外部资产（Apex Dashboard）",
                                   kind, digest, size, metadata))
             continue
-        if lowered.startswith("20-journal/"):
+        elif lowered.startswith("20-journal/"):
             items.append(PlanItem(relative, relative, "keep_legacy", "旧日记导出快照（只读）",
                                   kind, digest, size, metadata))
             continue
-        planned = _plan_target(relative, metadata)
-        if planned is None:
-            if "/" not in relative and kind == "markdown":
-                target, reason = f"03_知识库/00_收件箱/{relative}", "root-note"
-            elif "/" not in relative:
-                target, reason = f"03_知识库/00_收件箱/{relative}", "root-file"
-            else:
-                items.append(PlanItem(relative, relative, "keep_legacy", "未识别的旧目录，暂不移动",
-                                      kind, digest, size, metadata))
-                continue
         else:
-            target, reason = planned
+            planned = _plan_target(relative, metadata)
+            if planned is None:
+                if "/" not in relative and kind == "markdown":
+                    target, reason = f"03_知识库/00_收件箱/{relative}", "root-note"
+                elif "/" not in relative:
+                    target, reason = f"03_知识库/00_收件箱/{relative}", "root-file"
+                else:
+                    items.append(PlanItem(relative, relative, "keep_legacy",
+                                          "未识别的旧目录，暂不移动",
+                                          kind, digest, size, metadata))
+                    continue
+            else:
+                target, reason = planned
         target = vault_layout.normalize_relpath(target)
         try:
             vault_layout.validate_target(target)

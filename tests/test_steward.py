@@ -35,7 +35,7 @@ def test_health_check_flags_structure_issues(tmp_path):
     legacy = vault / "00_人生路" / "01_日记" / "2026-10-20.md"
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text("没有 frontmatter 的日记。\n", encoding="utf-8")
-    mismatch = vault / "00_人生路" / "02_反思" / "错位的反思.md"
+    mismatch = vault / "00_人生路" / "02_反思复盘" / "01_反思" / "错位的反思.md"
     mismatch.parent.mkdir(parents=True, exist_ok=True)
     mismatch.write_text(
         "---\ntype: reflection\ntitle: 错位的反思\npillar: self\nchapter: idea\n---\n\n正文。\n",

@@ -981,6 +981,23 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .workspace-row .section-actions { flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 760px) { .workspace-row { display: block; } .workspace-row .section-actions { justify-content: flex-start; margin-top: 8px; } }
 
+/* 个人数据库：四库模板预览、创建表单与数据库列表（设置 → Obsidian 库连接） */
+.vault-create-form { margin-top: 12px; }
+.vault-database-section { margin-top: 18px; }
+.vault-database-section h3 { margin: 0 0 2px; font-size: 16px; }
+.vault-template { border-top: 1px solid var(--p-line-faint); margin: 14px 0 4px; }
+.vault-template summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 600; color: var(--p-ink-2); }
+.vault-template-body { padding: 2px 0 8px; }
+.vault-tree { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin: 6px 0 12px; }
+.vault-tree-group { border: 1px solid var(--p-line-faint); border-radius: 8px; background: var(--p-surface-2); padding: 10px 12px; min-width: 0; }
+.vault-tree-pillar { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 6px; }
+.vault-tree-pillar code { color: var(--p-ink-5); font-size: 11px; }
+.vault-tree-chapters { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.vault-tree-chapters li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--p-ink-3); }
+.vault-tree-chapters code { color: var(--p-ink-5); font-size: 11px; overflow-wrap: anywhere; text-align: right; }
+#vault-admin-status, #vault-database-status { text-align: left; }
+@media (max-width: 760px) { .vault-tree { grid-template-columns: minmax(0, 1fr); } }
+
 /* 任务回收站：与滴答一致的勾选/批量恢复/彻底删除交互 */
 .trash-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 14px; }
 .trash-item-main { display: flex; align-items: flex-start; gap: 10px; }
@@ -1014,6 +1031,20 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-rail-item span { font-size: 11px; color: var(--p-ink-5); font-variant-numeric: tabular-nums; }
 .pillar-rail-item:hover { background: var(--p-hover); color: var(--p-ink); }
 .pillar-rail-item.is-active { background: var(--pillar-soft); color: var(--pillar-accent); border-left-color: var(--pillar-accent); font-weight: 600; }
+/* 章节轨一级分组（人生路）：标题行只负责折叠，二级章节沿用 .pillar-rail-item 的外观。 */
+.pillar-rail-group { display: flex; flex-direction: column; gap: 2px; }
+.pillar-rail-group-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; border: 0; border-left: 2px solid transparent; border-radius: 9px; background: transparent; color: var(--p-ink-4); padding: 7px 9px 7px 12px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: .01em; text-align: left; cursor: pointer; }
+.pillar-rail-group-toggle:hover { background: var(--p-hover); color: var(--p-ink); }
+.pillar-rail-group-toggle:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 1px; }
+.pillar-rail-group-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pillar-rail-group-meta { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; color: var(--p-ink-5); font-weight: 400; }
+.pillar-rail-group-count { font-size: 11px; font-variant-numeric: tabular-nums; }
+.pillar-rail-chevron { width: 6px; height: 6px; margin-right: 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .14s ease; }
+.pillar-rail-group.is-collapsed .pillar-rail-chevron { transform: rotate(-45deg); }
+.pillar-rail-children { display: flex; flex-direction: column; gap: 2px; margin: 0 0 3px 11px; padding-left: 7px; border-left: 1px solid var(--p-line-faint); }
+.pillar-rail-children[hidden] { display: none; }
+.pillar-rail-children .pillar-rail-item { padding-top: 6px; padding-bottom: 6px; font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { .pillar-rail-chevron { transition: none; } }
 .pillar-content { min-width: 0; }
 .pillar-content-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .pillar-content-head h3 { margin: 2px 0 0; font-family: var(--p-font-display); font-size: 20px; color: var(--p-ink-strong); }
@@ -1086,6 +1117,10 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
   .pillar-rail::-webkit-scrollbar { display: none; }
   .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
+  /* 横排时分组铺平成一行：标题仍是折叠开关，展开的章节紧跟其后。 */
+  .pillar-rail-group, .pillar-rail-children { display: contents; }
+  .pillar-rail-children[hidden] { display: none; }
+  .pillar-rail-group-toggle { flex: 0 0 auto; width: auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
   .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
   .pillar-aside {
     display: flex;
@@ -1109,6 +1144,10 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-rail { position: static; flex-direction: row; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
   .pillar-rail::-webkit-scrollbar { display: none; }
   .pillar-rail-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
+  /* 横排时分组铺平成一行：标题仍是折叠开关，展开的章节紧跟其后。 */
+  .pillar-rail-group, .pillar-rail-children { display: contents; }
+  .pillar-rail-children[hidden] { display: none; }
+  .pillar-rail-group-toggle { flex: 0 0 auto; width: auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
   .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
   .pillar-capture-grid { grid-template-columns: 1fr; }
   .pillar-suggestion-head { flex-direction: column; align-items: flex-start; }

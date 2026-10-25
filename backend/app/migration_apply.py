@@ -198,10 +198,11 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
                 continue
             before = _sha256(path)
             guarded_write(loaded, rewritten_text.split("\n"))
-            rewritten.append({"path": relative, "before_sha256": before,
-                              "after_sha256": _sha256(path)})
+            # 改写发生在移动之后：快照里的原文在旧路径下，回滚要用它才知道去哪儿取。
+            rewritten.append({"path": relative, "backup": old_relative,
+                              "before_sha256": before, "after_sha256": _sha256(path)})
             _append_journal(run_dir, {"action": "rewrite_links", "path": relative,
-                                      "before_sha256": before})
+                                      "backup": old_relative, "before_sha256": before})
         state.update({"status": "indexing", "rewritten": len(rewritten)})
         _write_json(run_dir / "state.json", state)
 
@@ -258,7 +259,9 @@ def rollback_migration(vault_dir: Path | str, run_id: str,
     rewritten = [entry for entry in entries if entry.get("action") == "rewrite_links"]
     restored_links = 0
     for entry in rewritten:
-        backup = run_dir / "vault-backup" / entry["path"]
+        # 改写可能发生在文件搬走之后：快照按旧路径保存，先放回当前路径，再由 moves 反向搬回。
+        backup_relative = entry.get("backup") or entry["path"]
+        backup = run_dir / "vault-backup" / backup_relative
         if backup.is_file():
             target = vault / entry["path"]
             target.parent.mkdir(parents=True, exist_ok=True)

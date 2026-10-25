@@ -1,7 +1,7 @@
 """Goals read from the life-plan Markdown notes.
 
 The old SQLite ``goals`` backend is retired (2026-10-22). Annual, quarterly and
-monthly goals already live under ``00_人生路/06_目标与计划``; this module is the
+monthly goals already live under ``00_人生路/04_目标``; this module is the
 single read source for the task-import goal picker, scheduler drafts and tools.
 
 A goal's stable id is its vault-relative path. Nothing here writes.

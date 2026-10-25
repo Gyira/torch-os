@@ -138,7 +138,7 @@ def test_goal_path_must_resolve_to_a_goal_note(setup):
     journal = pillar_notes.create_note(service.vault_dir, pillar="life", chapter="journal",
                                        title="日记", note_type="journal")
     source_preview = preview(client, document_id)
-    for goal_path in (journal["path"], "00_人生路/06_目标与计划/01_年度目标/不存在.md",
+    for goal_path in (journal["path"], "00_人生路/04_目标/01_年度目标/不存在.md",
                       "03_知识库/00_收件箱/任意.md"):
         response = apply(client, document_id, source_preview, goal_path=goal_path)
         assert response.status_code == 404, response.text

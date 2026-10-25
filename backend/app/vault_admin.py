@@ -33,7 +33,13 @@ PLUGIN_DIR_RELATIVE = ".obsidian/plugins/torch"
 MANIFEST_RELATIVE = ".torch-os/vault-layout.json"
 TASK_NOTES_RELATIVE = "00_人生路/08_任务与待办/任务"
 TASK_SYSTEM_RELATIVE = "00_人生路/08_任务与待办/_系统"
-CORE_PLUGINS = ["file-explorer", "global-search", "switcher", "backlink", "outgoing-link", "tag-pane"]
+CORE_PLUGINS = {
+    "file-explorer": True, "global-search": True, "switcher": True, "graph": True,
+    "backlink": True, "canvas": True, "outgoing-link": True, "tag-pane": True,
+    "properties": True, "page-preview": True, "daily-notes": True, "templates": True,
+    "note-composer": True, "command-palette": True, "editor-status": True,
+    "bookmarks": True, "outline": True, "word-count": True, "file-recovery": True,
+}
 INVALID_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",

@@ -88,6 +88,132 @@ function chapterTitle(view, key) {
   return chapter?.title || key;
 }
 
+function pillarGroups(view) {
+  const pillar = state.manifest?.pillars?.find((item) => item.key === view);
+  return Array.isArray(pillar?.groups) ? pillar.groups : [];
+}
+
+/**
+ * 章节轨先按 manifest 的章节顺序排：遇到属于某个分组的第一个章节时，
+ * 在该位置放一个分组行并收走它后面的同组章节；不属于任何分组的章节保持原位。
+ * 纯函数：不读 DOM、不读 localStorage，Node 测试直接调用。
+ */
+export function buildRailItems(chapters = [], groups = []) {
+  const chapterRows = Array.isArray(chapters) ? chapters : [];
+  const groupRows = Array.isArray(groups) ? groups : [];
+  const chapterKeys = new Set();
+  for (const chapter of chapterRows) {
+    if (chapter && typeof chapter.key === "string" && chapter.key) chapterKeys.add(chapter.key);
+  }
+  const groupByKey = new Map();
+  const groupOfChapter = new Map();
+  for (const group of groupRows) {
+    if (!group || typeof group.key !== "string" || !group.key || groupByKey.has(group.key)) continue;
+    groupByKey.set(group.key, group);
+    for (const key of Array.isArray(group.chapters) ? group.chapters : []) {
+      // 清单里没有的章节不渲染；同一章节只归第一个声明它的分组。
+      if (chapterKeys.has(key) && !groupOfChapter.has(key)) groupOfChapter.set(key, group.key);
+    }
+  }
+  const order = [];
+  const groupFirstKeys = {};
+  const chapterGroupKeys = {};
+  const groupedChapters = new Map();
+  const seenChapters = new Set();
+  for (const chapter of chapterRows) {
+    if (!chapter || typeof chapter.key !== "string" || !chapter.key || seenChapters.has(chapter.key)) continue;
+    seenChapters.add(chapter.key);
+    const groupKey = groupOfChapter.get(chapter.key);
+    if (!groupKey) {
+      order.push({ type: "chapter", chapter });
+      continue;
+    }
+    chapterGroupKeys[chapter.key] = groupKey;
+    if (!groupedChapters.has(groupKey)) {
+      groupedChapters.set(groupKey, []);
+      groupFirstKeys[groupKey] = chapter.key;
+      order.push({ type: "group", groupKey });
+    }
+    groupedChapters.get(groupKey).push(chapter);
+  }
+  const items = order.map((entry) => {
+    if (entry.type === "chapter") {
+      const chapter = entry.chapter;
+      return { type: "chapter", key: chapter.key, title: chapter.title || chapter.key, chapter, groupKey: "" };
+    }
+    const group = groupByKey.get(entry.groupKey);
+    return {
+      type: "group",
+      key: group.key,
+      title: group.title || group.key,
+      chapters: groupedChapters.get(group.key),
+      firstKey: groupFirstKeys[group.key],
+    };
+  });
+  return { items, groupFirstKeys, chapterGroupKeys };
+}
+
+const RAIL_GROUPS_STORAGE_PREFIX = "torch:rail-groups:";
+
+function railGroupsStorageKey(view) {
+  return `${RAIL_GROUPS_STORAGE_PREFIX}${view}`;
+}
+
+/** 折叠过的分组 key；默认全部展开，localStorage 不可用时只是不持久化。 */
+function readCollapsedRailGroups(view) {
+  try {
+    const raw = globalThis.localStorage?.getItem(railGroupsStorageKey(view));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((key) => typeof key === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedRailGroups(view, collapsed) {
+  try {
+    const keys = [...collapsed];
+    if (keys.length) globalThis.localStorage?.setItem(railGroupsStorageKey(view), JSON.stringify(keys));
+    else globalThis.localStorage?.removeItem(railGroupsStorageKey(view));
+  } catch { /* private mode: 折叠只在本次渲染生效 */ }
+}
+
+function setRailGroupExpanded(view, groupKey, expanded) {
+  const collapsed = readCollapsedRailGroups(view);
+  if (expanded) collapsed.delete(groupKey);
+  else collapsed.add(groupKey);
+  writeCollapsedRailGroups(view, collapsed);
+  const shell = $(`#${view}-view`);
+  const toggle = Array.from(shell?.querySelectorAll?.("[data-rail-group-toggle]") || [])
+    .find((node) => node.dataset.railGroupToggle === groupKey);
+  if (!toggle) return;
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  toggle.closest(".pillar-rail-group")?.classList.toggle("is-collapsed", !expanded);
+  const panel = document.getElementById(toggle.getAttribute("aria-controls") || "");
+  if (panel) panel.hidden = !expanded;
+}
+
+function railChapterMarkup(view, chapter, activeChapter, count) {
+  const active = chapter.key === activeChapter;
+  return `<button type="button" class="pillar-rail-item${active ? " is-active" : ""}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="${escapeHtml(chapter.key)}">${escapeHtml(chapter.title || chapter.key)}<span>${count}</span></button>`;
+}
+
+function railGroupMarkup(view, group, collapsedGroups, activeChapter, countFor) {
+  const collapsed = collapsedGroups.has(group.key);
+  const panelId = `${view}-rail-group-${group.key}`;
+  const total = group.chapters.reduce((sum, chapter) => sum + countFor(chapter.key), 0);
+  return `<div class="pillar-rail-group${collapsed ? " is-collapsed" : ""}" data-rail-group="${escapeHtml(group.key)}">
+    <button type="button" class="pillar-rail-group-toggle" data-rail-group-toggle="${escapeHtml(group.key)}" data-rail-group-view="${escapeHtml(view)}" aria-expanded="${collapsed ? "false" : "true"}" aria-controls="${escapeHtml(panelId)}">
+      <span class="pillar-rail-group-title">${escapeHtml(group.title)}</span>
+      <span class="pillar-rail-group-meta"><span class="pillar-rail-group-count">${total}</span><span class="pillar-rail-chevron" aria-hidden="true"></span></span>
+    </button>
+    <div class="pillar-rail-children" id="${escapeHtml(panelId)}"${collapsed ? " hidden" : ""}>
+      ${group.chapters.map((chapter) => railChapterMarkup(view, chapter, activeChapter, countFor(chapter.key))).join("")}
+    </div>
+  </div>`;
+}
+
 function journalDayLabel(note) {
   const value = String(note.title || note.date || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
@@ -130,6 +256,18 @@ function renderShell(view) {
   const notes = state.notes[view] || overview?.recent || [];
   const searching = Boolean(state.search[view]?.trim());
   const week = overview?.today?.week || [];
+  const rail = buildRailItems(chapters, pillarGroups(view));
+  const collapsedGroups = readCollapsedRailGroups(view);
+  const activeGroupKey = chapter ? (rail.chapterGroupKeys[chapter] || "") : "";
+  // 当前章节永远不能藏在折叠分组里：加载任意视图/章节时自动展开它的分组。
+  if (activeGroupKey && collapsedGroups.delete(activeGroupKey)) {
+    writeCollapsedRailGroups(view, collapsedGroups);
+  }
+  const chapterCounts = new Map((overview?.chapters || []).map((row) => [row.key, Number(row.count) || 0]));
+  const countFor = (key) => chapterCounts.get(key) ?? 0;
+  const railItems = rail.items.map((item) => (item.type === "group"
+    ? railGroupMarkup(view, item, collapsedGroups, chapter, countFor)
+    : railChapterMarkup(view, item, chapter, countFor(item.key)))).join("");
   root.innerHTML = `
     <header class="pillar-head">
       <div class="pillar-head-main">
@@ -152,10 +290,7 @@ function renderShell(view) {
       <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
         <button type="button" class="pillar-rail-item${chapter ? "" : " is-active"}" data-pillar-chapter="${view}" data-chapter="">总览
           <span>${overview?.count ?? 0}</span></button>
-        ${chapters.map((item) => {
-          const entry = overview?.chapters?.find((row) => row.key === item.key);
-          return `<button type="button" class="pillar-rail-item${chapter === item.key ? " is-active" : ""}" data-pillar-chapter="${view}" data-chapter="${escapeHtml(item.key)}">${escapeHtml(item.title)}<span>${entry?.count ?? 0}</span></button>`;
-        }).join("")}
+        ${railItems}
       </nav>
       <section class="pillar-content" aria-live="polite">
         <div class="pillar-content-head">
@@ -323,6 +458,16 @@ function bindPillarEvents() {
       openNewNote(create.dataset.pillarNew,
                   create.dataset.newChapter || "",
                   create.dataset.newType || "");
+      return;
+    }
+    const railGroup = event.target.closest?.("[data-rail-group-toggle]");
+    if (railGroup) {
+      const view = railGroup.dataset.railGroupView;
+      const key = railGroup.dataset.railGroupToggle;
+      if (view && key) {
+        // 分组标题只做折叠/展开，不改变当前章节。
+        setRailGroupExpanded(view, key, railGroup.getAttribute("aria-expanded") === "false");
+      }
       return;
     }
     const chapter = event.target.closest?.("[data-pillar-chapter]");

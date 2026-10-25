@@ -75,7 +75,7 @@ def test_planning_export_nests_markdown_tasks_and_writes_counts_only(tmp_path):
 def test_planning_export_keeps_tasks_whose_goal_note_disappeared(tmp_path):
     client, _, vault = build_client(tmp_path)
     task_notes.create_task_note(vault, "", "孤立任务", {
-        "goal": "00_人生路/06_目标与计划/01_年度目标/已删除.md",
+        "goal": "00_人生路/04_目标/01_年度目标/已删除.md",
         "created": "2026-10-01",
     })
     payload = client.get("/api/export/planning.json").json()

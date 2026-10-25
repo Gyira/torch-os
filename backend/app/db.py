@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS memory_embeddings (
     FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
 -- Deprecated (2026-10-22): retained for historical rows only. Goal notes under
--- 00_人生路/06_目标与计划 and Markdown task notes are the live authorities.
+-- 00_人生路/04_目标 and Markdown task notes are the live authorities.
 CREATE TABLE IF NOT EXISTS goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,

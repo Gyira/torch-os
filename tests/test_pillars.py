@@ -23,13 +23,23 @@ def make_client(tmp_path):
 def test_manifest_lists_four_pillars(tmp_path):
     client, _ = make_client(tmp_path)
     payload = client.get("/api/pillars").json()
-    assert payload["layout_version"] == "pillars-v1"
+    assert payload["layout_version"] == "pillars-v2"
     assert [item["key"] for item in payload["pillars"]] == [
         "life", "self", "ops", "knowledge",
     ]
     inbox = next(chapter for pillar in payload["pillars"] for chapter in pillar["chapters"]
                  if chapter["key"] == "inbox")
     assert inbox["path"] == "03_知识库/00_收件箱"
+    life = next(pillar for pillar in payload["pillars"] if pillar["key"] == "life")
+    assert [group["key"] for group in life["groups"]] == [
+        "insight", "review", "goal", "project",
+    ]
+    reflection = next(chapter for chapter in life["chapters"] if chapter["key"] == "reflection")
+    assert reflection["path"] == "00_人生路/02_反思复盘/01_反思"
+    project = next(chapter for chapter in life["chapters"] if chapter["key"] == "project_plan")
+    assert project["path"] == "00_人生路/05_项目/01_项目计划"
+    assert all(pillar["groups"] == [] for pillar in payload["pillars"]
+               if pillar["key"] != "life")
 
 
 def test_inbox_note_is_listed_in_chapter_and_overview(tmp_path):
@@ -103,12 +113,13 @@ def test_life_overview_marks_the_last_seven_days(tmp_path):
 
 def test_note_location_comes_from_path_not_stale_frontmatter(tmp_path):
     client, vault = make_client(tmp_path)
-    path = vault / "00_人生路" / "02_反思" / "错位.md"
+    path = vault / "00_人生路" / "02_反思复盘" / "01_反思" / "错位.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\ntype: reflection\ntitle: 错位\npillar: self\nchapter: idea\n---\n\n正文。\n",
         encoding="utf-8")
-    note = client.get("/api/notes", params={"path": "00_人生路/02_反思/错位.md"}).json()
+    note = client.get(
+        "/api/notes", params={"path": "00_人生路/02_反思复盘/01_反思/错位.md"}).json()
     assert note["pillar"] == "life"
     assert note["chapter"] == "reflection"
 

@@ -61,7 +61,7 @@ def test_task_reports_read_markdown_notes_and_keep_goal_and_import_key(tmp_path)
     base = {"priority": "none", "created": "2026-10-01"}
     open_note = task_notes.create_task_note(vault, "工作", "写方案", {
         **base, "date": "2026-10-20", "priority": "high",
-        "goal": "00_人生路/06_目标与计划/01_年度目标/年度目标.md",
+        "goal": "00_人生路/04_目标/01_年度目标/年度目标.md",
         "import_key": "a" * 64,
     })
     task_notes.create_task_note(vault, "工作", "以后再说", {**base, "date": "2026-12-01"})

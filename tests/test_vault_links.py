@@ -5,7 +5,7 @@ from __future__ import annotations
 from backend.app.vault_links import rewrite_links, scan_links
 
 MAPPING = {
-    "00-System/任务/考研规划文档.md": "00_人生路/06_目标与计划/05_项目计划/考研规划文档.md",
+    "00-System/任务/考研规划文档.md": "00_人生路/05_项目/01_项目计划/考研规划文档.md",
     "02-Life/journal/2026-10-20.md": "00_人生路/01_日记/2026-10-20.md",
 }
 
@@ -14,8 +14,8 @@ def test_rewrite_wiki_link_keeps_alias_and_heading():
     text = "见 [[00-System/任务/考研规划文档.md#目标|规划]] 和 ![[00-System/任务/考研规划文档.md]]"
     rewritten, changes = rewrite_links(text, MAPPING)
     assert rewritten == (
-        "见 [[00_人生路/06_目标与计划/05_项目计划/考研规划文档.md#目标|规划]] "
-        "和 ![[00_人生路/06_目标与计划/05_项目计划/考研规划文档.md]]"
+        "见 [[00_人生路/05_项目/01_项目计划/考研规划文档.md#目标|规划]] "
+        "和 ![[00_人生路/05_项目/01_项目计划/考研规划文档.md]]"
     )
     assert changes
 
@@ -37,7 +37,7 @@ def test_code_fences_and_inline_code_are_not_rewritten():
     )
     rewritten, _ = rewrite_links(text, MAPPING)
     assert rewritten.count("00-System/任务/考研规划文档.md") == 2
-    assert "00_人生路/06_目标与计划/05_项目计划/考研规划文档.md" in rewritten
+    assert "00_人生路/05_项目/01_项目计划/考研规划文档.md" in rewritten
 
 
 def test_external_and_anchor_links_are_left_alone():

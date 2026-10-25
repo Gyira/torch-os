@@ -88,7 +88,9 @@ function arrowInScope(event) {
   for (const scope of ARROW_SCOPES) {
     const container = event.target.closest?.(scope.selector);
     if (!container) continue;
-    const items = Array.from(container.querySelectorAll(scope.item)).filter((node) => !node.disabled);
+    // 折叠分组里的章节仍在 DOM 里，但 hidden 容器下的条目不能进入方向键序列。
+    const items = Array.from(container.querySelectorAll(scope.item))
+      .filter((node) => !node.disabled && !node.closest?.("[hidden]"));
     if (items.length < 2) return false;
     const next = nextListIndex(key, items.indexOf(document.activeElement), items.length);
     if (next < 0) return false;

@@ -48,6 +48,12 @@ def test_template_lists_the_canonical_four_pillar_layout(tmp_path):
     chapters = [chapter for pillar in payload["pillars"] for chapter in pillar["chapters"]]
     assert len(chapters) == len(vault_layout.CHAPTERS)
     assert set(payload["directories"]) == {item[3] for item in vault_layout.CHAPTERS}
+    # 人生路 v2：模板直接给出新路径与分组，不复制旧目录。
+    assert "00_人生路/02_反思复盘/01_反思" in payload["directories"]
+    assert "00_人生路/05_项目/01_项目计划" in payload["directories"]
+    life = next(pillar for pillar in payload["pillars"] if pillar["key"] == "life")
+    assert [group["key"] for group in life["groups"]] == [
+        "insight", "review", "goal", "project"]
     assert payload["obsidian"]["community-plugins.json"] == ["torch"]
     assert payload["current"]["path"] == str(vault.resolve())
     assert payload["manifest_file"] == MANIFEST_RELATIVE
@@ -67,6 +73,8 @@ def test_create_builds_the_full_template_and_registers_it(tmp_path, desktop):
     # 四库章节一个不少，且与后端布局完全一致。
     for chapter in vault_layout.CHAPTERS:
         assert (target / chapter[3]).is_dir(), chapter[3]
+    assert (target / "00_人生路" / "02_反思复盘" / "01_反思").is_dir()
+    assert (target / "00_人生路" / "05_项目" / "02_项目复盘").is_dir()
     assert (target / "00_人生路" / "08_任务与待办" / "任务").is_dir()
 
     # .obsidian 预设与插件。

@@ -4,18 +4,18 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
 | 视图 | hash | 说明 |
 |---|---|---|
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
-| 人生路 | `#life` | 日记、反思、心得体会、周/月复盘、目标与计划、工作复盘、最近 7 天日记圆点 |
+| 人生路 | `#life` | 日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘；章节轨按分组折叠、最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
 | 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务 |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
-| 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、帮助 |
+| 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
 旧 hash（`#today`、`#identity`、`#profile`、`#memory`、`#bazi`、`#goals`、`#habits`、
 `#brain`、`#documents`、`#notes`、`#archive`、`#help`）仍由 `frontend/app.js` 的
@@ -44,11 +44,17 @@
 
 - 与工作台共用 `00_人生路/01_日记/YYYY-MM-DD.md`；「写今日日记」在 Obsidian 里打开权威文件
   （没有就由 Obsidian 新建）。
-- 反思、心得体会、周复盘、月复盘；「打开本周复盘 / 打开本月复盘」只跳转 Obsidian，
-  不生成骨架内容；目标与计划、工作复盘。
+- 布局 v2 的章节目录：反思/周复盘/月复盘在 `00_人生路/02_反思复盘/`（`01_反思`、`02_周复盘`、
+  `03_月复盘`），年度/季度/月度目标在 `00_人生路/04_目标/01..03`，项目计划与项目复盘在
+  `00_人生路/05_项目/01_项目计划`、`02_项目复盘`；日记、任务、习惯、会议/踩坑路径不变。
+- 侧边栏按布局 v2 分组：心得体会、反思复盘、目标、项目四个一级分组（`chapter_manifest()` 的
+  `groups`，只有人生路非空）。分组行出现在该组首个章节的位置，点标题折叠/展开
+  （`aria-expanded`，状态存 `localStorage` 的 `torch:rail-groups:life`）；子章节缩进，当前
+  章节自动展开所属分组，方向键跳过折叠里的章节，未分组章节保持顶层。
+- 「打开本周复盘 / 打开本月复盘」只跳转 Obsidian，不生成骨架内容。
 - 年度/季度/月度目标笔记是目标选择器与目标导出/只读工具的唯一来源。
-- 最近 7 天日记圆点；旧目录日记会提示先迁移。
-- 习惯定义与打卡镜像在 `00_人生路/06_目标与计划/04_习惯追踪/`。
+- 最近 7 天日记圆点；旧目录日记会提示先在「库结构与迁移」里迁移。
+- 习惯定义与打卡镜像在 `00_人生路/06_目标与计划/04_习惯追踪/`（v2 不变）。
 
 ### 自我档案
 
@@ -93,7 +99,9 @@
 
 ## 跨库与系统能力
 
-- 库结构与迁移：预览 → 备份 → 执行 → 报告 → 回滚；迁移记录写入 `00_人生路/08_任务与待办/_系统/迁移记录/`。
+- 库结构与迁移（当前布局 `pillars-v2`）：预览 → 备份 → 执行 → 报告 → 回滚；预览包含旧布局
+  目录与人生路 v1 章节目录 → v2 的逐文件搬迁（冲突单独列出，执行要带预览的 `plan_hash`）；
+  迁移记录写入 `00_人生路/08_任务与待办/_系统/迁移记录/`。
 - 与神对话：完整 DeepSeek Harness Web UI（同源 `/harness/` 代理），是唯一的 AI 入口。
 - 薪火管家：确定性的收件箱分流/原则提炼提案与四库健康检查；自由问答在 dsh 里。
   提案与体检都只读（2026-10-26 起没有执行入口），卡片只提供「在 Obsidian 打开原文」。
@@ -103,6 +111,19 @@
 - 滴答同步：拉取清单/任务、本地新增修改删除回写、清单回写、回收站恢复；
   正文/重复规则/提醒/附件暂不回写。
 - 审计：只记事件类型与数量，不记正文、问题、标题或路径。
+
+### 设置 · 个人数据库（2026-10-26）
+
+- 设置 →「Obsidian 库连接」→「个人数据库」：显示当前库路径、模板只读预览
+  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `35 个章节 / layout v2`；设置页只
+  展示、不能编辑，也不渲染分组行），以及「创建新的个人数据库」（父文件夹 + 名字）。
+- 创建只写一个新文件夹，按 `pillars-v2` 直接落 v2 章节路径：四库章节、`_系统`/`任务`、
+  `.torch-os/vault-layout.json`（含 `groups`）、`.obsidian` 预设与 torch 插件、种子身份笔记；
+  不碰当前库、不覆盖非空文件夹、不允许建在当前库内部；非个人运行时（QA）两个接口都 409
+  （能力标记 `vault_admin` 为 `false`）。
+- 新库注册后出现在数据库/工作区列表，行上带 `obsidian://open?vault=<名字>`；切换 = 在
+  Obsidian 里打开另一个库（插件每库一个实例，端口从 9168 起）；浏览器模式仍由
+  「切换到此工作区」写 `.env`、重启服务后生效。模板与接口见 `docs/VAULT_TEMPLATE.md`。
 
 ## 只读工具桥（12 个）
 
