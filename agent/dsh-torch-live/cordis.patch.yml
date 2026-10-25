@@ -1,4 +1,0 @@
-- insert:
-    - id: torch-live-stream
-      name: '@local/torch-live-stream'
-      config: {}

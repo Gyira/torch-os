@@ -1,13 +1,12 @@
 """Read-only audit summary: counts of what happened, never any content.
 
-The transparency panel answers questions like "did this installation call a
-cloud model?" and "how many exports/backups happened?" using event types and
-counts only — no note text, question text, titles or paths.
+The transparency panel answers "how many exports/backups happened?" and shows
+scheduler/dsh errors using event types and counts only — no note text, question
+text, titles or paths. AI conversations are managed by DeepSeek Harness.
 """
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,7 +17,7 @@ from .db import Database
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-ERROR_TYPES = ("model_error", "scheduler_loop_error")
+ERROR_TYPES = ("scheduler_loop_error", "dsh_web_error")
 EXPORT_SUFFIX = "_exported"
 MAX_TYPES = 40
 
@@ -33,33 +32,12 @@ def collect_summary(database: Database, days: int) -> dict[str, Any]:
                GROUP BY event_type ORDER BY n DESC, event_type""",
             (since,),
         ).fetchall()]
-        chat_rows = connection.execute(
-            "SELECT detail_json FROM audit_events WHERE event_type='chat_completed' AND created_at>=?",
-            (since,),
-        ).fetchall()
         error_rows = connection.execute(
             f"""SELECT event_type, created_at FROM audit_events
                 WHERE event_type IN ({placeholders}) AND created_at>=?
                 ORDER BY created_at DESC, id DESC""",
             (*ERROR_TYPES, since),
         ).fetchall()
-
-    chat = {"cloud": 0, "local": 0, "fallback": 0, "other": 0, "total": 0}
-    for row in chat_rows:
-        try:
-            detail = json.loads(row["detail_json"] or "{}")
-        except (TypeError, ValueError):
-            detail = {}
-        mode = detail.get("mode") if isinstance(detail, dict) else None
-        chat["total"] += 1
-        if mode == "model":
-            chat["cloud"] += 1
-        elif mode == "local":
-            chat["local"] += 1
-        elif mode == "fallback":
-            chat["fallback"] += 1
-        else:
-            chat["other"] += 1
 
     by_type = [
         {"event_type": row["event_type"], "count": int(row["n"]), "last_at": row["last_at"]}
@@ -75,7 +53,6 @@ def collect_summary(database: Database, days: int) -> dict[str, Any]:
         "generated_at": datetime.now(SHANGHAI).isoformat(timespec="seconds"),
         "window_days": days,
         "total_events": sum(item["count"] for item in by_type),
-        "chat": chat,
         "exports": exports,
         "backups": backups,
         "errors": errors,

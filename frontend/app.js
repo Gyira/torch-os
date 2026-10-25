@@ -1,7 +1,6 @@
 import { $, state, api, escapeHtml } from "./core.js";
-import { askHarnessToCompose } from "./harness-bridge.js";
 import { initSettings, loadSettings } from "./settings.js";
-import { initAgentChat, loadAgentChat } from "./agent-chat.js";
+import { initDshPane, loadDshPane } from "./dsh-pane.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
@@ -20,10 +19,10 @@ import { initKeyboardShortcuts } from "./shortcuts.js";
 const titles = NAV_LABELS;
 
 // 五大模块（工作台内含「与神对话」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
-// stacked 的模块一页到底，module-nav 只做锚点跳转——与神对话在待办事项下面。
+// 工作台的两个分区是互斥标签：待办事项和完整的 dsh 界面各自占满一页。
 const MODULES = {
   workbench: {
-    stacked: true,
+    stacked: false,
     panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"]],
   },
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
@@ -37,7 +36,7 @@ const paneChoice = {};
 const PANE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
-  "agent-view": () => { initAgentChat(); loadAgentChat(); },
+  "agent-view": () => { initDshPane(); loadDshPane(); },
   "life-view": () => loadPillarModule("life"),
   "self-view": () => loadPillarModule("self"),
   "ops-view": () => loadPillarModule("ops"),
@@ -181,8 +180,11 @@ export async function switchView(view, updateHash = true) {
   }
   const wanted = module?.stacked ? panes.map(([id]) => id) : [paneChoice[view]].filter(Boolean);
   document.querySelectorAll(".view, .pane").forEach((section) => {
-    const active = section.id === `${view}-view`;
     const shown = wanted.includes(section.id);
+    // 模块根也是某个分区时（工作台的 #workbench-view），只有它被选中才显示；
+    // 否则切到「与神对话」会把任务页一起留在页面上。
+    const root = section.id === `${view}-view`;
+    const active = root && (!panes.length || shown);
     section.hidden = !(active || shown);
     section.classList.toggle("active-view", active);
   });
@@ -280,7 +282,12 @@ export async function activatePane(view, paneId, { scroll = true } = {}) {
   paneChoice[view] = paneId;
   renderSidebarState(view);
   renderModuleNav(view);
-  document.querySelectorAll(".pane").forEach((pane) => { pane.hidden = pane.dataset.module !== view || pane.id !== paneId; });
+  // 工作台根是 .view 而不是 .pane；两个分区切换时根也必须一起隐藏/显示。
+  document.querySelectorAll(`[data-module="${view}"], #${view}-view`).forEach((pane) => {
+    const on = pane.id === paneId;
+    pane.hidden = !on;
+    if (pane.classList?.contains("view")) pane.classList.toggle("active-view", on);
+  });
   runModuleLoaders(view, [paneId]);
   if (scroll) window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   return true;
@@ -312,7 +319,7 @@ function runModuleLoaders(view, visiblePanes) {
   }
 }
 
-initSettings(); initAgentChat(); initInbox();
+initSettings(); initInbox();
 initWorkbench(); initPillars();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
@@ -325,14 +332,11 @@ initRestoreDrill();
 initDidaSync();
 applyNavOrder();
 renderPanelNav();
-// 工作台内已有「与神对话」页；其它页面的快捷问题入口仍可交给宿主 dsh。
 document.addEventListener("click", async (event) => {
   const navigation = event.target.closest("[data-view], [data-go-view]");
   if (navigation) {
     await goTo(navigation.dataset.view || navigation.dataset.goView);
   }
-  const ask = event.target.closest("[data-ask-question]");
-  if (ask) askHarnessToCompose(ask.dataset.askQuestion || "");
 });
 // 滴答同步完成后（可能在设置页触发）让工作台任务立即重读一次。
 document.addEventListener("torch:tasks-changed", () => {

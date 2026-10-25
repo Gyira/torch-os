@@ -9,7 +9,6 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from .embedding import EmbeddingError, EmbeddingProvider, cosine
 from uuid import uuid4
 
 
@@ -51,6 +50,14 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
+-- Deprecated (2026-10-25): old ACP session map; kept dormant for historical rows.
+CREATE TABLE IF NOT EXISTS harness_sessions (
+    conversation_id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS memory_usages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     memory_id INTEGER NOT NULL,
@@ -89,6 +96,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+-- Deprecated (2026-10-25): old vector cache; lexical retrieval only, no writers.
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     memory_id INTEGER PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -273,11 +281,8 @@ def _record_date(path: str | None, metadata_json: str | None) -> str | None:
 
 
 class Database:
-    def __init__(self, path: Path, embedding_provider: Any = None):
+    def __init__(self, path: Path):
         self.path = path
-        # Optional local embedding provider for semantic blending. ``None`` keeps
-        # the deterministic lexical behaviour byte-for-byte.
-        self.embedding_provider = embedding_provider
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -780,14 +785,6 @@ class Database:
         """Retrieve confirmed, current evidence; no arbitrary FTS expressions or single-character fallback."""
         return self._retrieval(query, limit)['selected']
 
-    SEMANTIC_ONLY_THRESHOLD = 0.35
-    # Annotation line, not a gate: semantic-only hits below this similarity are
-    # labelled "low confidence" in previews and citations so the user can judge
-    # them. It does not change which memories are retrieved.
-    LOW_CONFIDENCE_SEMANTIC = 0.50
-    SEMANTIC_WEIGHT = 0.6
-    EMBED_BATCH_SIZE = 32
-
     @staticmethod
     def _memory_content_hash(content: str) -> str:
         """Content-only hash: stable across title and extraction-version changes."""
@@ -797,74 +794,6 @@ class Database:
     def _legacy_memory_hash(title: str, content: str) -> str:
         """Pre-0.43.0 hash kept so existing deletion records still suppress."""
         return hashlib.sha256(f"{title}\n{content}".encode("utf-8")).hexdigest()
-
-    def ensure_memory_embeddings(self, provider: EmbeddingProvider, rows: list[Any]) -> int:
-        """Fill the derived vector cache for rows whose content or provider changed."""
-        if provider is None or not rows:
-            return 0
-        with self.connect() as connection:
-            # Older databases predate the cache table; create it lazily so any
-            # caller (including read-only tools) works without a service restart.
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS memory_embeddings (
-                    memory_id INTEGER PRIMARY KEY,
-                    provider TEXT NOT NULL,
-                    dim INTEGER NOT NULL CHECK(dim > 0),
-                    vector_json TEXT NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
-                )"""
-            )
-            stored = {row['memory_id']: row for row in connection.execute('SELECT * FROM memory_embeddings')}
-        pending: list[tuple[int, str, str]] = []
-        for row in rows:
-            # Embedding text is title+content, so its change digest still covers both.
-            digest = self._legacy_memory_hash(row['title'], row['content'])
-            current = stored.get(row['id'])
-            if current and current['provider'] == provider.name and current['content_hash'] == digest:
-                continue
-            pending.append((int(row['id']), row['title'], row['content']))
-        computed = 0
-        for start in range(0, len(pending), self.EMBED_BATCH_SIZE):
-            batch = pending[start:start + self.EMBED_BATCH_SIZE]
-            vectors = provider.embed([f"{title}\n{content}" for _, title, content in batch])
-            if len(vectors) != len(batch):
-                raise EmbeddingError('本地向量服务返回数量不匹配')
-            with self.connect() as connection:
-                for (memory_id, title, content), vector in zip(batch, vectors):
-                    connection.execute(
-                        """INSERT INTO memory_embeddings(memory_id,provider,dim,vector_json,content_hash,updated_at)
-                        VALUES (?,?,?,?,?,?)
-                        ON CONFLICT(memory_id) DO UPDATE SET provider=excluded.provider,dim=excluded.dim,
-                        vector_json=excluded.vector_json,content_hash=excluded.content_hash,updated_at=excluded.updated_at""",
-                        (memory_id, provider.name, len(vector),
-                         json.dumps(vector), self._legacy_memory_hash(title, content), utc_now()),
-                    )
-            computed += len(batch)
-        return computed
-
-    def _semantic_scores(self, provider: EmbeddingProvider, rows: list[Any], query: str) -> dict[int, float]:
-        with self.connect() as connection:
-            stored = {row['memory_id']: row for row in connection.execute(
-                'SELECT * FROM memory_embeddings WHERE provider=?', (provider.name,)
-            )}
-        if not stored:
-            return {}
-        query_vector = provider.embed([query])[0]
-        scores: dict[int, float] = {}
-        for row in rows:
-            record = stored.get(row['id'])
-            if record is None:
-                continue
-            try:
-                vector = json.loads(record['vector_json'])
-            except (TypeError, ValueError):
-                continue
-            if len(vector) != len(query_vector):
-                continue
-            scores[int(row['id'])] = cosine(query_vector, vector)
-        return scores
 
     def _retrieval(self, query: str, limit: int = 6) -> dict[str, Any]:
         """Shared read-only scoring for search and previews; never writes audit or state."""
@@ -892,17 +821,6 @@ class Database:
         scored = []
         expired = 0
         now = datetime.now(timezone.utc)
-        provider = self.embedding_provider
-        semantic_scores: dict[int, float] = {}
-        semantic_used = False
-        if provider is not None and rows:
-            try:
-                self.ensure_memory_embeddings(provider, list(rows))
-                semantic_scores = self._semantic_scores(provider, list(rows), query)
-                semantic_used = True
-            except EmbeddingError:
-                semantic_scores = {}
-                semantic_used = False
         for row in rows:
             try:
                 metadata = json.loads(row['source_metadata_json'])
@@ -919,8 +837,7 @@ class Database:
             if row['kind'] in intent_kinds:
                 score += 20
             intent_rank = intent_kinds.get(row['kind'], len(intent_kinds))
-            semantic = max(0.0, semantic_scores.get(int(row['id']), 0.0))
-            if score > 0 or (semantic_used and semantic >= self.SEMANTIC_ONLY_THRESHOLD):
+            if score > 0:
                 item = dict(row)
                 item.pop('source_metadata_json', None)
                 item['source_date'] = metadata.get('event_date') or metadata.get('created_at')
@@ -929,25 +846,11 @@ class Database:
                 item['memory_id'] = item['id']
                 item['source_path'] = item['path']
                 item['snippet'] = item['content']
-                # Only semantic-gate entries can be "low confidence": a row with
-                # any literal word hit, or an intent-kind boost, keeps its own
-                # admission path and is not labelled.
-                item['low_confidence'] = bool(
-                    semantic_used and not hits and row['kind'] not in intent_kinds
-                    and semantic < self.LOW_CONFIDENCE_SEMANTIC
-                )
-                scored.append({'lex': score, 'sem': semantic, 'intent': intent_rank, 'item': item})
-        if semantic_used:
-            max_lex = max((entry['lex'] for entry in scored), default=0)
-            for entry in scored:
-                normalized = (entry['lex'] / max_lex) if max_lex else 0.0
-                entry['rank'] = normalized + self.SEMANTIC_WEIGHT * entry['sem']
-                entry['item']['lexical_score'] = entry['lex']
-                entry['item']['semantic_score'] = round(entry['sem'], 4)
-                entry['item']['score'] = round(entry['rank'], 4)
-            scored.sort(key=lambda entry: (-entry['rank'], entry['intent'], -entry['item']['id']))
-        else:
-            scored.sort(key=lambda entry: (-entry['lex'], entry['intent'], -entry['item']['id']))
+                item['low_confidence'] = False
+                item['lexical_score'] = score
+                item['score'] = score
+                scored.append({'lex': score, 'intent': intent_rank, 'item': item})
+        scored.sort(key=lambda entry: (-entry['lex'], entry['intent'], -entry['item']['id']))
         usable_total = len(rows) - expired
         matched_total = len(scored)
         return {
@@ -957,7 +860,7 @@ class Database:
             'matched_total': matched_total,
             'not_matching': usable_total - matched_total,
             'over_limit': max(0, matched_total - limit),
-            'semantic': semantic_used,
+            'semantic': False,
         }
 
     def _blocked_active_counts(self, connection) -> dict[str, int]:

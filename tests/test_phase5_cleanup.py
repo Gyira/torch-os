@@ -7,14 +7,12 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 from backend.app.scheduler import SchedulerService
 
 
 def build(tmp_path):
     database = Database(tmp_path / 'torch_os.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, tmp_path / 'vault', gateway, security_environ={}, env_file=tmp_path / '.env')
+    app = create_app(database, tmp_path / 'vault', security_environ={}, env_file=tmp_path / '.env')
     client = TestClient(app)
     client.get('/')
     return database, client
@@ -42,9 +40,9 @@ def test_retired_http_routes_return_404(tmp_path):
 def test_retired_capabilities_are_not_advertised(tmp_path):
     _, client = build(tmp_path)
     capabilities = client.get('/api/config/status').json()['capabilities']
-    for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions'):
+    for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions', 'agent', 'harness_reset', 'model_key_write', 'semantic_search', 'workbench_polish'):
         assert key not in capabilities, key
-    assert len(capabilities) == 44
+    assert len(capabilities) == 38
 
 
 def test_legacy_tables_survive_and_have_no_writers(tmp_path):

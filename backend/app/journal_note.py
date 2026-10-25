@@ -92,7 +92,6 @@ class GenerateRequest(BaseModel):
 
     day: str
     mode: str = "create"  # create | append
-    use_model: bool = False  # 显式勾选才把本地汇总发给已配置的模型润色
 
 
 def _audit(database: Database, event_type: str, details: dict[str, Any]) -> None:
@@ -239,7 +238,6 @@ def _write_new(path: Path, content: str) -> None:
 
 def create_journal_note_router(
     database: Database, vault_dir: Path, prefix: str = "/api", read_only: bool = False,
-    gateway: Any = None,
 ) -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["journal"])
 
@@ -247,23 +245,6 @@ def create_journal_note_router(
     def get_note(day: str = Query()):
         validate_day(day)
         return read_note(vault_dir, day)
-
-    async def polish_summary(day: str, summary: str) -> str | None:
-        """显式勾选后才调用；失败/未配置一律交回本地汇总。"""
-        if gateway is None or not getattr(gateway, "configured", False):
-            return None
-        question = (
-            "把下面这段今天的本地记录，写成一段第一人称的日记初稿（有分节更好），"
-            "语气平实、不要夸张、不要编造记录里没有的事；保留具体做了什么。"
-        )
-        evidence = [{"title": f"{day} 的本地记录", "quote": summary, "document_id": None,
-                     "source_path": "journal-note", "source_quote": summary}]
-        try:
-            result = await gateway.generate(question, evidence)
-        except Exception:  # noqa: BLE001 - 永不丢本地汇总
-            return None
-        answer = (result or {}).get("answer")
-        return str(answer).strip() if answer else None
 
     @router.post("/journal/note/generate")
     async def generate_note(payload: GenerateRequest):
@@ -274,10 +255,6 @@ def create_journal_note_router(
             raise HTTPException(409, "Obsidian 库处于只读安全模式，已拒绝写入；想生成笔记请先取消只读。")
         path = note_abspath(vault_dir, day)
         summary = facts_summary(database, vault_dir, day)
-        if payload.use_model:
-            polished = await polish_summary(day, summary)
-            if polished:
-                summary = "> AI 润色初稿（已显式发送给你配置的模型；事实以本地记录为准）\n\n" + polished
         skeleton = render_skeleton(vault_dir, day)
 
         if payload.mode == "create":

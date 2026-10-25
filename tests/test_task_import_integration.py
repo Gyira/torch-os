@@ -3,14 +3,12 @@ from fastapi.testclient import TestClient
 from backend.app import task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def test_task_import_is_authenticated_versioned_and_independent(tmp_path):
     database = Database(tmp_path / 'app.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
     vault = tmp_path / 'vault'
-    app = create_app(database, vault, gateway, security_environ={})
+    app = create_app(database, vault, security_environ={})
     client = TestClient(app)
     client.get('/')
     note = client.post('/api/notes', json={

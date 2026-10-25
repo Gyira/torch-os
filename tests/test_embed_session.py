@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 CROSS = {"sec-fetch-site": "cross-site"}
 EMBEDDED_FETCH = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "same-origin"}
@@ -19,7 +18,6 @@ EMBEDDED_FETCH = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "same-origin
 def make_client(tmp_path):
     app = create_app(
         Database(tmp_path / "embed-session.sqlite3"), tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env")
     return TestClient(app)
 

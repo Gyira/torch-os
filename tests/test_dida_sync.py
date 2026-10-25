@@ -17,7 +17,6 @@ from backend.app.dida_client import (
     RemoteChecklistItem, RemoteProject, RemoteSnapshot, RemoteTask,
 )
 from backend.app.dida_sync import DidaSyncService
-from backend.app.model_gateway import ModelGateway
 
 COOKIE = "supersecret-token"
 
@@ -167,7 +166,6 @@ def make_client(tmp_path: Path, snapshot: RemoteSnapshot, completed=(), *, read_
 
     app = create_app(
         Database(tmp_path / "dida.sqlite3"), vault,
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ=environ, env_file=tmp_path / ".env",
         dida_provider_factory=factory,
         enable_dida_auto_push=auto_push,
@@ -529,7 +527,6 @@ def test_each_local_operation_triggers_auto_push(tmp_path):
 
     app = create_app(
         Database(tmp_path / "dida.sqlite3"), vault,
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env",
         dida_provider_factory=factory, enable_dida_auto_push=True,
     )

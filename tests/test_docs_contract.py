@@ -7,15 +7,13 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import APP_VERSION, create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def client(tmp_path):
     database = Database(tmp_path / 'torch_os.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, tmp_path / 'vault', gateway, security_environ={}, env_file=tmp_path / '.env')
+    app = create_app(database, tmp_path / 'vault', security_environ={}, env_file=tmp_path / '.env')
     test_client = TestClient(app)
     test_client.get('/')
     return test_client

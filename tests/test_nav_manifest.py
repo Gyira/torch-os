@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ["workbench", "life", "self", "ops", "knowledge", "settings"]
@@ -20,7 +19,6 @@ MODULES = ["workbench", "life", "self", "ops", "knowledge", "settings"]
 def make_app(tmp_path):
     return create_app(
         Database(tmp_path / "nav.sqlite3"), tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env")
 
 

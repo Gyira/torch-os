@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import SCHEMA, Database, utc_now
-from backend.app.model_gateway import ModelGateway
 from backend.app.vault import _memory_from_document, create_note, parse_text, scan_vault
 from backend.app.wolai_import import _ImportTransaction, import_selected_notes
 
@@ -221,8 +220,7 @@ def test_import_transaction_rolls_back_coverage_and_candidates_together(tmp_path
 
 def test_document_api_exposes_coverage_without_new_endpoint(tmp_path):
     database = make_database(tmp_path)
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, tmp_path / 'vault', gateway, security_environ={})
+    app = create_app(database, tmp_path / 'vault', security_environ={})
     with TestClient(app) as client:
         client.get('/')
         result = client.post('/api/notes', json={'title': 'API 验证', 'content': '# 标题\n第一句正文。'}).json()

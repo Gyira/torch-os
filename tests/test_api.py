@@ -4,24 +4,21 @@ from fastapi.testclient import TestClient
 from backend.app import pillar_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def make_client(tmp_path):
-    app = create_app(Database(tmp_path / 'test.sqlite3'), tmp_path / 'vault',
-        ModelGateway(provider='local',base_url='',model='',api_key='',timeout=1), security_environ={})
+    app = create_app(Database(tmp_path / 'test.sqlite3'), tmp_path / 'vault', security_environ={})
     client = TestClient(app)
     client.get('/')
     return client, app
 
 
-def test_health_and_chat(tmp_path):
+def test_health_and_retired_chat_routes(tmp_path):
     client, _ = make_client(tmp_path)
     assert client.get('/api/health').json()['status'] == 'ok'
-    result = client.post('/api/chat', json={'message':'我是谁？'}).json()
-    assert result['conversation_id']
-    assert result['mode'] == 'local'
-    assert result['citations'] == []
+    assert client.post('/api/chat', json={'message':'我是谁？'}).status_code == 404
+    assert client.post('/api/chat/stream', json={'message':'我是谁？'}).status_code == 404
+    assert client.post('/api/config/model-key', json={'api_key':'test', 'confirm':True}).status_code == 404
 
 
 def test_note_confirmation_correction_and_withdrawal(tmp_path):
@@ -30,20 +27,21 @@ def test_note_confirmation_correction_and_withdrawal(tmp_path):
     assert result.status_code == 201
     note = result.json()
     memory_id = note['memories'][0]['id']
-    assert client.post('/api/chat',json={'message':'我是谁？'}).json()['citations'] == []
+    database = app.state.database
+    assert database.search_memories('我是谁？') == []
     client.patch(f'/api/memories/{memory_id}/status',json={'status':'active'})
-    response = client.post('/api/chat',json={'message':'我是谁？'}).json()
-    assert '建筑师' in response['answer']
-    assert response['citations'][0]['document_id'] == note['document']['id']
+    response = database.search_memories('我是谁？')
+    assert '建筑师' in response[0]['content']
+    assert response[0]['document_id'] == note['document']['id']
     client.patch(f'/api/memories/{memory_id}',json={'content':'我的职业是软件工程师。'})
-    assert client.post('/api/chat',json={'message':'我是谁？'}).json()['citations'] == []
+    assert database.search_memories('我是谁？') == []
     client.patch(f'/api/memories/{memory_id}/status',json={'status':'active'})
-    corrected = client.post('/api/chat',json={'message':'我是谁？'}).json()
-    assert '软件工程师' in corrected['answer'] and '建筑师' not in corrected['answer']
+    corrected = database.search_memories('我是谁？')
+    assert '软件工程师' in corrected[0]['content'] and '建筑师' not in corrected[0]['content']
     history = client.get(f'/api/memories/{memory_id}/history').json()['history']
     assert any(event['event_type']=='user_corrected' for event in history)
     client.patch(f'/api/memories/{memory_id}/status',json={'status':'rejected'})
-    assert client.post('/api/chat',json={'message':'我是谁？'}).json()['citations'] == []
+    assert database.search_memories('我是谁？') == []
 
 
 def test_cross_origin_unauthenticated_and_bad_input_rejected(tmp_path):
@@ -53,9 +51,8 @@ def test_cross_origin_unauthenticated_and_bad_input_rejected(tmp_path):
     assert client.post('/api/vault/scan',headers={'origin':'https://example.com'}).status_code == 403
     assert client.get('/api/health',headers={'host':'evil.example'}).status_code == 400
     assert client.post('/api/notes',json={'title':'   ','content':'text'}).status_code == 422
-    assert client.post('/api/chat',json={'message':' ','use_cloud':False}).status_code == 422
-    assert client.post('/api/chat',json={'message':'test','conversation_id':99999}).status_code == 404
-    assert client.post('/api/chat',json={'message':'" OR * : - ; ( )'}).status_code == 200
+    assert client.post('/api/chat',json={'message':'test'}).status_code == 404
+    assert client.post('/api/agent/cancel',json={'conversation_id':1}).status_code == 404
 
 
 def test_source_delete_stops_future_answers(tmp_path):
@@ -63,9 +60,11 @@ def test_source_delete_stops_future_answers(tmp_path):
     note=client.post('/api/notes',json={'title':'学习目标','content':'我的目标是学习葡萄牙语。','type':'goal'}).json()
     mid=note['memories'][0]['id']
     client.patch(f'/api/memories/{mid}/status',json={'status':'active'})
-    assert client.post('/api/chat',json={'message':'我的目标'}).json()['citations']
+    database = app.state.database
+    assert database.search_memories('我的目标')
     (app.state.vault_dir / note['document']['path']).unlink()
-    assert client.post('/api/chat',json={'message':'我的目标'}).json()['citations']==[]
+    assert client.post('/api/vault/scan').status_code == 200
+    assert database.search_memories('我的目标') == []
     assert client.patch(f'/api/memories/{mid}/status',json={'status':'active'}).status_code == 409
 
 

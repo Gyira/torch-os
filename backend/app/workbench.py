@@ -1,4 +1,4 @@
-"""Workbench: one read of everything today, plus an explicit polish step.
+"""Workbench: one read of everything today, plus a deterministic local draft.
 
 The workbench is the product's daily loop: greeting and motto from the identity
 note, the day's todo list (Markdown: `00_人生路/08_任务与待办/_系统/待办（todos）.md`), the 每日必做 checklist
@@ -6,9 +6,8 @@ note, the day's todo list (Markdown: `00_人生路/08_任务与待办/_系统/�
 written. Progress is the plain average of those items (every item counts the
 same), so finishing nine of ten shows 90%.
 
-`POST /workbench/summarize` builds the "今天干了什么" draft. The local draft is
-free; the polished one sends the draft to the configured model and therefore
-requires the caller to opt in explicitly.
+`GET /workbench/draft` builds the "今天干了什么" draft locally. AI polish is
+not part of torch; free-form work happens in the embedded DeepSeek Harness.
 """
 
 from __future__ import annotations
@@ -49,13 +48,6 @@ def validate_day(value: str, *, today: date | None = None) -> date:
     if result > (today if today is not None else shanghai_now().date()):
         raise HTTPException(422, "工作台不能查看未来日期")
     return result
-
-
-class SummarizeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    day: str = ""
-    use_model: bool = False
 
 
 def _error_text(exc: Exception) -> str:
@@ -272,7 +264,7 @@ def local_draft(parts: dict[str, Any]) -> str:
     return "\n".join(lines)[:MAX_DRAFT_CHARS]
 
 
-def create_workbench_router(database: Database, vault_dir: Path | str, gateway: Any = None,
+def create_workbench_router(database: Database, vault_dir: Path | str,
                             prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["workbench"])
 
@@ -286,34 +278,5 @@ def create_workbench_router(database: Database, vault_dir: Path | str, gateway: 
         target = validate_day(day) if day else shanghai_now().date()
         parts = draft_parts(database, vault_dir, target.isoformat())
         return {"day": target.isoformat(), "parts": parts, "text": local_draft(parts), "mode": "local"}
-
-    @router.post("/workbench/summarize")
-    async def workbench_summarize(payload: SummarizeRequest):
-        target = validate_day(payload.day) if payload.day else shanghai_now().date()
-        day = target.isoformat()
-        parts = draft_parts(database, vault_dir, day)
-        text = local_draft(parts)
-        if not payload.use_model:
-            return {"day": day, "mode": "local", "text": text, "parts": parts}
-        if gateway is None or not getattr(gateway, "configured", False):
-            return {"day": day, "mode": "local", "text": text, "parts": parts,
-                    "note": "未配置云端模型，已使用本地草稿。"}
-        question = (
-            "把下面这些今天的本地记录写成一段第一人称的日记草稿，"
-            "语气平实、不要夸张、不要编造记录里没有的事；保留具体做了什么。"
-        )
-        evidence = [{"title": f"{day} 的本地记录", "quote": text, "document_id": None,
-                     "source_path": "workbench", "source_quote": text}]
-        try:
-            result = await gateway.generate(question, evidence)
-        except Exception as error:  # noqa: BLE001 - report, never lose the local draft
-            return {"day": day, "mode": "local", "text": text, "parts": parts,
-                    "note": f"模型调用失败，已使用本地草稿：{error}"}
-        answer = (result or {}).get("answer")
-        if not answer:
-            return {"day": day, "mode": "local", "text": text, "parts": parts,
-                    "note": "模型没有返回内容，已使用本地草稿。"}
-        return {"day": day, "mode": "model", "text": str(answer)[:MAX_DRAFT_CHARS], "parts": parts,
-                "model": (result or {}).get("model"), "usage": (result or {}).get("usage")}
 
     return router

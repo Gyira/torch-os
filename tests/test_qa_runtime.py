@@ -81,14 +81,10 @@ def test_private_data_and_dotenv_are_not_opened_even_with_hostile_environment(pr
     monkeypatch.setattr(io, 'open', guarded_io_open)
     app, directory = qa_runtime.create_qa_app(project_root=project)
     assert directory.parent == project / '.test-data'
-    assert app.state.gateway.public_status() == {
-        'configured': False, 'provider': 'local', 'model': None,
-        'timeout_seconds': 45.0, 'error': None,
-    }
+    assert app.state.dsh_runtime.status()['state'] == 'disabled'
     status = client_for(app).get('/api/config/status').json()
     assert status['runtime_label'] == 'qa'
-    assert status['cloud_enabled'] is False
-    assert status['provider'] == 'local'
+    assert status['capabilities']['dsh_web'] is False
 
 
 def test_fresh_interpreter_never_imports_config(project):
@@ -104,7 +100,7 @@ class RejectConfig(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, RejectConfig())
 from backend.app.qa_runtime import create_qa_app
 app, workspace = create_qa_app(project_root=pathlib.Path(sys.argv[1]))
-assert not app.state.gateway.configured
+assert app.state.dsh_runtime.status()['state'] == 'disabled'
 assert 'backend.app.config' not in sys.modules
 print('isolated')
 '''
@@ -114,21 +110,14 @@ print('isolated')
     assert result.stdout.strip() == 'isolated'
 
 
-def test_even_explicit_cloud_choice_cannot_create_network_request(project, monkeypatch):
-    def no_network(*args, **kwargs):
-        raise AssertionError('QA tried to create a cloud client')
-
-    monkeypatch.setattr(httpx, 'AsyncClient', no_network)
+def test_qa_has_no_chat_or_model_surface(project):
     app, _ = qa_runtime.create_qa_app(project_root=project)
     client = client_for(app)
     memory = app.state.database.list_memories()[0]
     assert client.patch(f"/api/memories/{memory['id']}/status", json={'status': 'active'}).status_code == 200
-    response = client.post('/api/chat', json={'message': memory['content'][:24], 'use_cloud': True})
-    assert response.status_code == 200
-    # The API explicitly reports a local fallback for an unavailable cloud choice.
-    assert response.json()['mode'] == 'fallback'
-    assert response.json()['citations']
-    assert asyncio.run(app.state.gateway.generate('question', [{'content': 'fictional'}]))['mode'] == 'local'
+    assert client.post('/api/chat', json={'message': '虚构问题'}).status_code == 404
+    assert client.post('/api/config/model-key', json={'api_key': 'test', 'confirm': True}).status_code == 404
+    assert app.state.dsh_runtime.status()['state'] == 'disabled'
 
 
 def test_reuse_preserves_local_edits_and_review_state(project):
@@ -214,7 +203,7 @@ def test_check_reports_only_safe_metadata_and_does_not_start_server(project, mon
     output = capsys.readouterr().out
     assert 'PRIVATE_SENTINEL' not in output and str(project) not in output
     report = json.loads(output)
-    assert report['status'] == 'validated' and report['cloud_enabled'] is False
+    assert report['status'] == 'validated' and report['harness_enabled'] is False
     assert report['url'] == 'http://127.0.0.1:8766'
     assert report['updated_at'].endswith('+08:00')
     directory = project / '.test-data' / report['workspace']
@@ -231,7 +220,7 @@ def test_cli_passes_built_app_to_loopback_server_and_retains_workspace(project, 
         observed.update(kwargs)
         observed['workspace'] = app.state.qa_workspace
         assert not isinstance(app, str)
-        assert app.state.gateway.configured is False
+        assert app.state.dsh_runtime.status()['state'] == 'disabled'
 
     monkeypatch.setattr(uvicorn, 'run', run)
     assert qa_runtime.main(['--port', '8767']) == 0

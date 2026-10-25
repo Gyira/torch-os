@@ -8,13 +8,11 @@ from fastapi.testclient import TestClient
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.identity import greeting_for, read_identity, write_identity, IdentityWrite
-from backend.app.model_gateway import ModelGateway
 
 
 def make_app(tmp_path, **kwargs):
     return create_app(
         Database(tmp_path / "identity.sqlite3"), tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env", **kwargs)
 
 
@@ -86,7 +84,6 @@ def test_read_only_vault_refuses_writes(tmp_path):
 
     read_only_app = create_app(
         Database(tmp_path / "ro.sqlite3"), vault,
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={"VAULT_READ_ONLY": "1"}, env_file=tmp_path / ".env")
     read_only_client = TestClient(read_only_app)
     read_only_client.get("/")

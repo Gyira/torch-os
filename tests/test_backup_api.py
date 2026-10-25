@@ -2,13 +2,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def test_backup_restore_from_api_preserves_active_database(tmp_path):
     database=Database(tmp_path/'torch_os.sqlite3')
-    gateway=ModelGateway(provider='local',base_url='',model='',api_key='',timeout=1)
-    app=create_app(database,tmp_path/'vault',gateway,security_environ={})
+    app=create_app(database,tmp_path/'vault',security_environ={})
     client=TestClient(app)
     client.get('/')
     client.post('/api/notes',json={'title':'资料','content':'这是备份验收的虚构资料。'})

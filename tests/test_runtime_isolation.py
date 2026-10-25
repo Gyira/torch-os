@@ -3,12 +3,10 @@ import pytest
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def app_at(path, label='personal'):
     return create_app(Database(path/'app.sqlite3'), path/'vault',
-                      ModelGateway(provider='local',base_url='',model='',api_key='',timeout=1),
                       runtime_label=label, security_environ={})
 
 
@@ -33,9 +31,11 @@ def test_cookie_names_do_not_collide_across_ports_and_qa(tmp_path, same_database
     assert stranger.get('/api/documents').status_code==401
 
 
-def test_qa_cannot_enable_cloud_or_ambiguous_runtime_label(tmp_path):
-    cloud=ModelGateway(provider='deepseek',base_url='https://example.invalid',model='fake',api_key='test-only',timeout=1)
-    with pytest.raises(ValueError,match='QA runtime'):
-        create_app(Database(tmp_path/'qa.sqlite3'),tmp_path/'vault',cloud,runtime_label='qa',security_environ={})
-    with pytest.raises(ValueError,match='runtime label'):
-        app_at(tmp_path/'invalid','made-up')
+def test_qa_disables_dsh_and_rejects_an_unknown_runtime_label(tmp_path):
+    qa = TestClient(app_at(tmp_path / 'qa', 'qa'), base_url='http://127.0.0.1:8766')
+    qa.get('/')
+    status = qa.get('/api/dsh/status').json()
+    assert status['state'] == 'disabled'
+    assert qa.get('/api/config/status').json()['capabilities']['dsh_web'] is False
+    with pytest.raises(ValueError, match='runtime label'):
+        app_at(tmp_path / 'invalid', 'made-up')

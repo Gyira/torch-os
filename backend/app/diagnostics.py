@@ -1,7 +1,7 @@
 """Read-only local self-check: integrity, table counts, vault files, latest backup.
 
-It never reads note contents, never writes an audit event and never calls a
-model. The payload contains counts and file numbers only, so it stays safe to
+It never reads note contents, never writes an audit event and never calls an
+external service. The payload contains counts and file numbers only, so it stays safe to
 look at and safe to screenshot.
 """
 
@@ -121,7 +121,6 @@ def collect_summary(database: Database, vault_dir: Path) -> dict[str, Any]:
         "counts": counts,
         "vault": _vault_numbers(vault_dir),
         "backups": _latest_backup(database),
-        "embedding_provider": getattr(database.embedding_provider, "name", None),
     }
 
 

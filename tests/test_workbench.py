@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TODAY = datetime.now(SHANGHAI).date().isoformat()
@@ -18,7 +17,6 @@ WEEKDAY = date.fromisoformat(TODAY).weekday()
 def make_client(tmp_path):
     app = create_app(
         Database(tmp_path / "workbench.sqlite3"), tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env")
     client = TestClient(app)
     client.get("/")
@@ -126,7 +124,7 @@ def test_journal_completes_the_loop_from_the_markdown_file(tmp_path):
     assert payload["progress"] == {"done": 1, "total": 1, "percent": 100}
 
 
-def test_draft_is_local_and_polish_falls_back_without_a_model(tmp_path):
+def test_draft_is_local_and_polish_route_is_retired(tmp_path):
     client = make_client(tmp_path)
     write_todo_note(tmp_path, todos=[("写完工作台", True, TODAY)], daily=["阅读 30 分钟"])
 
@@ -137,13 +135,7 @@ def test_draft_is_local_and_polish_falls_back_without_a_model(tmp_path):
     assert draft["parts"]["open_daily"] == ["阅读 30 分钟"]
     assert "每日必做还差：阅读 30 分钟" in draft["text"]
 
-    polished = client.post("/api/workbench/summarize", json={"day": TODAY, "use_model": True}).json()
-    assert polished["mode"] == "local"
-    assert "未配置云端模型" in polished["note"]
-    assert "写完工作台" in polished["text"]
-
-    empty = client.post("/api/workbench/summarize", json={"day": TODAY}).json()
-    assert empty["mode"] == "local" and "note" not in empty
+    assert client.post("/api/workbench/summarize", json={"day": TODAY, "use_model": True}).status_code == 404
 
 
 def test_the_todo_file_drives_the_day_list(tmp_path):
@@ -169,4 +161,4 @@ def test_future_days_are_rejected(tmp_path):
     future = (datetime.now(SHANGHAI).date() + timedelta(days=1)).isoformat()
     assert client.get(f"/api/workbench/today?day={future}").status_code == 422
     assert client.get("/api/workbench/today?day=2026-13-01").status_code == 422
-    assert client.post("/api/workbench/summarize", json={"day": future}).status_code == 422
+    assert client.post("/api/workbench/summarize", json={"day": future}).status_code == 404

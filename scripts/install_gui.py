@@ -250,7 +250,7 @@ def run_install(plan: InstallPlan, emit, cancel: threading.Event) -> tuple[bool,
     # 4. .env
     mark('envfile', 'running')
     if ensure_env_file(root):
-        emit('log', '已从 .env.example 生成 .env（模型 Key 以后在这里填）。')
+        emit('log', '已从 .env.example 生成 .env（DeepSeek Harness 启动命令可在这里覆盖）。')
         mark('envfile', 'ok')
     else:
         emit('log', '.env 已存在，未改动。')

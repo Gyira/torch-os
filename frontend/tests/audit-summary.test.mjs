@@ -49,14 +49,13 @@ const summary = {
   generated_at: "2026-10-04T17:40:00+08:00",
   window_days: 30,
   total_events: 12,
-  chat: { cloud: 1, local: 2, fallback: 0, other: 0, total: 3 },
   exports: 4,
   backups: 2,
   errors: 1,
-  latest_error: { event_type: "model_error", created_at: "2026-10-04T16:00:00+00:00" },
+  latest_error: { event_type: "scheduler_loop_error", created_at: "2026-10-04T16:00:00+00:00" },
   by_type: [
     { event_type: "vault_scan", count: 5, last_at: "2026-10-04T16:05:00+00:00" },
-    { event_type: "chat_completed", count: 3, last_at: "2026-10-04T16:00:00+00:00" },
+    { event_type: "scheduler_report_created", count: 3, last_at: "2026-10-04T16:00:00+00:00" },
     { event_type: "<img src=x>", count: 1, last_at: "2026-10-04T15:00:00+00:00" },
   ],
   note: "只读统计：只有事件类型与数量，不含正文、问题、标题或路径。",
@@ -146,13 +145,11 @@ test("the transparency panel loads counts, escapes types and shows the latest er
   assert.equal(h.getNode("#refresh-audit-summary").disabled, false);
   const html = h.getNode("#audit-summary-panel").innerHTML;
   assert.match(html, /近 30 天共 12 条本地操作/);
-  assert.match(html, /云端回答 1/);
-  assert.match(html, /本地回答 2/);
   assert.match(html, /导出 4/);
   assert.match(html, /备份 2/);
-  assert.match(html, /最近错误事件：model_error/);
+  assert.match(html, /最近错误事件：scheduler_loop_error/);
   assert.match(html, /资料扫描（vault_scan）/);
-  assert.match(html, /问答完成（chat_completed）/);
+  assert.match(html, /生成定时草稿（scheduler_report_created）/);
   assert.match(html, /&lt;img src=x&gt;/);
   assert.doesNotMatch(html, /<img src=x>/);
   assert.match(html, /不含正文、问题、标题或路径/);

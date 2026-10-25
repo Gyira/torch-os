@@ -475,10 +475,10 @@ test("the sidebar second level lists exactly the panes each module defines", asy
   }
 });
 
-test("the settings shell exposes twelve navigable sections with focusable headings", async () => {
+test("the settings shell exposes eleven navigable sections with focusable headings", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const nav = [...html.matchAll(/data-settings-nav="([a-z]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(nav, ["status", "model", "schedule", "dida", "backup", "data", "obsidian", "migration", "audit", "appearance", "help", "about"]);
+  assert.deepEqual(nav, ["status", "schedule", "dida", "backup", "data", "obsidian", "migration", "audit", "appearance", "help", "about"]);
   for (const name of nav) {
     const section = html.match(new RegExp(`data-settings-section="${name}"[^>]*>([\\s\\S]*?)</section>`));
     assert.ok(section, `${name} section exists`);

@@ -138,27 +138,6 @@ try {
       }
     }
   }
-
-  if (-not $SkipPlugin) {
-    # 插件改了却没重装 = 用户看到"dsh 侧栏没变化"（2026-10-05 真发生过）。
-    Step '重装 dsh 插件' {
-      $shim = Join-Path $env:TEMP 'torch-round-pnpm'
-      New-Item -ItemType Directory -Force -Path $shim | Out-Null
-      Set-Content -Path (Join-Path $shim 'pnpm.cmd') -Value "@echo off`r`ncorepack pnpm %*" -Encoding ASCII
-      $env:PATH = "$shim;$env:PATH"
-      try {
-        & dsh plugin --profile $Profile add "file:$root\dsh-plugin" | Select-Object -Last 1
-        $installed = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile\node_modules\@torch\dsh-plugin"
-        foreach ($file in 'lib\client.js', 'lib\index.js', 'lib\extract.js', 'package.json') {
-          $same = (Get-FileHash (Join-Path $installed $file)).Hash -eq (Get-FileHash (Join-Path $root "dsh-plugin\$file")).Hash
-          Write-Host ("  {0,-16} match={1}" -f $file, $same)
-          if (-not $same) { throw "$file 装进 profile 后与仓库不一致" }
-        }
-      } finally {
-        Remove-Item -LiteralPath $shim -Recurse -Force -ErrorAction SilentlyContinue
-      }
-    }
-  }
 }
 finally {
   Pop-Location
@@ -170,9 +149,9 @@ if ($failed.Count) {
   Write-Host "未通过：$($failed -join '、')（用时 $minutes 分钟）" -ForegroundColor Red
   exit 1
 }
-Write-Host "一轮动作全部完成（用时 $minutes 分钟）：校验、备份、部署、自检$(if (-not $SkipBrowser) { '、浏览器探针' })$(if (-not $SkipPlugin) { '、插件重装' })" -ForegroundColor Green
+Write-Host "一轮动作全部完成（用时 $minutes 分钟）：校验、备份、部署、自检$(if (-not $SkipBrowser) { '、浏览器探针' })" -ForegroundColor Green
 Write-Host '收尾提醒：' -ForegroundColor Yellow
-Write-Host '  1) 改了 dsh-plugin 或前端客户端模块 → 重启 dsh 并在页面上 Ctrl+F5（rev 只在启动时算）'
+Write-Host '  1) 改了前端模块 → 刷新工作台；改了 dsh 版本 → 在「与神对话」点「重启 dsh」'
 Write-Host '  2) 文档：DEVELOPMENT_LOG.md / RUN_HISTORY.md / USER_FEEDBACK.md 追加本轮条目'
 Write-Host '  3) 版本三处同步：application.py 的 APP_VERSION、README.md 首行、WAKE_UP_START.md'
 Write-Host '  4) git add -A && git commit -m "<一句话，at X.Y.0>"'

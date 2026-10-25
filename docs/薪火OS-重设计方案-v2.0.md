@@ -1,6 +1,8 @@
 # 薪火OS 重设计方案 v2.0
 
 - 状态：设计定稿，Phase 1–5 已实施，UX 打磨完成（2026-10-22；Phase 5 为保守清理）
+- 2026-10-25 追加：模型网关/管家问答已移除；唯一 AI 是内嵌的 DeepSeek Harness，
+  本文中关于 `model_gateway.py` 与“可选模型润色”的内容视为历史记录。
 - 日期：2026-10-20（实施更新 2026-10-22）
 - 依据：`torch os 设计书v1.0.md` + 当前代码库盘点
 - 范围：除工作台外，全部模块重新设计；工作台 UI/DOM/交互/视觉保持不动
@@ -371,7 +373,7 @@
 
 ## 10. 复用与删除
 
-**保留复用**：`db.py` 检索/审计、`vault.py` 索引与候选提取、`markdown_store.py`、`identity.py`、`tasks.py`/`task_notes.py`/`task_trash.py`/`todo_note.py`/`dida_*`、`journal_note.py`、`workbench.py`、`backup.py`、`workspaces.py`、`model_gateway.py`、`tools.py`/`mcp_bridge.py`、导入工具链。
+**保留复用**：`db.py` 检索/审计、`vault.py` 索引与候选提取、`markdown_store.py`、`identity.py`、`tasks.py`/`task_notes.py`/`task_trash.py`/`todo_note.py`/`dida_*`、`journal_note.py`、`workbench.py`、`backup.py`、`workspaces.py`、`tools.py`/`mcp_bridge.py`、导入工具链。
 
 **退役**：`goals.py`、`bazi.py`、`learning.py`、`profile.py`、`suggestions.py`、SQLite 日记作者/导出、旧目标/任务表；旧表保留一个版本后再按确认删除。
 

@@ -1,4 +1,4 @@
-// 只读工具接口清单：给外部智能体（例如 DeepSeek Harness）看的“能读什么”。
+// 只读工具接口清单：给 DeepSeek Harness 看的“能读什么”。
 import { $, state, api, escapeHtml, setStatus } from "./core.js";
 
 let loaded = false;

@@ -6,6 +6,7 @@ r"""换机交接自检：路径、Vault、数据库与关键凭据是否就位�
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -112,10 +113,14 @@ def main() -> int:
                 values[key.strip()] = value.strip()
         if values.get("VAULT_READ_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}:
             warn("VAULT_READ_ONLY 已开启", "四库写入会被拒绝；确认这是你要的")
-        if values.get("MODEL_PROVIDER", "local") not in {"", "local"}:
-            warn("云端模型已配置", "确认 MODEL_API_KEY 已在新机器设置，且不要提交到 Git")
-        if values.get("EMBEDDING_PROVIDER", "hash") == "ollama":
-            info("嵌入使用 Ollama", "需要本机 Ollama 在运行，否则会退回本地检索")
+        dsh = shutil.which("dsh")
+        npx = shutil.which("npx")
+        if dsh:
+            info("DeepSeek Harness", dsh)
+        elif npx:
+            info("DeepSeek Harness 未全局安装", "启动时会使用 npx（首次可能需要下载）")
+        else:
+            warn("未找到 dsh 或 npx", "安装 Node.js >=24.9 后执行 npm install -g @deepseek-ai/dsh")
 
     for label, path in (
         ("Dida 凭据", data_dir / "dida-credentials.json"),

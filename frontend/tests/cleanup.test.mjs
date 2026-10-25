@@ -11,11 +11,12 @@ const deletedModules = [
   "identity.js", "profile.js", "memories.js", "memory-text.js", "goals.js",
   "task-view.js", "bazi.js", "body-records.js", "habits.js", "imports.js",
   "share-import.js", "library.js", "second-brain.js", "journal-review.js",
-  "journal-calendar.js", "vault-audit.js",
+  "journal-calendar.js", "vault-audit.js", "agent-chat.js", "harness-bridge.js",
 ];
 
 const retiredEndpoints = [
-  "/api/bazi", "/api/profile", "/api/suggestions", "/api/chat/preview", "/api/imports/share",
+  "/api/bazi", "/api/profile", "/api/suggestions", "/api/chat", "/api/agent/cancel",
+  "/api/config/model-key", "/api/steward/ask", "/api/workbench/summarize", "/api/imports/share",
 ];
 
 async function liveSources() {

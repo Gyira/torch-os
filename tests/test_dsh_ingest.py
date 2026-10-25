@@ -4,13 +4,11 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def make_app(tmp_path):
     return create_app(
         Database(tmp_path / "dsh.sqlite3"), tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env")
 
 

@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "薪火实时流",
-    "description": "把 DeepSeek Harness 的实时正文、思考与工具调用增量，通过仅本机可访问的 SSE 提供给薪火工作台。"
-  }
-}

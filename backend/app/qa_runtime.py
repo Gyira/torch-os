@@ -1,7 +1,6 @@
 """Start an offline workbench with its own disposable, retained QA workspace.
 
-This entry point must never import ``config`` or ``main``: both the model and
-data paths are fully injected, independently of the user's .env and process
+This entry point must never import ``config`` or ``main``: the data paths are fully injected, independently of the user's .env and process
 environment. Only the checked-in fictional Markdown examples seed new runs.
 """
 from __future__ import annotations
@@ -20,8 +19,6 @@ from fastapi import FastAPI
 
 from .application import create_app
 from .db import Database
-from .embedding import HashEmbeddingProvider
-from .model_gateway import ModelGateway
 from .vault import scan_vault
 
 
@@ -141,10 +138,9 @@ def create_qa_app(*, project_root: Path | None = None,
     _check_tree(destination)
     database = Database(destination / 'torch-os.sqlite3')
     vault = destination / 'vault'
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=45)
-    app = create_app(database=database, vault_dir=vault, gateway=gateway,
+    app = create_app(database=database, vault_dir=vault,
                      host=_HOST, security_environ={}, runtime_label='qa',
-                     embedding_provider=HashEmbeddingProvider())
+                     enable_dsh=False)
     scan_vault(vault, database)
     app.state.qa_workspace = destination.name
     return app, destination
@@ -169,8 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         app, workspace = create_qa_app(workspace=args.workspace)
         report = {
-            'environment': 'qa', 'workspace': workspace.name, 'mode': 'local',
-            'cloud_enabled': False, 'url': f'http://{_HOST}:{args.port}',
+            'environment': 'qa', 'workspace': workspace.name, 'mode': 'offline',
+            'harness_enabled': False, 'url': f'http://{_HOST}:{args.port}',
             'status': 'validated' if args.check else 'startup_requested',
             'updated_at': _timestamp(), 'retained_after_exit': True,
         }

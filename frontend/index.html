@@ -117,51 +117,33 @@
 
 
     <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-labelledby="page-title" hidden>
-      <section class="panel agent-panel" aria-labelledby="agent-heading">
-        <div class="agent-top">
-          <div class="agent-head">
-            <div class="agent-title-block">
-              <span class="eyebrow">DIALOGUE</span>
-              <h2 id="agent-heading" tabindex="-1">与神对话</h2>
-              <p class="section-description">和 DeepSeek V4 Flash 对话。它能读你的四库、任务与记忆；当前只读，不会改动你的数据。</p>
-            </div>
-            <div class="agent-head-actions">
-              <span id="agent-status" class="status-message agent-status" role="status" aria-live="polite">正在连接…</span>
-              <span class="agent-readonly" title="当前只读，不会改动你的数据">只读</span>
-              <button id="agent-new" class="button secondary agent-action" type="button">＋ 新对话</button>
-              <button id="agent-history-toggle" class="text-button agent-action" type="button" aria-expanded="false" aria-controls="agent-history-list">会话</button>
-            </div>
-          </div>
-          <div id="agent-history-list" class="agent-history" hidden></div>
+      <div class="dsh-shell" id="dsh-shell">
+        <div class="dsh-statusbar" id="dsh-statusbar" role="status" aria-live="polite">
+          <span class="dsh-dot" aria-hidden="true"></span>
+          <strong class="dsh-title">与神对话</strong>
+          <span id="dsh-status-text">正在读取 DeepSeek Harness…</span>
+          <span class="dsh-spacer"></span>
+          <button id="dsh-reload" class="text-button" type="button">重新载入</button>
+          <button id="dsh-restart" class="text-button" type="button">重启 dsh</button>
+          <a id="dsh-open-external" class="text-button" href="/harness/" target="_blank" rel="noopener noreferrer">新标签打开</a>
+          <a id="dsh-official" class="text-button" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">官网 ↗</a>
         </div>
-        <div class="agent-stage">
-          <div id="agent-messages" class="agent-messages" role="log" aria-live="polite" aria-relevant="additions text">
-            <div class="agent-empty" id="agent-empty">
-              <div class="agent-empty-mark" aria-hidden="true">✦</div>
-              <p class="agent-empty-title">与神对话</p>
-              <p class="field-help">问它今天该做什么、让它帮你分析任务与知识库，或者读你的画像一起做决定。</p>
-              <div class="agent-suggestions">
-                <button type="button" class="agent-suggestion" data-agent-suggestion="今天我最该推进什么？">今天我最该推进什么？</button>
-                <button type="button" class="agent-suggestion" data-agent-suggestion="帮我梳理今天最重要的三件事，并说明理由">帮我梳理今天的重点</button>
-                <button type="button" class="agent-suggestion" data-agent-suggestion="读一下我的自我档案，帮我分析最近的一个决定">读画像做分析</button>
+        <div class="dsh-frame-wrap" id="dsh-frame-wrap">
+          <iframe id="dsh-frame" class="dsh-frame" title="与神对话 · DeepSeek Harness" src="about:blank" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+          <div class="dsh-overlay" id="dsh-overlay">
+            <div class="dsh-overlay-card">
+              <p class="eyebrow">DEEPSEEK HARNESS</p>
+              <h2 id="dsh-overlay-title">正在启动 dsh…</h2>
+              <p id="dsh-overlay-text" class="field-help">正在连接本地 DeepSeek Harness。</p>
+              <pre id="dsh-overlay-command" class="dsh-overlay-command" hidden><code></code></pre>
+              <div class="dsh-overlay-actions">
+                <button type="button" id="dsh-retry" class="button primary">重新检测并启动</button>
+                <a class="button secondary" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">DeepSeek Harness ↗</a>
               </div>
             </div>
           </div>
-          <button id="agent-scroll-bottom" class="agent-scroll-bottom" type="button" aria-label="回到最新消息" hidden>↓</button>
         </div>
-        <form id="agent-form" class="agent-composer">
-          <div class="agent-composer-shell">
-            <label class="visually-hidden" for="agent-input">与神对话输入</label>
-            <textarea id="agent-input" rows="2" maxlength="4000" placeholder="跟它说你要做什么；Enter 发送，Shift+Enter 换行" aria-label="与神对话输入"></textarea>
-            <div class="agent-composer-row">
-              <span id="agent-hint" class="field-help">只读工具已连接；当前不会改动你的数据。</span>
-              <span class="agent-kbd" aria-hidden="true">Enter 发送 · Shift+Enter 换行</span>
-              <button id="agent-stop" class="button secondary" type="button" hidden>停止</button>
-              <button id="agent-send" class="button primary agent-send" type="submit" disabled>发送 <span aria-hidden="true">↑</span></button>
-            </div>
-          </div>
-        </form>
-      </section>
+      </div>
     </section>
     <section id="life-view" class="view pillar-view" data-module="life" hidden>
       <div class="pillar-shell" data-pillar="life"><div class="pillar-empty">正在读取人生路…</div></div>
@@ -184,7 +166,6 @@
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="设置分区">
           <button class="settings-nav-item active" type="button" data-settings-nav="status" aria-current="true">服务状态</button>
-          <button class="settings-nav-item" type="button" data-settings-nav="model" aria-current="false">模型与密钥</button>
           <button class="settings-nav-item" type="button" data-settings-nav="schedule" aria-current="false">定时提醒</button>
           <button class="settings-nav-item" type="button" data-settings-nav="dida" aria-current="false">滴答同步</button>
           <button class="settings-nav-item" type="button" data-settings-nav="backup" aria-current="false">备份与恢复</button>
@@ -195,16 +176,9 @@
         <div class="settings-content">
           <section class="settings-section" data-settings-section="status" aria-labelledby="settings-status-heading">
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">SYSTEM STATUS</span><h2 id="settings-status-heading" tabindex="-1">服务状态</h2><p>本地服务连接、版本与当前能力标记；只读检查，不发起云端请求。</p></div><button id="refresh-settings" class="text-button">重新检查</button></div>
+              <div class="settings-card-head"><div><span class="eyebrow">SYSTEM STATUS</span><h2 id="settings-status-heading" tabindex="-1">服务状态</h2><p>本地服务连接、版本与当前能力标记；只读检查，不发起外部请求。</p></div><button id="refresh-settings" class="text-button">重新检查</button></div>
               <div id="settings-panel"></div>
             </article>
-          </section>
-          <section class="settings-section" data-settings-section="model" aria-labelledby="settings-model-heading" hidden>
-            <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">MODEL &amp; KEY</span><h2 id="settings-model-heading" tabindex="-1">模型与密钥</h2><p>云端模型默认关闭；密钥只写入本机 <code>.env</code>，界面永不回显。</p></div><span id="model-status-badge" class="badge" role="status"></span></div>
-              <div id="model-status-panel"></div>
-            </article>
-            <div id="model-key-panel" class="settings-card form-panel" hidden aria-labelledby="model-key-heading"><h3 id="model-key-heading">云端模型密钥（只写入本地）</h3><p class="field-help">密钥只写入本机 <code>.env</code> 的 <code>MODEL_API_KEY</code>，不会保存到数据库、备份或导出，也永远不会回显。保存后立即在本机生效。</p><form id="model-key-form"><div class="field"><label for="model-key-input">新的 API Key</label><input id="model-key-input" type="password" autocomplete="new-password" maxlength="200" required placeholder="粘贴新的密钥，例如 sk-…" aria-describedby="model-key-help" /></div><div class="growth-actions"><button type="submit" class="button secondary" id="model-key-save">保存密钥</button><span id="model-key-feedback" class="status-message" role="status"></span></div><p class="field-help" id="model-key-help">想确认是否已配置，看上方“模型配置”一行即可；这里从不显示已保存的密钥。隔离验收环境会隐藏本面板。</p></form></div>
           </section>
           <section class="settings-section" data-settings-section="schedule" aria-labelledby="settings-schedule-heading" hidden>
             <article class="settings-card">
@@ -278,7 +252,7 @@
               <p id="schema-support" class="meta" role="status" hidden></p>
             </article>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给外部智能体（例如 DeepSeek Harness）看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、日记索引、认识我计数、我是谁、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 MCP 客户端（例如 DeepSeek Harness）直接调用这 12 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
+              <div class="settings-card-head"><div><span class="eyebrow">READ-ONLY TOOLS</span><h3>只读工具接口</h3><p>给 DeepSeek Harness 看的“能读什么”：今日概况、已确认记忆检索、目标与任务、习惯、日记索引、认识我计数、我是谁、Vault 状态、身体汇总、资料索引、资料导入健康与 Vault 体检。</p><p id="tools-help" class="field-help">想让 DeepSeek Harness 直接调用这 12 个只读工具：用 <code>python scripts/mcp_bridge.py</code> 启动本地 stdio 桥，配置示例见 <code>docs/MCP_BRIDGE.md</code>。</p><p id="bridge-selftest-status" class="status-message" role="status" aria-live="polite"></p></div><div class="section-actions"><button id="run-bridge-selftest" class="text-button" disabled>自检工具桥</button><button id="load-tools" class="text-button" disabled>读取工具清单</button></div></div>
               <div id="tools-summary" class="panel">尚未读取。</div>
               <p id="tools-status" class="status-message" role="status"></p>
               <p id="tools-support" class="meta" role="status" hidden></p>
@@ -300,11 +274,11 @@
               <div class="settings-card-head"><div><span class="eyebrow">CONNECT</span><h3>更换目录或读写模式</h3><p>写入的是本地 <code>.env</code>（<code>VAULT_DIR</code> 与 <code>VAULT_READ_ONLY</code>），重启本地服务后生效；不会改动库里的任何文件。</p></div></div>
               <form id="vault-form" novalidate>
                 <div class="field"><label for="vault-path">Obsidian 库的完整路径</label><input id="vault-path" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
-                <div class="field"><label class="check-label" for="vault-read-only"><input id="vault-read-only" type="checkbox" checked />只读安全模式（推荐；扫描照常，写入全部拒绝）</label></div>
+                <div class="field"><label class="check-label" for="vault-read-only"><input id="vault-read-only" type="checkbox" checked />只读安全模式（推荐；限制 torch 写入，不影响 dsh）</label></div>
                 <div class="form-actions"><button id="vault-save" class="button primary" type="submit" disabled>保存连接设置</button><span id="vault-restart-note" class="meta"></span></div>
               </form>
               <p id="vault-connection-support" class="meta" role="status" hidden></p>
-              <p class="field-help">只读模式下，“新建笔记 / 对话提炼 / 每日记录导出候选 / Wolai 导入”都会返回明确的拒绝提示；扫描、检索与问答不受影响。</p>
+              <p class="field-help">只读模式只限制 torch 的写接口；“新建笔记 / 每日记录导出候选 / Wolai 导入”等会返回拒绝提示，扫描与检索不受影响。dsh 的读写由 dsh 自己的权限决定，不受这个开关保护。</p>
             </article>
             <article class="settings-card" id="workspace-card">
               <div class="settings-card-head"><div><span class="eyebrow">WORKSPACES</span><h2 id="settings-workspaces-heading" tabindex="-1">工作区（用户文件夹）</h2><p>换用户就是换文件夹：一个文件夹 = 一个人的 Obsidian 库 + 应用数据。切换会写入本地 <code>.env</code>（<code>DATA_DIR</code>、<code>VAULT_DIR</code>、读写模式），重启本地服务后生效。</p></div><div class="section-actions"><button id="workspace-new" class="text-button" type="button" disabled>新建工作区</button></div></div>
@@ -316,7 +290,7 @@
                   <div class="field"><label for="workspace-folder">用户文件夹（Obsidian 库根目录）</label><input id="workspace-folder" type="text" autocomplete="off" placeholder="例如 D:\\Obsidian\\MyVault" /></div>
                 </div>
                 <p class="field-help">索引、记忆、审计与备份会放在该文件夹下的 <code>.torch-os</code>（隐藏目录，Obsidian 不显示、不进索引）。拷贝整个文件夹 = 拷贝这个人的全部数据。</p>
-                <div class="field"><label class="check-label" for="workspace-read-only"><input id="workspace-read-only" type="checkbox" />只读安全模式（扫描照常，所有写入拒绝）</label></div>
+                <div class="field"><label class="check-label" for="workspace-read-only"><input id="workspace-read-only" type="checkbox" />只读安全模式（限制 torch 写入，不影响 dsh）</label></div>
                 <div class="form-actions"><div><button id="workspace-save" class="button primary" type="submit" disabled>保存工作区</button> <button id="workspace-cancel" class="button secondary" type="button" disabled>取消</button></div></div>
               </form>
               <p id="workspace-status" class="status-message" role="status"></p>
@@ -335,7 +309,7 @@
           </section>
           <section class="settings-section" data-settings-section="audit" aria-labelledby="settings-audit-heading" hidden>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">TRANSPARENCY</span><h2 id="settings-audit-heading" tabindex="-1">操作与外部访问</h2><p>按事件类型统计本地操作与云端回答次数；只显示数量，不显示任何正文、问题、标题或路径。</p></div><div class="section-actions"><label class="visually-hidden" for="audit-summary-days">统计窗口</label><select id="audit-summary-days"><option value="30" selected>近 30 天</option><option value="90">近 90 天</option><option value="365">近 365 天</option></select><button id="refresh-audit-summary" class="text-button" disabled>刷新统计</button></div></div>
+              <div class="settings-card-head"><div><span class="eyebrow">TRANSPARENCY</span><h2 id="settings-audit-heading" tabindex="-1">操作与审计</h2><p>按事件类型统计本地操作；只显示数量，不显示任何正文、问题、标题或路径。</p></div><div class="section-actions"><label class="visually-hidden" for="audit-summary-days">统计窗口</label><select id="audit-summary-days"><option value="30" selected>近 30 天</option><option value="90">近 90 天</option><option value="365">近 365 天</option></select><button id="refresh-audit-summary" class="text-button" disabled>刷新统计</button></div></div>
               <div id="audit-summary-panel" class="panel"></div>
             </article>
           </section>
@@ -348,7 +322,7 @@
           </section>          <section class="settings-section" data-settings-section="about" aria-labelledby="settings-about-heading" hidden>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">ABOUT</span><h2 id="settings-about-heading" tabindex="-1">你的数据如何被使用</h2><p>四条边界说明；完整功能与数据去向见“帮助”页。</p></div><button class="text-button" type="button" data-go-view="help">打开帮助页</button></div>
-              <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>新记忆需要人工确认；拒绝、撤回或归档后不再参与问答。</li><li>每次打开页面，云端选项默认关闭；开启后才允许发送当前问题和相关已确认记忆。</li><li>配置完成不等于已经测试连通，真实回答会标明云端回答、本地回答或本地回退。</li></ul></div>
+              <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>新记忆需要人工确认；拒绝、撤回或归档后不再参与检索。</li><li>「与神对话」由本地 DeepSeek Harness 提供；模型、密钥与权限都在 dsh 内配置。</li><li>dsh 直接读写当前库，写入不经过 torch 的确认或自动备份；重要改动请自行备份。</li></ul></div>
             </article>
           </section>
           <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>

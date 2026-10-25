@@ -12,13 +12,11 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path):
     database = Database(tmp_path / 'torch_os.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, tmp_path / 'vault', gateway, security_environ={})
+    app = create_app(database, tmp_path / 'vault', security_environ={})
     client = TestClient(app)
     client.get('/')
     return client, database
@@ -42,6 +40,14 @@ def add_active_memory(client, title, content, kind='fact'):
     return activate(client, add_note(client, title, content, kind))
 
 
+
+def store_chat(database, memory_id, question="我是谁？"):
+    conversation_id = database.create_conversation(question)
+    database.add_message(conversation_id, "user", question, [])
+    database.add_message(conversation_id, "assistant", "回答", [{"memory_id": memory_id}])
+    return conversation_id
+
+
 def table_count(database, table):
     with database.connect() as connection:
         return connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
@@ -52,16 +58,13 @@ def test_chat_records_usage_only_for_stored_assistant_answers(tmp_path):
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
     assert table_count(database, 'memory_usages') == 0
 
-    response = client.post('/api/chat', json={'message': '我是谁？'})
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert payload['citations'] and payload['citations'][0]['memory_id'] == memory_id, payload
+    conversation_id = store_chat(database, memory_id)
 
     with database.connect() as connection:
         rows = [dict(row) for row in connection.execute('SELECT * FROM memory_usages').fetchall()]
     assert len(rows) == 1
     assert rows[0]['memory_id'] == memory_id
-    assert rows[0]['conversation_id'] == payload['conversation_id']
+    assert rows[0]['conversation_id'] == conversation_id
     with database.connect() as connection:
         stored = connection.execute('SELECT role FROM messages WHERE id=?', (rows[0]['message_id'],)).fetchone()
     assert stored['role'] == 'assistant'
@@ -85,7 +88,7 @@ def test_duplicate_or_unknown_citations_are_collapsed_and_skipped(tmp_path):
 def test_usage_detail_and_recent_usage_expose_reverse_references(tmp_path):
     client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
-    client.post('/api/chat', json={'message': '我是谁？'})
+    store_chat(database, memory_id)
 
     detail = database.memory_usage_detail(memory_id)
     assert detail is not None
@@ -108,7 +111,7 @@ def test_usage_detail_and_recent_usage_expose_reverse_references(tmp_path):
 def test_withdrawn_memory_keeps_history_with_current_status(tmp_path):
     client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
-    client.post('/api/chat', json={'message': '我是谁？'})
+    store_chat(database, memory_id)
     archived = client.patch(f'/api/memories/{memory_id}/status', json={'status': 'archived'})
     assert archived.status_code == 200, archived.text
 
@@ -125,7 +128,7 @@ def test_withdrawn_memory_keeps_history_with_current_status(tmp_path):
 def test_deleting_a_conversation_removes_only_the_usage_links(tmp_path):
     client, database = build_client(tmp_path)
     memory_id = add_active_memory(client, '身份记录', '我是本地示例用户，目前在上海生活。')
-    client.post('/api/chat', json={'message': '我是谁？'})
+    store_chat(database, memory_id)
     assert table_count(database, 'memory_usages') == 1
 
     with database.connect() as connection:

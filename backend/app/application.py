@@ -1,4 +1,4 @@
-"""Application factory; tests inject temporary data and never call live models."""
+"""Application factory; tests inject temporary data and never start external services."""
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +24,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
+from .dsh_proxy import DshProxy, create_dsh_router
+from .dsh_web import DisabledDshRuntime, DshWebRuntime
 from .envfile import write_env_value
 from .audit_summary import create_audit_summary_router
 from .backup import (
@@ -35,9 +37,6 @@ from .conversation_memory import create_conversation_memory_router
 from .schema_export import create_schema_router
 from .tools import create_tools_router
 from .mcp_bridge import run_selftest as mcp_bridge_selftest
-from . import harness_brain
-from .tools import ToolService
-from . import agent as agent_module
 from .workspaces import create_workspaces_router
 from .vault_connection import (
     READ_ONLY_ENV,
@@ -73,7 +72,6 @@ from .import_history import (
     restore_wolai_import_history,
 )
 from .memory_export import create_memory_export_router
-from .model_gateway import ModelGateway, ModelGatewayError
 from .planning_export import create_planning_export_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
@@ -100,22 +98,6 @@ NAV_VIEWS = [
 
 class InputModel(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
-
-
-class ChatRequest(InputModel):
-    message: str = Field(min_length=1, max_length=4000)
-    conversation_id: int | None = Field(default=None, gt=0)
-    use_cloud: bool = False
-    use_harness: bool = False
-    agent: bool = True
-
-
-class AgentCancelRequest(InputModel):
-    conversation_id: int = Field(gt=0)
-
-
-class HarnessResetRequest(InputModel):
-    conversation_id: int | None = Field(default=None, gt=0)
 
 
 class MemoryStatusRequest(InputModel):
@@ -197,33 +179,6 @@ class RestoreDrillRequest(InputModel):
     confirm: bool = Field(strict=True)
 
 
-class ModelKeyUpdate(InputModel):
-    api_key: str = Field(min_length=8, max_length=200, pattern=r'^[A-Za-z0-9._\-]+$')
-    confirm: bool = Field(strict=True)
-
-    @model_validator(mode='after')
-    def require_confirmation(self):
-        if self.confirm is not True:
-            raise ValueError('请明确确认保存密钥')
-        return self
-
-
-def local_answer(evidence: list[dict], cloud_available: bool = False) -> str:
-    if not evidence:
-        message = '当前没有找到相关且已确认的记忆，我还不知道这件事。请先在记录页保存资料，再到记忆页核对并确认。'
-        if cloud_available:
-            message += ' 也可以勾选“本次使用云端模型”后重新发送，让云端模型基于问题本身作答（不会假设你的个人信息）。'
-        return message
-    weak_only = all(item.get('low_confidence') for item in evidence)
-    if weak_only:
-        lines = ['当前没有找到与问题直接相关的已确认记忆。下面只有语义上较弱的匹配（低置信，仅供参考），不能当作对这个问题的回答；如果资料里应该有答案，可以先补充记录，再到记忆页核对。']
-    else:
-        lines = ['以下是已确认记忆的直接摘录（本地检索，未调用云端模型）：']
-    for index, item in enumerate(evidence, start=1):
-        marker = '用户修订后的记忆' if item['confidence'] == 'user_corrected' else '已确认记录'
-        suffix = ' · 低置信（仅语义相关）' if item.get('low_confidence') else ''
-        lines.append(f"\n[资料{index}] {item['title']} · {marker}{suffix}\n{item['content']}")
-    return '\n'.join(lines)
 
 
 def vault_identity(vault_dir: Path | str) -> str:
@@ -239,14 +194,17 @@ def vault_identity(vault_dir: Path | str) -> str:
     return hashlib.sha256(resolved.encode('utf-8')).hexdigest()[:16]
 
 
-def create_app(database: Database | None = None, vault_dir: Path | None = None,
-               gateway: ModelGateway | None = None, *, session_token: str | None = None,
+def create_app(database: Database | None = None, vault_dir: Path | None = None, *,
+               session_token: str | None = None,
                host: str = '127.0.0.1', security_environ: dict | None = None,
-               runtime_label: str = 'personal', embedding_provider: Any = None,
+               runtime_label: str = 'personal',
                env_file: Path | None = None, workspace_registry: Path | None = None,
                vault_scoped: bool | None = None,
                dida_provider_factory: Any = None,
-               enable_dida_auto_push: bool | None = None) -> FastAPI:
+               enable_dida_auto_push: bool | None = None,
+               dsh_runtime: DshWebRuntime | DisabledDshRuntime | None = None,
+               enable_dsh: bool | None = None,
+               dsh_workspace: Path | None = None) -> FastAPI:
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
@@ -257,13 +215,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     if vault_scoped is None:
         vault_scoped = False
     security = validate_runtime_config(host, database.path.parent, vault_dir, environ=security_environ)
-    if embedding_provider is not None:
-        database.embedding_provider = embedding_provider
     if runtime_label not in {'personal', 'qa'}:
         raise ValueError('Unsupported runtime label')
-    gateway = gateway or ModelGateway()
-    if runtime_label == 'qa' and (gateway.configured or not is_loopback_host(host)):
-        raise ValueError('QA runtime must be local-only with cloud models disabled')
+    if runtime_label == 'qa' and not is_loopback_host(host):
+        raise ValueError('QA runtime must be local-only')
     env_path = Path(env_file) if env_file is not None else Path(__file__).resolve().parents[2] / '.env'
     vault_read_only = read_only_enabled(security_environ)
     database.initialize()
@@ -274,6 +229,17 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
         supported=(runtime_label == 'personal'),
         provider_factory=dida_provider_factory,
     )
+    if dsh_runtime is None:
+        if enable_dsh is False or runtime_label == 'qa':
+            dsh_runtime = DisabledDshRuntime(vault_dir)
+        else:
+            configured_workspace = (dsh_workspace
+                                    or os.environ.get('TORCH_DSH_WORKSPACE')
+                                    or vault_dir)
+            dsh_runtime = DshWebRuntime(
+                database.path.parent, Path(configured_workspace),
+            )
+    dsh_proxy = DshProxy(dsh_runtime)
     scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
@@ -353,19 +319,21 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             with contextlib.suppress(Exception):
-                harness_service.close()
+                await dsh_proxy.close()
+            with contextlib.suppress(Exception):
+                await dsh_runtime.close()
 
     local_token = session_token or secrets.token_urlsafe(32)
     frontend = Path(__file__).resolve().parents[2] / 'frontend'
     app = FastAPI(title='薪火OS', version=APP_VERSION, lifespan=lifespan)
     app.state.database = database
-    app.state.gateway = gateway
     app.state.vault_dir = vault_dir
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = data_lock
     app.state.dida_sync_service = dida_service
-    app.state.chat_lock = asyncio.Lock()
+    app.state.dsh_runtime = dsh_runtime
+    app.state.dsh_proxy = dsh_proxy
     app.mount('/assets', StaticFiles(directory=frontend), name='assets')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1','localhost','[::1]','testserver',host])
 
@@ -406,19 +374,23 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
             schedule_dida_auto_push()
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['Cache-Control'] = 'no-store'
-        # The workbench may only be framed from this machine (user rule
-        # 2026-10-05: the product lives inside dsh, whose port can vary) or
-        # from the local Obsidian app (user rule 2026-10-05 late: the whole
-        # product also lives inside Obsidian as an embedded view; Obsidian
-        # frames pages with the `app://obsidian.md` origin, hence the `app:`
-        # scheme source below).
-        # X-Frame-Options cannot express an allow-list, so framing is governed
-        # by CSP frame-ancestors: loopback hosts on any port, nothing else.
-        response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-            "connect-src 'self'; frame-ancestors 'self' http://127.0.0.1:* http://localhost:* app:; "
-            "base-uri 'self'; form-action 'self'")
+        harness = request.url.path == '/harness' or request.url.path.startswith('/harness/')
+        if not harness:
+            response.headers['Cache-Control'] = 'no-store'
+            # The workbench may only be framed from this machine (user rule
+            # 2026-10-05: the product lives inside dsh, whose port can vary) or
+            # from the local Obsidian app (user rule 2026-10-05 late: the whole
+            # product also lives inside Obsidian as an embedded view; Obsidian
+            # frames pages with the `app://obsidian.md` origin, hence the `app:`
+            # scheme source below).
+            # X-Frame-Options cannot express an allow-list, so framing is governed
+            # by CSP frame-ancestors: loopback hosts on any port, nothing else.
+            # /harness is dsh's own document: it needs its inline boot script,
+            # so the proxy supplies only a frame-ancestors policy there.
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'self' http://127.0.0.1:* http://localhost:* app:; "
+                "base-uri 'self'; form-action 'self'")
         return response
 
     @app.get('/', include_in_schema=False)
@@ -448,73 +420,26 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
 
     @app.get('/api/config/status')
     def config_status():
-        state = gateway.public_status()
-        return {'model_configured':gateway.configured, 'model_name':state.get('model'),
-                'provider':state.get('provider'), 'cloud_enabled':gateway.configured,
-                'state':'configured' if gateway.configured else 'local', 'default_mode':'local',
-                'vault_dir':str(vault_dir), 'timezone':'Asia/Shanghai', 'version':APP_VERSION,
+        return {'vault_dir':str(vault_dir), 'timezone':'Asia/Shanghai', 'version':APP_VERSION,
                 'runtime_label':runtime_label, 'vault_name':Path(vault_dir).name,
-                'vault_scoped':bool(vault_scoped),
-                'embedding_provider':getattr(database.embedding_provider, 'name', None),
-                'capabilities':{'link_audit':True,'habits':True,
-                    'identity':True,'workbench':True,'workbench_polish':True,
-                                'scheduler':True,
-                                'scheduler_weekly':True,
-                                'memory_export':True,'diagnostics':True,
-                                'planning_export':True,
-                                'task_reorder':True,
-                                'attachment_plan':True,
-                                'attachment_localize':True,
-                                'import_history':True,
-                                'history_restore':True,
-                                'history_cleanup_preview':True,
-                                'growth_export':True,
-                                'conversation_export':True,
-                                'vault_audit':True,
-                                'audit_summary':True,
-                                'journal_export':True,
-                                'export_bundle':True,
-                                'backup_plan':True,
-                                'memory_delete':True,
-                                'memory_batch':True,
-                                'candidate_tidy':True,
-                                'model_key_write':runtime_label == 'personal',
-                                'chat_memory_panel':True,
-                                'restored_copies':True,
-                                'monthly_review':True,
-                                'conversation_extract':True,
-                                'vault_connection':not vault_scoped,
-                                'workspaces':runtime_label == 'personal' and not vault_scoped,
-                                'schema_export':True,
-                                'tools':True,
-                                'mcp_bridge':True,
-                                'harness':bool(harness_brain.resolve_command()),
-                                'harness_reset':True,
-                                'agent':True,
-                                'weather':True,
-                                'tasks':True,
-                                'dida_sync':runtime_label == 'personal',
-                                'restore_drill':True,
-                'semantic_search':database.embedding_provider is not None}}
-
-    @app.post('/api/config/model-key')
-    async def save_model_key(payload: ModelKeyUpdate):
-        """Write the key to the local .env only; it is never stored, echoed or exported."""
-        if runtime_label != 'personal':
-            raise HTTPException(409, '隔离验收环境不允许写入密钥')
-        try:
-            await run_in_threadpool(write_env_value, env_path, 'MODEL_API_KEY', payload.api_key)
-        except OSError as error:
-            raise HTTPException(409, '无法写入本地 .env；请检查文件权限后重试') from error
-        try:
-            gateway.set_api_key(payload.api_key)
-        except ModelGatewayError as error:
-            raise HTTPException(409, '密钥格式无效，未启用') from error
-        database.audit('model_key_updated', {
-            'provider': gateway.provider, 'model': gateway.model or None, 'configured': gateway.configured,
-        })
-        return {'saved': True, 'configured': gateway.configured, 'model_name': gateway.model or None,
-                'note': '密钥已写入本地 .env 并立即生效；界面不会显示或回传密钥，数据库、备份与导出都不包含它。'}
+                'vault_scoped':bool(vault_scoped), 'default_mode':'dsh',
+                'capabilities':{
+                    'attachment_localize':True,'attachment_plan':True,
+                    'audit_summary':True,'backup_plan':True,'candidate_tidy':True,
+                    'conversation_export':True,'conversation_extract':True,
+                    'diagnostics':True,'dida_sync':runtime_label == 'personal',
+                    'dsh_web':getattr(dsh_runtime, 'enabled', False),
+                    'export_bundle':True,'growth_export':True,'habits':True,
+                    'history_cleanup_preview':True,'history_restore':True,'identity':True,
+                    'import_history':True,'journal_export':True,'link_audit':True,
+                    'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
+                    'memory_export':True,'monthly_review':True,'planning_export':True,
+                    'restore_drill':True,'restored_copies':True,'scheduler':True,
+                    'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
+                    'tasks':True,'tools':True,'vault_audit':True,
+                    'vault_connection':not vault_scoped,'weather':True,'workbench':True,
+                    'workspaces':runtime_label == 'personal' and not vault_scoped,
+                }}
 
     @app.get('/api/documents')
     def documents():
@@ -699,201 +624,13 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     def history(memory_id: int):
         return {'history':database.memory_history(memory_id)}
 
-    @app.get('/api/conversations')
-    def conversations():
-        return database.list_conversations()
-
-    @app.get('/api/conversations/{conversation_id}')
-    def conversation(conversation_id: int):
-        result = database.get_conversation(conversation_id)
-        if result is None:
-            raise HTTPException(404, '会话不存在')
-        return result
-
-    def citation_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [{'memory_id':row['id'], 'document_id':row['document_id'], 'path':row['path'],
-                 'title':row['title'], 'quote':row['content'], 'source_quote':row['source_quote'],
-                 'confidence':row['confidence'], 'revision':row['revision'],
-                 'source_date':row.get('source_date'), 'valid_from':row.get('valid_from'),
-                 'valid_until':row.get('valid_until'),
-                 'low_confidence':bool(row.get('low_confidence')),
-                 'semantic_score':row.get('semantic_score'), 'lexical_score':row.get('lexical_score'),
-                 **{key:row.get(key) for key in ('source_start_line','source_end_line','source_start_offset','source_end_offset','source_location_basis')}} for row in rows]
-
-    @app.post('/api/chat')
-    async def chat(payload: ChatRequest, request: Request):
-        if app.state.chat_lock.locked():
-            raise HTTPException(429, '上一条回答尚未完成，请稍后再试')
-        async with app.state.chat_lock:
-            if payload.conversation_id and database.get_conversation(payload.conversation_id) is None:
-                raise HTTPException(404, '会话不存在')
-            conversation_id = payload.conversation_id or database.create_conversation(payload.message[:32])
-            database.add_message(conversation_id, 'user', payload.message, [])
-            async with app.state.data_lock:
-                await run_in_threadpool(scan_vault, vault_dir, database)
-                evidence = await run_in_threadpool(database.search_memories, payload.message, 6)
-            mode, warning, usage = 'local', None, None
-            answer = local_answer(evidence, cloud_available=gateway.configured)
-            agent_run = None
-            if payload.agent and not payload.use_harness:
-                agent_run = await run_in_threadpool(agent_module.run, tool_service, payload.message, gateway.configured)
-                answer += agent_run['digest']
-                database.audit('agent_planned', {'tools': agent_run['tools'], 'count': len(agent_run['steps'])})
-            harness_meta = None
-            if payload.use_harness:
-                if not harness_service.available():
-                    mode, warning = 'fallback', '未检测到 dsh，Harness 模式不可用，已使用本地检索。'
-                else:
-                    base_url = f"http://{request.headers.get('host') or '127.0.0.1:8765'}"
-                    try:
-                        turn = await run_in_threadpool(harness_service.run_turn, conversation_id, payload.message, base_url)
-                        answer, mode = turn['answer'], 'harness'
-                        harness_meta = {'session_id': turn['session_id'], 'resumed': turn['resumed'],
-                                        'tools': turn['tools'], 'stop_reason': turn['stop_reason']}
-                        database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': True,
-                                                        'tools': len(turn['tools']), 'stop_reason': turn['stop_reason']})
-                    except harness_brain.HarnessError as error:
-                        mode, warning = 'fallback', f'Harness 未完成：{error} 已使用本地检索。'
-                        database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': False})
-            if payload.use_cloud and not payload.use_harness:
-                if not gateway.configured:
-                    mode, warning = 'fallback', '模型尚未配置，已使用本地检索。密钥位置：本地 .env 的 MODEL_API_KEY（设置页不会显示或修改）。'
-                else:
-                    try:
-                        generated = await gateway.generate(payload.message, evidence, general_conversation=not evidence)
-                        if generated.get('answer'):
-                            answer, mode, usage = generated['answer'], 'model', generated.get('usage')
-                        else:
-                            mode, warning = 'fallback', '模型没有生成可用回答，已使用本地检索'
-                    except Exception as error:
-                        mode, warning = 'fallback', '云端调用未完成，已使用本地检索。请检查模型连接或额度。'
-                        database.audit('model_error', {'code':getattr(error,'code','model_unavailable')})
-            # Do not surface withdrawn facts if another tab changed memory during the request.
-            async with app.state.data_lock:
-                await run_in_threadpool(scan_vault, vault_dir, database)
-                current = {item['id']:item for item in await run_in_threadpool(database.search_memories, payload.message, 6)}
-                if any(item['id'] not in current or current[item['id']]['revision'] != item['revision'] for item in evidence):
-                    evidence = list(current.values())
-                    answer, mode, warning = local_answer(evidence, cloud_available=gateway.configured), 'fallback', '回答期间记忆已变化，本次结果已按当前记忆重新生成'
-                    if agent_run:
-                        answer += agent_run['digest']
-                citations = citation_payload(evidence)
-                database.add_message(conversation_id,'assistant',answer,citations)
-            database.audit('chat_completed', {'conversation_id':conversation_id,'mode':mode,'evidence_count':len(citations)})
-            return {'conversation_id':conversation_id,'answer':answer,'citations':citations,'mode':mode,'warning':warning,'usage':usage,
-                    'harness': harness_meta,
-                    'agent': {'enabled': bool(payload.agent), 'steps': (agent_run or {}).get('steps', []),
-                              'note': '本地步骤只在这台机器上执行；云端模式只发送问题与相关已确认记忆；'
-                                      'Harness 模式由 dsh 决定上下文，只挂载只读工具。'}}
-
-    def sse_event(payload: dict[str, Any]) -> str:
-        return 'data: ' + json.dumps(payload, ensure_ascii=False) + '\n\n'
-
-    @app.post('/api/chat/stream')
-    async def chat_stream(payload: ChatRequest, request: Request):
-        """Harness-only SSE: incremental text plus one final done event."""
-        if not payload.use_harness:
-            raise HTTPException(400, '流式回答目前只用于 Harness 模式。')
-        if payload.conversation_id and database.get_conversation(payload.conversation_id) is None:
-            raise HTTPException(404, '会话不存在')
-        if app.state.chat_lock.locked():
-            raise HTTPException(429, '上一条回答尚未完成，请稍后再发')
-        conversation_id = payload.conversation_id or database.create_conversation(payload.message[:32])
-        database.add_message(conversation_id, 'user', payload.message, [])
-        base_url = f"http://{request.headers.get('host') or '127.0.0.1:8765'}"
-
-        async def event_stream():
-            events: asyncio.Queue = asyncio.Queue()
-            loop = asyncio.get_running_loop()
-
-            def on_event(event: dict[str, Any]) -> None:
-                try:
-                    loop.call_soon_threadsafe(events.put_nowait, ('event', event))
-                except RuntimeError:
-                    pass
-
-            def consume_task_error(task: asyncio.Task) -> None:
-                if not task.cancelled():
-                    task.exception()
-
-            async def worker() -> None:
-                # The accepted turn owns the lock and persistence. Closing the
-                # workbench (and therefore cancelling the SSE response) must not
-                # lose the answer the user asked for.
-                try:
-                    async with app.state.chat_lock:
-                        mode, warning, harness_meta = 'harness', None, None
-                        try:
-                            turn = await run_in_threadpool(
-                                harness_service.run_turn, conversation_id, payload.message, base_url,
-                                None, on_event)
-                            answer, citations = turn['answer'], []
-                            harness_meta = {
-                                'session_id': turn['session_id'], 'resumed': turn['resumed'],
-                                'tools': turn['tools'], 'stop_reason': turn['stop_reason']}
-                            database.audit('harness_turn', {
-                                'conversation_id': conversation_id, 'ok': True,
-                                'tools': len(turn['tools']), 'stop_reason': turn['stop_reason']})
-                        except Exception as error:  # HarnessError or unexpected: fall back locally
-                            mode, warning = 'fallback', f'Harness 未完成：{error} 已使用本地回答。'
-                            database.audit('harness_turn', {'conversation_id': conversation_id, 'ok': False})
-                            async with app.state.data_lock:
-                                await run_in_threadpool(scan_vault, vault_dir, database)
-                                evidence = await run_in_threadpool(database.search_memories, payload.message, 6)
-                            answer = local_answer(evidence, cloud_available=gateway.configured)
-                            citations = citation_payload(evidence)
-                        database.add_message(conversation_id, 'assistant', answer, citations)
-                        database.audit('chat_completed', {'conversation_id': conversation_id, 'mode': mode,
-                                                          'evidence_count': len(citations), 'stream': True})
-                        events.put_nowait(('done', {
-                            'type': 'done', 'conversation_id': conversation_id, 'answer': answer,
-                            'citations': citations, 'mode': mode, 'warning': warning,
-                            'harness': harness_meta}))
-                except Exception as error:
-                    try:
-                        database.audit('chat_error', {'conversation_id': conversation_id,
-                                                      'detail': str(error)[:300]})
-                    except Exception:
-                        pass
-                    events.put_nowait(('done', {
-                        'type': 'done', 'conversation_id': conversation_id,
-                        'answer': '对话未能完成，请重试。', 'citations': [], 'mode': 'error',
-                        'warning': str(error), 'harness': None}))
-
-            task = asyncio.create_task(worker())
-            yield sse_event({'type': 'start', 'conversation_id': conversation_id})
-            try:
-                while True:
-                    kind, value = await events.get()
-                    if kind == 'event':
-                        yield sse_event(value)
-                        continue
-                    if kind == 'done':
-                        yield sse_event(value)
-                        break
-            finally:
-                # The worker is independent of this response. If the browser
-                # closed, let it finish and persist; never cancel an accepted turn.
-                if not task.done():
-                    task.add_done_callback(consume_task_error)
-
-        return StreamingResponse(event_stream(), media_type='text/event-stream',
-                                 headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
-
-    @app.post('/api/agent/cancel')
-    async def agent_cancel(payload: AgentCancelRequest):
-        ok = await run_in_threadpool(harness_service.cancel, payload.conversation_id)
-        database.audit('agent_cancel', {'conversation_id': payload.conversation_id, 'ok': ok})
-        return {'ok': ok}
-
     async def journal_data_guard():
         # Journal Markdown exports share the same filesystem/DB boundary as scans and imports.
         async with app.state.data_lock:
             yield
 
     # 笔记路由必须先于 `/journal/{day}` 注册：否则 `note` 会被当成日期参数（FastAPI 按注册顺序匹配）。
-    app.include_router(create_journal_note_router(database, vault_dir, read_only=vault_read_only,
-                                                  gateway=gateway),
+    app.include_router(create_journal_note_router(database, vault_dir, read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
     app.include_router(create_todo_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
@@ -911,22 +648,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     # Identity lives in the Vault (`01-Identity/身份（identity）.md`): Markdown is the source of truth.
     app.include_router(create_identity_router(vault_dir, read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
-    # Workbench: one read of everything today; the polish step is opt-in and calls the model.
-    app.include_router(create_workbench_router(database, vault_dir, gateway),
+    # Workbench: one read of everything today; drafts are deterministic.
+    app.include_router(create_workbench_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])
-    tool_service = ToolService(database, vault_dir)
-    harness_service = harness_brain.HarnessBrain(database, database.path.parent / 'harness-workspace')
+    app.include_router(create_dsh_router(dsh_runtime, dsh_proxy))
 
-    @app.get('/api/harness/status')
-    def harness_status():
-        return harness_service.status()
-
-    @app.post('/api/harness/reset')
-    async def harness_reset(payload: HarnessResetRequest):
-        result = await run_in_threadpool(harness_service.reset, payload.conversation_id)
-        database.audit('harness_reset', {'conversation_id': payload.conversation_id,
-                                         'cleared': result['cleared_sessions']})
-        return {'ok': True, **result}
     # 时钟天气卡：白名单出站 + 30 分钟内存缓存，纯读不落盘。
     app.include_router(create_weather_router())
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
@@ -960,9 +686,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
     # 四库只读浏览、笔记读写与快速捕获。
     app.include_router(create_pillars_router(
         database, vault_dir, read_only=vault_read_only))
-    # 薪火管家二期：确定性提案、健康检查与本地优先的带引用问答。
+    # 薪火管家：确定性提案与健康检查。
     app.include_router(create_steward_router(
-        database, vault_dir, gateway, read_only=vault_read_only))
+        database, vault_dir, read_only=vault_read_only))
     # 生活运营：体重/账目月度 Markdown 表。
     app.include_router(create_ops_router(vault_dir, read_only=vault_read_only))
     # Read-only Vault structure audit; no writes, no restricted partitions.

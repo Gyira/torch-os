@@ -117,6 +117,19 @@ def seed_qa_workspace(base_url: str) -> dict:
                     if created.status_code == 200:
                         seeded_inbox.append(title)
                 result["inbox_notes"] = seeded_inbox
+            tasks = client.get("/api/time/tasks")
+            board = tasks.json() if tasks.status_code == 200 else {}
+            if isinstance(board.get("tasks"), list) and not any(
+                    task.get("title") == "QA 任务章节" for task in board["tasks"]):
+                client.post("/api/time/lists", json={
+                    "name": "QA任务", "revision": board.get("revision", ""),
+                })
+                board = client.get("/api/time/tasks").json()
+                created = client.post("/api/time/tasks", json={
+                    "title": "QA 任务章节", "list_name": "QA任务",
+                    "revision": board.get("revision", ""),
+                })
+                result["task_note"] = created.status_code
             result["seeded"] = True
     except Exception as error:  # seeding is best-effort; the probe still reports what it can
         result["error"] = f"{type(error).__name__}: {error}"
@@ -291,7 +304,7 @@ async def run(base_url: str, output: Path, port: int,
                     await cdp.wait_for(row_has_note.replace("__NOTE__", undo_note_literal))
                     report["ops_undo_restored"] = await cdp.evaluate(
                         "document.querySelectorAll('#ops-view [data-ops-table=\"health\"] tbody tr').length")
-            # 薪火管家抽屉：提案 → 健康检查 → 本地问答（不执行任何提案）。
+            # 薪火管家抽屉：提案 → 健康检查（问答已交给 dsh）。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view [data-steward-open]')")
             await cdp.evaluate("document.querySelector('#knowledge-view [data-steward-open]').click()")
@@ -308,20 +321,6 @@ async def run(base_url: str, output: Path, port: int,
                 infos: document.querySelectorAll('.steward-health-row[data-severity="info"]').length,
             }))()""")
             await cdp.screenshot(output / "steward-health.png")
-            await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-tab=\"ask\"]').click()")
-            await cdp.wait_for("document.querySelector('.pillar-steward-dialog [data-steward-ask-form]')", timeout=20)
-            await cdp.evaluate("""(() => {
-                const form = document.querySelector('.pillar-steward-dialog [data-steward-ask-form]');
-                form.querySelector('[name="question"]').value = '考研';
-                form.requestSubmit();
-            })()""")
-            await cdp.wait_for("document.querySelector('.pillar-steward-dialog .steward-answer-body')", timeout=30)
-            report["steward_ask"] = await cdp.evaluate("""(() => ({
-                mode: document.querySelector('.pillar-steward-dialog .steward-mode')?.textContent || '',
-                citations: document.querySelectorAll('.pillar-steward-dialog .steward-citation').length,
-                answer: document.querySelector('.pillar-steward-dialog .steward-answer-body')?.textContent?.slice(0, 80) || '',
-            }))()""")
-            await cdp.screenshot(output / "steward-ask.png")
             await cdp.evaluate("document.querySelector('.pillar-steward-dialog [data-steward-close]')?.click()")
             # 健康检查默认只看需要留意，可切到全部。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
@@ -489,7 +488,7 @@ async def run(base_url: str, output: Path, port: int,
                             and report["shortcut_sheet"]["rows"] >= 10
                             and report["chord_nav"] == "#life"
                             and report["shortcut_capture"] is True
-                            and report["arrow_nav"] == "model"
+                            and report["arrow_nav"] == "schedule"
                             and report["ops_delete_confirm_danger"] is True
                             and report["ops_undo_prompt"] == "撤销"
                             and report["ops_rows_after_delete"] == report["ops_rows_before_delete"] - 1

@@ -1,4 +1,4 @@
-import { $, state, api, escapeHtml, jsonBody, renderState, formatDate, setStatus, toast, confirmAction } from "./core.js";
+import { $, state, api, escapeHtml, renderState, formatDate, setStatus, toast } from "./core.js";
 import { NAV_LABELS, applyNavOrder, clearOrder, currentNavOrder, moveItem, storeOrder } from "./nav-order.js";
 import { initVaultMigration, loadVaultMigration } from "./vault-migration.js";
 
@@ -10,7 +10,6 @@ const auditSummaryAvailable = () => state.config?.capabilities?.audit_summary ==
 const exportBundleAvailable = () => state.config?.capabilities?.export_bundle === true;
 const backupPlanAvailable = () => state.config?.capabilities?.backup_plan === true;
 const restoredAvailable = () => state.config?.capabilities?.restored_copies === true;
-const modelKeyWriteAvailable = () => state.config?.capabilities?.model_key_write === true;
 
 function sizeText(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -93,7 +92,8 @@ async function verifyRestored(name) {
 }
 
 const EVENT_LABELS = {
-  vault_scan: "资料扫描", note_created: "新建记录", chat_completed: "问答完成", model_error: "模型调用错误",
+  vault_scan: "资料扫描", note_created: "新建记录",
+  scheduler_loop_error: "调度循环错误", dsh_web_error: "Harness 错误",
   memory_status_changed: "记忆审核变更", memory_exported: "记忆导出",
   backup_created: "创建备份", backup_restored_to_new_directory: "恢复为验证副本", source_reextracted: "资料重新提取",
   goal_created: "新建目标", goal_updated: "更新目标", goal_deleted: "删除目标",
@@ -180,43 +180,9 @@ function focusNavMoveButton(key, delta) {
   (same || fallback)?.focus?.();
 }
 
-async function saveModelKey(event) {
-  event.preventDefault();
-  if (!modelKeyWriteAvailable()) return;
-  const input = $("#model-key-input");
-  const value = String(input.value || "").trim();
-  if (!/^[A-Za-z0-9._\-]{8,200}$/.test(value)) {
-    setStatus("#model-key-feedback", "密钥需要 8–200 个字母、数字、点、下划线或连字符；不会写入文件。", "error");
-    return;
-  }
-  const confirmed = await confirmAction({
-    title: "保存新的 API Key？",
-    message: "密钥会写入本机 .env 的 MODEL_API_KEY 并立即在本机生效；不会保存到数据库、备份或导出，也不会回显。",
-    confirmLabel: "写入本地 .env",
-  });
-  if (!confirmed) return;
-  try {
-    const result = await api("/api/config/model-key", jsonBody("POST", { api_key: value, confirm: true }));
-    input.value = "";
-    setStatus("#model-key-feedback", result.configured
-      ? "已写入本地 .env 并立即生效；密钥不回显。"
-      : "已写入本地 .env，但模型配置仍不完整：请检查 .env 的 MODEL_PROVIDER / MODEL_BASE_URL / MODEL_NAME。", result.configured ? "success" : "warning");
-    toast("密钥已保存到本地 .env。", "success");
-    await loadSettings();
-  } catch (error) {
-    input.value = "";
-    setStatus("#model-key-feedback", `保存失败：${error.message}`, "error");
-  }
-}
-
 function renderAuditSummary(payload) {
-  const chat = payload.chat || {};
   const dayCount = Number(payload.window_days) || 30;
   const summary = [`近 ${dayCount} 天共 ${Number(payload.total_events) || 0} 条本地操作`];
-  summary.push(`云端回答 ${Number(chat.cloud) || 0}`);
-  summary.push(`本地回答 ${Number(chat.local) || 0}`);
-  if (Number(chat.fallback)) summary.push(`本地回退 ${Number(chat.fallback)}`);
-  if (Number(chat.other)) summary.push(`模式未标注 ${Number(chat.other)}`);
   summary.push(`导出 ${Number(payload.exports) || 0}`);
   summary.push(`备份 ${Number(payload.backups) || 0}`);
   summary.push(`错误 ${Number(payload.errors) || 0}`);
@@ -225,7 +191,7 @@ function renderAuditSummary(payload) {
   $("#audit-summary-panel").innerHTML = `<p class="meta">${escapeHtml(summary.join(" · "))}</p>` +
     (latest
       ? `<p class="inline-warning">最近错误事件：${escapeHtml(latest.event_type || "未知")}（${escapeHtml(formatDate(latest.created_at))}）；详情只保留在本地审计表。</p>`
-      : '<p class="meta">窗口内没有记录到模型或调度错误事件。</p>') +
+      : '<p class="meta">窗口内没有记录到调度或 Harness 错误事件。</p>') +
     (byType.length
       ? `<ul class="history-list">${byType.slice(0, 12).map((item) => `<li><code>${escapeHtml(eventLabel(item.event_type))}</code><span>${escapeHtml(Number(item.count) || 0)} 次 · 最近 ${escapeHtml(formatDate(item.last_at))}</span></li>`).join("")}</ul>`
       : '<p class="empty-state">这个窗口内还没有审计事件。</p>') +
@@ -258,14 +224,13 @@ function renderDiagnostics(payload) {
     line("数据库完整性", payload.integrity === "ok" ? "ok（通过）" : String(payload.integrity || "未知")) +
     line("资料（可用）", `${counts.documents_available ?? 0} 份`) +
     line("记忆", `已确认 ${counts.memories_active ?? 0} · 待确认 ${counts.memories_candidate ?? 0} · 已拒绝 ${counts.memories_rejected ?? 0} · 已归档 ${counts.memories_archived ?? 0}`) +
-    line("对话 / 消息", `${counts.conversations ?? 0} / ${counts.messages ?? 0}`) +
+    line("历史对话 / 消息（旧）", `${counts.conversations ?? 0} / ${counts.messages ?? 0}`) +
     line("旧目标 / 旧任务（历史，不再写入）", `${counts.goals ?? 0} / ${counts.tasks ?? 0}`) +
     line("日记 / 习惯打卡 / 旧学习 / 旧身体记录（历史）", `${counts.journal_entries ?? 0} / ${counts.habit_entries ?? 0} / ${counts.study_sessions ?? 0} / ${counts.body_entries ?? 0}`) +
     line("收件箱草稿", `${counts.inbox_items ?? 0} 条`) +
     line("Vault Markdown", `${vault.markdown_files ?? 0} 个${vault.relationships_present ? "（检测到关系分区，未计入）" : ""}`) +
     line("本地备份", backups.count ? `${backups.count} 份 · 最近 ${latest.filename || "备份"}（${formatDate(latest.modified_at)}）` : "还没有备份") +
     line("最近备份校验", backups.verification?.checked ? (backups.verification.ok ? "通过（路径、哈希、SQLite 完整性）" : `未通过：${backups.verification.error || "原因未知"}`) : "还没有备份可校验") +
-    line("语义检索", payload.embedding_provider ? `本地向量（${payload.embedding_provider}）` : "未启用（词法检索）") +
     `</dl>` +
     (relationshipFiles > 0
       ? `<p class="inline-warning">注意：最近备份包含关系分区明文文件 ${escapeHtml(relationshipFiles)} 个。备份是本地明文 ZIP，请勿把它带到不受控位置；是否把关系分区排除在备份之外仍待你确认。</p>`
@@ -292,7 +257,7 @@ async function runDiagnostics() {
 export async function loadSettings() {
   const request = ++loadId;
   $("#refresh-settings").disabled = true;
-  renderState($("#settings-panel"), "loading", "正在检查本地服务与模型配置…");
+  renderState($("#settings-panel"), "loading", "正在检查本地服务…");
   const [health, config] = await Promise.allSettled([api("/api/health"), api("/api/config/status")]);
   if (request !== loadId) return;
   $("#refresh-settings").disabled = false;
@@ -301,7 +266,7 @@ export async function loadSettings() {
   const banner = $("#environment-banner");
   if (banner) {
     banner.hidden = environment !== "qa";
-    banner.textContent = environment === "qa" ? "隔离验收环境 · 使用独立测试资料，云端模型已禁用；这里的操作不会写入你的日常工作区。" : "";
+    banner.textContent = environment === "qa" ? "隔离验收环境 · 使用独立测试资料，DeepSeek Harness 已禁用；这里的操作不会写入你的日常工作区。" : "";
   }
   $("#service-label").textContent = healthy ? "本地服务已连接" : "本地服务未连接";
   const versionLabel = $("#service-version");
@@ -320,34 +285,18 @@ export async function loadSettings() {
   }
   const statusRows = [
     // Read-only capabilities also gate controls when the UI is newer than a running service.
-    ["工作区", environment === "qa" ? "隔离验收工作区（强制本地模式）"
+    ["工作区", environment === "qa" ? "隔离验收工作区（离线模式）"
       : config.status === "fulfilled" && config.value.vault_scoped
         ? `Obsidian 库：${config.value.vault_name || "当前库"}`
         : environment === "personal" ? "个人工作区" : "尚未确认"],
     ["本地服务", healthy ? "已连接" : health.status === "rejected" ? health.reason.message : "服务状态异常"],
     ["版本", health.status === "fulfilled" ? health.value.version || "未报告" : "未读取"],
-    ["语义检索", config.status === "fulfilled" ? (config.value.capabilities?.semantic_search ? `已启用（${config.value.embedding_provider || "本地向量"}）` : "词法检索（未启用本地向量）") : "未读取"],
-    // 对话统一在 dsh（2026-10-05）：产品里不再有自己的对话入口。
-    ["对话", "与神对话（工作台内，DeepSeek V4 Flash）"],
+    ["检索", "本地词法检索（不调用模型）"],
+    ["与神对话", "DeepSeek Harness（工作台内完整界面）"],
     ["最近检查", formatDate(new Date().toISOString())],
-  ];
-  const modelRows = [
-    ["模型配置", config.status === "fulfilled" ? config.value.model_configured ? "配置完整；当前配置不代表本次调用成功" : "未配置完整，使用本地问答" : config.reason.message],
-    ["服务提供方", state.config?.provider || "未配置"],
-    ["模型名称", state.config?.model_name || "未配置"],
-    ["配置状态", typeof state.config?.state === "string" ? state.config.state : "以本页检查结果为准"],
-    ["密钥位置", "只保存在本地 .env 的 MODEL_API_KEY；本页不回显已保存的密钥，写入后立即生效。"],
   ];
   const list = (rows) => `<dl class="settings-list">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
   $("#settings-panel").innerHTML = list(statusRows) + (!healthy || config.status === "rejected" ? '<div class="panel-footer"><button class="text-button" data-retry="settings">重新检查</button></div>' : "");
-  const modelPanel = $("#model-status-panel");
-  if (modelPanel) modelPanel.innerHTML = list(modelRows);
-  const modelBadge = $("#model-status-badge");
-  if (modelBadge) {
-    const configured = config.status === "fulfilled" && config.value.model_configured;
-    modelBadge.textContent = configured ? "云端已配置" : "仅本地模式";
-    modelBadge.className = `badge ${configured ? "active" : "candidate"}`;
-  }
   const diagnosticsButton = $("#run-diagnostics");
   if (diagnosticsButton) diagnosticsButton.disabled = !diagnosticsAvailable();
   const bundleButton = $("#download-export-bundle");
@@ -356,8 +305,6 @@ export async function loadSettings() {
   if (retentionButton) retentionButton.disabled = !backupPlanAvailable();
   const restoredButton = $("#list-restored");
   if (restoredButton) restoredButton.disabled = !restoredAvailable();
-  const keyPanel = $("#model-key-panel");
-  if (keyPanel) keyPanel.hidden = !modelKeyWriteAvailable();
   document.dispatchEvent(new CustomEvent('config-changed'));
   await loadBackups();
   await loadAuditSummary();
@@ -410,7 +357,6 @@ export function initSettings() {
   $("#download-export-bundle")?.addEventListener("click", downloadExportBundle);
   $("#preview-retention")?.addEventListener("click", previewRetention);
   $("#list-restored")?.addEventListener("click", loadRestored);
-  $("#model-key-form")?.addEventListener("submit", saveModelKey);
   document.querySelectorAll("[data-settings-nav]").forEach((button) => {
     button.addEventListener("click", () => showSettingsSection(button.dataset.settingsNav));
   });

@@ -8,14 +8,12 @@ from fastapi.testclient import TestClient
 from backend.app import pillar_notes, task_notes
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.app.journal_shared.shanghai_today", lambda: date(2026, 10, 4))
     database = Database(tmp_path / "torch_os.sqlite3")
-    gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
-    app = create_app(database, tmp_path / "vault", gateway, security_environ={})
+    app = create_app(database, tmp_path / "vault", security_environ={})
     client = TestClient(app)
     client.get("/")
     return client, database, app

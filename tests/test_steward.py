@@ -1,4 +1,4 @@
-"""薪火管家：健康检查、确定性提案、确认执行与带引用问答。"""
+"""薪火管家：健康检查、确定性提案与确认执行。"""
 
 from __future__ import annotations
 
@@ -8,34 +8,15 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
-class FakeGateway:
-    configured = True
-
-    def __init__(self):
-        self.calls = []
-
-    def public_status(self):
-        return {"configured": True, "provider": "fake", "model": "fake-model",
-                "timeout_seconds": 1, "error": None}
-
-    async def generate(self, question, evidence, *, general_conversation=False):
-        self.calls.append({"question": question, "evidence": evidence,
-                           "general_conversation": general_conversation})
-        return {"answer": "云端回答 [资料 1]", "mode": "cloud",
-                "usage": None, "model": "fake-model"}
-
-
-def make_client(tmp_path, *, gateway=None, read_only=False):
+def make_client(tmp_path, *, read_only=False):
     vault = tmp_path / "vault"
     vault.mkdir(parents=True)
     database = Database(tmp_path / "torch_os.sqlite3")
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
     app = create_app(
         database, vault,
-        gateway or ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ=environ, env_file=tmp_path / ".env")
     client = TestClient(app)
     client.get("/")
@@ -198,44 +179,6 @@ def test_distill_proposal_creates_principle_with_source_link(tmp_path):
     remaining = client.get("/api/steward/proposals").json()["items"]
     assert not any(item["path"] == source["path"] and item["kind"] == "distill"
                    for item in remaining)
-
-
-def test_ask_defaults_to_local_and_cloud_is_opt_in(tmp_path):
-    gateway = FakeGateway()
-    client, _, _ = make_client(tmp_path, gateway=gateway)
-    capture(client, title="时间管理笔记", body="番茄工作法：专注二十五分钟，再休息。")
-
-    local = client.post("/api/steward/ask", json={"question": "时间管理"})
-    assert local.status_code == 200, local.text
-    payload = local.json()
-    assert payload["mode"] == "local"
-    assert payload["citations"]
-    assert payload["citations"][0]["title"] == "时间管理笔记"
-    assert "时间管理笔记" in payload["answer"]
-    assert gateway.calls == []
-
-    cloud = client.post("/api/steward/ask", json={
-        "question": "时间管理", "use_cloud": True,
-    })
-    assert cloud.status_code == 200, cloud.text
-    assert cloud.json()["mode"] == "cloud"
-    assert cloud.json()["answer"] == "云端回答 [资料 1]"
-    assert gateway.calls and gateway.calls[0]["evidence"]
-    assert gateway.calls[0]["evidence"][0]["path"].endswith("时间管理笔记.md")
-
-
-def test_ask_cloud_opt_in_degrades_when_model_unavailable(tmp_path):
-    client, _, _ = make_client(tmp_path)
-    capture(client, title="睡眠记录", body="最近睡眠不足，准备提前半小时睡。")
-    result = client.post("/api/steward/ask", json={
-        "question": "睡眠", "use_cloud": True,
-    })
-    assert result.status_code == 200, result.text
-    payload = result.json()
-    assert payload["mode"] == "local"
-    assert "尚未配置" in payload["warning"]
-    assert payload["citations"]
-    assert "睡眠记录" in payload["answer"]
 
 
 def test_apply_unknown_proposal_and_read_only(tmp_path):

@@ -13,11 +13,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
-
-def gateway():
-    return ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
 
 
 def build(tmp_path: Path, *, runtime_label: str = "personal"):
@@ -31,7 +27,7 @@ def build(tmp_path: Path, *, runtime_label: str = "personal"):
     env.write_text("VAULT_DIR=./vault\n", encoding="utf-8")
     registry = tmp_path / "workspaces.json"
     database = Database(app_data / "torch.sqlite3")
-    app = create_app(database, vault, gateway(), security_environ={}, env_file=env,
+    app = create_app(database, vault, security_environ={}, env_file=env,
                      runtime_label=runtime_label, workspace_registry=registry)
     client = TestClient(app)
     client.get("/")

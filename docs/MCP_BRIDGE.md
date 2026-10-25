@@ -1,6 +1,6 @@
 # 只读工具桥（MCP）
 
-薪火OS 把本机只读能力通过 stdio MCP 桥提供给支持 MCP 的对话端。桥接层只转发
+薪火OS 把本机只读能力通过 stdio MCP 桥提供给 DeepSeek Harness。桥接层只转发
 `GET /api/tools/*`，不开放写操作。
 
 ## 启动

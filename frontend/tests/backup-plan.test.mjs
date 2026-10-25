@@ -98,7 +98,6 @@ async function harness({ capabilities = { backup_plan: true }, fail = false } = 
       return structuredClone(plan);
     }
     if (url.startsWith("/api/audit/summary")) return { generated_at: "x", window_days: 30, total_events: 0, chat: {}, exports: 0, backups: 0, errors: 0, by_type: [], note: "只读统计" };
-    if (url === "/api/config/model-key") return keyResponse;
     return {};
   };
   const context = vm.createContext({
@@ -187,36 +186,4 @@ test("an invalid keep count fails locally and a failed preview keeps a retry", a
   h.clickRetry();
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(h.getNode("#retention-panel").innerHTML, /共 3 份/);
-});
-
-
-test("the settings page can write a model key locally without echoing it", async () => {
-  const h = await harness({ capabilities: { backup_plan: true, model_key_write: true } });
-  await h.settings.loadSettings();
-  assert.equal(h.getNode("#model-key-panel").hidden, false);
-  assert.equal(h.getNode("#model-key-input").type, undefined); // the real browser verifies type=password
-
-  const invalid = await harness({ capabilities: { backup_plan: true, model_key_write: true } });
-  await invalid.settings.loadSettings();
-  invalid.getNode("#model-key-input").value = "short";
-  await invalid.getNode("#model-key-form").emit("submit");
-  assert.match(invalid.getNode("#model-key-feedback").textContent, /8–200/);
-  assert.equal(invalid.requests.some(({ url }) => url === "/api/config/model-key"), false);
-
-  const key = "sk-" + "a".repeat(32);
-  h.getNode("#model-key-input").value = key;
-  const pending = h.getNode("#model-key-form").emit("submit");
-  await new Promise((resolve) => setImmediate(resolve));
-  h.getNode("#confirm-accept").emit("click");
-  await pending;
-  const request = h.requests.find(({ url }) => url === "/api/config/model-key");
-  assert.ok(request, "confirmed submit writes once");
-  assert.deepEqual(JSON.parse(request.options.body), { api_key: key, confirm: true });
-  assert.equal(h.getNode("#model-key-input").value, "");
-  assert.doesNotMatch(h.getNode("#model-key-feedback").textContent, /sk-a{10}/);
-  assert.match(h.getNode("#model-key-feedback").textContent, /已写入本地 \.env/);
-
-  const older = await harness({ capabilities: { backup_plan: true } });
-  await older.settings.loadSettings();
-  assert.equal(older.getNode("#model-key-panel").hidden, true);
 });

@@ -1,16 +1,13 @@
-"""薪火管家（二期）：提案、健康检查与带引用问答（2026-10-21）。
+"""薪火管家：确定性提案与健康检查。
 
 边界：
 - 管家只生成提案，不自动移动、不自动新建；执行接口必须收到 confirm=true。
 - 健康检查只读四库散文笔记；任务/待办章节与 Apex dashboard、附件不在检查范围。
-- 问答默认只用本地检索；只有用户显式勾选“使用云端模型”才会把相关笔记片段
-  发送给已配置的模型，模型不可用时退回本地摘录。
 - 审计只记录提案 id、动作、路径与结果，不记录正文。
 """
 
 from __future__ import annotations
 
-import re
 import threading
 from datetime import date, datetime
 from hashlib import sha256
@@ -23,13 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import pillar_notes, steward_policy, vault_layout, vault_links
 from .db import Database, utc_now
-from .model_gateway import ModelGateway, ModelGatewayError
 from .vault_connection import ensure_vault_writable
 
 MAX_NOTES = 500
 STALE_INBOX_DAYS = 14
 MAX_HEALTH_ITEMS = 200
-MAX_ANSWER_CITATIONS = 6
 
 _DISTILL_CHAPTERS = {
     "reflection", "insight_life", "insight_work", "insight_study",
@@ -37,13 +32,6 @@ _DISTILL_CHAPTERS = {
 }
 _CUES = ("我学到", "我意识到", "教训", "原则", "下次", "以后", "启发", "明白",
          "总结", "复盘", "值得记住")
-
-
-class AskRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    question: str = Field(min_length=1, max_length=1000)
-    use_cloud: bool = Field(default=False, strict=True)
 
 
 class ProposalApply(BaseModel):
@@ -448,136 +436,9 @@ def _execute_proposal(vault: Path, database: Database,
     return {"proposal": proposal, "note": note}
 
 
-def _terms(question: str) -> set[str]:
-    text = str(question or "").casefold()
-    terms = set(re.findall(r"[a-z0-9_]{2,}", text))
-    for segment in re.findall(r"[一-鿿]+", text):
-        if len(segment) <= 4:
-            terms.add(segment)
-        else:
-            terms.update(segment[index:index + 2] for index in range(len(segment) - 1))
-    return {term for term in terms if term.strip()}
-
-
-def _excerpt(body: str, limit: int = 240) -> str:
-    return re.sub(r"\s+", " ", str(body or "")).strip()[:limit]
-
-
-def search_notes(vault_dir: Path | str, question: str,
-                 limit: int = MAX_ANSWER_CITATIONS) -> list[dict[str, Any]]:
-    """朴素词项检索：标题权重最高，其次标签，最后正文。"""
-    vault = Path(vault_dir).resolve()
-    text = str(question or "").strip().casefold()
-    terms = _terms(text)
-    if not terms:
-        return []
-    scored: list[tuple[int, dict[str, Any]]] = []
-    for note in _notes(vault):
-        title = str(note.get("title") or "").casefold()
-        body = str(note.get("body") or "").casefold()
-        tags = " ".join(str(tag) for tag in (note.get("tags") or [])).casefold()
-        score = 0
-        for term in terms:
-            if term in title:
-                score += 5
-            if term in tags:
-                score += 3
-            if term in body:
-                score += 1
-        if text and text in title:
-            score += 6
-        if score:
-            scored.append((score, note))
-    scored.sort(key=lambda pair: (pair[0], str(pair[1].get("date") or ""),
-                                  pair[1].get("mtime") or 0), reverse=True)
-    return [note for _score, note in scored[:max(1, min(12, limit))]]
-
-
-def _citation(note: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "path": note["path"],
-        "title": note.get("title", ""),
-        "pillar": note.get("pillar", ""),
-        "chapter": note.get("chapter", ""),
-        "date": note.get("date", ""),
-        "excerpt": _excerpt(note.get("body", "")),
-    }
-
-
-def _local_answer(citations: list[dict[str, Any]], warning: str | None) -> str:
-    if not citations:
-        return "没有在四库笔记里找到与这个问题直接相关的记录。可以换一个更具体的词，或先把资料捕获到收件箱。"
-    lines = ["以下是四库笔记里的直接摘录（本地检索）："]
-    if warning:
-        lines.append(f"\n提示：{warning}")
-    for index, item in enumerate(citations[:3], start=1):
-        lines.append(f"\n[{index}] {item['title']} · {item['path']}\n{item['excerpt']}")
-    return "\n".join(lines)
-
-
-async def answer_question(vault_dir: Path | str, question: str, gateway: ModelGateway, *,
-                          use_cloud: bool = False,
-                          limit: int = MAX_ANSWER_CITATIONS) -> dict[str, Any]:
-    """带引用的问答；只有 use_cloud=true 且模型已配置才外发笔记片段。"""
-    hits = search_notes(vault_dir, question, limit=limit)
-    citations = [_citation(note) for note in hits]
-    warning: str | None = None
-    mode = "local"
-    model = None
-    usage = None
-    answer = None
-
-    if use_cloud:
-        if not gateway.configured:
-            warning = "模型尚未配置，已使用本地检索。"
-        else:
-            evidence = [{
-                "path": note["path"],
-                "title": note.get("title", ""),
-                "content": str(note.get("body") or "")[:1800],
-            } for note in hits]
-            try:
-                result = await gateway.generate(str(question).strip(), evidence)
-                if result.get("answer"):
-                    answer = result["answer"]
-                    mode = str(result.get("mode") or "cloud")
-                    model = result.get("model")
-                    usage = result.get("usage")
-                else:
-                    warning = "模型没有生成可用回答，已使用本地检索。"
-            except ModelGatewayError as error:
-                warning = f"{error.message} 已使用本地检索。"
-            except Exception:
-                warning = "云端调用未完成，已使用本地检索。请检查模型连接或额度。"
-
-    if answer is None:
-        answer = _local_answer(citations, warning)
-
-    return {
-        "answer": answer,
-        "mode": mode,
-        "model": model,
-        "usage": usage,
-        "warning": warning,
-        "citations": citations,
-        "principles": [
-            "只依据列出的笔记摘录回答；没有证据时明确说不知道。",
-            "默认不调用云端模型；勾选后只发送与问题相关的笔记片段。",
-        ],
-    }
-
-
-def create_steward_router(database: Database, vault_dir: Path | str, gateway: ModelGateway, *,
+def create_steward_router(database: Database, vault_dir: Path | str, *,
                           read_only: bool = False, prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["steward"])
-
-    @router.get("/steward/status")
-    def steward_status():
-        return {
-            "model_configured": gateway.configured,
-            "default_mode": "local",
-            "note": "管家只提议，不自动执行；问答默认本地检索，勾选后才使用云端模型。",
-        }
 
     @router.get("/steward/health")
     def steward_health():
@@ -646,15 +507,9 @@ def create_steward_router(database: Database, vault_dir: Path | str, gateway: Mo
             "note": "逐条执行；失败项保留在原处，可刷新后重试。",
         }
 
-    @router.post("/steward/ask")
-    async def steward_ask(payload: AskRequest):
-        return await answer_question(vault_dir, payload.question, gateway,
-                                     use_cloud=payload.use_cloud)
-
     return router
 
 
 __all__ = [
-    "health_check", "proposals", "apply_proposal", "search_notes",
-    "answer_question", "create_steward_router",
+    "health_check", "proposals", "apply_proposal", "create_steward_router",
 ]

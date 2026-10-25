@@ -24,7 +24,6 @@ from backend.app.mcp_bridge import (
     handle_message,
     run_selftest,
 )
-from backend.app.model_gateway import ModelGateway
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,7 +32,6 @@ def make_app(tmp_path):
     database = Database(tmp_path / 'bridge.sqlite3')
     app = create_app(
         database, tmp_path / 'vault',
-        ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1),
         security_environ={}, env_file=tmp_path / '.env')
     return app
 
@@ -210,7 +208,6 @@ def test_bridge_selftest_endpoint_validates_loopback_and_runs(tmp_path):
     database = Database(tmp_path / 'bridge.sqlite3')
     app = create_app(
         database, tmp_path / 'vault',
-        ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1),
         security_environ={}, env_file=tmp_path / '.env')
     client = TestClient(app)
     client.get('/')

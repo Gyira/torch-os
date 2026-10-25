@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from backend.app.application import create_app
 from backend.app.conversation_memory import ConversationMemoryService
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 from backend.app.vault_connection import (
     VaultReadOnlyError,
     describe_vault,
@@ -23,8 +22,7 @@ from backend.app.vault_connection import (
 
 def make_app(tmp_path, *, environ=None, runtime_label='personal', vault=None):
     database = Database(tmp_path / 'torch_os.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, vault or (tmp_path / 'vault'), gateway,
+    app = create_app(database, vault or (tmp_path / 'vault'),
                      security_environ={} if environ is None else environ,
                      runtime_label=runtime_label, env_file=tmp_path / '.env')
     client = TestClient(app)

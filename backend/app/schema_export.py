@@ -33,7 +33,12 @@ EXPORT_MEMBERS = [
     'memories.md/json', 'planning.md/json', 'growth.md/json', 'conversations.md/json',
     'journal.md/json', 'body.csv/json', 'README.txt',
 ]
-DEPRECATED_TABLES = {'bazi_profiles', 'suggestions', 'journal_entries', 'journal_actions'}
+DEPRECATED_TABLES = {
+    'bazi_profiles', 'suggestions', 'journal_entries', 'journal_actions',
+    'goals', 'tasks', 'study_subjects', 'study_sessions', 'body_entries',
+    'task_import_ledger', 'conversations', 'messages', 'harness_sessions',
+    'memory_embeddings',
+}
 
 
 def _group_of(table: str) -> str:

@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`agent`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`chat_memory_panel`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`export_bundle`、`growth_export`、`habits`、`harness`、`harness_reset`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`model_key_write`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`semantic_search`、`task_reorder`、`tasks`、`tools`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workbench_polish`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -15,7 +15,7 @@
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
 | 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务 |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
-| 设置 | `#settings` | 模型密钥、备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、帮助 |
+| 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、帮助 |
 
 旧 hash（`#today`、`#identity`、`#profile`、`#memory`、`#bazi`、`#goals`、`#habits`、
 `#brain`、`#documents`、`#notes`、`#archive`、`#help`）仍由 `frontend/app.js` 的
@@ -92,7 +92,8 @@
 ## 跨库与系统能力
 
 - 库结构与迁移：预览 → 备份 → 执行 → 报告 → 回滚；迁移记录写入 `00_人生路/08_任务与待办/_系统/迁移记录/`。
-- 薪火管家：收件箱分流/原则提炼提案、四库健康检查、本地优先的带引用问答；
+- 与神对话：完整 DeepSeek Harness Web UI（同源 `/harness/` 代理），是唯一的 AI 入口。
+- 薪火管家：确定性的收件箱分流/原则提炼提案与四库健康检查；自由问答在 dsh 里。
   执行必须 `confirm=true`，审计只记提案 id、动作与路径，不记正文。
 - 诊断与恢复：数据库完整性、表计数、Vault 文件数、备份复验、恢复副本只读验证、一键恢复演练。
 - 导出：记忆、目标与任务、习惯与打卡、对话、每日记录、身体记录的可读 ZIP；不是恢复包。

@@ -57,7 +57,6 @@ const summary = {
   },
   vault: { markdown_files: 12, relationships_present: true },
   backups: { count: 2, latest: { filename: "<img src=x>.zip", bytes: 1024, modified_at: "2026-10-04T14:50:00+08:00" }, verification: { checked: "<img src=x>.zip", ok: true, error: null, relationship_files: 2 } },
-  embedding_provider: "ollama:bge-m3",
 };
 
 async function harness({ diagnostics = true, fail = false } = {}) {
@@ -86,8 +85,7 @@ async function harness({ diagnostics = true, fail = false } = {}) {
     if (url === "/api/config/status") {
       return {
         model_configured: false, provider: "local", model_name: "未配置", state: "local",
-        embedding_provider: "ollama:bge-m3",
-        capabilities: diagnostics ? { diagnostics: true, semantic_search: true } : { semantic_search: true },
+              capabilities: diagnostics ? { diagnostics: true } : {},
       };
     }
     if (url === "/api/backups") return [];

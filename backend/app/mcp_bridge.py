@@ -2,8 +2,7 @@
 
 The bridge only issues GET requests to the loopback API (fetching the local
 session cookie first). It never writes, never leaves this machine, and never
-sees model keys. Any MCP client (for example DeepSeek Harness via
-``@deepseek-ai/dsh-mcp-client``) can spawn it and call the 13 read-only tools.
+sees model keys. DeepSeek Harness can spawn it and call the 12 read-only tools.
 """
 
 from __future__ import annotations

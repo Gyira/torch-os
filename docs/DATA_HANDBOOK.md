@@ -38,10 +38,10 @@
 ## 各表用途（不包含正文）
 
 - 资料与记忆：`documents` 是 Vault 文件索引；`memories` 是人工确认/候选/归档的记忆；
-  `memory_events`、`memory_deletions`、`memory_usages`、`memory_embeddings` 记录变更、
-  删除墓碑、引用与向量。
-- 对话：`conversations`、`messages`、`harness_sessions` 保存对话与会话引用；
-  正文是否保存取决于调用端与设置。
+  `memory_events`、`memory_deletions`、`memory_usages` 记录变更、删除墓碑与引用。
+  `memory_embeddings` 是旧向量缓存（deprecated，无读写，不自动删除）。
+- 对话：`conversations`、`messages` 保留历史对话导出数据；`harness_sessions` 是旧 ACP
+  会话引用（deprecated，无写入方）。新的 AI 会话由 DeepSeek Harness 自己管理。
 - 目标与任务：`goals`、`tasks`、`task_import_ledger` 是旧 SQLite 结构（deprecated，无写入方）；
   目标和任务以 Markdown 为权威，任务导入用任务笔记的稳定导入键去重。
 - 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，
@@ -76,7 +76,7 @@
 
 ## 什么会离开本机
 
-- 默认不联网；天气查询只访问固定白名单主机。
-- 只有显式配置模型并主动发起请求时，才会把当前问题与经确认的相关片段发送给模型；
-  模型 Key 只写入本地 `.env`。
+- torch 自身只访问固定天气白名单主机；它不再调用模型，也不保存模型密钥。
+- 所有 AI 对话由本地 DeepSeek Harness 发起；是否联网、用哪个模型、发送哪些上下文，
+  都由 dsh 自己的设置与权限决定。
 - 审计只记事件类型与数量，不记正文、问题、标题或路径。

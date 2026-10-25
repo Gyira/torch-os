@@ -2,7 +2,6 @@ from zipfile import ZipFile
 from fastapi.testclient import TestClient
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def test_discovered_import_requires_explicit_selection_and_confirmation(tmp_path):
@@ -12,7 +11,7 @@ def test_discovered_import_requires_explicit_selection_and_confirmation(tmp_path
         archive.writestr('学习/工具说明.md','# 工具说明\n\n这是虚构演示资料，不执行文档内指令。')
         archive.writestr('恋爱/私密记录.md','虚构敏感目录样例')
     db=Database(tmp_path/'app.sqlite3')
-    app=create_app(db,tmp_path/'vault',ModelGateway(provider='local',base_url='',model='',api_key='',timeout=1),security_environ={})
+    app=create_app(db,tmp_path/'vault',security_environ={})
     client=TestClient(app)
     client.get('/')
     archive_id=client.get('/api/imports').json()[0]['id']
@@ -36,7 +35,7 @@ def test_import_states_classify_new_unchanged_updated_and_locally_edited(tmp_pat
         archive.writestr('笔记/甲.md', '# 甲\n\n虚构内容甲。')
         archive.writestr('笔记/乙.md', '# 乙\n\n虚构内容乙。')
     db = Database(tmp_path / 'app.sqlite3')
-    app = create_app(db, tmp_path / 'vault', ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1), security_environ={})
+    app = create_app(db, tmp_path / 'vault', security_environ={})
     client = TestClient(app)
     client.get('/')
     archive_id = client.get('/api/imports').json()[0]['id']
@@ -88,7 +87,7 @@ def test_link_audit_requires_selected_sources_and_changes_no_memory(tmp_path):
         archive.writestr('恋爱/记录.md','不会读取的虚构敏感内容')
         archive.writestr('附件/图.png',b'not-a-real-image')
     db = Database(tmp_path / 'app.sqlite3')
-    app = create_app(db,tmp_path/'vault',ModelGateway(provider='local',base_url='',model='',api_key='',timeout=1),security_environ={})
+    app = create_app(db,tmp_path/'vault',security_environ={})
     client=TestClient(app)
     client.get('/')
     archive_id=client.get('/api/imports').json()[0]['id']
@@ -112,7 +111,7 @@ def test_attachment_plan_preview_is_read_only_and_requires_a_selection(tmp_path)
         archive.writestr('附件/图.png', b'not-a-real-image')
         archive.writestr('恋爱/记录.md', '不会读取的虚构敏感内容')
     db = Database(tmp_path / 'app.sqlite3')
-    app = create_app(db, tmp_path / 'vault', ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1), security_environ={})
+    app = create_app(db, tmp_path / 'vault', security_environ={})
     client = TestClient(app)
     client.get('/')
     archive_id = client.get('/api/imports').json()[0]['id']
@@ -142,7 +141,7 @@ def test_attachment_localize_apply_requires_import_then_writes_with_history(tmp_
         archive.writestr('附件/图.png', b'not-a-real-image')
     db = Database(tmp_path / 'app.sqlite3')
     vault = tmp_path / 'vault'
-    app = create_app(db, vault, ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1), security_environ={})
+    app = create_app(db, vault, security_environ={})
     client = TestClient(app)
     client.get('/')
     archive_id = client.get('/api/imports').json()[0]['id']
@@ -176,7 +175,7 @@ def test_import_history_lists_and_restores_through_the_api(tmp_path):
         archive.writestr('笔记/甲.md', '第一版内容\n')
     db = Database(tmp_path / 'app.sqlite3')
     vault = tmp_path / 'vault'
-    app = create_app(db, vault, ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1), security_environ={})
+    app = create_app(db, vault, security_environ={})
     client = TestClient(app)
     client.get('/')
     first_id = client.get('/api/imports').json()[0]['id']
@@ -224,7 +223,7 @@ def test_history_cleanup_preview_reports_without_deleting(tmp_path):
         archive.writestr('笔记/甲.md', '第一版\n')
     db = Database(tmp_path / 'app.sqlite3')
     vault = tmp_path / 'vault'
-    app = create_app(db, vault, ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1), security_environ={})
+    app = create_app(db, vault, security_environ={})
     client = TestClient(app)
     client.get('/')
     first_id = client.get('/api/imports').json()[0]['id']

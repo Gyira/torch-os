@@ -5,14 +5,12 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 from backend.app.vault import _is_memory_like, clean_fragment
 
 
 def make_client(tmp_path):
     database = Database(tmp_path / 'app.sqlite3')
-    gateway = ModelGateway(provider='local', base_url='', model='', api_key='', timeout=1)
-    app = create_app(database, tmp_path / 'vault', gateway, security_environ={})
+    app = create_app(database, tmp_path / 'vault', security_environ={})
     client = TestClient(app)
     client.get('/')
     return client, app, database

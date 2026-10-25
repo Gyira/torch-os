@@ -1,19 +1,9 @@
-// 薪火管家（二期）：提案、健康检查、带引用问答。
-// 所有执行都要在界面上点“确认应用”；默认只用本地检索，勾选后才使用云端模型。
+// 薪火管家：确定性提案与健康检查。
+// 所有执行都要在界面上点“确认应用”；问答统一交给「与神对话」里的 dsh。
 import { api, escapeHtml, toast } from "./core.js";
-import { renderMarkdown } from "./pillar-markdown.js";
 
 const CONFIDENCE_LABEL = { high: "高置信", medium: "可参考", low: "低置信" };
 const SEVERITY_LABEL = { error: "错误", warning: "需要留意", info: "提示" };
-
-let statusPromise = null;
-
-function modelStatus() {
-  if (!statusPromise) {
-    statusPromise = api("/api/steward/status").catch(() => ({ model_configured: false }));
-  }
-  return statusPromise;
-}
 
 function proposalMarkup(item) {
   const confidence = CONFIDENCE_LABEL[item.confidence] || item.confidence;
@@ -68,40 +58,6 @@ function healthMarkup(payload, filter = "all") {
     <p class="field-help steward-footnote">${escapeHtml(payload.note || "")}${payload.truncated ? " 结果较多，已只显示前一部分。" : ""}</p>`;
 }
 
-function askMarkup(configured) {
-  return `<form class="steward-ask" data-steward-ask-form>
-      <label class="field"><span>问四库</span>
-        <textarea name="question" rows="3" maxlength="1000" required placeholder="例如：我最近对时间管理有什么想法？"></textarea>
-      </label>
-      <div class="steward-ask-actions">
-        <label class="checkbox-line">
-          <input type="checkbox" name="use_cloud"${configured ? "" : " disabled"}>
-          <span>本次使用云端模型${configured ? "" : "（尚未配置）"}</span>
-        </label>
-        <button type="submit" class="button primary">提问</button>
-      </div>
-      <p class="field-help">默认只在本地检索并摘录原文；勾选后只发送与问题相关的笔记片段。回答只依据列出的笔记，不会替你做任何修改。</p>
-    </form>
-    <div class="steward-answer" data-steward-answer></div>`;
-}
-
-function answerMarkup(result) {
-  const citations = result.citations || [];
-  const cloud = result.mode === "cloud";
-  return `<p class="steward-mode ${cloud ? "cloud" : "local"}">${cloud
-    ? `云端模型${result.model ? ` · ${escapeHtml(result.model)}` : ""}`
-    : "本地检索 · 未调用模型"}</p>
-    ${result.warning ? `<p class="steward-warning">${escapeHtml(result.warning)}</p>` : ""}
-    <div class="steward-answer-body">${renderMarkdown(result.answer || "")}</div>
-    ${citations.length ? `<section class="steward-citations">
-      <p class="eyebrow">引用笔记</p>
-      ${citations.map((item, index) => `<button type="button" class="steward-citation" data-steward-open-note="${escapeHtml(item.path)}">
-        <span class="steward-citation-index">${index + 1}</span>
-        <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.path)}</small></span>
-      </button>`).join("")}
-    </section>` : ""}`;
-}
-
 export function openSteward(view, { onApplied, onOpenNote } = {}) {
   const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
@@ -112,14 +68,13 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
       <div>
         <p class="eyebrow">薪火管家</p>
         <h2>只提议，不替你动手</h2>
-        <p class="meta">提案与问答都只是建议；应用前请核对源路径与目标章节。</p>
+        <p class="meta">提案只是建议；应用前请核对源路径与目标章节。问答请到「与神对话」。</p>
       </div>
       <button type="button" class="text-button" data-steward-close>关闭</button>
     </div>
     <div class="steward-tabs" role="tablist" aria-label="管家功能">
       <button type="button" class="steward-tab is-active" role="tab" aria-selected="true" data-steward-tab="proposals">提案</button>
       <button type="button" class="steward-tab" role="tab" aria-selected="false" data-steward-tab="health">健康检查</button>
-      <button type="button" class="steward-tab" role="tab" aria-selected="false" data-steward-tab="ask">问答</button>
     </div>
     <div class="steward-body" data-steward-body><p class="field-help">正在读取…</p></div>`;
   document.body.append(dialog);
@@ -171,12 +126,6 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
     }
   }
 
-  async function loadAsk() {
-    const status = await modelStatus();
-    if (active !== "ask") return;
-    body.innerHTML = askMarkup(Boolean(status.model_configured));
-  }
-
   async function selectTab(tab) {
     if (tab === active) return;
     active = tab;
@@ -186,8 +135,7 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
       button.setAttribute("aria-selected", selected ? "true" : "false");
     });
     if (tab === "proposals") await loadProposals();
-    else if (tab === "health") await loadHealth();
-    else await loadAsk();
+    else await loadHealth();
   }
 
   dialog.querySelector("[data-steward-close]")?.addEventListener("click", close);
@@ -226,31 +174,6 @@ export function openSteward(view, { onApplied, onOpenNote } = {}) {
         apply.disabled = false;
         apply.textContent = "确认应用";
       }
-    }
-  });
-
-  dialog.addEventListener("submit", async (event) => {
-    const form = event.target.closest?.("[data-steward-ask-form]");
-    if (!form) return;
-    event.preventDefault();
-    const question = String(new FormData(form).get("question") || "").trim();
-    if (!question) return;
-    const useCloud = Boolean(form.querySelector('[name="use_cloud"]')?.checked);
-    const answerHost = dialog.querySelector("[data-steward-answer]");
-    const submit = form.querySelector('button[type="submit"]');
-    submit.disabled = true;
-    answerHost.innerHTML = `<p class="field-help">${useCloud ? "正在请求云端模型…" : "正在本地检索…"}</p>`;
-    try {
-      const result = await api("/api/steward/ask", {
-        method: "POST",
-        timeoutMs: 60000,
-        body: JSON.stringify({ question, use_cloud: useCloud }),
-      });
-      answerHost.innerHTML = answerMarkup(result);
-    } catch (error) {
-      answerHost.innerHTML = `<p class="status-message error">${escapeHtml(error.message)}</p>`;
-    } finally {
-      submit.disabled = false;
     }
   });
 

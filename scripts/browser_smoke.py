@@ -577,7 +577,6 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                 navItems: document.querySelectorAll('#settings-view [data-settings-nav]').length,
                 cards: document.querySelectorAll('#settings-view .settings-card').length,
                 statusVisible: document.querySelector('[data-settings-section="status"]').hidden === false,
-                modelHidden: document.querySelector('[data-settings-section="model"]').hidden,
                 serviceLabel: document.querySelector('#service-label').textContent,
                 serviceVersion: document.querySelector('#service-version').textContent,
                 versionMatches: document.querySelector('#service-version').textContent === 'v' + health.version,
@@ -678,7 +677,6 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
             await cdp.wait_for("document.querySelector('[data-settings-section=\"audit\"]').hidden === false && document.querySelector('#audit-summary-panel').innerText.includes('条本地操作')")
             report['audit_summary'] = await cdp.evaluate("""(() => ({
                 text: document.querySelector('#audit-summary-panel').innerText.slice(0, 300),
-                hasCloudLine: document.querySelector('#audit-summary-panel').innerText.includes('云端回答'),
                 hasNote: document.querySelector('#audit-summary-panel').innerText.includes('不含正文'),
                 hasLabels: /（[a-z_]+）/.test(document.querySelector('#audit-summary-panel').innerText),
             }))()""")
@@ -742,15 +740,6 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                     singleStatus: single ? single.status : 0,
                 };
             })()""")
-            await cdp.evaluate("document.querySelector('[data-settings-nav=\"model\"]').click()")
-            await cdp.wait_for("document.querySelector('[data-settings-section=\"model\"]').hidden === false")
-            report['model_key'] = await cdp.evaluate("""(() => ({
-                panelHidden: document.querySelector('#model-key-panel').hidden,
-                keyFieldType: document.querySelector('#model-key-input').type,
-                hintMentionsEnv: document.querySelector('#model-key-panel').innerText.includes('MODEL_API_KEY'),
-                modelBadge: document.querySelector('#model-status-badge').textContent,
-                modelRows: document.querySelectorAll('#model-status-panel .settings-list > div').length,
-            }))()""")
             await cdp.evaluate("document.querySelector('[data-settings-nav=\"obsidian\"]').click()")
             await cdp.wait_for(
                 "document.querySelector('[data-settings-section=\"obsidian\"]').hidden === false"
@@ -1053,10 +1042,6 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                 and report['restore_drill']['reportsCount'] >= 1
                 and report['restore_drill']['historyShown']
                 and report['restore_drill']['singleStatus'] == 200
-                and report['model_key']['panelHidden'] is True
-                and report['model_key']['keyFieldType'] == 'password'
-                and report['model_key']['hintMentionsEnv']
-                and report['model_key']['modelRows'] >= 4
                 and report['vault_connection']['badges'] == 3
                 and report['vault_connection']['pathShown']
                 and '新增' in report['vault_connection']['preview']
@@ -1070,10 +1055,9 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                 and report['vault_onboarding']['markdownStatus']['status'] == 200
                 and report['vault_onboarding']['markdownStatus']['hasTitle']
                 and report['vault_onboarding']['markdownStatus']['hasSteps']
-                and report['settings_shell']['navItems'] == 10
+                and report['settings_shell']['navItems'] == 11
                 and report['settings_shell']['cards'] >= 6
                 and report['settings_shell']['statusVisible']
-                and report['settings_shell']['modelHidden']
                 and report['settings_shell']['versionMatches']
                 and report['settings_shell']['serviceLabel'] == '本地服务已连接'
                 and report['nav_order']['rows'] == 4

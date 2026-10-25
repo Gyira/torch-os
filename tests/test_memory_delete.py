@@ -6,13 +6,11 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path):
     database = Database(tmp_path / "torch_os.sqlite3")
-    gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
-    app = create_app(database, tmp_path / "vault", gateway, security_environ={})
+    app = create_app(database, tmp_path / "vault", security_environ={})
     client = TestClient(app)
     client.get("/")
     return client, database
@@ -27,8 +25,9 @@ def test_memory_delete_removes_row_links_and_suppresses_reextraction(tmp_path):
     document_id = note["document"]["id"]
     document_path = note["document"]["path"]
     assert client.patch(f"/api/memories/{memory_id}/status", json={"status": "active"}).status_code == 200
-    chat = client.post("/api/chat", json={"message": "这条内容将被永久删除？"}).json()
-    assert chat["citations"] and chat["citations"][0]["memory_id"] == memory_id
+    conversation_id = database.create_conversation("这条内容将被永久删除？")
+    database.add_message(conversation_id, "user", "这条内容将被永久删除？", [])
+    database.add_message(conversation_id, "assistant", "回答", [{"memory_id": memory_id}])
 
     assert client.post(f"/api/memories/{memory_id}/delete", json={"confirm": False}).status_code == 422
     assert client.post(f"/api/memories/{memory_id}/delete", json={"confirm": 1}).status_code == 422

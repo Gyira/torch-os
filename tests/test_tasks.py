@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from backend.app import task_notes, tasks
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TODAY = datetime.now(SHANGHAI).date().isoformat()
@@ -56,7 +55,6 @@ def make_client(tmp_path, *, read_only=False):
     environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
     app = create_app(
         Database(tmp_path / "tasks.sqlite3"), vault,
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ=environ, env_file=tmp_path / ".env")
     client = TestClient(app)
     client.get("/")

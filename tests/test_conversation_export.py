@@ -6,13 +6,11 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def build_client(tmp_path):
     database = Database(tmp_path / "torch_os.sqlite3")
-    gateway = ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1)
-    app = create_app(database, tmp_path / "vault", gateway, security_environ={})
+    app = create_app(database, tmp_path / "vault", security_environ={})
     client = TestClient(app)
     client.get("/")
     return client, database
@@ -37,8 +35,16 @@ def test_conversation_export_contains_answers_and_citations_with_count_only_audi
     }).json()
     memory_id = note["memories"][0]["id"]
     assert client.patch(f"/api/memories/{memory_id}/status", json={"status": "active"}).status_code == 200
-    chat = client.post("/api/chat", json={"message": "我是谁？"}).json()
-    assert chat["citations"], chat
+    citations = [{
+        "memory_id": memory_id, "document_id": note["document"]["id"],
+        "path": note["document"]["path"], "title": "导出档案",
+        "quote": "我是本地示例用户。", "source_quote": "我是本地示例用户。",
+        "confidence": "explicit", "revision": 1, "source_date": None,
+        "valid_from": None, "valid_until": None, "low_confidence": False,
+    }]
+    conversation_id = database.create_conversation("我是谁？")
+    database.add_message(conversation_id, "user", "我是谁？", [])
+    database.add_message(conversation_id, "assistant", "你是本地示例用户。", citations)
     before = _snapshot(database)
 
     payload = client.get("/api/export/conversations.json").json()
@@ -47,7 +53,7 @@ def test_conversation_export_contains_answers_and_citations_with_count_only_audi
     assert counts["conversations"] == 1
     assert counts["messages"] == 2
     assert counts["user_messages"] == 1 and counts["assistant_messages"] == 1
-    assert counts["citations"] == len(chat["citations"])
+    assert counts["citations"] == len(citations)
     conversation = payload["conversations"][0]
     assert [message["role"] for message in conversation["messages"]] == ["user", "assistant"]
     assert conversation["messages"][0]["content"] == "我是谁？"
@@ -62,7 +68,7 @@ def test_conversation_export_contains_answers_and_citations_with_count_only_audi
     assert text.startswith("# 薪火OS 对话导出")
     assert "### 你（" in text and "### 回答（" in text
     assert "我是谁？" in text
-    assert "引用 1：我是本地示例用户。" in text
+    assert "引用 1：导出档案" in text and "我是本地示例用户。" in text
     assert "来源：" in text
 
     assert _snapshot(database) == before, "export must not change conversations"
@@ -71,7 +77,7 @@ def test_conversation_export_contains_answers_and_citations_with_count_only_audi
             "SELECT * FROM audit_events WHERE event_type='conversations_exported' ORDER BY id"
         )]
     expected_counts = {
-        "conversations": 1, "messages": 2, "citations": len(chat["citations"]),
+        "conversations": 1, "messages": 2, "citations": len(citations),
     }
     assert [json.loads(row["detail_json"]) for row in audit] == [
         {"format": "json", **expected_counts},

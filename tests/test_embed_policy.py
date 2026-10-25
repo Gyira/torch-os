@@ -4,14 +4,12 @@ from fastapi.testclient import TestClient
 
 from backend.app.application import create_app
 from backend.app.db import Database
-from backend.app.model_gateway import ModelGateway
 
 
 def test_only_local_dsh_and_obsidian_origins_may_frame_the_workbench(tmp_path):
     database = Database(tmp_path / "embed.sqlite3")
     app = create_app(
         database, tmp_path / "vault",
-        ModelGateway(provider="local", base_url="", model="", api_key="", timeout=1),
         security_environ={}, env_file=tmp_path / ".env")
     client = TestClient(app)
     response = client.get("/")
