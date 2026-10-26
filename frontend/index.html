@@ -14,7 +14,11 @@
       </div>
       <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
       <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
-      <button class="nav-item" data-view="ops"><span aria-hidden="true">生</span>生活运营</button>
+      <button class="nav-item" data-view="ops" aria-expanded="false" aria-controls="nav-sub-ops"><span aria-hidden="true">生</span>生活运营</button>
+      <div class="nav-sublist" id="nav-sub-ops" data-sublist="ops" role="group" aria-label="生活运营分区" hidden>
+        <button type="button" class="nav-subitem active" data-pane="ops-view" aria-current="true">生活运营</button>
+        <button type="button" class="nav-subitem" data-pane="love-view" aria-current="false">恋爱系统</button>
+      </div>
       <button class="nav-item" data-view="knowledge"><span aria-hidden="true">知</span>知识库</button>
       <button class="nav-item" data-view="settings" aria-expanded="false"><span aria-hidden="true">⚙</span>设置与状态</button>
     </nav>
@@ -153,6 +157,51 @@
     </section>
     <section id="ops-view" class="view pillar-view" data-module="ops" hidden>
       <div class="pillar-shell" data-pillar="ops"><div class="pillar-empty">正在读取生活运营…</div></div>
+    </section>
+    <section id="love-view" class="pane ops-love" data-module="ops" data-pane-label="恋爱系统" aria-label="恋爱系统" hidden>
+      <div class="love-shell" id="love-shell">
+        <aside class="love-menu" aria-label="恋爱系统分区">
+          <div class="love-menu-brand"><span class="love-heart" aria-hidden="true">♥</span><div><strong>恋爱系统</strong><small>本机数据 · DeepSeek</small></div></div>
+          <nav class="love-nav" id="love-nav" aria-label="恋爱系统页面">
+            <button type="button" class="love-nav-item active" data-love-page="dashboard" aria-current="page"><span>01</span>总览</button>
+            <button type="button" class="love-nav-item" data-love-page="import"><span>02</span>导入聊天</button>
+            <button type="button" class="love-nav-item" data-love-page="stats"><span>03</span>统计分析</button>
+            <button type="button" class="love-nav-item" data-love-page="analysis"><span>04</span>AI 深度分析</button>
+            <button type="button" class="love-nav-item" data-love-page="profile"><span>05</span>画像</button>
+            <button type="button" class="love-nav-item" data-love-page="journal"><span>06</span>恋爱日志</button>
+            <button type="button" class="love-nav-item" data-love-page="report"><span>07</span>报告</button>
+            <button type="button" class="love-nav-item" data-love-page="lijie"><span>08</span>丽洁追踪</button>
+            <button type="button" class="love-nav-item" data-love-page="settings"><span>09</span>设置</button>
+          </nav>
+          <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>
+        </aside>
+        <div class="love-main">
+          <header class="love-head">
+            <div><span class="eyebrow">RELATIONSHIP</span><h2 id="love-title">总览</h2></div>
+            <div class="love-head-actions">
+              <label class="visually-hidden" for="love-project-select">选择项目</label>
+              <select id="love-project-select" class="love-project-select" aria-label="选择恋爱项目"></select>
+              <button id="love-refresh" class="small-button" type="button">刷新</button>
+            </div>
+          </header>
+          <div id="love-content" class="love-content" role="region" aria-live="polite">
+            <div class="state-message"><strong>正在读取恋爱系统…</strong><p>本机数据，不会上传。</p></div>
+          </div>
+          <div id="love-consent" class="love-consent" hidden>
+            <div class="love-consent-card">
+              <span class="eyebrow">PRIVACY</span>
+              <h3>先把数据边界说清楚</h3>
+              <p>聊天记录、画像和日志只保存在这台电脑上的原「恋爱分析助手」数据库里，不进入 Obsidian 库，也不上传到任何服务器。</p>
+              <ul>
+                <li>只有点击「开始分析」或「AI 生成日记」时，脱敏后的聊天内容才会发送给你配置的 DeepSeek 接口。</li>
+                <li>发送前会隐藏姓名、电话、证件号、邮箱、链接和银行卡号；原始记录不会发送。</li>
+                <li>AI 结论只是参考，不替代真实沟通，也不构成任何关系决策建议。</li>
+              </ul>
+              <button id="love-consent-accept" class="button primary" type="button">我已了解，进入恋爱系统</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
     <section id="knowledge-view" class="view pillar-view" data-module="knowledge" hidden>
       <div class="pillar-shell" data-pillar="knowledge"><div class="pillar-empty">正在读取知识库…</div></div>

@@ -66,7 +66,7 @@ def test_retired_capabilities_are_not_advertised(tmp_path):
     capabilities = client.get('/api/config/status').json()['capabilities']
     for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions', 'agent', 'harness_reset', 'model_key_write', 'semantic_search', 'workbench_polish'):
         assert key not in capabilities, key
-    assert len(capabilities) == 39
+    assert len(capabilities) == 41
 
 
 def test_legacy_tables_survive_and_have_no_writers(tmp_path):

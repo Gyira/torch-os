@@ -463,8 +463,8 @@ test("the sidebar second level lists exactly the panes each module defines", asy
   const groups = [...html.matchAll(/<div class="nav-sublist"[^>]*data-sublist="([a-z]+)"[^>]*>([\s\S]*?)<\/div>/g)]
     .map((match) => [match[1], [...match[2].matchAll(/data-pane="([a-z-]+)"[^>]*>([^<]+)</g)].map((pane) => [pane[1], pane[2].trim()])]);
   const sidebar = Object.fromEntries(groups);
-  // 四库与设置页都自带导航，侧栏只给工作台二级菜单。
-  assert.deepEqual(Object.keys(sidebar).sort(), ["workbench"]);
+  // 工作台与生活运营有二级菜单；其余模块自带章节轨/分区导航。
+  assert.deepEqual(Object.keys(sidebar).sort(), ["ops", "workbench"]);
   for (const [view, panes] of Object.entries(sidebar)) {
     assert.deepEqual(panes, modules[view], `${view} 的二级菜单要和模块定义一致`);
   }

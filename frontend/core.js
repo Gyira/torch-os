@@ -13,7 +13,12 @@ export async function api(path, options = {}) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(path, { ...requestOptions, headers: { "Content-Type": "application/json", ...requestOptions.headers }, signal: controller.signal });
+    // FormData 必须让浏览器自己带 multipart boundary；手写 Content-Type 反而会让上传失效。
+    const isForm = typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
+    const headers = isForm
+      ? { ...requestOptions.headers }
+      : { "Content-Type": "application/json", ...requestOptions.headers };
+    const response = await fetch(path, { ...requestOptions, headers, signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 401) throw new Error("本地会话已失效，请刷新页面后再试。");

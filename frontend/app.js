@@ -1,6 +1,7 @@
 import { $, state, api, escapeHtml } from "./core.js";
 import { initSettings, loadSettings } from "./settings.js";
 import { initDshPane, loadDshPane } from "./dsh-pane.js";
+import { initLovePane, loadLovePane } from "./love.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
@@ -29,7 +30,8 @@ const MODULES = {
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
   life: { panes: [], ownNav: true },
   self: { panes: [], ownNav: true },
-  ops: { panes: [], ownNav: true },
+  // 生活运营保留自己的章节轨，同时在模块顶部多一个「恋爱系统」二级分区。
+  ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"]] },
   knowledge: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
 };
@@ -38,6 +40,7 @@ const PANE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": () => { initDshPane(); loadDshPane(); },
+  "love-view": () => { initLovePane(); loadLovePane(); },
   "life-view": () => loadPillarModule("life"),
   "self-view": () => loadPillarModule("self"),
   "ops-view": () => loadPillarModule("ops"),

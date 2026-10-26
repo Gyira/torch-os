@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_lijie`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -13,7 +13,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘；章节轨按分组折叠、最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
-| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务 |
+| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务；二级分区「恋爱系统」（聊天分析、画像、日志、报告、丽洁追踪） |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -70,6 +70,18 @@
 - 月度表只读展示趋势 sparkline 与分类占比；「在 Obsidian 打开月度表」跳到原文，
   新增/修改/删除行都在 Obsidian 里做。
 
+### 恋爱系统（生活运营的二级分区，2026-10-26）
+
+- 位于「生活运营」模块的二级菜单（顶部「生活运营 / 恋爱系统」标签），不是新的顶层模块；不再启动原「恋爱分析助手」的 Electron/FastAPI 服务。
+- 直接读写本机原 SQLite（`LOVE_DB_PATH`，默认 `%LOCALAPPDATA%\love-analysis-assistant\love_analysis.db`），
+  已有项目、消息、画像、分析记录和日志继续可用；导入的新项目写同一份数据库。
+- 原生页面：总览、导入聊天（TXT/编码识别）、统计（趋势/回复间隔/媒体/高频词）、AI 深度分析、
+  画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、HTML 报告（独立文档预览与打印）、
+  丽洁追踪（交路表 Excel、车次时刻表、实时位置、沿线天气）、设置（DeepSeek Key）。
+- AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
+  Key 使用 AES-256-GCM 加密保存在原数据库同目录，不进入 Obsidian 库、普通备份或导出。
+- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库。
+
 ### 知识库
 
 - 「＋ 在 Obsidian 新建」默认在 `03_知识库/00_收件箱` 建笔记，标题、正文、来源、标签与
@@ -103,7 +115,8 @@
 - 库结构与迁移（当前布局 `pillars-v2`）：预览 → 备份 → 执行 → 报告 → 回滚；预览包含旧布局
   目录与人生路 v1 章节目录 → v2 的逐文件搬迁（冲突单独列出，执行要带预览的 `plan_hash`）；
   迁移记录写入 `00_人生路/08_任务与待办/_系统/迁移记录/`。
-- 与神对话：完整 DeepSeek Harness Web UI（同源 `/harness/` 代理），是唯一的 AI 入口。
+- 与神对话：完整 DeepSeek Harness Web UI（同源 `/harness/` 代理），是对话的唯一 AI 入口。
+  恋爱系统的分析/日记生成是独立功能，使用它自己的可选 DeepSeek Key。
 - 薪火管家：确定性的收件箱分流/原则提炼提案与四库健康检查；自由问答在 dsh 里。
   提案与体检都只读（2026-10-26 起没有执行入口），卡片只提供「在 Obsidian 打开原文」。
 - 诊断与恢复：数据库完整性、表计数、Vault 文件数、备份复验、恢复副本只读验证、一键恢复演练。

@@ -1,13 +1,14 @@
 # 薪火OS（Torch OS）· 0.99
 
 > 一个**本地优先**的个人 AI 工作台：记录、记忆、目标与时间管理都住在你自己的电脑上。
-> 数据是本体，DeepSeek Harness 是唯一的 AI 入口——它直接读写当前库，重要改动请自行备份。
+> 数据是本体，对话由本地 DeepSeek Harness 提供；它直接读写当前库，重要改动请自行备份。
 >
 > *A local-first personal AI workbench. Your data stays on your machine, in plain Markdown.*
 
 本地服务跑在 `127.0.0.1`，用 Obsidian（或任意浏览器）当界面；人生路、自我档案、生活运营、
 知识库与任务都以 **Markdown 文件**为数据本体，SQLite 只做索引、投影与审核状态。
-torch 自身不联网、不保存模型密钥；AI 由本地 DeepSeek Harness（dsh）提供。
+torch 的普通资料与任务功能不联网、不保存 dsh 密钥；对话由本地 DeepSeek Harness（dsh）提供，
+恋爱系统的 AI 分析则使用你自己单独配置、加密保存在本机的 DeepSeek Key。
 
 ## 能干什么
 
@@ -44,6 +45,13 @@ torch 自身不联网、不保存模型密钥；AI 由本地 DeepSeek Harness（
 - **生活运营**：健康与体重、财富与记账、体检与医疗、证件与事务。体重/账目按「月度 Markdown
   表」保存，每行有稳定 `row_id`；页面只读展示，点「在 Obsidian 打开月度表」到 Obsidian 里
   新增、修改或删除行。
+- **恋爱系统（原生，2026-10-26）**：生活运营二级菜单 →「恋爱系统」，不是新的顶层模块，也不再启动
+  原来的 Electron/FastAPI 服务。直接读写原「恋爱分析助手」的本机 SQLite（默认
+  `%LOCALAPPDATA%\love-analysis-assistant\love_analysis.db`），已有项目、23700+ 条消息、
+  画像与 55 篇日志原样可用。原生页面包含总览、聊天导入、统计趋势/回复间隔/媒体/高频词、
+  AI 深度分析、画像锁定与编辑、恋爱日志、HTML 报告打印，以及丽洁追踪（交路表 Excel +
+  车次时刻表 + 沿线天气）。AI 只在你点击时调用 DeepSeek，发送前脱敏姓名、电话、证件、邮箱、
+  链接与银行卡号；Key 加密保存在原数据库同目录，不进 Obsidian 库、不参与普通导出。
 - **知识库**：收件箱、主题笔记、读书笔记、课程笔记、概念卡片、方法库、输出与作品。
   「＋ 在 Obsidian 新建」默认落在收件箱；整理建议按目标章节分组、标注置信度，
   只读展示，移动/改名请到 Obsidian 里做。
@@ -70,8 +78,9 @@ torch 自身不联网、不保存模型密钥；AI 由本地 DeepSeek Harness（
   `_系统`/`任务`、`.torch-os/vault-layout.json`、`.obsidian` 预设与 torch 插件、种子身份笔记
   一次成型，不碰当前库、不覆盖非空文件夹。切库在 Obsidian 里打开另一个库即可（每个库自己的
   后端从 9168 起挑端口）；浏览器模式仍用「切换到此工作区」写 `.env`、重启服务后生效。
-- **DeepSeek Harness**：唯一的 AI 入口。torch 提供 12 个只读 MCP 工具供 dsh 读取四库；
-  模型与凭据由 dsh 自己管理，torch 不保存、不回显、不导出。
+- **DeepSeek Harness**：对话的唯一 AI 入口。torch 提供 12 个只读 MCP 工具供 dsh 读取四库；
+  模型与凭据由 dsh 自己管理，torch 不保存、不回显、不导出 dsh 的密钥。
+  「恋爱系统」是独立功能，使用它自己的可选 DeepSeek Key（AES-GCM 加密在本机），两者互不读取。
 
 ## 截图
 

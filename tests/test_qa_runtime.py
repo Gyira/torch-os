@@ -117,6 +117,12 @@ def test_qa_has_no_chat_or_model_surface(project):
     assert client.patch(f"/api/memories/{memory['id']}/status", json={'status': 'active'}).status_code == 200
     assert client.post('/api/chat', json={'message': '虚构问题'}).status_code == 404
     assert client.post('/api/config/model-key', json={'api_key': 'test', 'confirm': True}).status_code == 404
+    # 恋爱系统属于个人真实数据：QA 必须连路由都不存在。
+    assert client.get('/api/love/status').status_code == 404
+    assert client.get('/api/love/lijie/status').status_code == 404
+    status = client.get('/api/config/status').json()
+    assert status['capabilities']['love'] is False
+    assert status['capabilities']['love_lijie'] is False
     assert app.state.dsh_runtime.status()['state'] == 'disabled'
 
 
