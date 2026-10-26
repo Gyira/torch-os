@@ -139,8 +139,11 @@ def describe_workspaces(entries: list[dict[str, Any]], *, data_dir: Path, vault_
             active_name = entry["name"]
         listed.append(item)
     if active_name is None:
-        name = os.getenv("WORKSPACE_NAME", "").strip() or (
-            DEFAULT_NAME if runtime_label == "personal" else "当前工作区")
+        if runtime_label == "personal":
+            name = os.getenv("WORKSPACE_NAME", "").strip() or DEFAULT_NAME
+        else:
+            # QA 不继承个人的 WORKSPACE_NAME（.env 可能被前面的测试加载进环境）。
+            name = "当前工作区"
         listed.insert(0, {
             "name": name,
             "folder": str(vault_dir),
@@ -151,8 +154,11 @@ def describe_workspaces(entries: list[dict[str, Any]], *, data_dir: Path, vault_
         })
         active_name = name
     if runtime_label != "personal":
-        # QA 隔离环境只展示它自己，不暴露个人工作区列表。
+        # QA 隔离环境只展示它自己，不暴露个人工作区列表或名字。
         listed = [item for item in listed if item["active"]]
+        for item in listed:
+            item["name"] = "当前工作区"
+        active_name = "当前工作区"
     return {
         "workspaces": listed,
         "active": active_name,
