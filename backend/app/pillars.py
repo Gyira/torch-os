@@ -7,12 +7,25 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import goal_notes, journal_note, pillar_notes, steward, steward_policy, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
+from .vault import safe_note_path
+
+# 四库阅读视图只展示位图附件；SVG 不在这里直出，避免同源脚本风险。
+ASSET_TYPES = {
+    '.avif': 'image/avif',
+    '.bmp': 'image/bmp',
+    '.gif': 'image/gif',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+}
 
 
 class SuggestRequest(BaseModel):
@@ -129,6 +142,21 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
     @router.get("/notes/backlinks")
     def note_backlinks(path: str = Query(min_length=1)):
         return {"items": pillar_notes.backlinks(vault_dir, path)}
+
+    @router.get("/notes/asset")
+    def note_asset(path: str = Query(min_length=1)):
+        """四库阅读视图的本地图片：只允许库内位图，路径与符号链接沿用 vault 的同一套校验。"""
+        try:
+            target = safe_note_path(Path(vault_dir), path)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        media_type = ASSET_TYPES.get(target.suffix.lower())
+        if not media_type:
+            raise HTTPException(415, "只支持 png/jpg/jpeg/gif/webp/avif/bmp 图片")
+        if not target.is_file():
+            raise HTTPException(404, "图片不存在")
+        return FileResponse(target, media_type=media_type,
+                            headers={"Cache-Control": "no-store"})
 
     @router.get("/search")
     def search(q: str = Query(min_length=1), pillar: str = Query(default=""),

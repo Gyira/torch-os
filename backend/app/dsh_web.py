@@ -27,6 +27,29 @@ _SECRET = re.compile(r"\bsk-[A-Za-z0-9_-]+")
 _MAX_LOG = 24
 _REDACTED = "***"
 
+# dsh 的工作流规则是项目的一部分（`torch-os/dsh/AGENTS.md`），不放在数据库里。
+# 启动 dsh 时把 DSH_AGENTS_HOME 指向这里，dsh 会把它当成共享 agents 目录加载 AGENTS.md；
+# 换库、换工作区都直接生效，不需要往用户目录或库里复制规则文件。
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_DIR = PROJECT_ROOT / "dsh"
+
+
+def workflow_environment(environ: dict[str, str] | None = None,
+                         repo_root: Path | None = None) -> dict[str, str]:
+    """给 dsh 子进程准备环境：项目内置规则 + 稳定的仓库路径。
+
+    显式设置的值优先（例如用户自己指定 DSH_AGENTS_HOME）；只有规则文件存在时才注入，
+    避免把 dsh 指到一个空目录。
+    """
+    env = dict(os.environ if environ is None else environ)
+    root = Path(repo_root) if repo_root is not None else PROJECT_ROOT
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("TORCH_REPO_ROOT", str(root))
+    workflow = root / "dsh"
+    if (workflow / "AGENTS.md").is_file():
+        env.setdefault("DSH_AGENTS_HOME", str(workflow))
+    return env
+
 
 class DshError(RuntimeError):
     """A dsh process could not be started or reached readiness."""
@@ -286,8 +309,7 @@ class DshWebRuntime:
                 self._record(self.error)
                 return
             self._record(f"starting {' '.join(args[:3])} (cwd={self.workspace})")
-            env = dict(self.environ)
-            env.setdefault("PYTHONUTF8", "1")
+            env = workflow_environment(self.environ)
             kwargs: dict[str, Any] = {
                 "cwd": str(self.workspace),
                 "env": env,

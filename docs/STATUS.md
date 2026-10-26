@@ -22,6 +22,10 @@
 
 ## 已完成
 
+- **2026-10-26 dsh 工作流内置到项目**：规则正文放在 `dsh/AGENTS.md`（不写进数据库、不复制到用户目录）；
+  torch 启动 dsh 时注入 `DSH_AGENTS_HOME=<仓库>/dsh` 与 `TORCH_REPO_ROOT=<仓库>`，任何库/任何工作区
+  的新会话都自动加载。配套 `scripts/session_brief.py`（只读开场简报）与 `tests/test_dsh_workflow.py`
+  （规则章节路径与 `vault_layout` 同步的守卫）；见 `docs/DSH_WORKFLOW.md`。
 - **2026-10-26 人生路布局 v2（分组侧边栏 + 迁移）**：`LAYOUT_VERSION` 升到 `pillars-v2`，
   人生路新增四个一级分组（心得体会 / 反思复盘 / 目标 / 项目）；`chapter_manifest()` 每库返回
   `groups`（只有人生路非空，其它三库 `[]`），顺序与章节 key 引用写在 `CHAPTER_GROUPS`。

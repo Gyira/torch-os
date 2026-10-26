@@ -1100,6 +1100,119 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-note-body code { background: var(--p-surface-2); border-radius: 5px; padding: 1px 5px; }
 .pillar-note-body blockquote { margin: .8em 0; padding: .2em 1em; border-left: 3px solid var(--pillar-accent); background: var(--pillar-soft); color: var(--p-ink-2); }
 .pillar-wikilink { color: var(--pillar-accent); }
+/* 四库页内阅读视图（2026-10-26）：Obsidian 风格 Markdown 排版，编辑仍在 Obsidian。 */
+.pillar-layout.is-reading { grid-template-columns: 210px minmax(0, 1fr); }
+.pillar-reader { min-width: 0; }
+.pillar-reader-bar { position: sticky; top: var(--panel-nav-h, 0px); z-index: 4; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 10px 0 12px; margin-bottom: 18px; background: var(--p-bg); border-bottom: 1px solid var(--p-line); }
+.pillar-reader-back { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--p-line-input); border-radius: 999px; background: var(--p-surface); color: var(--p-ink-2); padding: 6px 12px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.pillar-reader-back:hover { border-color: var(--pillar-accent); color: var(--pillar-accent); background: var(--pillar-soft); }
+.pillar-reader-crumbs { margin: 0; color: var(--p-ink-5); font-size: 12px; letter-spacing: .02em; }
+.pillar-reader-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pillar-reader-grid { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 30px; align-items: start; }
+.pillar-reader-article { min-width: 0; background: var(--p-surface); border: 1px solid var(--p-line); border-radius: 20px; padding: clamp(24px, 3.6vw, 48px); box-shadow: 0 26px 60px -34px var(--p-shadow); }
+.pillar-reader-head { padding-bottom: 22px; margin-bottom: 26px; border-bottom: 1px solid var(--p-line); }
+.pillar-reader-head .eyebrow { color: var(--pillar-accent); }
+.pillar-reader-head h1 { margin: 6px 0 10px; font-family: var(--p-font-display); font-size: clamp(25px, 3vw, 34px); line-height: 1.35; letter-spacing: .01em; color: var(--p-ink-strong); }
+.pillar-reader-head h1:focus { outline: none; }
+.pillar-reader-meta { margin: 0; color: var(--p-ink-5); font-size: 12px; }
+.pillar-reader-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.pillar-reader-tag { border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface-2); color: var(--p-ink-3); padding: 3px 9px; font-size: 11.5px; }
+.pillar-reader-toc { position: sticky; top: calc(var(--panel-nav-h, 0px) + 68px); max-height: calc(100vh - var(--panel-nav-h, 0px) - 96px); overflow-y: auto; padding-top: 4px; }
+.pillar-reader-toc .eyebrow { margin: 0 0 8px; color: var(--pillar-accent); }
+.pillar-reader-toc a { display: block; padding: 4px 0 4px 10px; border-left: 2px solid var(--p-line); color: var(--p-ink-4); font-size: 12.5px; line-height: 1.5; text-decoration: none; overflow-wrap: anywhere; }
+.pillar-reader-toc a.is-sub { padding-left: 20px; font-size: 12px; }
+.pillar-reader-toc a:hover { color: var(--pillar-accent); border-left-color: var(--pillar-accent); }
+.pillar-reader-section { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--p-line); }
+.pillar-reader-section h2 { margin: 0 0 12px; font-family: var(--p-font-display); font-size: 18px; color: var(--p-ink-strong); }
+.pillar-reader-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pillar-reader-section-head h2 { margin-bottom: 12px; }
+.pillar-reader-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pillar-reader-tasks li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2); }
+.pillar-reader-tasks li.is-done .pillar-reader-task-title { text-decoration: line-through; color: var(--p-ink-5); }
+.pillar-reader-task-title { overflow-wrap: anywhere; }
+.pillar-reader-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.pillar-reader-link { border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface-2); color: var(--p-ink-2); padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.pillar-reader-link:hover { border-color: var(--pillar-accent); color: var(--pillar-accent); }
+.pillar-reader-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--p-line); }
+.pillar-reader-foot .field-help { margin: 0; }
+.pillar-reader-empty { color: var(--p-ink-4); }
+
+/* 阅读视图正文：所有 Markdown 元素共用这一套排版。 */
+.md-body { color: var(--p-ink); font-size: 15.5px; line-height: 1.9; overflow-wrap: anywhere; }
+.md-body > :first-child { margin-top: 0; }
+.md-body > :last-child { margin-bottom: 0; }
+.md-body p { margin: .85em 0; }
+.md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { font-family: var(--p-font-display); color: var(--p-ink-strong); line-height: 1.45; scroll-margin-top: calc(var(--panel-nav-h, 0px) + 76px); }
+.md-body h2 { margin: 1.7em 0 .55em; padding-top: .15em; font-size: 24px; }
+.md-body h3 { margin: 1.5em 0 .45em; font-size: 19px; }
+.md-body h4 { margin: 1.3em 0 .4em; font-size: 16.5px; }
+.md-body h5, .md-body h6 { margin: 1.2em 0 .35em; font-size: 15px; letter-spacing: .02em; }
+.md-body h2 + p, .md-body h3 + p { margin-top: .3em; }
+.md-body strong { color: var(--p-ink-strong); font-weight: 650; }
+.md-body em { color: var(--p-ink-2); }
+.md-body a { color: var(--pillar-accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--pillar-accent) 35%, transparent); }
+.md-body a:hover { border-bottom-color: var(--pillar-accent); }
+.md-body .md-anchor { border-bottom-style: dashed; }
+.md-body .md-autolink { word-break: break-all; }
+.md-body code { font-family: "Cascadia Code", "JetBrains Mono", Consolas, "SFMono-Regular", monospace; font-size: .86em; background: var(--p-surface-2); border: 1px solid var(--p-line); border-radius: 5px; padding: 1px 5px; color: var(--p-warm-ink); }
+.md-body pre.md-code { position: relative; margin: 1.1em 0; padding: 16px 18px; background: var(--p-surface-2); border: 1px solid var(--p-line); border-radius: 12px; overflow: auto; line-height: 1.65; }
+.md-body pre.md-code::before { content: attr(data-lang); position: absolute; top: 7px; right: 12px; color: var(--p-ink-5); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.md-body pre.md-code:not([data-lang])::before { content: ""; }
+.md-body pre.md-code code { background: none; border: 0; padding: 0; color: var(--p-ink); font-size: 12.5px; }
+.md-body ul, .md-body ol { margin: .7em 0; padding-left: 1.6em; }
+.md-body li { margin: .3em 0; }
+.md-body li > ul, .md-body li > ol { margin: .2em 0; }
+.md-body ul.md-task-list { list-style: none; padding-left: .2em; }
+.md-body li.md-task-item { list-style: none; }
+.md-body li.md-task-item input { margin: 0 7px 0 0; vertical-align: -1px; accent-color: var(--pillar-accent); width: 15px; height: 15px; }
+.md-body blockquote.md-quote { margin: 1.1em 0; padding: .6em 1.1em; border-left: 3px solid var(--pillar-accent); border-radius: 0 10px 10px 0; background: var(--pillar-soft); color: var(--p-ink-2); }
+.md-body blockquote.md-quote p { margin: .4em 0; }
+.md-body .md-callout { --callout-color: var(--pillar-accent); margin: 1.2em 0; padding: 14px 16px 14px 18px; border-left: 3px solid var(--callout-color); border-radius: 0 12px 12px 0; background: color-mix(in srgb, var(--callout-color) 8%, var(--p-surface)); }
+.md-body .md-callout-title { display: flex; align-items: baseline; gap: 8px; margin: 0 0 .35em; color: color-mix(in srgb, var(--callout-color) 70%, var(--p-ink-strong)); font-weight: 700; font-size: 14px; }
+.md-body .md-callout-icon { font-size: 15px; }
+.md-body .md-callout-body > :first-child { margin-top: .2em; }
+.md-body .md-callout-body > :last-child { margin-bottom: .2em; }
+.md-body .md-callout-note, .md-body .md-callout-info { --callout-color: var(--p-pillar-knowledge); }
+.md-body .md-callout-important { --callout-color: var(--p-pillar-self); }
+.md-body .md-callout-tip, .md-body .md-callout-hint, .md-body .md-callout-success, .md-body .md-callout-check, .md-body .md-callout-done { --callout-color: var(--p-pillar-ops); }
+.md-body .md-callout-warning, .md-body .md-callout-caution, .md-body .md-callout-attention { --callout-color: var(--p-warn-ink); }
+.md-body .md-callout-danger, .md-body .md-callout-error, .md-body .md-callout-failure, .md-body .md-callout-fail, .md-body .md-callout-missing, .md-body .md-callout-bug { --callout-color: var(--p-err-ink); }
+.md-body .md-callout-question, .md-body .md-callout-help, .md-body .md-callout-faq { --callout-color: var(--p-pillar-self); }
+.md-body .md-callout-example, .md-body .md-callout-todo { --callout-color: var(--p-pillar-knowledge); }
+.md-body .md-callout-quote, .md-body .md-callout-cite { --callout-color: var(--p-ink-5); }
+.md-body .md-callout-idea { --callout-color: var(--p-accent); }
+.md-body .md-table-wrap { margin: 1.2em 0; overflow-x: auto; border: 1px solid var(--p-line); border-radius: 12px; }
+.md-body table.md-table { width: 100%; border-collapse: collapse; font-size: 13.5px; line-height: 1.65; }
+.md-body table.md-table th { background: var(--p-surface-2); color: var(--p-ink-strong); font-weight: 650; text-align: left; }
+.md-body table.md-table th, .md-body table.md-table td { padding: 9px 12px; border-bottom: 1px solid var(--p-line-faint); vertical-align: top; }
+.md-body table.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-body table.md-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--p-surface-2) 55%, transparent); }
+.md-body table.md-table .md-align-center { text-align: center; }
+.md-body table.md-table .md-align-right { text-align: right; }
+.md-body .md-image { display: block; margin: 1.2em 0; }
+.md-body .md-image img { display: block; max-width: 100%; height: auto; border: 1px solid var(--p-line); border-radius: 12px; }
+.md-body .md-image-caption { display: block; margin-top: 6px; color: var(--p-ink-5); font-size: 12px; text-align: center; }
+.md-body .md-image-link { color: var(--p-ink-4); font-size: 13px; }
+.md-body .md-image-missing { display: inline-flex; gap: 6px; padding: 4px 8px; border: 1px dashed var(--p-line-2); border-radius: 8px; color: var(--p-ink-4); font-size: 13px; }
+.md-body .md-wikilink { display: inline; border: 0; background: transparent; padding: 0; font: inherit; color: var(--pillar-accent); cursor: pointer; border-bottom: 1px dashed color-mix(in srgb, var(--pillar-accent) 45%, transparent); }
+.md-body .md-wikilink:hover { border-bottom-style: solid; }
+.md-body .md-embed { display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--p-line-2); border-radius: 8px; background: var(--p-surface-2); color: var(--p-ink-2); padding: 4px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+.md-body .md-embed:hover { border-color: var(--pillar-accent); color: var(--pillar-accent); }
+.md-body .md-tag { display: inline-block; border-radius: 999px; background: var(--pillar-soft); color: var(--pillar-accent); padding: 0 7px; font-size: .85em; line-height: 1.6; }
+.md-body mark.md-highlight { background: color-mix(in srgb, var(--pillar-accent) 22%, transparent); color: inherit; padding: 0 2px; border-radius: 3px; }
+.md-body del { color: var(--p-ink-4); }
+.md-body hr.md-hr { border: 0; height: 1px; margin: 2em 0; background: var(--p-line-2); }
+@media (max-width: 1180px) {
+  .pillar-layout.is-reading { grid-template-columns: 1fr; }
+  .pillar-reader-grid { grid-template-columns: 1fr; }
+  .pillar-reader-bar { position: static; }
+  .pillar-reader-toc { display: none; }
+}
+@media (max-width: 720px) {
+  .pillar-reader-article { padding: 22px 18px 26px; border-radius: 14px; }
+  .pillar-reader-foot { flex-direction: column; align-items: flex-start; }
+  .pillar-reader-actions { width: 100%; margin-left: 0; }
+}
 .pillar-capture-form { display: flex; flex-direction: column; gap: 12px; padding: 18px 22px 20px; }
 .pillar-capture-form .field { display: flex; flex-direction: column; gap: 5px; }
 .pillar-capture-form input, .pillar-capture-form textarea, .pillar-capture-form select { width: 100%; padding: 8px 10px; border: 1px solid var(--p-line-input); border-radius: 9px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 13px; }

@@ -70,6 +70,29 @@ def test_read_and_search(tmp_path):
     assert any(item["path"] == note["path"] for item in found)
 
 
+def test_note_asset_serves_only_vault_images(tmp_path):
+    client, vault = make_client(tmp_path)
+    image = vault / "03_知识库" / "00_收件箱" / "cover.png"
+    image.parent.mkdir(parents=True, exist_ok=True)
+    payload = b"\x89PNG\r\n\x1a\nfake"
+    image.write_bytes(payload)
+
+    response = client.get(
+        "/api/notes/asset", params={"path": "03_知识库/00_收件箱/cover.png"})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == payload
+
+    outside = client.get("/api/notes/asset", params={"path": "../outside.png"})
+    assert outside.status_code == 400
+    wrong_type = client.get(
+        "/api/notes/asset", params={"path": "03_知识库/00_收件箱/cover.md"})
+    assert wrong_type.status_code == 415
+    missing = client.get(
+        "/api/notes/asset", params={"path": "03_知识库/00_收件箱/missing.png"})
+    assert missing.status_code == 404
+
+
 def test_create_note_does_not_overwrite_same_title(tmp_path):
     _, vault = make_client(tmp_path)
     first = pillar_notes.create_note(vault, title="同名", body="一")

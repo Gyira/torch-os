@@ -20,7 +20,7 @@ function proposalMarkup(item) {
     <p class="steward-route"><span>${escapeHtml(item.path)}</span><b aria-hidden="true">→</b><strong>${escapeHtml(target)}</strong></p>
     <p class="field-help">${escapeHtml(item.reason)}</p>
     <div class="steward-proposal-actions">
-      <button type="button" class="button secondary" data-steward-open-note="${escapeHtml(item.path)}">在 Obsidian 打开原文</button>
+      <button type="button" class="button secondary" data-steward-open-obsidian="${escapeHtml(item.path)}">在 Obsidian 打开原文</button>
     </div>
   </article>`;
 }
@@ -58,7 +58,7 @@ function healthMarkup(payload, filter = "all") {
     <p class="field-help steward-footnote">${escapeHtml(payload.note || "")}${payload.truncated ? " 结果较多，已只显示前一部分。" : ""}</p>`;
 }
 
-export function openSteward(view, { onOpenNote } = {}) {
+export function openSteward(view, { onOpenNote, onOpenObsidian } = {}) {
   const trigger = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "pillar-dialog pillar-steward-dialog";
@@ -151,6 +151,12 @@ export function openSteward(view, { onOpenNote } = {}) {
     if (healthFilterButton) {
       healthFilter = healthFilterButton.dataset.stewardHealthFilter === "all" ? "all" : "issues";
       if (healthData) body.innerHTML = healthMarkup(healthData, healthFilter);
+      return;
+    }
+    const openInObsidian = event.target.closest?.("[data-steward-open-obsidian]");
+    if (openInObsidian) {
+      const path = openInObsidian.dataset.stewardOpenObsidian;
+      if (path) { close(); onOpenObsidian?.(path); }
       return;
     }
     const open = event.target.closest?.("[data-steward-open-note]");

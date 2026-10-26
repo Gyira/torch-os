@@ -38,8 +38,8 @@ const LIFE_CHAPTERS = [
 ].map(([key, title]) => ({ key, title, path: `00_人生路/${key}`, default_type: "note" }));
 
 const IMPORTS = {
-  "./core.js": ["$", "api", "escapeHtml", "formatRelativeDate", "toast"],
-  "./pillar-markdown.js": ["renderMarkdown"],
+  "./core.js": ["$", "api", "escapeHtml", "formatRelativeDate", "state", "toast"],
+  "./pillar-markdown.js": ["renderMarkdownDocument"],
   "./pillar-ops.js": ["bindOpsEvents", "mountOps"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
   "./pillar-steward.js": ["openSteward"],

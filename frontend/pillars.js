@@ -1,8 +1,8 @@
 // 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
 // 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
 // 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
-import { $, api, escapeHtml, formatRelativeDate, toast } from "./core.js";
-import { renderMarkdown } from "./pillar-markdown.js";
+import { $, api, escapeHtml, formatRelativeDate, state as appState, toast } from "./core.js";
+import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
@@ -71,6 +71,8 @@ const state = {
   notes: {},
   search: {},
   searchSeq: {},
+  // 每个库当前的页内阅读状态：{ note, backlinks, linkedTasks, doc, scrollY, focusPending }。
+  reading: {},
 };
 
 async function ensureManifest() {
@@ -246,6 +248,87 @@ function noteRow(note) {
   </button>`;
 }
 
+function readerNoteTitle(note) {
+  const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
+  return journalLabel ? `日记 · ${journalLabel}` : note.title;
+}
+
+/** 页内阅读视图：渲染后的 Markdown 正文 + 目录 + 关联任务/反向链接，编辑统一回 Obsidian。 */
+function readerMarkup(view, reading, railItems) {
+  const { note } = reading;
+  const meta = PILLAR_META[view];
+  const displayTitle = readerNoteTitle(note);
+  const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
+  if (!reading.doc) {
+    reading.doc = renderMarkdownDocument(note.body || "", { notePath: note.path });
+  }
+  const doc = reading.doc;
+  const toc = doc.headings.filter((item) => item.level >= 2 && item.level <= 4);
+  const tags = Array.isArray(note.tags) ? note.tags : [];
+  const backlinks = Array.isArray(reading.backlinks) ? reading.backlinks : [];
+  const linkedTasks = Array.isArray(reading.linkedTasks) ? reading.linkedTasks : [];
+  const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
+  const date = !journalLabel && note.date
+    ? ` · ${escapeHtml(formatRelativeDate(note.date))}`
+    : "";
+  const tagsMarkup = tags.length
+    ? `<div class="pillar-reader-tags">${tags.map((tag) => `<span class="pillar-reader-tag">${escapeHtml(tag)}</span>`).join("")}</div>`
+    : "";
+  const tocMarkup = toc.length >= 2
+    ? `<aside class="pillar-reader-toc" aria-label="目录"><p class="eyebrow">目录</p>${toc.map((item) => `<a class="${item.level >= 3 ? "is-sub" : ""}" href="#${escapeHtml(item.id)}">${escapeHtml(item.text)}</a>`).join("")}</aside>`
+    : "";
+  const linkedSection = GOAL_CHAPTERS.has(note.chapter)
+    ? `<section class="pillar-reader-section">
+        <div class="pillar-reader-section-head"><h2>关联任务</h2><span class="meta">${openLinkedCount} 项未完成</span></div>
+        ${linkedTasks.length ? `<ul class="pillar-reader-tasks">${linkedTasks.map((task) => `<li class="${task.done ? "is-done" : ""}">
+          <span class="pillar-reader-task-title">${escapeHtml(task.title)}</span>
+          <span class="meta">${task.done ? "已完成" : escapeHtml(task.date || "未排期")}</span>
+          <button type="button" class="text-button" data-open-linked-task="${escapeHtml(task.key)}">在 Obsidian 打开</button>
+        </li>`).join("")}</ul>` : `<p class="field-help">还没有任务关联到这个目标；可在资料导入时选择它，或直接在任务笔记 frontmatter 写「目标」。</p>`}
+        <p class="field-help">任务来自时间管理的一任务一笔记；这里只读，编辑请到工作台或 Obsidian。</p>
+      </section>`
+    : "";
+  const backlinksSection = backlinks.length
+    ? `<section class="pillar-reader-section">
+        <h2>反向链接</h2>
+        <div class="pillar-reader-links">${backlinks.map((item) => `<button type="button" class="pillar-reader-link" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}</div>
+      </section>`
+    : "";
+  return `
+    <div class="pillar-layout is-reading">
+      <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">${railItems}</nav>
+      <section class="pillar-reader" aria-label="${escapeHtml(displayTitle)}">
+        <div class="pillar-reader-bar">
+          <button type="button" class="pillar-reader-back" data-reader-back="${view}"><span aria-hidden="true">←</span> 返回列表</button>
+          <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(chapterTitle(view, note.chapter))}</p>
+          <div class="pillar-reader-actions">
+            <button type="button" class="button primary" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
+            <button type="button" class="small-button" data-reader-copy-wikilink="${view}" title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
+            <button type="button" class="small-button" data-reader-copy-path="${view}">复制路径</button>
+          </div>
+        </div>
+        <div class="pillar-reader-grid">
+          <article class="pillar-reader-article">
+            <header class="pillar-reader-head">
+              <p class="eyebrow">${escapeHtml(chapterTitle(view, note.chapter))}</p>
+              <h1 tabindex="-1">${escapeHtml(displayTitle)}</h1>
+              <p class="pillar-reader-meta">${escapeHtml(note.path)}${date}</p>
+              ${tagsMarkup}
+            </header>
+            <div class="md-body">${doc.html || `<p class="pillar-reader-empty">这篇笔记还没有正文。在 Obsidian 里写点什么吧。</p>`}</div>
+            ${linkedSection}
+            ${backlinksSection}
+            <footer class="pillar-reader-foot">
+              <p class="field-help">这是只读阅读视图；正文、标签和所在章节都在 Obsidian 里改。</p>
+              <button type="button" class="button primary" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
+            </footer>
+          </article>
+          ${tocMarkup}
+        </div>
+      </section>
+    </div>`;
+}
+
 function renderShell(view) {
   const root = $(`#${view}-view .pillar-shell`);
   if (!root) return null;
@@ -268,7 +351,7 @@ function renderShell(view) {
   const railItems = rail.items.map((item) => (item.type === "group"
     ? railGroupMarkup(view, item, collapsedGroups, chapter, countFor)
     : railChapterMarkup(view, item, chapter, countFor(item.key)))).join("");
-  root.innerHTML = `
+  const headHtml = `
     <header class="pillar-head">
       <div class="pillar-head-main">
         <span class="pillar-icon" aria-hidden="true">${escapeHtml(meta.icon)}</span>
@@ -285,7 +368,18 @@ function renderShell(view) {
         <button type="button" class="button secondary" data-steward-open="${view}" title="提案与健康检查（只读）">管家</button>
         <button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>
       </div>
-    </header>
+    </header>`;
+  const reading = state.reading[view];
+  if (reading) {
+    root.innerHTML = `${headHtml}${readerMarkup(view, reading, railItems)}`;
+    if (reading.focusPending) {
+      reading.focusPending = false;
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      root.querySelector(".pillar-reader-head h1")?.focus?.({ preventScroll: true });
+    }
+    return root;
+  }
+  root.innerHTML = `${headHtml}
     <div class="pillar-layout">
       <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
         <button type="button" class="pillar-rail-item${chapter ? "" : " is-active"}" data-pillar-chapter="${view}" data-chapter="">总览
@@ -404,7 +498,7 @@ async function mountInboxSuggestions() {
           <p class="field-help">${escapeHtml(item.reason)}</p>
         </div>
         <div class="pillar-suggestion-actions">
-          <button type="button" class="small-button" data-note-path="${escapeHtml(item.path)}">在 Obsidian 打开</button>
+          <button type="button" class="small-button" data-obsidian-note-path="${escapeHtml(item.path)}" data-obsidian-pillar="knowledge">在 Obsidian 打开</button>
         </div>
       </div>`).join("")}
     </div>`).join("")}
@@ -436,10 +530,69 @@ async function loadPillar(view, { keepChapter = false } = {}) {
 
 function bindPillarEvents() {
   document.addEventListener("click", async (event) => {
+    const readerBack = event.target.closest?.("[data-reader-back]");
+    if (readerBack) {
+      closeReader(readerBack.dataset.readerBack || appState.view);
+      return;
+    }
+    const readerOpen = event.target.closest?.("[data-reader-open-obsidian]");
+    if (readerOpen) {
+      const view = readerOpen.dataset.readerOpenObsidian || appState.view;
+      const reading = state.reading[view];
+      if (reading) openVaultNote(state.overviews[view]?.vault_name || "", reading.note.path);
+      return;
+    }
+    const readerCopyLink = event.target.closest?.("[data-reader-copy-wikilink]");
+    if (readerCopyLink) {
+      const view = readerCopyLink.dataset.readerCopyWikilink || appState.view;
+      const reading = state.reading[view];
+      if (!reading) return;
+      const copied = await copyText(readerWikiLink(reading.note, readerNoteTitle(reading.note)));
+      toast(copied ? "已复制双链，可直接粘贴到 Obsidian。" : "复制失败，请手动复制路径。", copied ? "info" : "warning");
+      return;
+    }
+    const readerCopyPath = event.target.closest?.("[data-reader-copy-path]");
+    if (readerCopyPath) {
+      const view = readerCopyPath.dataset.readerCopyPath || appState.view;
+      const reading = state.reading[view];
+      if (!reading) return;
+      const copied = await copyText(reading.note.path);
+      toast(copied ? "已复制路径。" : "复制失败，请手动选择路径。", copied ? "info" : "warning");
+      return;
+    }
+    const wiki = event.target.closest?.("[data-md-note]");
+    if (wiki) {
+      await openWikiTarget(wiki.dataset.mdNote);
+      return;
+    }
+    const linkedTask = event.target.closest?.("[data-open-linked-task]");
+    if (linkedTask) {
+      const view = appState.view;
+      const reading = state.reading[view];
+      const task = reading?.linkedTasks?.find((item) => item.key === linkedTask.dataset.openLinkedTask);
+      if (!task) return;
+      if (!openTaskDocument(task, { vault_name: state.overviews[view]?.vault_name || "" })) {
+        toast("没有可打开的任务文档，请刷新后重试。", "warning");
+      }
+      return;
+    }
+    const backlink = event.target.closest?.("[data-backlink-path]");
+    if (backlink) {
+      await openNote(backlink.dataset.backlinkPath);
+      return;
+    }
+    const obsidianNote = event.target.closest?.("[data-obsidian-note-path]");
+    if (obsidianNote) {
+      const view = obsidianNote.dataset.obsidianPillar || appState.view;
+      openVaultNote(state.overviews[view]?.vault_name || "", obsidianNote.dataset.obsidianNotePath);
+      return;
+    }
     const steward = event.target.closest?.("[data-steward-open]");
     if (steward) {
-      openSteward(steward.dataset.stewardOpen, {
+      const stewardView = steward.dataset.stewardOpen;
+      openSteward(stewardView, {
         onOpenNote: (path) => openNote(path),
+        onOpenObsidian: (path) => openVaultNote(vaultNameFor(stewardView), path),
       });
       return;
     }
@@ -474,6 +627,7 @@ function bindPillarEvents() {
     if (chapter) {
       const view = chapter.dataset.pillarChapter;
       const fromRail = chapter.classList?.contains("pillar-rail-item");
+      state.reading[view] = null;
       state.chapter[view] = chapter.dataset.chapter || "";
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
@@ -533,6 +687,7 @@ function bindPillarEvents() {
     state.searchSeq[view] = seq;
     search._timer = window.setTimeout(async () => {
       try {
+        state.reading[view] = null;
         state.chapter[view] = "";
         const query = state.search[view];
         const items = query.trim()
@@ -548,6 +703,16 @@ function bindPillarEvents() {
         if (state.searchSeq[view] === seq) toast(error.message, "error");
       }
     }, 220);
+  });
+  // Esc 退出页内阅读；有弹窗时让弹窗先处理。
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (document.querySelector("dialog[open]")) return;
+    const view = appState.view;
+    if (view && state.reading[view]) {
+      event.preventDefault();
+      closeReader(view);
+    }
   });
 }
 
@@ -574,12 +739,12 @@ async function copyText(text) {
   }
 }
 
-export function openNote(path) {
-  const trigger = document.activeElement;
-  Promise.all([
-    api(`/api/notes?path=${encodeURIComponent(path)}`),
-    api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
-  ]).then(async ([note, links]) => {
+export async function openNote(path) {
+  try {
+    const [note, links] = await Promise.all([
+      api(`/api/notes?path=${encodeURIComponent(path)}`),
+      api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
+    ]);
     const backlinks = Array.isArray(links.items) ? links.items : [];
     let linkedTasks = [];
     if (GOAL_CHAPTERS.has(note.chapter)) {
@@ -590,82 +755,66 @@ export function openNote(path) {
         linkedTasks = [];
       }
     }
-    const dialog = document.createElement("dialog");
-    dialog.className = "pillar-dialog pillar-note-dialog";
-    const vaultName = state.overviews[note.pillar]?.vault_name || "";
-    const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
-    const displayTitle = journalLabel ? `日记 · ${journalLabel}` : note.title;
-    const isTaskNote = note.chapter === "task";
-    const wikiLink = `[[${note.path.replace(/\.md$/i, "")}|${String(displayTitle).replace(/\|/g, "｜")}]]`;
-    const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
-    dialog.innerHTML = `
-      <div class="pillar-dialog-head">
-        <div>
-          <p class="eyebrow">${escapeHtml(chapterTitle(note.pillar, note.chapter))}</p>
-          <h2>${escapeHtml(displayTitle)}</h2>
-          <p class="meta">${escapeHtml(note.path)}${!journalLabel && note.date ? ` · ${escapeHtml(formatRelativeDate(note.date))}` : ""}</p>
-        </div>
-        <button type="button" class="text-button" data-close-note>关闭</button>
-      </div>
-      <article class="pillar-note-body">${renderMarkdown(note.body || "")}</article>
-      ${GOAL_CHAPTERS.has(note.chapter) ? `<section class="pillar-linked-tasks">
-        <p class="eyebrow">关联任务（${openLinkedCount} 项未完成）</p>
-        ${linkedTasks.length ? `<ul>${linkedTasks.map((task) => `<li class="${task.done ? "is-done" : ""}">
-          <span>${escapeHtml(task.title)}</span>
-          <span class="meta">${task.done ? "已完成" : escapeHtml(task.date || "未排期")}</span>
-          <button type="button" class="text-button" data-open-linked-task="${escapeHtml(task.key)}">在 Obsidian 打开</button>
-        </li>`).join("")}</ul>` : `<p class="field-help">还没有任务关联到这个目标；可在资料导入时选择它，或直接在任务笔记 frontmatter 写「目标」。</p>`}
-        <p class="field-help">任务来自时间管理的一任务一笔记；这里只读，编辑请到工作台或 Obsidian。</p>
-      </section>` : ""}
-      ${backlinks.length ? `<section class="pillar-backlinks">
-        <p class="eyebrow">反向链接</p>
-        ${backlinks.map((item) => `<button type="button" class="text-button" data-backlink-path="${escapeHtml(item.path)}">${escapeHtml(item.title)}</button>`).join("")}
-      </section>` : ""}
-      <div class="pillar-dialog-foot">
-        <div class="pillar-note-actions">
-          <button type="button" class="button primary" data-open-note>在 Obsidian 打开并编辑</button>
-          <button type="button" class="small-button" data-copy-wikilink title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
-          <button type="button" class="small-button" data-copy-path>复制路径</button>
-        </div>
-        <span class="field-help">这里只是阅读视图；标签、正文和所在章节都在 Obsidian 里改。</span>
-      </div>`;
-    document.body.append(dialog);
-    const close = () => {
-      dialog.close();
-      dialog.remove();
-      trigger?.focus?.({ preventScroll: true });
+    const view = note.pillar;
+    if (!PILLAR_META[view]) {
+      toast("这篇笔记不在四库里，请在 Obsidian 里打开。", "warning");
+      return;
+    }
+    state.reading[view] = {
+      note, backlinks, linkedTasks,
+      doc: null,
+      focusPending: true,
+      scrollY: typeof window.scrollY === "number" ? window.scrollY : 0,
     };
-    dialog.querySelector("[data-close-note]")?.addEventListener("click", close);
-    dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
-    dialog.querySelector("[data-open-note]")?.addEventListener("click", () => {
-      openVaultNote(vaultName, note.path);
-    });
-    dialog.querySelector("[data-copy-wikilink]")?.addEventListener("click", async () => {
-      const copied = await copyText(wikiLink);
-      toast(copied ? "已复制双链，可直接粘贴到 Obsidian。" : "复制失败，请手动复制路径。", copied ? "info" : "warning");
-    });
-    dialog.querySelector("[data-copy-path]")?.addEventListener("click", async () => {
-      const copied = await copyText(note.path);
-      toast(copied ? "已复制路径。" : "复制失败，请手动选择路径。", copied ? "info" : "warning");
-    });
-    dialog.querySelectorAll("[data-open-linked-task]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const task = linkedTasks.find((item) => item.key === button.dataset.openLinkedTask);
-        if (!task) return;
-        if (!openTaskDocument(task, { vault_name: vaultName })) {
-          toast("没有可打开的任务文档，请刷新后重试。", "warning");
-        }
-      });
-    });
-    dialog.querySelectorAll("[data-backlink-path]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = button.dataset.backlinkPath;
-        close();
-        if (target) openNote(target);
-      });
-    });
-    if (typeof dialog.showModal === "function") dialog.showModal();
-  }).catch((error) => toast(error.message, "error"));
+    if (appState.view === view) {
+      renderShell(view);
+      return;
+    }
+    // 全局搜索/管家可能从别的模块打开笔记：交给 app.js 切模块，加载器再按 reading 渲染。
+    const { switchView } = await import("./app.js");
+    const switched = await switchView(view);
+    if (!switched) state.reading[view] = null;
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+/** 关闭页内阅读，回到进入前的列表位置。 */
+function closeReader(view) {
+  const reading = state.reading[view];
+  if (!reading) return;
+  const targetPath = reading.note.path;
+  state.reading[view] = null;
+  renderShell(view);
+  const row = Array.from(document.querySelectorAll(`#${view}-view .pillar-note-row[data-note-path]`))
+    .find((node) => node.dataset.notePath === targetPath);
+  row?.focus?.({ preventScroll: true });
+  if (typeof window.scrollTo === "function") {
+    window.scrollTo({ top: reading.scrollY || 0, left: 0, behavior: "auto" });
+  }
+}
+
+function readerWikiLink(note, displayTitle) {
+  return `[[${note.path.replace(/\.md$/i, "")}|${String(displayTitle).replace(/\|/g, "｜")}]]`;
+}
+
+/** 双链只给了标题：先在四库里找同名笔记，找不到就提示去 Obsidian。 */
+async function openWikiTarget(target) {
+  const raw = String(target || "").trim();
+  if (!raw) return;
+  const name = raw.split("#")[0].trim();
+  if (!name) return;
+  try {
+    const payload = await api(`/api/search?q=${encodeURIComponent(name)}&limit=20`);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const exact = items.find((item) => item.title === name
+      || item.path === name
+      || item.path === `${name}.md`
+      || item.path.endsWith(`/${name}.md`));
+    if (exact) { await openNote(exact.path); return; }
+  } catch { /* fall through to a direct path attempt */ }
+  if (/\.md$/i.test(name)) { await openNote(name); return; }
+  toast(`四库里没有找到「${name}」，可以在 Obsidian 里打开它。`, "warning");
 }
 
 function openVaultNote(vaultName, path) {

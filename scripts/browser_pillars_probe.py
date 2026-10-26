@@ -78,28 +78,32 @@ READ_OPENED = """(() => {
 })()"""
 
 READ_NOTE_DIALOG = """(() => {
-  const dialog = document.querySelector('.pillar-note-dialog');
-  const foot = dialog ? dialog.querySelector('.pillar-dialog-foot') : null;
-  const open = dialog ? dialog.querySelector('[data-open-note]') : null;
+  const reader = document.querySelector('.pillar-reader');
+  const foot = reader ? reader.querySelector('.pillar-reader-foot') : null;
+  const open = reader ? reader.querySelector('[data-reader-open-obsidian]') : null;
   return {
-    present: Boolean(dialog),
-    title: dialog ? (dialog.querySelector('h2')?.textContent || '').trim() : '',
-    path: dialog ? (dialog.querySelector('.pillar-dialog-head .meta')?.textContent || '').trim() : '',
+    present: Boolean(reader),
+    title: reader ? (reader.querySelector('.pillar-reader-head h1')?.textContent || '').trim() : '',
+    path: reader ? (reader.querySelector('.pillar-reader-meta')?.textContent || '').trim() : '',
     has_open_note: Boolean(open),
     open_note_label: open ? open.textContent.trim() : '',
-    has_tag_form: Boolean(dialog && dialog.querySelector('[data-tag-form]')),
-    has_move: Boolean(dialog && dialog.querySelector('[data-note-target]')),
-    tag_inputs: dialog ? dialog.querySelectorAll('input[name="tag"]').length : 0,
-    copy_wikilink: Boolean(dialog && dialog.querySelector('[data-copy-wikilink]')),
-    copy_path: Boolean(dialog && dialog.querySelector('[data-copy-path]')),
-    read_only_hint: Boolean(foot && foot.textContent.includes('这里只是阅读视图')),
+    has_tag_form: false,
+    has_move: false,
+    tag_inputs: 0,
+    copy_wikilink: Boolean(reader && reader.querySelector('[data-reader-copy-wikilink]')),
+    copy_path: Boolean(reader && reader.querySelector('[data-reader-copy-path]')),
+    read_only_hint: Boolean(foot && foot.textContent.includes('只读阅读视图')),
+    markdown_rendered: Boolean(reader && reader.querySelector('.md-body p, .md-body table, .md-body .md-callout')),
+    tables: reader ? reader.querySelectorAll('.md-body table').length : 0,
+    callouts: reader ? reader.querySelectorAll('.md-callout').length : 0,
+    toc: reader ? reader.querySelectorAll('.pillar-reader-toc a').length : 0,
   };
 })()"""
 
 READ_INBOX = """(() => {
   const card = document.querySelector('#knowledge-view .pillar-suggestion-card');
   const rows = Array.from(document.querySelectorAll('#knowledge-view [data-inbox-row]'));
-  const actions = rows.map((row) => row.querySelector('.pillar-suggestion-actions button[data-note-path]'));
+  const actions = rows.map((row) => row.querySelector('.pillar-suggestion-actions button[data-obsidian-note-path]'));
   return {
     card: Boolean(card),
     rows: rows.length,
@@ -136,7 +140,7 @@ READ_OPS = """(() => {
 READ_STEWARD = """(() => {
   const dialog = document.querySelector('.pillar-steward-dialog');
   const proposals = dialog ? Array.from(dialog.querySelectorAll('.steward-proposal')) : [];
-  const open = proposals.map((item) => item.querySelector('[data-steward-open-note]'));
+  const open = proposals.map((item) => item.querySelector('[data-steward-open-obsidian]'));
   return {
     proposals: proposals.length,
     open_actions: open.filter(Boolean).length,
@@ -295,10 +299,27 @@ def seed_markdown(day: date) -> dict[str, str]:
         files[f"03_知识库/00_收件箱/{title}.md"] = _note_file(
             "inbox", title, body, note_id=note_id, created=stamp, status="inbox")
 
-    # 主题笔记：全局搜索「考研」的确定性命中。
+    # 主题笔记：全局搜索「考研」的确定性命中；正文覆盖阅读视图的表格/标注块/任务清单/目录。
     files["03_知识库/01_主题笔记/考研规划.md"] = _note_file(
         "topic", "考研规划",
-        "准备考研的示例笔记，用于 QA 探针的全局搜索。",
+        "\n".join([
+            "准备考研的示例笔记，用于 QA 探针的全局搜索。",
+            "",
+            "> [!tip] 阅读视图",
+            "> 支持 **标注块**、表格、任务清单与双链 [[考研计划]]。",
+            "",
+            "## 目标",
+            "",
+            "| 科目 | 目标分 |",
+            "| --- | ---: |",
+            "| 数学 | 120 |",
+            "| 英语 | 70 |",
+            "",
+            "### 行动清单",
+            "",
+            "- [x] 确认阅读视图",
+            "- [ ] 在 Obsidian 编辑",
+        ]),
         note_id="qa-seed-topic-exam", created=stamp)
 
     # 当月健康表：生活运营页面只读渲染的权威来源（日期都在当月，不带健康评价）。
@@ -491,18 +512,18 @@ async def run(base_url: str, output: Path, port: int,
                     # 最近 7 天里写完的那天：打开的是权威日记，详情只读且能跳 Obsidian。
                     if await cdp.evaluate("Boolean(document.querySelector('#life-view .pillar-week-day.is-done'))"):
                         await cdp.evaluate("document.querySelector('#life-view .pillar-week-day.is-done').click()")
-                        await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                        await cdp.wait_for("document.querySelector('.pillar-reader')", timeout=20)
                         report["journal_dialog"] = await cdp.evaluate(READ_NOTE_DIALOG)
                         await shot(cdp, output, report, "journal-detail.png")
                         await cdp.evaluate(RESET_OPENED)
-                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-open-note]')?.click()")
+                        await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-open-obsidian]')?.click()")
                         await cdp.wait_for("Array.isArray(window.__torchOpened) && window.__torchOpened.length > 0",
                                            timeout=20)
                         journal_jump = await cdp.evaluate(READ_OPENED)
                         journal_jump["target"] = obsidian_target(journal_jump["first"])
                         report["journal_jump"] = journal_jump
-                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
-                        await cdp.wait_for("!document.querySelector('.pillar-note-dialog')", timeout=20)
+                        await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-back]')?.click()")
+                        await cdp.wait_for("!document.querySelector('.pillar-reader')", timeout=20)
                     else:
                         report["journal_dialog"] = None
                         report["journal_jump"] = None
@@ -520,9 +541,9 @@ async def run(base_url: str, output: Path, port: int,
                         "document.querySelectorAll('#life-view .pillar-note-row[data-note-path]').length")
                     if report["task_chapter_rows"]:
                         await cdp.evaluate("document.querySelector('#life-view .pillar-note-row[data-note-path]').click()")
-                        await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+                        await cdp.wait_for("document.querySelector('.pillar-reader')", timeout=20)
                         report["note_dialog"] = await cdp.evaluate(READ_NOTE_DIALOG)
-                        await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+                        await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-back]')?.click()")
                     else:
                         report["note_dialog"] = None
                     await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"habit\"]')?.click()")
@@ -618,18 +639,18 @@ async def run(base_url: str, output: Path, port: int,
                 current: document.querySelector('[data-global-note].is-selected')?.getAttribute('aria-current') || '',
             }))()""")
             await cdp.evaluate("document.querySelector('[data-global-query]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))")
-            await cdp.wait_for("document.querySelector('.pillar-note-dialog')", timeout=20)
+            await cdp.wait_for("document.querySelector('.pillar-reader')", timeout=20)
             report["search_enter_opened"] = await cdp.evaluate(
-                "document.querySelector('.pillar-note-dialog h2')?.textContent || ''")
+                "document.querySelector('.pillar-reader h1')?.textContent || ''")
             report["note_actions"] = await cdp.evaluate(READ_NOTE_DIALOG)
             await cdp.evaluate(RESET_OPENED)
-            await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-open-note]')?.click()")
+            await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-open-obsidian]')?.click()")
             await cdp.wait_for("Array.isArray(window.__torchOpened) && window.__torchOpened.length > 0", timeout=20)
             note_jump = await cdp.evaluate(READ_OPENED)
             note_jump["target"] = obsidian_target(note_jump["first"])
             report["note_jump"] = note_jump
             await shot(cdp, output, report, "note-detail-readonly.png")
-            await cdp.evaluate("document.querySelector('.pillar-note-dialog [data-close-note]')?.click()")
+            await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-back]')?.click()")
             report["nav"] = await cdp.evaluate(
                 "Array.from(document.querySelectorAll('.panel-nav-item')).map((node) => node.dataset.view)")
             # 工作台回归：任务板、问候、横幅、天气卡都还在。
@@ -778,6 +799,11 @@ def _compute_ok(report: dict) -> bool:
         and note_actions.get("has_tag_form") is False
         and note_actions.get("has_move") is False
         and note_actions.get("read_only_hint") is True
+        # 阅读视图真的渲染了 Markdown：表格、标注块、任务清单与目录
+        and note_actions.get("markdown_rendered") is True
+        and note_actions.get("tables", 0) >= 1
+        and note_actions.get("callouts", 0) >= 1
+        and note_actions.get("toc", 0) >= 2
         and jump_is(note_jump.get("first", ""), "open", "")
         # 收件箱建议卡只读
         and inbox.get("card") is True
