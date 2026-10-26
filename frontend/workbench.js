@@ -9,6 +9,7 @@ import { renderClock, renderWeather, startClock } from "./weather.js";
 import { applyBanner, startRotation, imageSrc } from "./banner.js";
 import { setBannerSource, initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
+import { initCountdownWidget } from "./countdown.js";
 
 let current = null;
 let clockStarted = false;
@@ -346,6 +347,7 @@ export function initWorkbench() {
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
+  initCountdownWidget();
   initTimeModule();
   if (!clockStarted) {
     clockStarted = true;

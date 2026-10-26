@@ -163,6 +163,11 @@
   --p-love-warn: #9a6700;
   --p-love-good: #226443;
   --p-love-sticker: #b9843a;
+  /* 工作台倒计时卡：夕阳云层渐变（只在倒计时卡里使用） */
+  --p-countdown-sky: #3e3554;
+  --p-countdown-deep: #8a4d48;
+  --p-countdown-glow: #d8794c;
+  --p-countdown-cloud: #f2b078;
 }
 
 html[data-torch-theme="dark"] {
@@ -326,6 +331,11 @@ html[data-torch-theme="dark"] {
   --p-love-warn: #f0c674;
   --p-love-good: #9ecbb4;
   --p-love-sticker: #d8a15a;
+  /* 工作台倒计时卡：夕阳云层渐变（暗色版本） */
+  --p-countdown-sky: #241f31;
+  --p-countdown-deep: #5d353d;
+  --p-countdown-glow: #cf7c55;
+  --p-countdown-cloud: #e6b089;
 }
 
 /* 嵌入 dsh 时：中性骨架（底/面/线/字/反色/主色）全部改由 dsh 的实时主题 token 推导，
@@ -446,6 +456,35 @@ body.view-workbench .topbar { display: none; }
 .almanac-note { display: block; margin: 1px 0 8px; font-size: 11px; color: var(--p-ink-4); }
 .almanac-note:last-child { margin-bottom: 0; }
 .almanac-meta { margin: 10px 0 0; text-align: center; font-size: 11px; color: var(--p-ink-4); }
+/* 倒计时卡（仿 Apex Dashboard）：右侧窄卡，渐变/自定义图片背景，齿轮进设置。 */
+.countdown-card { position: relative; isolation: isolate; overflow: hidden; min-height: 154px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-sidebar); color: var(--p-banner-num); box-shadow: 0 1px 2px var(--p-shadow); }
+.countdown-bg { position: absolute; inset: 0; z-index: 0; background-color: var(--p-sidebar); background-position: center; background-size: cover; }
+.countdown-shade { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, color-mix(in srgb, var(--p-countdown-sky) 4%, transparent) 8%, color-mix(in srgb, var(--p-sidebar) 22%, transparent) 58%, color-mix(in srgb, var(--p-sidebar) 70%, transparent) 100%); }
+.countdown-card[data-theme="sunset"] .countdown-bg, .countdown-bg-preview[data-theme="sunset"] { background-image: radial-gradient(ellipse at 16% 112%, color-mix(in srgb, var(--p-countdown-cloud) 92%, transparent), transparent 54%), radial-gradient(ellipse at 84% 108%, color-mix(in srgb, var(--p-countdown-glow) 88%, transparent), transparent 60%), radial-gradient(ellipse at 55% 74%, color-mix(in srgb, var(--p-countdown-glow) 28%, transparent), transparent 48%), linear-gradient(160deg, var(--p-countdown-sky) 0%, var(--p-countdown-deep) 58%, var(--p-countdown-glow) 100%); }
+.countdown-card[data-theme="dusk"] .countdown-bg, .countdown-bg-preview[data-theme="dusk"] { background-image: radial-gradient(ellipse at 76% 105%, color-mix(in srgb, var(--p-info) 82%, transparent), transparent 62%), radial-gradient(ellipse at 18% 92%, color-mix(in srgb, var(--p-pillar-self) 72%, transparent), transparent 58%), linear-gradient(160deg, var(--p-sidebar) 0%, var(--p-pillar-knowledge) 100%); }
+.countdown-card[data-theme="aurora"] .countdown-bg, .countdown-bg-preview[data-theme="aurora"] { background-image: radial-gradient(ellipse at 70% 102%, color-mix(in srgb, var(--p-ok-dot) 75%, transparent), transparent 60%), radial-gradient(ellipse at 20% 90%, color-mix(in srgb, var(--p-pillar-ops) 72%, transparent), transparent 58%), linear-gradient(160deg, var(--p-sidebar) 0%, var(--p-pillar-knowledge) 100%); }
+.countdown-has-image .countdown-shade { background: linear-gradient(180deg, color-mix(in srgb, var(--p-sidebar) 12%, transparent) 0%, color-mix(in srgb, var(--p-sidebar) 72%, transparent) 100%); }
+.countdown-inner { position: relative; z-index: 2; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 154px; padding: 23px 16px 17px; text-align: center; }
+.countdown-label { max-width: 192px; margin: 0 auto; color: var(--p-banner-ink); font-size: 13px; line-height: 1.45; text-shadow: 0 1px 8px var(--p-banner-shadow); }
+.countdown-label span { color: var(--p-banner-num); font-weight: 700; }
+.countdown-value-line { display: flex; align-items: baseline; justify-content: center; gap: 5px; margin: 1px 0 0; }
+.countdown-number { color: var(--p-banner-num); font-size: 46px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 2px 14px var(--p-banner-shadow); }
+.countdown-number.is-flipping { animation: countdown-flip .4s cubic-bezier(.4, 0, .2, 1); }
+@keyframes countdown-flip { 0% { transform: rotateX(0); opacity: 1; } 40% { transform: rotateX(-90deg); opacity: 0; } 60% { transform: rotateX(90deg); opacity: 0; } 100% { transform: rotateX(0); opacity: 1; } }
+.countdown-unit { color: var(--p-banner-ink); font-size: 14px; }
+.countdown-expired-text { margin: 5px 0 0; color: var(--p-banner-num); font-size: 20px; font-weight: 700; }
+.countdown-reminder { margin: 4px 0 0; color: var(--p-banner-ink-soft); font-size: 10px; }
+.countdown-settings-btn { position: absolute; top: 7px; right: 7px; z-index: 3; display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--p-banner-ink); font-size: 15px; line-height: 1; opacity: .45; transition: opacity .15s ease, background-color .15s ease; }
+.countdown-card:hover .countdown-settings-btn, .countdown-card:focus-within .countdown-settings-btn, .countdown-settings-btn:focus-visible { opacity: .9; }
+.countdown-settings-btn:hover { background: color-mix(in srgb, var(--p-sidebar) 38%, transparent); opacity: 1; }
+@media (hover: none) { .countdown-settings-btn { opacity: .8; } }
+.countdown-settings-form { display: grid; gap: 12px; }
+.countdown-settings-form .field { margin-bottom: 0; }
+.countdown-bg-preview { position: relative; display: grid; place-items: center; height: 96px; overflow: hidden; border: 1px solid var(--p-line); border-radius: 9px; background-color: var(--p-sidebar); background-position: center; background-size: cover; color: var(--p-banner-num); font-size: 12px; text-shadow: 0 1px 5px var(--p-banner-shadow); }
+.countdown-bg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.countdown-bg-actions select { min-width: 0; border: 1px solid var(--p-line-input); border-radius: 6px; padding: 6px 8px; background: var(--p-surface); color: var(--p-ink); font-size: 12px; }
+.countdown-form-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.countdown-settings-form .field-help { margin: 0; }
 @media (max-width: 900px) { .workbench-head-row { grid-template-columns: minmax(0, 1fr); } .banner { min-height: 108px; } .banner .workbench-motto-line.primary { font-size: 18px; } }
 /* 工作台 2.0（2026-10-05）：横幅（照 Apex Dashboard 的 banner）、右列（时钟天气+黄历）、待办精修、日记活动流。 */
 /* 矮横条（2026-10-05 用户反馈）：高度照 Apex 的 banner 压到 120px——原来是 172px（引言）/200px（统计），
