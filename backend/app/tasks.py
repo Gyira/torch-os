@@ -698,6 +698,32 @@ def _config_lines_without_section(metadata: dict[str, Any], body: list[str],
 # ===== 读板面 =====
 
 
+def read_task_board(vault_dir: Path | str, database: Database, day: str, *,
+                    read_only: bool = False) -> dict[str, Any]:
+    """The time-module board, with today's scheduled habits as virtual tasks.
+
+    ``read_tasks`` stays habit-free on purpose: Dida sync, task reports and
+    exports must never see virtual habit rows.  Only this HTTP-facing wrapper
+    appends them, and it keeps the real-task optimistic lock (``revision``)
+    untouched; ``habit_board_revision`` is the refresh token for habits.
+    """
+    board = read_tasks(vault_dir, read_only=read_only)
+    try:
+        from .habits import HabitService
+
+        habit_board = HabitService(database, vault_dir, read_only=read_only).board_day(day)
+        board["tasks"].extend(habit_board["tasks"])
+        board["habit_board_revision"] = habit_board["revision"]
+        board["habit_day"] = habit_board["day"]
+        board["warnings"] = list(board.get("warnings") or []) + list(habit_board.get("warnings") or [])
+    except Exception as exc:  # a broken habit must not blank the whole task board
+        board["habit_board_revision"] = ""
+        board["habit_day"] = day
+        board["warnings"] = list(board.get("warnings") or []) + [
+            {"path": "习惯", "reason": str(getattr(exc, "detail", exc))}]
+    return board
+
+
 def read_tasks(vault_dir: Path | str, *, read_only: bool = False) -> dict[str, Any]:
     state = _read_state(vault_dir)
     loaded = state["loaded"]
@@ -1487,7 +1513,7 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
 
     @router.get("/tasks")
     def tasks_read():
-        return read_tasks(vault_dir, read_only=read_only)
+        return read_task_board(vault_dir, database, _today(), read_only=read_only)
 
     @router.post("/tasks")
     def tasks_create(payload: TaskCreate):

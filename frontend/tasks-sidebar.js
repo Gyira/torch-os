@@ -225,7 +225,10 @@ export function renderTaskSidebar(container, options) {
     onListAction = () => {}, onFolderAction = () => {}, onTagAction = () => {},
     onListReorder = () => {},
   } = options;
-  const counts = viewCounts(tasks, { showDone: Boolean(options.showDone) });
+  const counts = viewCounts(tasks, {
+    showDone: Boolean(options.showDone),
+    habitDay: options.habitDay || "",
+  });
   const listCounts = countBy(tasks, "list_name");
   const tagCounts = countBy(tasks, "tags");
   const view = selection.view || (selection.list || selection.tag ? "" : "today");

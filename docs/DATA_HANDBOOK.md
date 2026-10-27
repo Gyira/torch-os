@@ -18,7 +18,7 @@
 | `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
 | `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
-| `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词 |
+| `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词、`bazi.json`（八字合婚页只读数据） |
 | `.torch-os/love/backups/` | 微信同步写入前自动生成的恋爱数据库备份 |
 | `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
 | `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`task-trash/`、`restored/` | 备份、日志、诊断、迁移与回收站 |
@@ -55,6 +55,7 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 | `documents` | 资料与记忆 |
 | `fortune_checkins` | 每日记录 |
 | `goals` | 目标与任务 |
+| `habit_cache_meta` | 习惯 |
 | `habit_definitions` | 习惯 |
 | `habit_entries` | 习惯 |
 | `harness_sessions` | 对话 |
@@ -88,7 +89,11 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
   仅保留历史数据与导出读取）；`inbox_items`、`scheduler_settings` 是收件箱与调度设置；
   `fortune_checkins` 是每日运势签到（只记日期与签到时间，黄历内容本身不落库）。
   身体记录改读健康月度 Markdown 表，旧 `body_entries` 表不再创建。
-- 习惯：`habit_definitions`、`habit_entries`；旧学习表已退役且不再创建。
+- 习惯：`habit_definitions`、`habit_entries` 是 Markdown 的派生缓存（整数 id、同步版本号、
+  统计用），不是权威源；`habit_cache_meta` 记录缓存实例、generation 与首次迁移时间。
+  权威内容在 `00_人生路/06_目标与计划/04_习惯追踪/`：`习惯/<名称>.md` 是定义，
+  `打卡/YYYY-MM.md` 是月度打卡表，`习惯定义.md` 是自动生成的只读索引。
+  在 Obsidian 里修改笔记或打卡表，应用会在下一次读取时同步回缓存。旧学习表已退役且不再创建。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。
 - 建议与提醒：`suggestions` 是旧每日建议表，deprecated。
 - 旧日记：`journal_entries`、`journal_actions` 自 0.99 起 deprecated；旧写入路由已退役，
@@ -99,7 +104,8 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 ## 权威源与投影
 
 - 日记、任务、习惯、体重/账目、目标/计划、身份、每日情感记忆的权威源都是 Markdown；
-  SQLite 只做索引、投影、审核状态和统计缓存。
+  SQLite 只做索引、投影、审核状态和统计缓存。习惯在 SQLite 里的表可以随时从
+  `习惯/` + `打卡/` 重建；`habit_cache_meta` 只为版本号与迁移标记服务。
 - 微信聊天原文以 `.torch-os/love/love_analysis.db` 为准；四库里
   `02_生活运营/05_情感与记忆/YYYY-MM-DD 恋爱记忆.md` 是用户确认后的 AI 摘要，不是原文。
   未确认的草稿只存在恋爱数据库的 `memory_drafts` 表。

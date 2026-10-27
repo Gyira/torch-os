@@ -16,6 +16,8 @@ import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-
 import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 import { loadPendingStrip } from "./pending.js";
+import { loadQuestionCard } from "./questions.js";
+import { initBookmarks } from "./bookmarks.js";
 
 let current = null;
 let bannerStats = null;
@@ -143,27 +145,21 @@ function renderWelcome(payload) {
 }
 
 function renderDaily(payload) {
-  const rows = [
-    ...(payload.daily || []).map((item) => ({
-      kind: "daily", title: item.title, note: item.in_master === false ? "仅今天" : "",
-      done: Boolean(item.done), key: item.key || "",
-    })),
-    ...(payload.habits || []).map((habit) => ({
-      kind: "habit", title: habit.title, note: habit.minimum_action || "",
-      done: Boolean(habit.done), id: habit.id, revision: habit.revision,
-    })),
-  ];
+  const rows = (payload.daily || []).map((item) => ({
+    title: item.title,
+    note: item.in_master === false ? "仅今天" : "",
+    done: Boolean(item.done),
+    key: item.key || "",
+  }));
   const done = rows.filter((row) => row.done).length;
   if (payload.daily_error) {
-    setStatus("#time-habits-count", `读取失败：${payload.daily_error}`, "error");
+    setStatus("#time-daily-count", `读取失败：${payload.daily_error}`, "error");
   } else {
-    $("#time-habits-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
+    $("#time-daily-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
   }
-  $("#time-habits-hint").textContent = "每日必做在 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在人生路 →「习惯」里管理。";
-  $("#time-habits-list").innerHTML = rows.length
-    ? rows.map((row) => row.kind === "daily"
-      ? `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`
-      : `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-habit-toggle="${row.id}" data-habit-revision="${row.revision}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
+  $("#time-daily-hint").textContent = "每日必做在 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记。";
+  $("#time-daily-list").innerHTML = rows.length
+    ? rows.map((row) => `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
     : '<li class="empty-state">还没有每日必做——去 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
 }
 
@@ -180,6 +176,7 @@ export async function loadWorkbench() {
   loadDeepSeekBalance();
   loadTrainTrackerWidget();
   loadPendingStrip();
+  loadQuestionCard();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */
@@ -191,7 +188,7 @@ async function syncDailyIfNeeded(payload) {
     const result = await api("/api/todos/daily/sync", jsonBody("POST", { day: shanghaiDay() }));
     if (result.changed) renderWorkbench(await api(`/api/workbench/today?day=${shanghaiDay()}`));
   } catch (error) {
-    setStatus("#time-habits-hint", `每日必做同步失败：${error.message}`, "warning");
+    setStatus("#time-daily-hint", `每日必做同步失败：${error.message}`, "warning");
   }
 }
 
@@ -209,19 +206,7 @@ async function toggleDaily(key, title, done) {
     await api("/api/todos/daily/toggle", jsonBody("POST", { day: shanghaiDay(), key, title, done }));
     await loadWorkbench();
   } catch (error) {
-    setStatus("#time-habits-count", `更新失败：${error.message}`, "error");
-    await loadWorkbench();
-  }
-}
-
-async function toggleHabit(id, revision, done) {
-  try {
-    await api(`/api/habits/${id}/entries/${shanghaiDay()}`, jsonBody("PUT", {
-      revision: Number(revision) || 0, status: done ? "done" : "unrecorded", note: "",
-    }));
-    await loadWorkbench();
-  } catch (error) {
-    setStatus("#time-habits-count", `打卡失败：${error.message}`, "error");
+    setStatus("#time-daily-count", `更新失败：${error.message}`, "error");
     await loadWorkbench();
   }
 }
@@ -255,14 +240,14 @@ function initBannerCollapse() {
 }
 
 export function initWorkbench() {
+  // 网页书签栏：问候语右侧的快捷入口（数据在 .torch-os，齿轮里增删改）。
+  initBookmarks();
   // 天气卡：时钟、打开系统时自动刷新、点卡片打开详情浮窗；城市管理都在 weather-widget.js。
   initWeatherWidget();
-  // 每日必做 + 习惯的勾选：现在挂在时间管理模块的「习惯打卡」页上
-  $("#time-habits-list").addEventListener("change", (event) => {
+  // 每日必做的勾选（习惯打卡本身由 habits-page.js 处理）
+  $("#time-daily-list").addEventListener("change", (event) => {
     const dailyBox = event.target.closest("[data-daily-toggle]");
-    if (dailyBox) { toggleDaily(dailyBox.dataset.dailyKey || "", dailyBox.dataset.dailyTitle || "", dailyBox.checked); return; }
-    const habitBox = event.target.closest("[data-habit-toggle]");
-    if (habitBox) toggleHabit(habitBox.dataset.habitToggle, habitBox.dataset.habitRevision, habitBox.checked);
+    if (dailyBox) toggleDaily(dailyBox.dataset.dailyKey || "", dailyBox.dataset.dailyTitle || "", dailyBox.checked);
   });
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());

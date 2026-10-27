@@ -2233,6 +2233,20 @@ def create_love_router(store: LoveStore | None = None,
     def love_status():
         return store.status()
 
+    @router.get("/bazi")
+    def love_bazi():
+        """只读返回本机八字资料（`.torch-os/love/bazi.json`），不做任何推断。"""
+        path = store.db_path.parent / "bazi.json"
+        if not path.is_file():
+            raise HTTPException(404, "还没有八字资料：请把 bazi.json 放进 .torch-os/love/")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise HTTPException(500, f"八字资料读取失败：{exc}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(500, "八字资料格式不正确")
+        return payload
+
     @router.get("/settings")
     def get_settings():
         with connection() as con:

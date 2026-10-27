@@ -14,7 +14,24 @@ from . import goal_notes, identity_inbox, journal_note, pillar_notes, steward, s
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
-from .vault import safe_note_path
+from .vault import parse_text, safe_note_path
+
+
+def _first_line_summary(vault_dir: Path | str, relative: str) -> str:
+    """档案时间线的一句话：取正文第一行（`> 摘要` 约定），不要 excerpt 那种整段拼接。"""
+    try:
+        raw = (Path(vault_dir) / relative).read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return ""
+    _meta, body = parse_text(raw)
+    for line in body.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        if text.startswith(">"):
+            text = text.lstrip("> ").strip()
+        return text[:90]
+    return ""
 
 # 四库阅读视图只展示位图附件；SVG 不在这里直出，避免同源脚本风险。
 ASSET_TYPES = {
@@ -102,10 +119,22 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
             "worldview": identity.get("worldview") or "",
             "lifeview": identity.get("lifeview") or "",
             "values": identity.get("values") or "",
+            "notes": identity.get("notes") or "",
+            "mottos": identity.get("mottos") or [],
             "updated_at": identity.get("updated_at"),
         }
         payload["drafts"] = drafts
         payload["draft_count"] = len(drafts)
+        # 档案首屏的自传时间线：只取「记忆与自传」，按日期倒序，带一句摘要。
+        payload["timeline"] = [
+            {
+                "path": note["path"],
+                "title": note["title"],
+                "date": str(note.get("date") or "")[:10],
+                "summary": _first_line_summary(vault_dir, note["path"]) or (note.get("excerpt") or ""),
+            }
+            for note in pillar_notes.list_notes(vault_dir, chapter="memory", limit=12)
+        ]
     if key == "knowledge":
         inbox = [note for note in notes if note["chapter"] == "inbox"]
         payload["inbox_count"] = len(inbox)

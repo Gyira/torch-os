@@ -53,7 +53,7 @@ function statusText(status) {
   switch (status.state) {
     case "disabled": return "Harness 已禁用";
     case "missing": return "未找到 dsh 或 npx";
-    case "ready": return "DeepSeek Harness 已连接";
+    case "ready": return status.adopted ? "已接入正在运行的 Harness" : "DeepSeek Harness 已连接";
     case "starting": return "正在启动 DeepSeek Harness…";
     case "error": return "dsh 启动失败";
     default: return "dsh 未启动";
@@ -168,14 +168,15 @@ export function initDshPane() {
   if (retry) retry.addEventListener("click", () => startHarness());
   const restart = node("dsh-restart");
   if (restart) restart.addEventListener("click", async () => {
-    state.loaded = false;
-    state.generation = -1;
-    const frame = node("dsh-frame");
-    if (frame) frame.src = "about:blank";
     try {
       const status = await api("/api/dsh/restart", { method: "POST" });
+      state.loaded = false;
+      state.generation = -1;
+      const frame = node("dsh-frame");
+      if (frame) frame.src = "about:blank";
       render(status);
     } catch (error) {
+      // 409：另一个 torch 入口还在用这个 dsh；保留当前画面，只提示原因。
       setStatus(`重启失败：${error.message}`, "error");
     }
   });

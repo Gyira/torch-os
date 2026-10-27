@@ -1,9 +1,10 @@
-"""Markdown 待办（0.99.x）：`00_人生路/08_任务与待办/_系统/待办（todos）.md` 是数据本体——解析、外科写入、日记镜像。
+"""Markdown 待办（0.99.x）：`00_人生路/08_任务与待办/_系统/待办（todos）.md` 是数据本体——解析、外科写入。
 
 钉子：只改目标行、其余字节不变；文件在别处改过就 409；只读一律 409 而读取 200；
-每日必做镜像绝不覆盖用户已写的行；`daily/sync` 不依赖 collect_day（无递归）。
+每日必做勾选只写 `.torch-os/todos/daily.json`，**绝不写日记**；`daily/sync` 不依赖 collect_day（无递归）。
 """
 
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -164,56 +165,44 @@ def test_crlf_is_preserved(tmp_path):
     assert f"买菜 ✅ {TODAY}".encode() in raw
 
 
-def test_daily_sync_mirrors_master_and_preserves_user_lines(tmp_path):
+def test_daily_check_never_writes_the_journal(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)
+
     synced = client.post("/api/todos/daily/sync", json={"day": TODAY})
     assert synced.status_code == 200, synced.text
-    assert synced.json()["created_note"] is True and synced.json()["changed"] is True
+    assert synced.json()["created_note"] is False and synced.json()["changed"] is False
 
-    content = journal_file(tmp_path).read_text(encoding="utf-8")
-    assert "## 每日必做" in content
-    assert "- [ ] 早起喝水" in content and "- [ ] 阅读 30 分钟" in content
-    # 不含自动汇总（镜像不触发 collect_day）。
-    assert "## 自动汇总" not in content
+    toggled = client.post("/api/todos/daily/toggle", json={
+        "day": TODAY, "title": "早起喝水", "done": True})
+    assert toggled.status_code == 200, toggled.text
 
-    # 用户在日记里手写一行 + 勾掉一条：镜像绝不动它们。
-    content = content.replace("- [ ] 早起喝水", "- [x] 早起喝水").rstrip("\n")
-    content += "\n- 我手写的一句话\n"
-    journal_file(tmp_path).write_text(content, encoding="utf-8")
-    # 主清单加一条新项 → 再镜像只补缺的那条。
-    path = todos_file(tmp_path)
-    path.write_text(path.read_text(encoding="utf-8") + "- [ ] 冥想 5 分钟\n", encoding="utf-8")
-    again = client.post("/api/todos/daily/sync", json={"day": TODAY}).json()
-    assert again["added"] == ["冥想 5 分钟"] and again["created_note"] is False
+    # 关键钉子：勾选每日必做不会建日记、也不改日记。
+    assert not journal_file(tmp_path).exists()
 
-    final = journal_file(tmp_path).read_text(encoding="utf-8")
-    assert "- [x] 早起喝水" in final and "- 我手写的一句话" in final and "- [ ] 冥想 5 分钟" in final
-
-    # 幂等：什么都没变时 changed 为 False。
-    idempotent = client.post("/api/todos/daily/sync", json={"day": TODAY}).json()
-    assert idempotent["changed"] is False
-
-
-def test_daily_toggle_writes_into_todays_journal(tmp_path):
-    client = make_client(tmp_path)
-    seed(tmp_path)
-    client.post("/api/todos/daily/sync", json={"day": TODAY})
     state = client.get(f"/api/todos/daily?day={TODAY}").json()
     assert [item["title"] for item in state["items"]] == ["早起喝水", "阅读 30 分钟"]
+    assert state["items"][0]["done"] is True and state["items"][1]["done"] is False
 
-    item = state["items"][0]
-    ok = client.post("/api/todos/daily/toggle", json={
-        "day": TODAY, "key": item["key"], "title": item["title"], "done": True})
-    assert ok.status_code == 200, ok.text
-    content = journal_file(tmp_path).read_text(encoding="utf-8")
-    assert "- [x] 早起喝水" in content
-    # 待办文件（主清单）不受影响。
-    assert "- [ ] 早起喝水" in todos_file(tmp_path).read_text(encoding="utf-8")
+    marks = json.loads(
+        (tmp_path / "vault" / ".torch-os" / "todos" / "daily.json").read_text(encoding="utf-8"))
+    assert marks[TODAY]["早起喝水"] is True
+
+    # 取消勾选同样只动状态文件。
+    client.post("/api/todos/daily/toggle", json={
+        "day": TODAY, "title": "早起喝水", "done": False})
+    assert client.get(f"/api/todos/daily?day={TODAY}").json()["items"][0]["done"] is False
+    assert not journal_file(tmp_path).exists()
+
+
+def test_daily_toggle_rejects_unknown_item(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
 
     unknown = client.post("/api/todos/daily/toggle", json={
         "day": TODAY, "title": "不存在的事", "done": True})
     assert unknown.status_code == 409
+    assert not journal_file(tmp_path).exists()
 
 
 def test_read_only_vault_rejects_writes_but_reads_finely(tmp_path):

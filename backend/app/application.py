@@ -61,6 +61,8 @@ from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
 from .fortune import create_fortune_router
 from .journal_note import create_journal_note_router
+from .journal_chat import create_journal_chat_router
+from .journal_review import create_journal_review_router
 from .todo_note import create_todo_router
 from .tasks import create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
@@ -86,6 +88,7 @@ from .import_history import (
 from .memory_export import create_memory_export_router
 from .pending import create_pending_router
 from .planning_export import create_planning_export_router
+from .questions import create_questions_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
@@ -672,12 +675,22 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # 笔记路由必须先于 `/journal/{day}` 注册：否则 `note` 会被当成日期参数（FastAPI 按注册顺序匹配）。
     app.include_router(create_journal_note_router(database, vault_dir, read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
+    # 日记闭环：盘点/提问/草稿/写入。写入口只碰当天日记，见 docs/日记闭环设计-2026-10-28.md。
+    app.include_router(create_journal_review_router(database, vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
+    # 日记对话：一次一问，走 dsh headless 通道；QA/禁用 dsh 时只报不可用，不启动子进程。
+    app.include_router(create_journal_chat_router(
+        database, vault_dir, deepseek_balance,
+        getattr(dsh_runtime, "workspace", vault_dir),
+        enabled=(runtime_label == "personal" and enable_dsh is not False),
+    ), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_todo_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
     app.include_router(create_dida_sync_router(dida_service, data_lock))
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
-    app.include_router(create_habits_router(database, vault_dir=vault_dir),
+    app.include_router(create_habits_router(database, vault_dir=vault_dir,
+                                            read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
     # Conversation snapshots are ordinary vault notes; keep them on the same data boundary.
     app.include_router(create_conversation_memory_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
@@ -785,6 +798,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
     # 待确认中枢：草稿 / 事实 / 分流 三处积压的只读汇总 + 三个动作转发。
     app.include_router(create_pending_router(database, vault_dir, read_only=vault_read_only))
+    # 主动提问：一天一个「关于我」的问题，答了直接写进自我档案。
+    app.include_router(create_questions_router(vault_dir, read_only=vault_read_only))
     # Read-only export of the user's own memories; no vault or review writes.
     app.include_router(create_memory_export_router(database))
     # Read-only self-check: counts and integrity only, no content and no audit.
@@ -792,7 +807,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # Read-only export of Markdown goals/tasks; no state changes.
     app.include_router(create_planning_export_router(database, vault_dir))
     # Read-only export of habits and check-ins; no state changes.
-    app.include_router(create_growth_export_router(database))
+    app.include_router(create_growth_export_router(database, vault_dir))
     # Read-only export of saved conversations and citations; no state changes.
     app.include_router(create_conversation_export_router(database))
     # 四库布局迁移：预览只读，执行/回滚需要显式确认并持有 data_lock。

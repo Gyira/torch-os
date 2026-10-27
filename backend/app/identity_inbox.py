@@ -122,7 +122,7 @@ def accept_draft(vault_dir: Path | str, name: str, *, read_only: bool = False) -
         if draft["evidence"]:
             body += f"\n## 来自对话\n\n> {draft['evidence']}\n"
         note = pillar_notes.create_note(
-            vault_dir, pillar="self", chapter="memory", title=text[:40], body=body,
+            vault_dir, pillar="self", chapter="memory", title=text[:60], body=body,
             tags=["dsh", "身份候选"], source="dsh",
         )
         result = {"target": "memory", "path": note.get("path") or "", "title": note.get("title") or ""}

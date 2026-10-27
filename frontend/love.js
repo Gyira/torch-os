@@ -14,6 +14,7 @@ const PAGE_TITLES = {
   memory: "每日记忆",
   report: "报告",
   schedule: "值班日历",
+  bazi: "八字合婚",
   settings: "设置",
 };
 const CONSENT_KEY = "torch-os:love-consent-v1";
@@ -434,6 +435,149 @@ async function renderLovePage() {
     if (love.page !== page) return;
     content.innerHTML = errorBox(error.message);
   }
+}
+
+// ── 八字合婚（只读，数据在 .torch-os/love/bazi.json）──────────────
+
+const WX_CLASS = { 木: "mu", 火: "huo", 土: "tu", 金: "jin", 水: "shui" };
+
+function wxClass(value) {
+  return `wx-${WX_CLASS[value] || "none"}`;
+}
+
+function wxChips(values) {
+  return (Array.isArray(values) ? values : []).map((value) =>
+    `<span class="love-bazi-chip ${wxClass(value)}">${escapeHtml(value)}</span>`).join("");
+}
+
+function baziPillarMarkup(pillar) {
+  return `<div class="love-bazi-pillar">
+    <span class="love-bazi-slot">${escapeHtml(pillar.slot || "")}</span>
+    <b class="love-bazi-gan ${wxClass(pillar.gan_wx)}">${escapeHtml(pillar.gan || "")}</b>
+    <b class="love-bazi-zhi ${wxClass(pillar.zhi_wx)}">${escapeHtml(pillar.zhi || "")}</b>
+    <small>${escapeHtml(pillar.gan_ss || "")} · ${escapeHtml(pillar.zhi_ss || "")}</small>
+    <em>藏 ${escapeHtml(pillar.hidden || "—")}</em>
+  </div>`;
+}
+
+function baziChartMarkup(person, role) {
+  const pillars = (Array.isArray(person.pillars) ? person.pillars : [])
+    .map(baziPillarMarkup).join("");
+  return `<article class="love-bazi-chart is-${role}">
+    <header class="love-bazi-chart-head">
+      <div>
+        <span class="eyebrow">${role === "him" ? "HIM · 男命" : "HER · 女命"}</span>
+        <h3>${escapeHtml(person.name || "")}</h3>
+        <p>${escapeHtml(person.birth || "")}</p>
+        <p class="love-bazi-place">${escapeHtml(person.place || "")}</p>
+      </div>
+      <span class="love-bazi-master">${escapeHtml(person.day_master || "")}</span>
+    </header>
+    <div class="love-bazi-pillars">${pillars}</div>
+    <dl class="love-bazi-meta">
+      <div><dt>格局</dt><dd>${escapeHtml(person.pattern || "")}</dd></div>
+      <div><dt>喜</dt><dd>${wxChips(person.favor)}</dd></div>
+      <div><dt>忌</dt><dd>${wxChips(person.avoid)}</dd></div>
+      <div><dt>大运</dt><dd>${escapeHtml(person.dayun || "")}</dd></div>
+    </dl>
+    ${person.time_note ? `<p class="love-bazi-note">${escapeHtml(person.time_note)}</p>` : ""}
+  </article>`;
+}
+
+function baziHeroMarkup(data) {
+  const hehun = data.hehun || {};
+  return `<section class="love-bazi-hero">
+    <div class="love-bazi-seal" aria-hidden="true">合</div>
+    <div class="love-bazi-hero-text">
+      <span class="eyebrow">BAZI · 合婚参考</span>
+      <h2>${escapeHtml(hehun.kicker || "合婚")}</h2>
+      <p>${escapeHtml(hehun.summary || "")}</p>
+      <div class="love-bazi-hero-tags">
+        <span class="love-bazi-verdict">${escapeHtml(hehun.verdict || "")}</span>
+        ${hehun.score ? `<span class="love-badge ok">${escapeHtml(hehun.score)}</span>` : ""}
+        <span class="love-badge">本机只读</span>
+      </div>
+    </div>
+  </section>`;
+}
+
+function baziPointsMarkup(points) {
+  return `<div class="love-bazi-points">${(Array.isArray(points) ? points : []).map((item) =>
+    `<article>
+      <span class="love-bazi-glyph" aria-hidden="true">${escapeHtml(item.glyph || "☯")}</span>
+      <h3>${escapeHtml(item.title || "")}</h3>
+      <p>${escapeHtml(item.body || "")}</p>
+    </article>`).join("")}</div>`;
+}
+
+function baziYearsMarkup(years) {
+  return `<ol class="love-bazi-years">${(Array.isArray(years) ? years : []).map((item) =>
+    `<li data-tone="${escapeHtml(item.tone || "flat")}">
+      <span class="love-bazi-year">${escapeHtml(item.year || "")}</span>
+      <b>${escapeHtml(item.gz || "")}</b>
+      <p>${escapeHtml(item.text || "")}</p>
+    </li>`).join("")}</ol>`;
+}
+
+function baziAdviceMarkup(advice) {
+  return `<div class="love-bazi-advice">${(Array.isArray(advice) ? advice : []).map((item, index) =>
+    `<article>
+      <span class="love-bazi-index" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>
+      <h3>${escapeHtml(item.title || "")}</h3>
+      <p>${escapeHtml(item.body || "")}</p>
+    </article>`).join("")}</div>`;
+}
+
+function baziHerMarkup(her) {
+  const sections = (Array.isArray(her.sections) ? her.sections : []).map((section) =>
+    `<article>
+      <h3>${escapeHtml(section.title || "")}</h3>
+      <p>${escapeHtml(section.body || "")}</p>
+    </article>`).join("");
+  return `<section class="love-bazi-her">
+    <div class="love-bazi-section-head">
+      <span class="eyebrow">HER · 命盘详解</span>
+      <h2>${escapeHtml(her.name || "她")}的盘</h2>
+      <p>${escapeHtml(her.day_master_note || "")}</p>
+    </div>
+    <div class="love-bazi-details">${sections}</div>
+  </section>`;
+}
+
+function baziMarkup(data) {
+  const hehun = data.hehun || {};
+  return `<div class="love-bazi-page">
+    ${baziHeroMarkup(data)}
+    <div class="love-bazi-pair">
+      ${baziChartMarkup(data.him || {}, "him")}
+      ${baziChartMarkup(data.her || {}, "her")}
+    </div>
+    ${card("三条依据", baziPointsMarkup(hehun.points), {
+      eyebrow: "WHY", subtitle: "天干、地支、五行，三条都指向同一件事。",
+    })}
+    <aside class="love-bazi-review">
+      <span class="eyebrow">NOTE</span>
+      <strong>口径说明</strong>
+      <p>${escapeHtml(hehun.review || "")}</p>
+    </aside>
+    ${card("关键年份", baziYearsMarkup(hehun.years), {
+      eyebrow: "TIMELINE", subtitle: "只标大节点；具体到月要看当年流月。",
+    })}
+    ${card("相处建议", baziAdviceMarkup(hehun.advice), {
+      eyebrow: "HOW", subtitle: "三条就够，做到比知道有用。",
+    })}
+    ${baziHerMarkup(data.her || {})}
+    <p class="love-bazi-boundary">${escapeHtml(hehun.boundary || "")}</p>
+  </div>`;
+}
+
+async function renderBazi(content) {
+  const data = await loveApi("/api/love/bazi", { timeoutMs: 30000 });
+  if (love.page !== "bazi") return;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("八字资料格式不正确");
+  }
+  content.innerHTML = baziMarkup(data);
 }
 
 // ── 总览 ───────────────────────────────────────────────────────────
@@ -2622,5 +2766,6 @@ const PAGE_RENDERERS = {
   memory: renderMemory,
   report: renderReport,
   schedule: renderSchedule,
+  bazi: renderBazi,
   settings: renderSettings,
 };

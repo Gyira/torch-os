@@ -31,6 +31,8 @@
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
       <!-- 待确认中枢：草稿 / 事实 / 分流 三处积压在这里汇总成一个常驻数字（2026-10-27）。 -->
       <div id="workbench-pending" class="pending-strip" data-pending-strip hidden></div>
+      <!-- 主动提问：一天一个「关于我」的问题，答了直接写进自我档案（2026-10-27）。 -->
+      <div id="workbench-question" class="question-slot" data-question-slot hidden></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
@@ -75,7 +77,11 @@
             </aside>
           </aside>
           <div class="workbench-head-main">
-            <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
+            <div class="workbench-topline">
+              <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
+              <!-- 网页书签栏（2026-10-28）：和问候语同一行靠右，点书签用默认浏览器打开，右端齿轮管理。 -->
+              <nav id="workbench-bookmarks" class="bookmark-bar" aria-label="网页书签栏" hidden></nav>
+            </div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
             <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
@@ -125,10 +131,27 @@
               <p id="time-status" class="status-message" role="status" aria-live="polite"></p>
               <div class="time-board" id="time-board"></div>
             </div>
-            <section class="time-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
-              <header class="time-head"><h3>习惯打卡</h3><span id="time-habits-count" class="meta" role="status"></span></header>
-              <p id="time-habits-hint" class="field-help">每日必做在 Obsidian 的 <code>00_人生路/08_任务与待办/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。习惯每天勾一次。</p>
-              <ul id="time-habits-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
+            <section class="time-page habits-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
+              <header class="time-head habit-page-head">
+                <h3>习惯打卡</h3>
+                <span id="habit-page-count" class="meta" role="status"></span>
+                <button type="button" id="habit-add" class="button primary" data-habit-add>＋ 添加习惯</button>
+                <button type="button" id="habit-archived-toggle" class="text-button" aria-pressed="false">已归档</button>
+              </header>
+              <div id="habit-page-status" class="habit-page-status" role="status" aria-live="polite"></div>
+              <div id="habit-week-strip"></div>
+              <div class="habit-page-layout">
+                <div class="habit-card-column">
+                  <section class="habit-daily-block" aria-labelledby="habit-daily-title">
+                    <header class="habit-daily-head"><h4 id="habit-daily-title">每日必做</h4><span id="time-daily-count" class="meta" role="status"></span></header>
+                    <p id="time-daily-hint" class="field-help">每日必做在 Obsidian 的 <code>00_人生路/08_任务与待办/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。</p>
+                    <ul id="time-daily-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
+                  </section>
+                  <label class="habit-group-filter-label">分组<select id="habit-group-filter" aria-label="按分组筛选习惯"></select></label>
+                  <div id="habit-card-list"></div>
+                </div>
+                <aside id="habit-detail" class="habit-detail-column" aria-label="习惯详情"></aside>
+              </div>
             </section>
             <section class="time-page" id="time-calendar-page" role="tabpanel" aria-labelledby="time-tab-calendar" hidden aria-label="日历"></section>
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
@@ -218,7 +241,8 @@
             <button type="button" class="love-nav-item" data-love-page="memory"><span>08</span>每日记忆</button>
             <button type="button" class="love-nav-item" data-love-page="report"><span>09</span>报告</button>
             <button type="button" class="love-nav-item" data-love-page="schedule"><span>10</span>值班日历</button>
-            <button type="button" class="love-nav-item" data-love-page="settings"><span>11</span>设置</button>
+            <button type="button" class="love-nav-item" data-love-page="bazi"><span>11</span>八字合婚</button>
+            <button type="button" class="love-nav-item" data-love-page="settings"><span>12</span>设置</button>
           </nav>
           <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>
         </aside>

@@ -154,3 +154,30 @@ def test_backlinks_find_wiki_and_markdown_links(tmp_path):
         vault, title="引用来源", body=f"见 [[{target['path']}|目标概念]]")
     links = client.get("/api/notes/backlinks", params={"path": target["path"]}).json()["items"]
     assert [item["path"] for item in links] == [source["path"]]
+
+
+def test_self_overview_carries_the_archive_cover_and_timeline(tmp_path):
+    """自我档案首屏：身份字段（含横幅座右铭）+ 自传时间线，按日期倒序。"""
+    client, vault = make_client(tmp_path)
+    identity = vault / "01_自我档案" / "01_内核与三观" / "身份（identity）.md"
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    identity.write_text(
+        "---\ntype: identity\nname: 小林\nworldview: 世界可被理解\n"
+        "mottos:\n- 看更大的世界\n---\n\n", encoding="utf-8")
+    older = vault / "01_自我档案" / "02_记忆与自传" / "2026-10-20 早些的事.md"
+    newer = vault / "01_自我档案" / "02_记忆与自传" / "2026-10-27 入职.md"
+    older.parent.mkdir(parents=True, exist_ok=True)
+    older.write_text("---\ntype: memory\ndate: 2026-10-20\ntitle: 早些的事\n---\n\n正文。\n",
+                     encoding="utf-8")
+    newer.write_text("---\ntype: memory\ndate: 2026-10-27\ntitle: 入职\n---\n\n九月入职。\n",
+                     encoding="utf-8")
+
+    overview = client.get("/api/pillars/self/overview").json()
+
+    assert overview["identity"]["name"] == "小林"
+    assert overview["identity"]["mottos"] == ["看更大的世界"]
+    assert [item["title"] for item in overview["timeline"]] == ["入职", "早些的事"]
+    assert overview["timeline"][0]["date"] == "2026-10-27"
+    chapters = {chapter["key"]: chapter["count"] for chapter in overview["chapters"]}
+    assert chapters["memory"] == 2
+    assert chapters["core_values"] == 1

@@ -35,32 +35,25 @@ def _weekdays_text(weekdays: Any) -> str:
 
 
 class GrowthExportService:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, vault_dir: Any = None):
         self.database = database
-        self.habits = HabitService(database)
+        self.habits = HabitService(database, vault_dir)
 
     def collect(self) -> dict[str, Any]:
-        habits = self.habits.list()
-        with self.database.connect() as connection:
-            entry_rows = [dict(row) for row in connection.execute(
-                """SELECT habit_id,date,status,note,revision,updated_at
-                FROM habit_entries ORDER BY habit_id, date"""
-            ).fetchall()]
-
-        entries_by_habit: dict[int, list[dict[str, Any]]] = {}
+        payload = self.habits.export_payload()
+        entry_rows = payload["entries"]
         entry_counts = {key: 0 for key in ENTRY_STATUS_LABELS}
         for entry in entry_rows:
-            entries_by_habit.setdefault(int(entry["habit_id"]), []).append(entry)
             status = str(entry.get("status") or "")
             if status in entry_counts:
                 entry_counts[status] += 1
         habit_counts = {key: 0 for key in HABIT_STATUS_LABELS}
         habit_rows = []
-        for habit in habits:
+        for habit in payload["habits"]:
             status = str(habit.get("status") or "")
             if status in habit_counts:
                 habit_counts[status] += 1
-            habit_rows.append({**habit, "entries": entries_by_habit.get(int(habit["id"]), [])})
+            habit_rows.append({**habit, "entries": habit.get("entries") or []})
 
         return {
             "schema": 1,
@@ -103,9 +96,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"## 习惯：{habit.get('title') or '未命名习惯'}（{status}）")
         meta = [
             f"最低行动：{habit.get('minimum_action') or '未标注'}",
-            f"计划日：{_weekdays_text(habit.get('weekdays'))}",
+            f"频率：{habit.get('frequency_label') or _weekdays_text(habit.get('weekdays'))}",
             f"开始日期：{habit.get('start_date') or '未标注'}",
         ]
+        if habit.get("group"):
+            meta.append(f"分组：{habit['group']}")
+        if habit.get("priority"):
+            meta.append(f"优先级：{habit['priority']}")
+        if habit.get("reminder"):
+            meta.append(f"提醒：{habit['reminder']}")
         if habit.get("cue"):
             meta.insert(0, f"触发提示：{habit['cue']}")
         lines.append("- " + " · ".join(meta))
@@ -121,8 +120,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def create_growth_export_router(database: Database, prefix: str = "/api") -> APIRouter:
-    service = GrowthExportService(database)
+def create_growth_export_router(database: Database, vault_dir: Any = None,
+                                prefix: str = "/api") -> APIRouter:
+    service = GrowthExportService(database, vault_dir)
     router = APIRouter(prefix=prefix, tags=["growth-export"])
 
     def _stamp() -> str:

@@ -104,6 +104,7 @@ const EVENT_LABELS = {
   study_subject_created: "新建学习科目", study_subject_updated: "更新学习科目",
   study_session_created: "新建学习记录", study_session_updated: "更新学习记录",
   habit_created: "新建习惯", habit_updated: "更新习惯", habit_entry_saved: "保存习惯打卡",
+  habit_deleted: "删除习惯", habit_reordered: "调整习惯顺序",
   fortune_checkin: "运势签到",
   body_entry_saved: "保存身体记录", body_entry_cleared: "清除身体记录", body_exported: "身体记录导出",
   body_summary_exported: "身体记录汇总导出",

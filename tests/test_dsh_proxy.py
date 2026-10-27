@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 from backend.app.dsh_proxy import DshProxy, _rewrite_location, create_dsh_router
-from backend.app.dsh_web import DshLaunch
+from backend.app.dsh_web import DshError, DshLaunch
 
 
 class FakeRuntime:
@@ -128,5 +128,26 @@ def test_cross_origin_is_rejected_and_non_loopback_is_rejected():
             response = await client.get("/harness/", headers={"origin": "https://evil.example"})
             assert response.status_code == 403
         await upstream_client.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_restart_is_refused_while_a_shared_dsh_has_another_owner():
+    class _SharedRuntime(FakeRuntime):
+        def request_restart(self):
+            raise DshError("另一个 torch 入口正在使用这个 dsh；先关掉那个入口，再重启。")
+
+    async def scenario():
+        runtime = _SharedRuntime()
+        proxy = DshProxy(runtime, client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200))))
+        app = FastAPI()
+        app.include_router(create_dsh_router(runtime, proxy))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as client:
+            response = await client.post("/api/dsh/restart")
+            assert response.status_code == 409
+            assert "另一个 torch 入口" in response.json()["detail"]
+        await proxy.close()
 
     asyncio.run(scenario())

@@ -983,3 +983,30 @@ test("task rows show the linked goal and can filter the board by it", async () =
   await chip.emit("click");
   assert.deepEqual(selected, ["00_人生路/06_目标与计划/01_年度目标/学习.md"]);
 });
+
+test("habit rows read entry_status and expose the habit badge and rest state", async () => {
+  const { load } = await harness();
+  const { taskRow } = (await load("tasks.js")).namespace;
+  const toggled = [];
+  const habit = calendarTask({
+    key: "habit:h1:2026-10-11", kind: "habit", virtual: true, habit_id: 1,
+    title: "每天阅读", icon: "📚", list_name: "习惯打卡",
+    done: true, entry_status: "skipped", date: "2026-10-11", priority: "high",
+    definition_revision: 2, entry_revision: 3, auto_log: false,
+  });
+  const row = taskRow(habit, {
+    today: "2026-10-11", lists: [], draggable: true,
+    onToggle: (task, done) => toggled.push([task.key, done]),
+    actions: {},
+  });
+  assert.equal(hasClass(row, "is-habit"), true);
+  assert.equal(hasClass(row, "is-skipped"), true);
+  assert.equal(hasClass(row, "is-done"), false);
+  const box = byClass(row, "task-check")[0];
+  assert.equal(box.checked, false);
+  await box.emit("change");
+  assert.deepEqual(toggled, [["habit:h1:2026-10-11", false]]);
+  assert.equal(byClass(row, "task-habit-badge").length, 1);
+  assert.equal(byClass(row, "task-habit-skip").length, 1);
+  assert.equal(byClass(row, "task-habit-icon").length, 1);
+});

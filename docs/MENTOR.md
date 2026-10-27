@@ -81,6 +81,33 @@ L1 只读摘要，不读正文。摘要写不出结论的笔记，等于没写�
 接口：`GET /api/identity/drafts`、`POST /api/identity/drafts/{name}/accept|reject`；
 自我档案的 `GET /api/pillars/self/overview` 会顺带返回 `drafts`，面板一次请求就够。
 
+## 主动提问：不用等我开口
+
+身份候选是"我说话时被记下"，主动提问是"我不说话时来问我"。工作台顶部一天一个问题，
+三个出口：记下来 / 跳过（冷却 7 天）/ 别再问这个（永久）。答完当天不再自动出题，
+但卡片留一个「再问一个」——我想多聊几个就手动要，不用等明天；已答、已拉黑的问题仍然不重复。
+
+**被问到、并且我亲口答了，就是确认**——答案直接落档，不再要二次确认；
+聊天里顺带提到的事实仍然走候选队列。这条区分是整个模块的地基。
+
+### 问什么：dsh 生成，torch 消费
+
+固定题库只配当保底。真正有价值的问题，是**读过四库之后**才发现的那种——
+"你写了三页考研规划，一句没写没考上怎么办"这种缺口，规则引擎看不出来，读过内容的一方看得出。
+
+所以分成两层：
+
+| 谁 | 负责 |
+|---|---|
+| dsh | 读内核卡与相关笔记，找到「该有我、现在空着」的缺口，用 `scripts/question_draft.py` 投一张卡（**必须带 `--why`，引用真实笔记**） |
+| torch | 决定什么时候问（一天一个 / 我点「再问一个」）、答完写哪、用过收走（`已用/`）、过期作废（14 天） |
+
+队列优先、题库兜底。torch 全程不调模型——这不是省事，是**把"问什么"和"什么时候问"
+拆给不同的东西**：前者要读过内容，后者要懂人的节奏。
+
+一眼假的问题（没有依据、问已经写过的、泛泛的"你怎么看人生"）在 skill 里被明令禁止；
+`question_draft.py` 还会直接拒收没有 `--why` 的卡。
+
 ## 待确认中枢：三处积压一个入口
 
 身份候选只是"等我拍板"的一种。工作台顶部那行数字把三种收在一起（`docs/FEATURE_MAP.md`
@@ -164,6 +191,11 @@ L1 只读摘要，不读正文。摘要写不出结论的笔记，等于没写�
 | `frontend/pending.js` | 工作台那行数字 + 三 tab 弹层（取数、动作） |
 | `frontend/pending-markup.js` | 弹层的纯渲染（可在 node 里单测） |
 | `frontend/identity-inbox.js` | 自我档案右栏的「身份待确认」卡片（纯函数，`node --test` 可测） |
+| `backend/app/questions.py` | 主动提问：队列 + 题库、冷却与落档 |
+| `scripts/question_draft.py` | dsh 投递提问卡（`add` / `list` / `list-targets`，必须带 `--why`） |
+| `frontend/questions.js` / `questions-markup.js` | 工作台那问答卡片（取数 / 纯渲染） |
 | `tests/test_mentor_workflow.py` | 上面这些的守卫 |
 | `tests/test_identity_inbox.py` | 候选队列：不越界、不覆盖、丢弃不动四库 |
+| `tests/test_questions.py` | 选题顺序、冷却、永久拒绝、答完落档 |
 | `frontend/tests/identity-inbox.test.mjs` | 面板渲染与转义 |
+| `frontend/tests/questions.test.mjs` | 提问卡片的三个出口与转义 |

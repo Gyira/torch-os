@@ -58,12 +58,36 @@ tags: [dsh]
 ```
 `type` 用该章节的 `default_type`（如 `reflection`、`insight`、`idea`、`principle`、`topic`、`reading`、
 `concept`、`method`、`goal`、`plan`）；文件名：反思/灵感带日期前缀，知识类直接用标题，实际落地由脚本生成。
+`来源` 默认写 `dsh`；内容来自网页版分享链接时写那条链接。
 
 **落盘用脚本**：`scripts/archive_note.py --chapter <key> --title "..." --body-file <草稿> [--dry-run]`
 一次做完章节校验、文件名、frontmatter 与防覆盖；章节 key 用 `--list-chapters` 查。
 正文第一行写 `> 摘要`（≤40 字），开场记忆内核会直接读它。
 
 **写完必须回报**：给相对路径（可点击的 `[[双链]]`）+ 一句话摘要。
+
+### 网页版回答：我贴分享链接，你取回再归档
+
+我在 DeepSeek 网页版（`chat.deepseek.com`，免费、不烧 token）问完，会在网页里点「分享」拿到
+`https://chat.deepseek.com/share/<id>`，直接贴给你；可以一次贴一条，也可以连着贴几条。
+
+1. **取回原文**（只读，不写库）：
+   ```powershell
+   & "$env:TORCH_REPO_ROOT\.venv\Scripts\python.exe" "$env:TORCH_REPO_ROOT\scripts\share_link.py" "<分享链接>" --json
+   ```
+   - 先 `--json` 看轮数、字数和每轮预览；轮次多时用 `--rounds 1-3` 只取需要的轮，
+     去掉 `--json` 输出 Markdown 正文，`--out <文件>` 写到草稿文件（不覆盖已有文件）。
+   - 只认 `chat.deepseek.com/share/...`，只收「我的提问」与「最终回答」；
+     思考过程、工具调用、TIP 一律不进笔记。
+   - 取不到（删除/失效/接口改版）就直说，**不要按标题猜内容，也不要编造回答**。
+2. **先给方案再落盘**：报「建议标题 + 目标章节 + 3 行以内摘要」；我说「归档 / 记下来」才写。
+3. **分类**：按上面的分类表；通用知识默认 `03_知识库/01_主题笔记`（章节 key `topic`），
+   方法/流程类进 `03_知识库/05_方法库/02_通用方法`（`method_general`），拿不准先
+   `03_知识库/00_收件箱/`（`inbox`）。
+4. **笔记形态**：frontmatter 的 `来源` 写分享链接（落盘时用 `archive_note.py --source "<链接>"`），
+   正文保留问题原话 + 回答的结构化要点；回答很长就前面写摘要、文末加「原文」小节；一条链接一篇，不合并。
+5. 分享内容可能含我的隐私：只写进当前库的 Markdown，不转发到任何外部服务；
+   取回本身只访问 `chat.deepseek.com`。
 
 ## 3. 边界（比习惯优先）
 

@@ -10,8 +10,8 @@
 - 工作树：微信同步、每日记忆、ChatLab 文件兜底与新章节未提交（2026-10-27，以 `git status` 为准）；
   列车追踪/值班日历已提交（`3c7094a`）。工作树里另有一组不是本次改动的 dsh/mentor 文件
   （`docs/MENTOR.md`、`dsh/skills/`、`scripts/session_brief.py` 等），本次未修改、未回退。
-- 布局版本：**`pillars-v2`**（2026-10-26 起；新增 `02_生活运营/05_情感与记忆` 后共 36 章，
-  仍是增量添加，旧路径不变）
+- 布局版本：**`pillars-v2`**（2026-10-26 起；新增 `02_生活运营/05_情感与记忆` 与
+  `01_自我档案/07_我的八字参考` 后共 37 章，仍是增量添加，旧路径不变）
 - 后端：**807 passed / 1 skipped / 0 failed**（2026-10-27 全量，356.25 秒；5 个既有 QA 编码警告；
   新增 `tests/test_weflow.py` 17 项、`tests/test_love_memory.py` 7 项）
 - 前端：**286 passed**（2026-10-27 本次改动完成后实跑；`frontend/tests/love.test.mjs` 新增
@@ -32,6 +32,43 @@
 
 ## 已完成
 
+- **2026-10-28 习惯打卡模块（对齐滴答清单 + 待办联动）**：
+  工作台习惯页补齐周条、习惯卡、月打卡/总打卡/月完成率/当前连续、月历热力图、月度打卡日志
+  和新增/编辑/归档/删除；支持每天/每周/每月/每隔 N 天、图标/颜色/分组/提醒/坚持天数/
+  自动弹出打卡日志。习惯定义写入 `00_人生路/06_目标与计划/04_习惯追踪/习惯/<名称>.md`，
+  打卡写入 `打卡/YYYY-MM.md`，`习惯定义.md` 是自动生成的只读索引；Markdown 是权威源，
+  SQLite（`habit_definitions`/`habit_entries`/`habit_cache_meta`）只是统计缓存。
+  当天到期的习惯作为虚拟任务进入今日任务和四象限，勾选/拖优先级/双击改名与习惯页双向同步；
+  虚拟习惯不落任务笔记，也不进入滴答推送。新增后端 `test_habit_schedule/stats/virtual_tasks`
+  与前端 `habits-model/markup` 测试。
+- **2026-10-28 网页版分享链接 → 四库（dsh 工作流）**：
+  - 新增 `scripts/share_link.py`：解析 `chat.deepseek.com/share/<id>`，走公开只读接口
+    `GET /api/v0/share/content?share_id=` 取回问答；只收提问 `REQUEST` 与最终回答 `RESPONSE`，
+    `THINK`/`TOOL_*`/`TIP` 丢弃；支持 `--rounds 1-3` 分轮、`--json` 摘要、`--out` 草稿（不覆盖），
+    单篇上限 40 万字（超了只给摘要）。
+  - `dsh/AGENTS.md` 增加「网页版回答：我贴分享链接，你取回再归档」：先报标题/章节/摘要，
+    确认后 `archive_note.py --source "<链接>"` 落盘，`来源` 写链接；一条链接一篇。
+  - 测试：`tests/test_share_link.py` 6 项（解析/筛选/错误映射/标题/摘要）；与
+    `archive_note.py --dry-run` 串通验证过，未写任何笔记。
+- **2026-10-28 网页书签栏（工作台问候语右侧）**：
+  - `frontend/bookmark-model.js`（纯数据层：网址规范化、去重、限量、增删改排序）+ 
+    `frontend/bookmarks.js`（DOM：书签条与齿轮面板）；`index.html` 把问候语包进
+    `.workbench-topline`，书签条在同一行靠右，齿轮在右端。
+  - 数据键 `torch-os:bookmark-bar`，跟着当前库的 `.torch-os/personal-data.json` 走；
+    首次打开预置 `https://chat.deepseek.com/`。打开方式：浏览器直开 `window.open`；
+    Obsidian 内发 `torch:open-url`，插件 0.99.3 校验来源与 http/https 后 `shell.openExternal`。
+  - 测试：`frontend/tests/bookmarks.test.mjs` 7 项；前端全量 **346 passed**；
+    `scripts/check_integrity.py`、`scripts/check_module_surface.mjs` 通过。
+- **2026-10-28 我的八字参考 + 恋爱系统八字合婚**：
+  - 新增章节 `01_自我档案/07_我的八字参考`（`type: bazi`，`vault_layout.CHAPTERS` 共 37 章），
+    侧边栏独立一项；两篇笔记：`我的八字参考.md`（命盘/五行/十神/事业/财运/婚姻/六亲/健康/
+    学业/大运/流年/开运/人生高度/口径边界）与 `八字速查卡.md`。
+  - 恋爱系统新增只读页「八字合婚」（导航第 11 项）：`GET /api/love/bazi` 读取
+    `.torch-os/love/bazi.json`，展示双人命盘、三条依据、口径说明、关键年份与相处建议；
+    数据不进四库、不进自我档案。
+  - 测试：`tests/test_love_bazi.py` 4 项；前端 `frontend/tests/bazi-page.test.mjs` 2 项。
+  - 已知：本机 `.env` 指向真实 Vault 时，`tests/test_workspaces.py` 有 3 项既有失败
+    （工作区默认名被真实库名覆盖），与本次改动无关。
 - **2026-10-27 微信同步 + 每日记忆（生活运营）**：
   - `backend/app/weflow.py`：WeFlow 本地 HTTP 客户端（只访问 `127.0.0.1`，Bearer Token，
     不跟随重定向、不走系统代理、响应大小上限）、ChatLab Pull/JSON/JSONL 解析、offset 翻页；

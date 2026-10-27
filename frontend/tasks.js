@@ -5,6 +5,7 @@
 import { escapeHtml } from "./core.js";
 import {
   GROUP_OPTIONS, SORT_OPTIONS, PRIORITIES, priorityMeta, relativeDay, dayOffset, timeLabel, taskColor,
+  isHabitTask,
 } from "./tasks-model.js";
 import { openPopover, openDatePicker, openTagPicker, openTimePicker } from "./tasks-picker.js";
 import { setTaskDragData } from "./tasks-drag.js";
@@ -13,11 +14,16 @@ import { setTaskDragData } from "./tasks-drag.js";
 export function taskRow(task, options) {
   const { today, lists, multi = false, selectedKeys = new Set(), activeKey = "" } = options;
   const legacy = Boolean(task.legacy);
+  const habit = isHabitTask(task);
+  const checked = habit ? task.entry_status === "done" : Boolean(task.done);
+  const skipped = habit && task.entry_status === "skipped";
   const selected = multi ? selectedKeys.has(task.key) : activeKey === task.key;
   const row = document.createElement("li");
-  row.className = `time-task${task.done ? " is-done" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}${legacy ? " is-legacy" : ""}`;
+  row.className = `time-task${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${habit ? " is-habit" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}${legacy ? " is-legacy" : ""}`;
   row.dataset.taskKey = task.key;
   row.dataset.taskPath = task.path || "";
+  row.dataset.taskKind = habit ? "habit" : "";
+  if (habit && task.color) row.style.setProperty("--task-habit-color", task.color);
   row.tabIndex = 0;
   // 任务行整行可拖；拖动勾选框/按钮/标签/改名输入框时不启动，避免抢掉它们自己的操作。
   const draggable = Boolean(options.draggable) && !legacy;
@@ -25,8 +31,8 @@ export function taskRow(task, options) {
   if (draggable) row.classList.add("is-draggable");
   if (selected) row.setAttribute("aria-selected", "true");
 
-  // 多选模式：行首多一个选择框（旧任务只读，不参与批量）
-  if (multi && !legacy) {
+  // 多选模式：行首多一个选择框（旧任务/虚拟习惯不参与批量）
+  if (multi && !legacy && !habit) {
     const select = document.createElement("input");
     select.type = "checkbox";
     select.className = "task-select";
@@ -39,11 +45,13 @@ export function taskRow(task, options) {
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "task-check";
-  box.checked = Boolean(task.done);
+  box.checked = checked;
   box.disabled = legacy;
   box.setAttribute("aria-label", legacy ? `旧任务只读：${task.title}`
-    : `${task.done ? "取消完成" : "完成"}：${task.title}`);
+    : habit ? `${checked ? "取消打卡" : "打卡"}：${task.title}`
+      : `${task.done ? "取消完成" : "完成"}：${task.title}`);
   if (legacy) box.title = "旧任务仍在 任务（tasks）.md，应用内只读；可在 Obsidian 里修改";
+  if (skipped) box.title = "今天已标记为主动休息；勾选可改为完成";
   box.addEventListener("change", () => {
     if (legacy) return;
     options.onToggle(task, box.checked);
@@ -54,7 +62,7 @@ export function taskRow(task, options) {
   title.textContent = task.title;
   title.title = legacy
     ? "旧任务：在 任务（tasks）.md 中编辑（应用内只读）"
-    : "双击可以改字";
+    : habit ? "双击可以改习惯名称" : "双击可以改字";
   if (!legacy) title.addEventListener("dblclick", () => startRename(title, task, options));
 
   let legacyBadge = null;
@@ -63,6 +71,26 @@ export function taskRow(task, options) {
     legacyBadge.className = "task-legacy-badge";
     legacyBadge.textContent = "旧";
     legacyBadge.title = "旧任务仍在 任务（tasks）.md，应用内只读；可在 Obsidian 里修改";
+  }
+
+  let habitIcon = null;
+  let habitBadge = null;
+  let skipBadge = null;
+  if (habit) {
+    habitIcon = document.createElement("span");
+    habitIcon.className = "task-habit-icon";
+    habitIcon.textContent = task.icon || "🌱";
+    habitIcon.setAttribute("aria-hidden", "true");
+    habitBadge = document.createElement("span");
+    habitBadge.className = "task-habit-badge";
+    habitBadge.textContent = "习惯";
+    habitBadge.title = "习惯任务：勾选会同步到习惯页";
+    if (skipped) {
+      skipBadge = document.createElement("span");
+      skipBadge.className = "task-habit-skip";
+      skipBadge.textContent = "休息";
+      skipBadge.title = "今天已标记为主动休息";
+    }
   }
 
   const flags = document.createElement("span");
@@ -117,6 +145,7 @@ export function taskRow(task, options) {
   where.className = "task-meta";
   const parts = [];
   if (task.list_name) parts.push(task.list_name);
+  if (habit && task.frequency_label) parts.push(task.frequency_label);
   if (task.date) parts.push(relativeDay(task.date, today));
   else if (task.done && task.done_on) parts.push(`完成于 ${task.done_on.slice(5)}`);
   if (task.time) parts.push(timeLabel(task.time));
@@ -138,8 +167,9 @@ export function taskRow(task, options) {
     openButton.type = "button";
     openButton.className = "task-open";
     openButton.textContent = "📄 文档";
-    openButton.title = legacy ? "打开总任务文件（旧任务在 Obsidian 里编辑）" : "打开任务文档";
-    openButton.setAttribute("aria-label", `${legacy ? "打开总任务文件" : "打开文档"}：${task.title}`);
+    openButton.title = legacy ? "打开总任务文件（旧任务在 Obsidian 里编辑）"
+      : habit ? "打开习惯笔记" : "打开任务文档";
+    openButton.setAttribute("aria-label", `${legacy ? "打开总任务文件" : habit ? "打开习惯笔记" : "打开文档"}：${task.title}`);
     openButton.addEventListener("click", (event) => {
       event.stopPropagation();
       options.onOpenDocument(task);
@@ -177,8 +207,9 @@ export function taskRow(task, options) {
     row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
   }
 
-  row.append(box, ...(legacyBadge ? [legacyBadge] : []), title, flags, tags,
-             ...(goalChip ? [goalChip] : []), where,
+  row.append(box, ...(habitIcon ? [habitIcon] : []), ...(legacyBadge ? [legacyBadge] : []),
+             title, ...(habitBadge ? [habitBadge] : []), ...(skipBadge ? [skipBadge] : []),
+             flags, tags, ...(goalChip ? [goalChip] : []), where,
              ...(openButton ? [openButton] : []), more);
   return row;
 }
@@ -189,8 +220,8 @@ function startRename(title, task, options) {
   input.type = "text";
   input.className = "task-rename";
   input.value = task.title;
-  input.maxLength = 200;
-  input.setAttribute("aria-label", "改任务标题");
+  input.maxLength = isHabitTask(task) ? 120 : 200;
+  input.setAttribute("aria-label", isHabitTask(task) ? "改习惯名称" : "改任务标题");
   title.replaceWith(input);
   input.focus();
   input.select();
@@ -267,6 +298,26 @@ function menuGroup(layer, label) {
   layer.append(head);
 }
 
+function appendPriorityFlags(layer, task, close, actions) {
+  const flags = document.createElement("div");
+  flags.className = "time-popover-flags";
+  for (const item of PRIORITIES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `time-popover-flag${task.priority === item.value ? " is-current" : ""}`;
+    button.innerHTML = `<span class="task-flag prio-${item.value}" aria-hidden="true">${item.flag || "🏳"}</span>`;
+    button.title = item.label;
+    button.setAttribute("aria-label", item.label);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      close();
+      actions.setPriority?.(task, item.value);
+    });
+    flags.append(button);
+  }
+  layer.append(flags);
+}
+
 /**
  * 任务右键菜单（图 19，只做点名的那些）：日期 / 优先级 / 置顶 / 移动到 / 标签 / 创建副本 / 删除。
  * 「移动到」在菜单里就地展开清单树，不再套一层子菜单（更少点击）。
@@ -275,10 +326,25 @@ export function openTaskMenu(anchor, task, options) {
   const { lists = [], tags = [], today, actions = {} } = options;
   openPopover(anchor, (layer, close) => {
     if (task.path && actions.openDocument) {
-      menuRow(layer, task.legacy ? "📄 打开总任务文件" : "📄 打开文档", () => {
+      menuRow(layer, task.legacy ? "📄 打开总任务文件" : isHabitTask(task) ? "📄 打开习惯笔记" : "📄 打开文档", () => {
         close();
         actions.openDocument(task);
       });
+    }
+    if (isHabitTask(task)) {
+      menuGroup(layer, "优先级");
+      appendPriorityFlags(layer, task, close, actions);
+      menuRow(layer, "✏️ 编辑习惯", () => {
+        close();
+        actions.openHabit?.(task);
+      });
+      const toggleLabel = task.entry_status === "done" ? "↩️ 取消今天打卡"
+        : task.entry_status === "skipped" ? "↩️ 取消主动休息" : "✅ 今天打卡";
+      menuRow(layer, toggleLabel, () => {
+        close();
+        actions.toggleHabit?.(task);
+      });
+      return;
     }
     // 旧任务只在 Obsidian 的总文件里编辑；应用内不提供任何写入入口。
     if (task.legacy) return;
@@ -335,23 +401,7 @@ export function openTaskMenu(anchor, task, options) {
     layer.append(times);
 
     menuGroup(layer, "优先级");
-    const flags = document.createElement("div");
-    flags.className = "time-popover-flags";
-    for (const item of PRIORITIES) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `time-popover-flag${task.priority === item.value ? " is-current" : ""}`;
-      button.innerHTML = `<span class="task-flag prio-${item.value}" aria-hidden="true">${item.flag || "🏳"}</span>`;
-      button.title = item.label;
-      button.setAttribute("aria-label", item.label);
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        close();
-        actions.setPriority(task, item.value);
-      });
-      flags.append(button);
-    }
-    layer.append(flags);
+    appendPriorityFlags(layer, task, close, actions);
 
     menuRow(layer, `📌 ${task.pinned ? "取消置顶" : "置顶"}`, () => {
       close();
@@ -441,24 +491,30 @@ export function paintAddTools(labels) {
 function taskItem(task, options, shape) {
   const { colors = {}, onToggle } = options;
   const legacy = Boolean(task.legacy);
+  const habit = isHabitTask(task);
+  const checked = habit ? task.entry_status === "done" : Boolean(task.done);
+  const skipped = habit && task.entry_status === "skipped";
   const item = document.createElement("div");
-  item.className = `time-item time-${shape}${task.done ? " is-done" : ""}${legacy ? " is-legacy" : ""}`;
+  item.className = `time-item time-${shape}${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${habit ? " is-habit" : ""}${legacy ? " is-legacy" : ""}`;
   item.dataset.taskKey = task.key;
   item.dataset.taskPath = task.path || "";
+  item.dataset.taskKind = habit ? "habit" : "";
   const color = taskColor(task, colors);
   if (color) item.style.setProperty("--item-color", color);
   const goalLabel = task.goal ? options.goalLabel?.(task.goal) : "";
   item.title = [task.title, timeLabel(task.time), task.list_name,
+                habit ? task.frequency_label : "",
                 goalLabel ? `目标：${goalLabel}` : "", legacy ? "旧任务（只读）" : ""]
     .filter(Boolean).join(" · ");
 
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "time-item-check";
-  box.checked = Boolean(task.done);
+  box.checked = checked;
   box.disabled = legacy;
   box.setAttribute("aria-label", legacy ? `旧任务只读：${task.title}`
-    : `${task.done ? "取消完成" : "完成"}：${task.title}`);
+    : habit ? `${checked ? "取消打卡" : "打卡"}：${task.title}`
+      : `${task.done ? "取消完成" : "完成"}：${task.title}`);
   box.addEventListener("change", () => { if (!legacy) onToggle?.(task, box.checked); });
   box.addEventListener("click", (event) => event.stopPropagation());
 
