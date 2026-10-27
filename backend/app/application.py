@@ -62,6 +62,7 @@ from .banner_stats import create_banner_stats_router
 from .fortune import create_fortune_router
 from .journal_note import create_journal_note_router
 from .journal_chat import create_journal_chat_router
+from .journal_inbox import create_journal_inbox_router
 from .journal_review import create_journal_review_router
 from .todo_note import create_todo_router
 from .tasks import create_tasks_router
@@ -684,6 +685,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         getattr(dsh_runtime, "workspace", vault_dir),
         enabled=(runtime_label == "personal" and enable_dsh is not False),
     ), dependencies=[Depends(journal_data_guard)])
+    # 一个输入口：一段话判成日记/反思/心得，确认后各归各位（docs/人生路重设计-v3）。
+    app.include_router(create_journal_inbox_router(database, vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
     app.include_router(create_todo_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
