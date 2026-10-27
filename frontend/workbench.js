@@ -221,7 +221,7 @@ async function toggleHabit(id, revision, done) {
   }
 }
 
-/** 收起/展开（照 Apex Dashboard）：状态存在浏览器本地；收起后是 4px 细条，书签按钮展开。 */
+/** 收起/展开（照 Apex Dashboard）：状态存 .torch-os 个性化数据（浏览器缓存只是镜像）；收起后是 4px 细条，书签按钮展开。 */
 function initBannerCollapse() {
   const KEY = "torch-os:banner-collapsed";
   const banner = $("#workbench-banner");

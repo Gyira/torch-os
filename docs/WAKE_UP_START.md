@@ -51,6 +51,9 @@
   - 工作台任务与配置：`00_人生路/08_任务与待办/任务/`、
     `00_人生路/08_任务与待办/_系统/任务（tasks）.md`。
 - 索引、备份、恢复副本、导入、审计、迁移日志、滴答凭据：`<Vault>/.torch-os/`。
+- 小组件个性化（城市、倒计时、纪念日、排序、时间视图等）：`<Vault>/.torch-os/personal-data.json`，
+  浏览器 localStorage 只是缓存；横幅图片：`<Vault>/.torch-os/横幅背景/`。
+  顶层规则：四库只放 Markdown 正文，其余系统数据都进 `.torch-os`。
 - DeepSeek Harness：唯一的 AI 入口；模型/密钥存在 dsh 的 `DSH_HOME`，torch 不保存。
 - 旧 Apex `dashboard.md`、`dashboard-2.md` 原地保留，不索引、不迁移。
 

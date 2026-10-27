@@ -3,6 +3,43 @@
 这份手册描述当前运行中的 SQLite 结构，以及备份、导出、恢复与「什么会离开本机」的边界。
 它由 `GET /api/schema.json` / `GET /api/schema.md` 的实际结构校验，测试会阻止手册与运行库漂移。
 
+## 文件放哪里（顶层规则，2026-10-27）
+
+一个个人数据库（Vault）里只有两类东西：
+
+1. **Markdown 正文 / 用户内容**放在四库：`00_人生路`、`01_自我档案`、`02_生活运营`、
+   `03_知识库`。这些是用户可在 Obsidian 里直接读改的权威源。
+2. **系统数据、应用配置、小组件个性化数据、缓存、非 Markdown 资源**放在库根
+   `<Vault>/.torch-os/`。主要文件：
+
+| 路径 | 内容 |
+|---|---|
+| `.torch-os/torch_os.sqlite3` | 索引、记忆、审计、签到、调度设置等 |
+| `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
+| `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
+| `.torch-os/love/` | 恋爱系统数据库、AES Key、交路表、时刻表、停用词 |
+| `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
+| `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`task-trash/`、`restored/` | 备份、日志、诊断、迁移与回收站 |
+| `.torch-os/dida-credentials.json` | 滴答清单登录凭据（敏感） |
+
+`personal-data.json` 的格式是 `{"version":1,"updated_at":"…","values":{…}}`，值统一为字符串，
+`null` 表示删除；接口 `GET/PUT /api/personal-data` 只接受 `torch-os:`、`torch:`、`torch.`
+命名空间的键，单值 ≤2MB（能容纳倒计时/纪念日的本机图片 data URL）、合计 ≤8MB。浏览器
+localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时把库里的值灌进去，
+之后 `setItem/removeItem` 防抖镜像回后端。缓存里有一个非 torch 命名空间的
+`__torch_personal_owner` 标记当前 Vault；打开另一个个人数据库时会先清掉上一个库的缓存再灌入
+新库的值。升级后的第一次启动还没有归属标记：本机旧值优先，当时 localStorage 里的个性化键会迁入当次打开的库，
+库里缺的键再补进来；之后以库为准。多库用户建议先打开主库，之后每个库各自维护缓存。
+天气的 30 分钟缓存（`torch-os:weather`）不写回。
+
+`.torch-os` 不参与普通 Vault 扫描、全文索引、Markdown 导出和普通备份快照；但复制整个个人
+数据库文件夹时会一起带走，所以换机仍能保留个性化数据。迁移旧数据时只复制、不删除原文件。
+
+例外：`.env` 只放启动引导与密钥（`DATA_DIR`/`VAULT_DIR`/端口/运行开关，以及历史遗留的
+`LOVE_TARGET_NAME` 这类启动配置）；`.obsidian/` 是 Obsidian 自己要求的插件/主题/工作区配置
+（含 `.obsidian/plugins/torch/data.json`）；DSH 的模型与凭据在它自己的 `DSH_HOME`。torch 自己的
+业务数据与小组件个性化数据仍以 `.torch-os` 为准，**新增**数据不要再放进这些位置。
+
 ## 表清单
 
 | 表 | 分组 |
@@ -86,10 +123,11 @@
 
 - torch 的天气卡只访问固定白名单主机（Open-Meteo 预报/城市搜索与 IP 定位）；城市搜索只在
   你主动输入「添加常用城市」时发生。普通资料、任务与四库功能不调用模型。
-- 工作台倒计时卡的配置（目标日期、标签、背景图）只保存在当前浏览器的 LocalStorage，
-  不写 Vault、不进备份；其中本地图片只由浏览器读取，不上传。
-- 纪念日卡的配置只存在当前浏览器；背景若是 https 图片 URL，浏览器会直接向该地址请求图片，
-  请只填你信任的地址；选择本机图片时只由浏览器读取，不上传。
+- 工作台倒计时卡的配置（目标日期、标签、背景图）写入当前个人数据库的
+  `.torch-os/personal-data.json`（localStorage 只是缓存），不写 Markdown；其中本地图片以
+  data URL 存在同一个文件里，不上传。
+- 纪念日卡的配置同样写入 `.torch-os/personal-data.json`；背景若是 https 图片 URL，浏览器会
+  直接向该地址请求图片，请只填你信任的地址；选择本机图片时只由浏览器读取，不上传。
 - 所有 AI 对话由本地 DeepSeek Harness 发起；是否联网、用哪个模型、发送哪些上下文，
   都由 dsh 自己的设置与权限决定。
 - 恋爱系统的数据库、加密 Key、交路表和时刻表放在当前个人数据库的 `.torch-os/love/`；

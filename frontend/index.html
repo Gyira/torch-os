@@ -436,9 +436,19 @@
   <form id="banner-form">
     <h2 id="banner-dialog-title">编辑横幅</h2>
     <div id="banner-preview" class="banner-preview" aria-hidden="true"><div class="banner-overlay"></div><span class="banner-preview-label">预览</span></div>
-    <div class="field"><label for="banner-mottos">座右铭（一行一句，第一句最大）</label><textarea id="banner-mottos" rows="3" maxlength="2400"></textarea></div>
+    <div class="field"><label for="banner-mottos">座右铭（空行分隔多句；同一句内换行会保留，第一句最大）</label><textarea id="banner-mottos" rows="4" maxlength="2400"></textarea></div>
     <div class="field"><label for="banner-font">横幅字体（座右铭与统计文字共用）</label><select id="banner-font"></select></div>
-    <div class="field"><label for="banner-heroes">横幅图片（一行一张：库内相对路径或 https 链接；多张每半小时轮换）</label><textarea id="banner-heroes" rows="3" maxlength="3000" placeholder="image/image_HpP-ZNfhYO.png"></textarea></div>
+    <div class="field">
+      <span class="field-label">横幅图片（多张每半小时轮换）</span>
+      <div id="banner-hero-list" class="banner-hero-list" aria-live="polite"></div>
+      <div class="banner-hero-actions">
+        <input id="banner-hero-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择横幅图片文件" />
+        <button id="banner-hero-choose" type="button" class="small-button">选择本机图片</button>
+        <input id="banner-hero-url" type="url" maxlength="500" placeholder="或粘贴 https 图片链接" aria-label="网络横幅图片链接" />
+        <button id="banner-hero-add-url" type="button" class="small-button">添加链接</button>
+      </div>
+      <span class="field-help">本机图片会复制到当前个人数据库的 <code>.torch-os/横幅背景</code>，不留在浏览器缓存里。</span>
+    </div>
     <div class="form-grid">
       <div class="field"><label for="banner-overlay">遮罩深浅</label><input id="banner-overlay" type="range" min="0" max="0.9" step="0.05" value="0.45" /></div>
       <div class="field"><label for="banner-focal-x">焦点横向 %</label><input id="banner-focal-x" type="range" min="0" max="100" step="1" value="50" /></div>

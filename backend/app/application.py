@@ -56,6 +56,7 @@ from .diagnostics import create_diagnostics_router
 from .export_bundle import create_export_bundle_router
 from .growth_export import create_growth_export_router
 from .identity import create_identity_router
+from .personal_data import create_personal_data_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
 from .fortune import create_fortune_router
@@ -466,7 +467,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'love': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
-                    'memory_export':True,'monthly_review':True,'planning_export':True,
+                    'memory_export':True,'monthly_review':True,
+                    'personal_data':True,'planning_export':True,
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
                     'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
                     'tasks':True,'tools':True,'vault_audit':True,
@@ -681,6 +683,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_tools_router(database, vault_dir))
     # Identity lives in the Vault (`01-Identity/身份（identity）.md`): Markdown is the source of truth.
     app.include_router(create_identity_router(vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
+    # 个性化数据（小组件偏好、城市、排序…）统一落在 <个人数据库>/.torch-os/personal-data.json。
+    app.include_router(create_personal_data_router(
+        vault_dir, read_only=vault_read_only, vault_id=vault_identity(vault_dir)),
                        dependencies=[Depends(journal_data_guard)])
     # Workbench: one read of everything today; drafts are deterministic.
     app.include_router(create_workbench_router(database, vault_dir),

@@ -305,7 +305,7 @@ function cityPanelHtml({ favorites, selectedKey, previews, searchState, currentN
     saved.length
       ? ""
       : '<p class="weather-cities-empty field-help">还没有常用城市，搜索上面的城市名添加；删除全部后会按 IP 自动定位。</p>',
-    '<p class="weather-cities-note">城市列表只保存在本机浏览器，不写入 Vault。</p>',
+    '<p class="weather-cities-note">城市列表保存在当前个人数据库的 .torch-os/personal-data.json；浏览器缓存只是镜像。</p>',
     "</aside>",
   ].join("");
 }

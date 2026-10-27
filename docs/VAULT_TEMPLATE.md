@@ -147,13 +147,20 @@
 00_人生路/08_任务与待办/_系统/    # 任务（tasks）.md、待办（todos）.md、迁移记录/
 .obsidian/plugins/torch/          # 插件本体 + data.json
 .torch-os/                        # 索引、备份、审计、清单
+.torch-os/personal-data.json      # 小组件偏好、常用城市、排序等（首次修改小组件时创建）
+.torch-os/横幅背景/                # 工作台横幅图片（首次在横幅编辑器选图时创建）
 .torch-os/love/                   # 恋爱系统数据库、加密 Key、交路表、时刻表（首次使用恋爱系统时创建）
 ```
 
 `任务/` 与 `_系统/` 在「任务与待办」章节内部，章节本身也在 `CHAPTERS` 里。创建时还会
 额外补建四个目录：`任务/`、`_系统/`、`.obsidian/plugins/torch/`、`.torch-os/`；其余目录
-是章节路径的父目录，随章节一起出现。恋爱系统第一次打开时会在 `.torch-os/love/` 下创建
+是章节路径的父目录，随章节一起出现。`.torch-os/personal-data.json` 与 `.torch-os/横幅背景/`
+按需创建，不预先放空文件。恋爱系统第一次打开时会在 `.torch-os/love/` 下创建
 `love_analysis.db`、`xlsx/` 和时刻表位置；旧版数据会从原位置复制过来，原文件保留。
+
+顶层规则：四库只放 Markdown 正文；系统配置、小组件个性化数据和横幅图片等非 Markdown
+资源都放 `.torch-os/`。localStorage 只作为当前窗口缓存，启动时从
+`.torch-os/personal-data.json` 灌入，写入后防抖回写。
 
 ## .torch-os/vault-layout.json
 

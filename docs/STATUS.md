@@ -1,4 +1,4 @@
-# 当前状态与交接（2026-10-26）
+# 当前状态与交接（2026-10-27）
 
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
@@ -6,14 +6,16 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`9791a31`（`feat(vault): 添加 vault_admin 路由并实现四库只读前端探针`，以 `git log -1` 为准）
-- 工作树：四库只读、`vault_admin` 与人生路布局 v2 的代码/测试/文档改动均未提交（2026-10-26，以 `git status` 为准）
+- 代码基线：`2b4fd99`（`refactor(love): 统一恋爱系统数据目录至个人数据库子路径`，以 `git log -1` 为准）
+- 工作树：横幅选图、`.torch-os` 个性化数据仓库与文档改动未提交（2026-10-27，以 `git status` 为准）；
+  恋爱数据目录重构已提交（`2b4fd99`）
 - 布局版本：**`pillars-v2`**（2026-10-26 起；人生路分组目录，v1 章节只由迁移搬到新路径）
-- 后端：**712 passed / 1 skipped / 0 failed**（2026-10-26 全量，278.59 秒）
-- 前端：**207 passed**（2026-10-26 实跑，含个人数据库与分组侧栏用例；其中
-  `frontend/tests/rail-groups.test.mjs` 7 项）
-- `scripts/check_all.ps1`：**2026-10-25 exit 0**；布局 v2 这轮未重跑全量脚本，后端/前端按上面分别实跑
-- 能力标记：**39**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
+- 后端：**761 passed / 1 skipped / 0 failed**（2026-10-27 全量，348.24 秒；5 个既有 QA 编码警告；
+  之后新增的座右铭换行用例与文档契约单独跑 **13 passed**）
+- 前端：**277 passed**（2026-10-27 实跑；其中 `frontend/tests/personal-data.test.mjs` 8 项、
+  `frontend/tests/banner.test.mjs` 10 项）
+- `scripts/check_all.ps1`：**2026-10-25 exit 0**；本轮未重跑全量脚本，后端/前端按上面分别实跑
+- 能力标记：**43**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
 - 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\Torch\个人数据库`）；
   后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。
 - 排障提示：如果全量测试突然出现大量 setup `PermissionError`（`%TEMP%\torch-pytest`
@@ -22,6 +24,31 @@
 
 ## 已完成
 
+- **2026-10-27 横幅选图 + 顶层 `.torch-os` 数据规则**：
+  - 横幅编辑器不再手填路径：`#banner-hero-file` 文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB）
+    → `POST /api/identity/banner/image`。后端按文件头校验类型，写死复制到
+    `<个人数据库>/.torch-os/横幅背景/`，返回库内相对路径；编辑器支持缩略图列表、移除、
+    追加 https 链接、最多 12 张，保存写回 `身份（identity）.md` 的 `heroes`，原有每半小时轮换不变。
+    座右铭支持空行分隔多句、同一句内换行保留（`parseMottos`/`mottoText` + CSS `pre-line`）。
+  - 新增 `backend/app/personal_data.py` + `GET/PUT /api/personal-data`：权威文件
+    `<个人数据库>/.torch-os/personal-data.json`；只接受 `torch-os:` / `torch:` / `torch.`
+    键，单值 ≤2MB、合计 ≤8MB，单键 `null` 删除，读写受 Vault 沙箱与只读开关约束；
+    能力标记新增 `personal_data`（43）。
+  - 新增 `frontend/personal-data.js`：启动时先按 `vault_id` 校验缓存归属
+    （`__torch_personal_owner`），首次升级本机旧值优先迁入，换库先清缓存；随后灌入后端值、
+    patch localStorage 写操作并防抖镜像，页面隐藏/关闭时用 keepalive 补发；localStorage
+    配额满时退到内存覆盖层，权威副本仍在 `.torch-os`。天气 30 分钟缓存（`torch-os:weather`）不写回。
+  - 真实库 `身份（identity）.md` 的横幅路径从绝对路径 `.torch-os\背景\image.png` 修正为
+    `.torch-os/横幅背景/image.png`；原文件备份在
+    `.torch-os/backups/身份-横幅路径修正-20261027T121704Z.md`。`/api/identity/hero` 仍兼容
+    Vault 内的历史绝对路径。
+  - 顶层规则写进 `C:\Users\19814\Desktop\CLAUDE.md`、`README.md`、`docs/DATA_HANDBOOK.md`、
+    `docs/FEATURE_MAP.md`、`docs/VAULT_TEMPLATE.md`、`docs/WAKE_UP_START.md` 与换机交接文档。
+  - 测试：后端 `tests/test_identity_banner.py`（选图/非法/超限/只读/历史绝对路径）与
+    `tests/test_personal_data.py`（合并/删除/校验/只读/损坏文件/图片大小/`vault_id`）；
+    前端 `frontend/tests/personal-data.test.mjs` 8 项、`banner.test.mjs` 10 项；
+    后端全量 **761 passed / 1 skipped**，前端 **277 passed**；headless Edge 实测选图上传、
+    保存、列表缩略图、`vault_id` 归属、镜像写回与座右铭换行显示。
 - **2026-10-26 dsh 工作流内置到项目**：规则正文放在 `dsh/AGENTS.md`（不写进数据库、不复制到用户目录）；
   torch 启动 dsh 时注入 `DSH_AGENTS_HOME=<仓库>/dsh` 与 `TORCH_REPO_ROOT=<仓库>`，任何库/任何工作区
   的新会话都自动加载。配套 `scripts/session_brief.py`（只读开场简报）与 `tests/test_dsh_workflow.py`

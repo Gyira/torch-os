@@ -168,7 +168,7 @@ function renderNavOrder(message, tone = "") {
     const label = NAV_LABELS[key] || key;
     return `<li><span>${escapeHtml(label)}</span><div class="nav-order-actions"><button type="button" class="small-button" data-nav-move="-1" data-nav-key="${escapeHtml(key)}" ${index === 0 ? "disabled" : ""} aria-label="上移${escapeHtml(label)}">↑</button><button type="button" class="small-button" data-nav-move="1" data-nav-key="${escapeHtml(key)}" ${index === order.length - 1 ? "disabled" : ""} aria-label="下移${escapeHtml(label)}">↓</button></div></li>`;
   }).join("");
-  setStatus("#nav-order-feedback", navOrderNotice.message || "顺序保存在本机浏览器；可随时恢复默认。", navOrderNotice.tone);
+  setStatus("#nav-order-feedback", navOrderNotice.message || "顺序保存在当前个人数据库的 .torch-os；可随时恢复默认。", navOrderNotice.tone);
   if (activeKey) focusNavMoveButton(activeKey, activeMove);
 }
 

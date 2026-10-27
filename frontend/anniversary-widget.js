@@ -1,7 +1,7 @@
 // 纪念日小组件（2026-10-27，参考 Apex Dashboard 的 Anniversary widget）：
 // 照片/渐变背景上的标题 + 已过去时长 + 历史日期；点卡片打开设置。
 // 支持阳历/农历、年 月 日 / 总天数 / 天 + 小时、每年提醒、本机图片或 https 背景 URL。
-// 配置只存当前浏览器（localStorage），不写 Vault、不上传。
+// 配置写入当前个人数据库的 .torch-os/personal-data.json（localStorage 只是缓存），不上传。
 import { $, escapeHtml, openDialog, toast } from "./core.js";
 import {
   LUNAR_MONTH_NAMES, LUNAR_YEAR_MIN, LUNAR_YEAR_MAX, MAX_IMAGE_BYTES, PRECISIONS,
@@ -208,7 +208,7 @@ function openSettings() {
         </div>
         <input id="anniversary-bg-file" type="file" accept="image/*" hidden />
         <div id="anniversary-bg-preview" class="anniversary-bg-preview"><span>背景预览</span></div>
-        <span class="field-help">网络图片由浏览器直接加载（仅 https）；本机图片只存在当前浏览器。</span>
+        <span class="field-help">网络图片由浏览器直接加载（仅 https）；本机图片写入当前个人数据库的 <code>.torch-os</code> 个性化数据。</span>
       </div>
       <div class="anniversary-preview">
         <span>预览</span>

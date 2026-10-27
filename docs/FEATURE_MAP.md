@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -24,9 +24,15 @@
 ## 工作台
 
 - 问候语、横幅（座右铭/统计、背景、字体）、时钟、紧凑天气卡、黄历。
+- 横幅编辑器（2026-10-27）：座右铭用空行分隔多句，同一条内部的换行原样显示（CSS `pre-line`），
+  第一句仍是主字号；图片改成文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB），
+  选中的图片由 `POST /api/identity/banner/image` 复制到当前个人数据库的 `.torch-os/横幅背景/`，
+  返回库内相对路径写回 `身份（identity）.md` 的 `heroes`；仍支持追加 https 链接、列表移除与
+  每半小时轮换。
 - 天气卡与倒计时/DeepSeek 卡同高，只显示时钟、年月日/星期、城市与今日天气（含高低温）；
   每次打开系统自动刷新。点卡片打开详情浮窗：5 日预报、体感/湿度/降水/风向/风速/气压/日出/日落，
-  以及常用城市的搜索添加、切换与删除（城市列表只存浏览器本机；普通取天气走 Open-Meteo 白名单）。
+  以及常用城市的搜索添加、切换与删除（城市列表存 `.torch-os/personal-data.json`；
+  普通取天气走 Open-Meteo 白名单）。
 - 任务：一任务一笔记（`00_人生路/08_任务与待办/任务/**`），看板/清单/标签、日期时间优先级、
   多选批量、右键菜单、手动排序、拖拽换清单、四象限换格、回收站、滴答双向同步。
 - 日历：年/月/周/日/日程/多日/多周视图；任务按清单颜色着色，时间任务上时刻轴。
@@ -38,11 +44,11 @@
 - 任务与目标联动：任务行显示目标 chip，点击只看该目标；分组菜单新增「目标」；
   目标笔记详情列出关联任务并可打开任务文档。
 - 右侧倒计时卡（仿 Apex Dashboard）：目标日期时间、天/小时/分钟、提前提醒、标签与背景；
-  齿轮打开设置，默认指向下一个元旦。配置保存在浏览器 LocalStorage（不写 Markdown、不上传），
+  齿轮打开设置，默认指向下一个元旦。配置写入 `.torch-os/personal-data.json`（不写 Markdown、不上传），
   本地图片背景也只在浏览器里读取。
 - 纪念日卡（仿 Apex Dashboard，默认左栏）：从历史日期起已过去多久（年 月 日 / 总天数 / 天 + 小时），
   支持阳历/农历、每年同日提醒、本机图片或 https 图片 URL 背景；点卡片打开紧凑设置弹窗。
-  配置只保存在浏览器 LocalStorage，不写 Vault、不上传。
+  配置写入 `.torch-os/personal-data.json`，不写 Markdown、不上传。
 - DeepSeek 余额卡（默认右栏）：本地后端代理官方 `GET /api/deepseek/balance`（上游
   `https://api.deepseek.com/user/balance`），显示总余额、充值余额与赠金，支持本机预警线、
   「去充值」跳转和 60 秒自动刷新；Key 优先用本机保存的（AES-GCM 加密在数据目录，不进
@@ -54,8 +60,15 @@
   签到记录存本地 SQLite（`fortune_checkins`）。
 - 左右两侧小组件栏（天气、倒计时、纪念日、运势、DeepSeek 余额）默认天气+倒计时+纪念日在左、
   运势+DeepSeek 在右；卡片可拖拽互换位置与顺序，也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。
-  布局只保存在当前浏览器。新增组件时，给 `.workbench-side-left` 或 `.workbench-side-right`
-  的直接子元素补 `data-widget`（可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
+  布局写入 `.torch-os/personal-data.json`（localStorage 只是缓存）。新增组件时，给
+  `.workbench-side-left` 或 `.workbench-side-right` 的直接子元素补 `data-widget`
+  （可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
+- 个性化数据（2026-10-27）：`backend/app/personal_data.py` 提供 `GET/PUT /api/personal-data`，
+  文件固定为 `<个人数据库>/.torch-os/personal-data.json`；只接受 `torch-os:` / `torch:` / `torch.`
+  键，值 ≤2MB、合计 ≤8MB，单键传 `null` 删除。前端 `frontend/personal-data.js` 启动时把后端值
+  灌回 localStorage（按 `vault_id` 校验 `__torch_personal_owner`，换库先清缓存），之后
+  `setItem/removeItem` 防抖镜像；天气 30 分钟缓存不写回。
+  这是顶层数据规则：系统与小组件个性化数据都放 `.torch-os`，四库只放 Markdown 正文。
 
 ## 四库
 
@@ -72,7 +85,7 @@
   `00_人生路/05_项目/01_项目计划`、`02_项目复盘`；日记、任务、习惯、会议/踩坑路径不变。
 - 侧边栏按布局 v2 分组：心得体会、反思复盘、目标、项目四个一级分组（`chapter_manifest()` 的
   `groups`，只有人生路非空）。分组行出现在该组首个章节的位置，点标题折叠/展开
-  （`aria-expanded`，状态存 `localStorage` 的 `torch:rail-groups:life`）；子章节缩进，当前
+  （`aria-expanded`，状态存 `torch:rail-groups:life` 并同步到 `.torch-os/personal-data.json`）；子章节缩进，当前
   章节自动展开所属分组，方向键跳过折叠里的章节，未分组章节保持顶层。
 - 「打开本周复盘 / 打开本月复盘」只跳转 Obsidian，不生成骨架内容。
 - 年度/季度/月度目标笔记是目标选择器与目标导出/只读工具的唯一来源。

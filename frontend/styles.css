@@ -714,7 +714,7 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-bg { position: absolute; inset: 0; z-index: -1; background-size: cover; background-position: center; }
 .banner-overlay { position: absolute; inset: 0; background: var(--p-overlay); opacity: .45; }
 .banner-quote { position: relative; padding: 12px 24px; text-align: center; display: grid; gap: 5px; max-width: 720px; }
-.banner .workbench-motto-line { margin: 0; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); font-weight: 400; color: var(--p-banner-ink); text-shadow: 0 1px 10px var(--p-banner-shadow); font-size: 15px; letter-spacing: .04em; }
+.banner .workbench-motto-line { margin: 0; white-space: pre-line; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); font-weight: 400; color: var(--p-banner-ink); text-shadow: 0 1px 10px var(--p-banner-shadow); font-size: 15px; letter-spacing: .04em; }
 .banner .workbench-motto-line.primary { font-size: 26px; font-weight: 400; color: var(--p-banner-num); letter-spacing: .06em; }
 /* 统计模式（照 Apex Dashboard 的 stats banner 1:1）：三列——左大数字+底部小条 / 中主位+热力图 / 右三行进度条。 */
 /* 统计模式与引言模式同高（都是 120px 的矮横条，照 Apex）。 */
@@ -797,10 +797,20 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-dialog h2 { margin: 0 0 10px; font-size: 18px; color: var(--p-ink-strong); }
 .banner-preview { position: relative; height: 120px; border-radius: 10px; border: 1px solid var(--p-line); background: var(--p-surface-2) center/cover no-repeat; margin: 6px 0 14px; overflow: hidden; display: grid; place-items: center; }
 /* 预览里的样本：直接显示第一句座右铭，字体换成当前选择（选字体当场看得见）。 */
-.banner-preview-label { position: relative; padding: 0 16px; text-align: center; color: var(--p-hero-ink); font-size: 16px; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); letter-spacing: .04em; text-shadow: 0 1px 8px var(--p-overlay); }
+.banner-preview-label { position: relative; padding: 0 16px; text-align: center; white-space: pre-line; color: var(--p-hero-ink); font-size: 16px; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); letter-spacing: .04em; text-shadow: 0 1px 8px var(--p-overlay); }
 .banner-preview.banner-empty .banner-overlay { display: none; }
 .banner-preview.banner-empty .banner-preview-label { color: var(--p-ink-4); text-shadow: none; }
 .banner-mode-field { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
+/* 横幅图片列表：本机图片先上传到 .torch-os/横幅背景，再以库内相对路径写回身份笔记。 */
+.banner-dialog .field-label { font-size: 13px; font-weight: 600; color: var(--p-ink-2); }
+.banner-dialog .field-help { margin: 0; }
+.banner-hero-list { display: grid; gap: 6px; }
+.banner-hero-item { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 6px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); }
+.banner-hero-thumb { width: 58px; height: 36px; object-fit: cover; border-radius: 6px; background: var(--p-fill); }
+.banner-hero-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--p-ink-4); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.banner-hero-remove { color: var(--p-err-ink); }
+.banner-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 8px; }
+.banner-hero-actions input[type="url"] { flex: 1 1 190px; width: auto; min-width: 0; padding: 7px 9px; font-size: 12px; }
 .workbench-side { display: grid; gap: 12px; align-content: start; align-self: stretch; min-width: 0; }
 .workbench-side-empty { margin: 0; padding: 24px 12px; border: 1px dashed var(--p-line-strong); border-radius: 12px; color: var(--p-ink-4); font-size: 12px; line-height: 1.5; text-align: center; pointer-events: none; }
 .workbench-side.is-drop-target { outline: 2px dashed var(--p-accent); outline-offset: 4px; border-radius: 12px; }

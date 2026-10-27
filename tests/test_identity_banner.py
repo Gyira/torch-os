@@ -1,9 +1,14 @@
 """工作台横幅：身份（identity）.md 的 mottos/heroes/overlay/focal/mode 读写与 hero 图片端点。"""
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+from backend.app import identity as identity_module
 from backend.app.application import create_app
 from backend.app.db import Database
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 
 
 def make_client(tmp_path):
@@ -80,6 +85,23 @@ def test_banner_write_updates_only_banner_fields_and_preserves_the_rest(tmp_path
     assert bad_accent.status_code == 422
 
 
+def test_banner_motto_keeps_explicit_line_breaks(tmp_path):
+    """同一条座右铭内部的换行要原样保留；空行只是编辑器里的多条分隔，不写进数据。"""
+    client = make_client(tmp_path)
+    revision = client.get("/api/identity").json()["revision"]
+    saved = client.put("/api/identity/banner", json={
+        "mottos": ["第一行\n第二行", "第三句"],
+        "heroes": [],
+        "revision": revision,
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["mottos"] == ["第一行\n第二行", "第三句"]
+    reread = client.get("/api/identity").json()
+    assert reread["mottos"] == ["第一行\n第二行", "第三句"]
+    text = identity_path(tmp_path).read_text(encoding="utf-8")
+    assert "第一行" in text and "第二行" in text
+
+
 def test_banner_font_round_trips_and_survives_a_profile_write(tmp_path):
     """字体（2026-10-05）：写回 身份（identity）.md、可清回默认、非法值 422，且不被档案表单冲掉。"""
     client = make_client(tmp_path)
@@ -142,3 +164,82 @@ def test_hero_endpoint_serves_vault_images_by_index(tmp_path):
     assert first.status_code == 200 and first.content.startswith(b"\x89PNG")
     assert client.get("/api/identity/hero?i=1").status_code == 404  # 网络图不走服务
     assert client.get("/api/identity/hero?i=5").status_code == 404
+
+
+def test_hero_endpoint_accepts_a_legacy_absolute_path_inside_the_vault(tmp_path):
+    """旧 front-matter 可能把横幅写成 Vault 内绝对路径；读取仍要能用，但越界路径仍拒绝。"""
+    client = make_client(tmp_path)
+    path = identity_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = tmp_path / "vault" / ".torch-os" / "横幅背景" / "old.png"
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(PNG)
+    path.write_text(f"---\ntype: identity\nheroes:\n  - '{image}'\n---\n\n正文\n",
+                    encoding="utf-8")
+    served = client.get("/api/identity/hero?i=0")
+    assert served.status_code == 200 and served.content == PNG
+
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(PNG)
+    path.write_text(f"---\ntype: identity\nheroes:\n  - '{outside}'\n---\n\n正文\n",
+                    encoding="utf-8")
+    assert client.get("/api/identity/hero?i=0").status_code == 404
+
+
+def test_banner_image_upload_lands_in_the_database_torch_os_folder(tmp_path):
+    """选图上传：后端写死落到当前个人数据库的 .torch-os/横幅背景/，再按索引提供。"""
+    client = make_client(tmp_path)
+    seed_identity(tmp_path)
+
+    uploaded = client.post("/api/identity/banner/image",
+                           files={"file": ("我的 横幅.png", PNG, "image/png")})
+    assert uploaded.status_code == 200, uploaded.text
+    payload = uploaded.json()
+    assert payload["path"].startswith(".torch-os/横幅背景/")
+    assert payload["path"].endswith(".png")
+    assert payload["size"] == len(PNG)
+    stored = tmp_path / "vault" / payload["path"]
+    assert stored.read_bytes() == PNG
+
+    revision = client.get("/api/identity").json()["revision"]
+    saved = client.put("/api/identity/banner", json={
+        "mottos": [], "heroes": [payload["path"]], "revision": revision})
+    assert saved.status_code == 200, saved.text
+    served = client.get("/api/identity/hero?i=0")
+    assert served.status_code == 200 and served.content == PNG
+
+
+def test_banner_image_upload_rejects_non_images_and_oversize(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    bad = client.post("/api/identity/banner/image",
+                      files={"file": ("note.txt", b"hello", "text/plain")})
+    assert bad.status_code == 422 and "仅支持" in bad.json()["detail"]
+    empty = client.post("/api/identity/banner/image",
+                        files={"file": ("empty.png", b"", "image/png")})
+    assert empty.status_code == 400
+
+    monkeypatch.setattr(identity_module, "MAX_BANNER_IMAGE_BYTES", 16)
+    large = client.post("/api/identity/banner/image",
+                        files={"file": ("large.png", PNG, "image/png")})
+    assert large.status_code == 413
+    assert not (tmp_path / "vault" / ".torch-os" / "横幅背景").exists()
+
+
+def test_banner_image_upload_sanitizes_the_name_and_respects_read_only(tmp_path):
+    client = make_client(tmp_path)
+    uploaded = client.post("/api/identity/banner/image",
+                           files={"file": ("../../逃逸 名.png", PNG, "image/png")})
+    assert uploaded.status_code == 200, uploaded.text
+    relative = uploaded.json()["path"]
+    assert relative.startswith(".torch-os/横幅背景/")
+    assert ".." not in Path(relative).parts and "/" not in Path(relative).name
+    assert not (tmp_path / "vault" / "逃逸 名.png").exists()
+
+    read_only_app = create_app(
+        Database(tmp_path / "ro.sqlite3"), tmp_path / "vault",
+        security_environ={"VAULT_READ_ONLY": "1"}, env_file=tmp_path / ".env")
+    read_only_client = TestClient(read_only_app)
+    read_only_client.get("/")
+    blocked = read_only_client.post("/api/identity/banner/image",
+                                    files={"file": ("b.png", PNG, "image/png")})
+    assert blocked.status_code == 409

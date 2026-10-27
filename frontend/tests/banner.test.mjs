@@ -1,9 +1,11 @@
 // 横幅纯函数：归一化、图片地址、引言/统计渲染与轮换调度。
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   normalizeBanner, imageSrc, quotesHtml, statsHtml, startRotation, backdropVars,
   ROTATION_MINUTES, safeFont, firstFontName, BANNER_FONT_GROUPS,
+  parseMottos, mottoText,
 } from "../banner.js";
 
 test("normalize fills defaults, trims entries and clamps the overlay", () => {
@@ -100,6 +102,18 @@ test("quotes escape html and mark the first line as primary", () => {
   assert.ok(html.indexOf('class="workbench-motto-line primary"') < html.indexOf("第二句"));
 });
 
+test("a motto keeps explicit line breaks; blank lines separate mottos", () => {
+  const text = "第一行\n第二行\n\n第三句";
+  assert.deepEqual(parseMottos(text), ["第一行\n第二行", "第三句"]);
+  assert.deepEqual(parseMottos("  单句  "), ["单句"]);
+  assert.equal(mottoText(["第一行\n第二行", "第三句"]), "第一行\n第二行\n\n第三句");
+  assert.equal(mottoText([]), "");
+  const html = quotesHtml(parseMottos(text));
+  assert.equal((html.match(/workbench-motto-line/g) || []).length, 2);
+  assert.ok(html.includes("第一行\n第二行")); // CSS pre-line 负责显示换行
+  assert.equal(normalizeBanner({ mottos: ["甲\n乙"] }).mottos[0], "甲\n乙");
+});
+
 test("stats render the three-column layout with heatmap and progress rows", () => {
   const html = statsHtml({
     day: "2026-10-05",
@@ -142,4 +156,18 @@ test("rotation cycles through images on the injected schedule and skips single i
   assert.equal(startRotation({ heroes: ["only.png"] }, () => {}), false);
   assert.equal(startRotation({ heroes: [] }, () => {}), false);
   assert.equal(startRotation(null, () => {}), false);
+});
+
+test("the editor exposes a file picker and uploads into the database .torch-os folder", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const editor = await readFile(new URL("../banner-editor.js", import.meta.url), "utf8");
+  assert.match(html, /id="banner-hero-file"[^>]*type="file"/);
+  assert.match(html, /accept="image\/png,image\/jpeg,image\/webp,image\/gif"/);
+  assert.match(html, /id="banner-hero-choose"/);
+  assert.match(html, /id="banner-hero-url"/);
+  assert.match(html, /\.torch-os\/横幅背景/);
+  assert.doesNotMatch(html, /id="banner-heroes"/); // 不再要求用户手填一行一个路径
+  assert.match(editor, /\/api\/identity\/banner\/image/);
+  assert.match(editor, /data-banner-hero-remove/);
+  assert.match(editor, /FormData/);
 });
