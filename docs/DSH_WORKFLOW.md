@@ -30,6 +30,12 @@
 | 文件 | 作用 |
 |---|---|
 | `dsh/AGENTS.md` | 规则正文（项目内置） |
+| `dsh/skills/torch-mentor/` | 「与神对话」导师协议：人格、检索、归档（dsh 从 `$DSH_AGENTS_HOME/skills` 自动发现） |
 | `backend/app/dsh_web.py` | 启动 dsh 时注入 `DSH_AGENTS_HOME` / `TORCH_REPO_ROOT` |
-| `scripts/session_brief.py` | 只读开场简报 |
+| `scripts/session_brief.py` | 只读开场简报（`--memory` 记忆内核，`--full` 内核 + 态势） |
+| `scripts/archive_note.py` | 归档出口：章节校验 + frontmatter + 防覆盖 |
+| `scripts/identity_draft.py` | 身份候选投递（只写 `.torch-os/身份待确认/`，采纳前不进四库） |
+| `backend/app/identity_inbox.py` | 身份候选的队列、采纳、丢弃 |
+| `docs/MENTOR.md` | 「与神对话」的记忆架构与待决策 |
 | `tests/test_dsh_workflow.py` | 规则与布局同步、环境注入的守卫测试 |
+| `tests/test_mentor_workflow.py` | 导师协议、归档出口、记忆内核的守卫测试 |

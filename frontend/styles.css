@@ -1446,6 +1446,14 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px 16px; }
 .pillar-card .eyebrow { color: var(--pillar-accent); }
 .pillar-card-quiet { background: var(--p-surface-2); }
+/* 身份待确认：dsh 提炼的候选，采纳才进自我档案。 */
+.pillar-inbox-card { border-color: var(--pillar-accent); }
+.pillar-inbox-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pillar-inbox-item { border-top: 1px dashed var(--p-line-2); padding-top: 9px; }
+.pillar-inbox-item:first-child { border-top: 0; padding-top: 0; }
+.pillar-inbox-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--p-ink-strong); }
+.pillar-inbox-evidence { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: var(--p-ink-5); }
+.pillar-inbox-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .pillar-stat { margin: 6px 0 2px; font-family: var(--p-font-display); font-size: 20px; color: var(--p-ink-strong); }
 .pillar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 10px 0 2px; }
 .pillar-week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--p-ink-5); font: inherit; font-size: 10px; padding: 2px 0; cursor: pointer; border-radius: 7px; }
@@ -2131,6 +2139,25 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .ops-love .love-schedule-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ops-love .love-schedule-missing { margin: 12px 0; }
 
+/* 微信同步 / 每日记忆 */
+.ops-love .love-divider { margin: 16px 0; border: 0; border-top: 1px solid var(--p-line); }
+.ops-love .love-sync-result { margin-top: 14px; padding: 12px; border: 1px solid var(--p-line-2); border-radius: 10px; background: var(--p-surface-2); }
+.ops-love .love-sync-result-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ops-love .love-sync-result .love-facts { gap: 6px; }
+.ops-love .love-sync-result .love-facts > div { grid-template-columns: 84px minmax(0, 1fr); }
+.ops-love .love-memory-layout { display: grid; grid-template-columns: 285px minmax(0, 1fr); gap: 16px; align-items: start; }
+.ops-love .love-memory-side, .ops-love .love-memory-main { display: grid; gap: 16px; min-width: 0; }
+.ops-love .love-memory-day-list { display: grid; gap: 4px; max-height: 420px; overflow: auto; margin-top: 10px; padding-right: 2px; }
+.ops-love .love-memory-day { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; padding: 8px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--p-ink-2); text-align: left; font-size: 12px; }
+.ops-love .love-memory-day:hover { background: var(--p-hover); }
+.ops-love .love-memory-day.active { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); color: var(--p-ink-strong); }
+.ops-love .love-memory-day span { font-variant-numeric: tabular-nums; }
+.ops-love .love-memory-day small { color: var(--p-ink-5); font-size: 10px; white-space: nowrap; }
+.ops-love .love-memory-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ops-love .love-memory-textarea { width: 100%; min-height: 420px; padding: 12px; border: 1px solid var(--p-line-input); border-radius: 9px; background: var(--p-surface); color: var(--p-ink); font-family: ui-monospace, Consolas, "Cascadia Code", monospace; font-size: 12px; line-height: 1.7; resize: vertical; }
+.ops-love .love-memory-source { margin-top: 12px; }
+.ops-love .love-memory-source summary { cursor: pointer; color: var(--p-ink-4); font-size: 12px; }
+
 /* 隐私边界确认 */
 .ops-love .love-consent { position: absolute; inset: -6px; z-index: 20; display: grid; place-items: center; padding: 18px; background: var(--p-bg); border-radius: 14px; }
 .ops-love .love-consent-card { width: min(600px, 100%); padding: 26px 28px; border: 1px solid var(--p-line); border-radius: 16px; background: var(--p-surface); box-shadow: 0 18px 60px var(--p-shadow); }
@@ -2146,6 +2173,8 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 @media (max-width: 900px) {
   .ops-love .love-dashboard-grid, .ops-love .love-stats-grid { grid-template-columns: minmax(0, 1fr); }
   .ops-love .love-span-2 { grid-column: auto; }
+  .ops-love .love-memory-layout { grid-template-columns: minmax(0, 1fr); }
+  .ops-love .love-memory-day-list { max-height: 240px; }
 }
 @media (max-width: 860px) {
   .ops-love .love-shell { grid-template-columns: minmax(0, 1fr); }

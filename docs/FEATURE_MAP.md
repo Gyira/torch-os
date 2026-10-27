@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -13,7 +13,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘；章节轨按分组折叠、最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
-| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务；二级分区「恋爱系统」（聊天分析、画像、日志、报告、值班日历） |
+| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务、情感与记忆；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历） |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -100,6 +100,10 @@
 ### 自我档案
 
 - 身份/三观（`01_自我档案/01_内核与三观/身份（identity）.md`，与工作台横幅共用）。
+- 身份待确认（2026-10-27）：「与神对话」从对话里提炼的「关于我」先投到
+  `.torch-os/身份待确认/`，右栏校验块逐条「采纳 / 丢弃」。采纳才写入身份字段
+  (`POST /api/identity/drafts/{name}/accept`) 或 `01_自我档案/02_记忆与自传` 的一篇笔记；
+  身份字段已有内容时不覆盖，丢弃只把卡片挪进 `已丢弃/`，四库一个字不动。
 - 记忆与自传、想法与灵感、情感与关系、意义与目标、沉淀与创作。
 - 管家会提示可从反思/心得提炼原则；原则草稿的新建与双链回原文在 Obsidian 里做。
 
@@ -118,14 +122,25 @@
   `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的数据复制过来，
   原文件保留；已有项目、消息、画像、分析记录和日志继续可用。车次时刻表不在这里，
   已独立到 `.torch-os/train-tracker/`。
-- 原生页面：总览、导入聊天（TXT/编码识别）、统计（趋势/回复间隔/媒体/高频词）、AI 深度分析、
-  画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、HTML 报告（独立文档预览与打印）、
-  **值班日历**（月历只显示上班/休息，点日期弹窗写自由备注，车次也可以写在备注里）、
-  设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
+- 原生页面：总览、导入聊天（TXT/编码识别）、**微信同步**、统计（趋势/回复间隔/媒体/高频词）、
+  AI 深度分析、画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、**每日记忆**、
+  HTML 报告（独立文档预览与打印）、**值班日历**（月历只显示上班/休息，点日期弹窗写自由备注，
+  车次也可以写在备注里）、设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
+- **微信同步（WeFlow 本地 API，2026-10-27）**：WeFlow 负责读取本机已登录微信，
+  torch 只访问 `http://127.0.0.1:<端口>`（默认 5031）并只拉取用户选中的一个单聊。
+  Token 用 AES-256-GCM 加密存在 `.torch-os/love/`，不回显、不写日志；群聊、公众号和
+  其他聊天不会被读取。首次使用可在「微信同步」里用单聊直接新建聊天项目，已有项目则
+  先预览、再合并；按平台消息 ID、内容哈希和 ±2 分钟模糊匹配去重，写入前自动备份
+  `.torch-os/love/backups/`。API 暂时不可用时，可在同一页导入 WeFlow 导出的 ChatLab
+  JSON/JSONL 单聊文件作为兜底（同样只合并，不写四库）。原文只进恋爱数据库，不写四库。
+- **每日记忆**：按天用原生 DeepSeek 生成结构化草稿（标题、摘要、小事、计划、心情、关键词），
+  用户在页面里修改并确认后，才写入 `02_生活运营/05_情感与记忆` 的普通 Markdown。
+  DSH 直接读这些 Markdown 继续对话；批量/每日摘要仍走原生 DeepSeek，因为 DSH 没有
+  稳定的批处理接口。未确认的草稿只存在恋爱数据库。
 - AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
   Key 使用 AES-256-GCM 加密保存在同一目录，不上传；`.torch-os` 不参与普通 Vault 扫描和
   工作台备份快照，拷贝整个个人数据库文件夹时会一起带走。
-- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库。
+- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库；微信同步与每日记忆只在个人模式出现。
 
 ### 知识库
 

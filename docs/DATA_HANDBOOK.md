@@ -18,7 +18,8 @@
 | `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
 | `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
-| `.torch-os/love/` | 恋爱系统数据库、AES Key、排班表 Excel、值班备注、停用词 |
+| `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词 |
+| `.torch-os/love/backups/` | 微信同步写入前自动生成的恋爱数据库备份 |
 | `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
 | `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`task-trash/`、`restored/` | 备份、日志、诊断、迁移与回收站 |
 | `.torch-os/dida-credentials.json` | 滴答清单登录凭据（敏感） |
@@ -97,14 +98,19 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 
 ## 权威源与投影
 
-- 日记、任务、习惯、体重/账目、目标/计划、身份的权威源都是 Markdown；
+- 日记、任务、习惯、体重/账目、目标/计划、身份、每日情感记忆的权威源都是 Markdown；
   SQLite 只做索引、投影、审核状态和统计缓存。
+- 微信聊天原文以 `.torch-os/love/love_analysis.db` 为准；四库里
+  `02_生活运营/05_情感与记忆/YYYY-MM-DD 恋爱记忆.md` 是用户确认后的 AI 摘要，不是原文。
+  未确认的草稿只存在恋爱数据库的 `memory_drafts` 表。
 - 四库目录与章节的映射也只有一份来源：`backend/app/vault_layout.py`（当前 `pillars-v2`，
   人生路分组见 `CHAPTER_GROUPS`）；新建库写出的 `.torch-os/vault-layout.json` 只是这份映射的
   快照（章节 + 分组），模板预览、创建与四库页面都读同一个文件。v1 章节目录不在运行时写入，
   只由设置 →「库结构与迁移」按 `V1_CHAPTER_MOVES` 搬到 v2 路径。
 - 四库页面只读（2026-10-26 起）：插件只浏览、搜索与跳转；日记、体重/账目月度表和四库笔记的
   增删改都在 Obsidian 里做。工作台任务、习惯打卡、备份与迁移的写入路径不变。
+  例外是恋爱系统的「每日记忆」：用户逐篇确认后，后端把 AI 摘要写进
+  `02_生活运营/05_情感与记忆`；这不是四库页面里的直接编辑。
 - 结构化月度表（体重、账目）在 Markdown 里每行有稳定 `row_id`；删除投影后可以从
   Markdown 重建。
 - 备份是整库 ZIP 快照；恢复副本独立存在，不覆盖当前库。
@@ -134,6 +140,15 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 - 恋爱系统的数据库、加密 Key、排班表和值班备注放在当前个人数据库的 `.torch-os/love/`；
   `.torch-os` 不参与普通 Vault 扫描和工作台备份快照，但拷贝整个个人数据库文件夹时会一起带走。
   首次启动会把旧版 `%LOCALAPPDATA%` / `data/love` / 原项目目录里的数据复制过来，原文件保留。
+- 微信同步只访问本机 `http://127.0.0.1:<WeFlow端口>`（默认 5031），不访问 WeFlow 云端或
+  其他主机；WeFlow 自己负责解密本机微信数据库。torch 只拉取你选中的一个单聊，Token 用
+  AES-256-GCM 加密保存在 `.torch-os/love/`，不回显、不写日志。每次「写入数据库」前自动备份
+  到 `.torch-os/love/backups/`；群聊、公众号和其他聊天不会被读取。WeFlow API 不可用时，
+  可导入它导出的 ChatLab JSON/JSONL 单聊文件，解析只在本机进行，仍然只写恋爱数据库。
+  这些自动备份不会自动删除，需要时由你在本机手动清理 `.torch-os/love/backups/`。
+- 每日记忆由你点击生成时才调用 DeepSeek（与恋爱分析共用同一把独立 Key），发送前按同样规则
+  脱敏；只有你确认写入后，摘要才变成四库里的 Markdown。DSH 之后读的是这些 Markdown，
+  不会直接读恋爱数据库。
 - 列车追踪组件只在用户点击「从 12306 同步」时访问 `kyfw.12306.cn` 官方接口，取一次车次经停站；
   不做后台轮询，也不上传本地时刻表。失败时保留 `.torch-os/train-tracker/timetable.json`。
   该组件与恋爱系统互不读取：恋爱系统只保留上班/休息日历和用户自己写的备注。

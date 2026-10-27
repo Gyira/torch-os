@@ -68,6 +68,8 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("finance", "ops", "财富与记账", "02_生活运营/02_财富与记账", "finance_month"),
     ("medical", "ops", "体检与医疗", "02_生活运营/03_体检与医疗", "medical"),
     ("affairs", "ops", "证件与事务", "02_生活运营/04_证件与事务", "document"),
+    # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
+    ("love_memory", "ops", "情感与记忆", "02_生活运营/05_情感与记忆", "memory"),
     # 03_知识库
     ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
     ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),

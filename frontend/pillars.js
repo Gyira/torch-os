@@ -6,6 +6,7 @@ import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
+import { identityInboxMarkup } from "./identity-inbox.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
@@ -427,6 +428,7 @@ function renderShell(view) {
           ${overview.identity.worldview ? `<p class="field-help">三观：${escapeHtml(overview.identity.worldview.slice(0, 90))}</p>` : ""}
           <button type="button" class="text-button" data-open-identity="${escapeHtml(overview.identity.path || "")}">${overview.identity.exists ? "在 Obsidian 打开身份卡" : "去写身份卡"}</button>
         </section>` : ""}
+        ${view === "self" ? identityInboxMarkup(overview?.drafts || []) : ""}
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
@@ -651,6 +653,34 @@ function bindPillarEvents() {
     const review = event.target.closest?.("[data-review]");
     if (review) {
       openReview(review.dataset.review);
+      return;
+    }
+    const draftAccept = event.target.closest?.("[data-identity-draft-accept]");
+    if (draftAccept) {
+      const name = draftAccept.dataset.identityDraftAccept;
+      draftAccept.disabled = true;
+      try {
+        const result = await api(`/api/identity/drafts/${encodeURIComponent(name)}/accept`, { method: "POST" });
+        toast(result.target === "identity" ? `已写进身份卡：${result.field_label || ""}` : "已写进 02_记忆与自传。", "success");
+        await loadPillarModule("self");
+      } catch (error) {
+        toast(error.message, "error");
+        draftAccept.disabled = false;
+      }
+      return;
+    }
+    const draftReject = event.target.closest?.("[data-identity-draft-reject]");
+    if (draftReject) {
+      const name = draftReject.dataset.identityDraftReject;
+      draftReject.disabled = true;
+      try {
+        await api(`/api/identity/drafts/${encodeURIComponent(name)}/reject`, { method: "POST" });
+        toast("已丢弃；四库没有改动。", "info");
+        await loadPillarModule("self");
+      } catch (error) {
+        toast(error.message, "error");
+        draftReject.disabled = false;
+      }
       return;
     }
     const identity = event.target.closest?.("[data-open-identity]");

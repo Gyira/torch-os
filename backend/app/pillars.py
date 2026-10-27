@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import goal_notes, journal_note, pillar_notes, steward, steward_policy, vault_layout
+from . import goal_notes, identity_inbox, journal_note, pillar_notes, steward, steward_policy, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
@@ -93,6 +93,7 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
         }
     if key == "self":
         identity = read_identity(vault_dir)
+        drafts = identity_inbox.list_drafts(vault_dir)
         payload["identity"] = {
             "exists": bool(identity.get("exists")),
             "path": identity.get("path"),
@@ -103,6 +104,8 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
             "values": identity.get("values") or "",
             "updated_at": identity.get("updated_at"),
         }
+        payload["drafts"] = drafts
+        payload["draft_count"] = len(drafts)
     if key == "knowledge":
         inbox = [note for note in notes if note["chapter"] == "inbox"]
         payload["inbox_count"] = len(inbox)

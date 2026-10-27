@@ -465,6 +465,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'history_cleanup_preview':True,'history_restore':True,'identity':True,
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'love': runtime_label == 'personal',
+                    'love_memory': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
                     'memory_export':True,'monthly_review':True,
@@ -473,7 +474,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
                     'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
                     'vault_admin':runtime_label == 'personal',
-                    'vault_connection':not vault_scoped,'weather':True,'workbench':True,
+                    'vault_connection':not vault_scoped,'weather':True,
+                    'weflow_sync': runtime_label == 'personal',
+                    'workbench':True,
                     'workspaces':runtime_label == 'personal' and not vault_scoped,
                 }}
 
@@ -743,7 +746,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             love_data_dir.mkdir(parents=True, exist_ok=True)
             (love_data_dir / LOVE_EXCEL_DIR_NAME).mkdir(parents=True, exist_ok=True)
         app.state.love_settings = love_settings
-        app.include_router(create_love_router(settings=love_settings))
+        app.include_router(create_love_router(
+            settings=love_settings, vault_dir=vault_dir,
+            database=database, read_only=vault_read_only,
+        ))
         app.include_router(create_schedule_router(
             love_settings.excel_dir,
             love_data_dir / 'schedule-notes.json',

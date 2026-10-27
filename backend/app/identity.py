@@ -44,6 +44,8 @@ def _identity_path(vault_dir: Path | str) -> Path:
             return candidate
     return current
 TEXT_FIELDS = ("name", "motto", "worldview", "lifeview", "values", "notes")
+FIELD_LABELS = {"name": "称呼", "motto": "座右铭", "worldview": "世界观",
+                "lifeview": "人生观", "values": "价值观", "notes": "自己写的"}
 MAX_FIELD = 4_000
 
 
@@ -366,6 +368,38 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
     @router.put("/identity")
     def identity_write(payload: IdentityWrite):
         return write_identity(vault_dir, payload, read_only=read_only)
+
+    # 「身份待确认」：dsh 从对话里提炼的候选先落队列，采纳才写进自我档案。
+    # 逻辑在 identity_inbox，这里只做 HTTP 包装；函数内导入避免模块循环。
+    @router.get("/identity/drafts")
+    def identity_drafts():
+        from .identity_inbox import list_drafts
+
+        return {"items": list_drafts(vault_dir)}
+
+    @router.post("/identity/drafts/{name}/accept")
+    def identity_draft_accept(name: str):
+        from .identity_inbox import accept_draft
+
+        try:
+            return accept_draft(vault_dir, name, read_only=read_only)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
+        except VaultReadOnlyError as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @router.post("/identity/drafts/{name}/reject")
+    def identity_draft_reject(name: str):
+        from .identity_inbox import reject_draft
+
+        try:
+            return reject_draft(vault_dir, name)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     @router.get("/identity/hero")
     def identity_hero(i: int = Query(default=0, ge=0, le=11)):

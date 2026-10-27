@@ -6,24 +6,49 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`c93122d`（`feat(personal-data): 统一小组件个性化数据写入个人数据库`，以 `git log -1` 为准）
-- 工作树：独立列车追踪组件、恋爱值班日历与文档改动未提交（2026-10-27，以 `git status` 为准）；
-  横幅选图、`.torch-os` 个性化数据与座右铭换行已提交（`c93122d`）
-- 布局版本：**`pillars-v2`**（2026-10-26 起；人生路分组目录，v1 章节只由迁移搬到新路径）
-- 后端：**772 passed / 1 skipped / 0 failed**（2026-10-27 全量，298.19 秒；5 个既有 QA 编码警告；
-  之后的列车跨零点状态边界与排班/文档契约用例单独跑 **8 + 25 passed**）
-- 前端：**284 passed**（2026-10-27 实跑；其中 `frontend/tests/personal-data.test.mjs` 8 项、
-  `frontend/tests/banner.test.mjs` 10 项、`frontend/tests/train-tracker.test.mjs` 6 项）
+- 代码基线：`3c7094a`（`feat(train-tracker): 独立列车追踪新组件及排班表功能`，以 `git log -1` 为准）
+- 工作树：微信同步、每日记忆、ChatLab 文件兜底与新章节未提交（2026-10-27，以 `git status` 为准）；
+  列车追踪/值班日历已提交（`3c7094a`）。工作树里另有一组不是本次改动的 dsh/mentor 文件
+  （`docs/MENTOR.md`、`dsh/skills/`、`scripts/session_brief.py` 等），本次未修改、未回退。
+- 布局版本：**`pillars-v2`**（2026-10-26 起；新增 `02_生活运营/05_情感与记忆` 后共 36 章，
+  仍是增量添加，旧路径不变）
+- 后端：**807 passed / 1 skipped / 0 failed**（2026-10-27 全量，356.25 秒；5 个既有 QA 编码警告；
+  新增 `tests/test_weflow.py` 17 项、`tests/test_love_memory.py` 7 项）
+- 前端：**286 passed**（2026-10-27 本次改动完成后实跑；`frontend/tests/love.test.mjs` 新增
+  微信同步/每日记忆静态契约与响应式样式用例）。之后并行的 identity-inbox 改动让全量前端出现
+  1 个模块映射失败（`pillars.js` 新增 `./identity-inbox.js` 未登记），love/widget 相关 16 项
+  仍通过；这不是本次微信同步改动。
 - `scripts/check_all.ps1`：**2026-10-25 exit 0**；本轮未重跑全量脚本，后端/前端按上面分别实跑
-- 能力标记：**44**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
+- 能力标记：**46**（新增 `weflow_sync`、`love_memory`）；用户表：**25 张**（其中多张 deprecated）；
+  MCP 只读工具：**12 个**
 - 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\Torch\个人数据库`）；
-  后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。
+  后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。真实恋爱库当前 **0 个项目 / 0 条消息**，
+  微信同步页已支持直接选择单聊新建项目；未在真实库执行同步，WeFlow 联调用的是临时数据库。
+- WeFlow 实测：本机 WeFlow API 在 5031 可用，ChatLab Pull 拉到 191 条消息；临时库预览/写入
+  计数正确，备份文件生成。Token 不在仓库里，需在页面里粘贴。
 - 排障提示：如果全量测试突然出现大量 setup `PermissionError`（`%TEMP%\torch-pytest`
   被占用），通常是有两个 pytest 全量进程同时在跑、共用并互删同一个临时根目录；
   确认只剩一个进程后重跑即可，不是代码回归。
 
 ## 已完成
 
+- **2026-10-27 微信同步 + 每日记忆（生活运营）**：
+  - `backend/app/weflow.py`：WeFlow 本地 HTTP 客户端（只访问 `127.0.0.1`，Bearer Token，
+    不跟随重定向、不走系统代理、响应大小上限）、ChatLab Pull/JSON/JSONL 解析、offset 翻页；
+    首次空页 0.4 秒重试一次，规避 WeFlow 刚启动时的空结果。
+  - `backend/app/love.py`：`messages` 增加平台消息 ID/发送者 ID/消息类型/是否本人/回复 ID/
+    媒体路径/来源列；新增 `project_sources`、`weflow_sync_logs`、`memory_drafts` 表。
+    `/api/love/weflow/status|settings|token|sessions|project|connect|sync|import-preview|import-file`：
+    只同步一个单聊、Token 加密且不回显、预览/写入分离、并发保护、写入前备份、按平台 ID/
+    内容哈希/±2 分钟模糊匹配去重；没有项目时可直接新建。ChatLab 文件兜底支持 JSON/JSONL 单聊。
+  - 每日记忆：`/api/love/memory/days|generate|drafts|write`；原生 DeepSeek 生成结构化草稿，
+    用户修改确认后写 `02_生活运营/05_情感与记忆/YYYY-MM-DD 恋爱记忆.md`；只建索引、不自动
+    拆候选；目标文件不是 torch 生成时拒绝覆盖；只读模式禁止写入。
+  - `vault_layout.py` 增量新增 `love_memory` 章节（36 章，`pillars-v2` 不变）。
+  - 前端：恋爱系统新增「微信同步」「每日记忆」两页；支持保存/清除 Token、读取单聊、项目角色
+    映射、预览/写入轮询、ChatLab 文件导入、按天草稿编辑/确认写入；没有 Token 不自动联网。
+  - 测试：`tests/test_weflow.py` 17 项、`tests/test_love_memory.py` 7 项；后端全量 **807 passed /
+    1 skipped / 0 failed**；前端 **286 passed**；真实 WeFlow 联调在临时库完成 191 条消息预览/写入。
 - **2026-10-27 列车追踪独立 + 恋爱值班日历**：
   - 新增工作台「列车追踪」小组件（默认右栏，独立于恋爱系统）：用户自己添加/删除关注车次；
     卡片显示待发车/运行中/停站中/已到达、当前站→下一站、区间进度和倒计时；点开看全部经停站，
