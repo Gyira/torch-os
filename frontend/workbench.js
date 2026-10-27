@@ -10,6 +10,7 @@ import { applyBanner, startRotation, imageSrc } from "./banner.js";
 import { setBannerSource, initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
 import { initCountdownWidget } from "./countdown.js";
+import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 
 let current = null;
 let clockStarted = false;
@@ -66,6 +67,8 @@ export function renderWorkbench(payload) {
   renderAlmanac($("#workbench-almanac"), payload.day, name, payload.progress);
   renderDaily(payload);
   renderWelcome(payload);
+  // 右侧小组件可以拖拽换位：重画后把新出现的组件接进来，顺序保持本机保存的结果。
+  refreshWorkbenchWidgets();
 }
 
 const WELCOME_KEY = "torch.welcome.v1.dismissed";
@@ -348,6 +351,7 @@ export function initWorkbench() {
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
   initCountdownWidget();
+  initWidgetDrag();
   initTimeModule();
   if (!clockStarted) {
     clockStarted = true;

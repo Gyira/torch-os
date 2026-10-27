@@ -104,15 +104,17 @@
               <div id="time-trash-list"></div>
             </section>
           </div>
+          <!-- 右侧小组件：每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
+               新增组件照此补属性即可自动获得拖拽换位（widget-drag.js）。 -->
           <aside class="workbench-side">
-            <section class="weather-card" aria-label="时钟与五日天气">
+            <section class="weather-card" data-widget="weather" data-widget-label="天气" aria-label="时钟与五日天气">
               <div id="workbench-clock" class="clock"></div>
               <div class="weather-head"><span class="weather-head-title">5 日天气</span><button id="workbench-weather-today" class="text-button weather-today-btn" type="button" aria-pressed="true">今天</button></div>
               <div id="workbench-weather" class="weather"><p class="weather-empty field-help">正在读取天气…</p></div>
               <div class="weather-actions"><span id="workbench-weather-status" class="status-message" role="status"></span><button id="workbench-weather-refresh" class="text-button" type="button">刷新天气</button></div>
             </section>
-            <aside id="workbench-almanac" class="almanac" aria-label="今日黄历"></aside>
-            <aside id="workbench-countdown" class="countdown-card" data-theme="sunset" aria-label="倒计时">
+            <aside id="workbench-almanac" class="almanac" data-widget="almanac" data-widget-label="运势" aria-label="今日黄历"></aside>
+            <aside id="workbench-countdown" class="countdown-card" data-widget="countdown" data-widget-label="倒计时" data-theme="sunset" aria-label="倒计时">
               <div class="countdown-inner"><p class="countdown-label">正在读取倒计时…</p></div>
             </aside>
           </aside>

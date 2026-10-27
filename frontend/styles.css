@@ -582,6 +582,21 @@ body.view-workbench .topbar { display: none; }
 .banner-preview.banner-empty .banner-preview-label { color: var(--p-ink-4); text-shadow: none; }
 .banner-mode-field { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
 .workbench-side { display: grid; gap: 12px; align-content: start; }
+/* 右侧小组件拖拽排序（2026-10-27）：整张卡可拖，左侧手柄提示可抓；落点线在卡片间隙里。 */
+.workbench-widget { position: relative; min-width: 0; }
+.workbench-widget.is-dragging { opacity: .45; }
+.widget-drag-handle { position: absolute; top: 50%; left: 1px; z-index: 4; width: 12px; height: 44px; margin: 0; padding: 0; transform: translateY(-50%); border: 0; border-radius: 5px; background: transparent; color: var(--p-ink-4); opacity: .32; cursor: grab; transition: opacity .15s ease, background-color .15s ease; }
+.widget-drag-handle::before { content: ""; display: block; width: 4px; height: 18px; margin: 0 auto; border-radius: 2px; background-image: radial-gradient(circle, currentColor 1px, transparent 1.2px); background-size: 4px 6px; background-repeat: repeat-y; background-position: center; }
+.workbench-widget:hover .widget-drag-handle, .workbench-widget:focus-within .widget-drag-handle { opacity: .8; }
+.widget-drag-handle:hover, .widget-drag-handle:focus-visible { opacity: 1; background: color-mix(in srgb, var(--p-surface) 72%, transparent); }
+.widget-drag-handle:active { cursor: grabbing; }
+.workbench-widget[data-widget="countdown"] .widget-drag-handle { color: var(--p-banner-ink-soft); }
+.workbench-widget[data-widget="countdown"] .widget-drag-handle:hover,
+.workbench-widget[data-widget="countdown"] .widget-drag-handle:focus-visible { background: color-mix(in srgb, var(--p-sidebar) 45%, transparent); }
+.workbench-widget.is-reorder-before::before, .workbench-widget.is-reorder-after::after { content: ""; position: absolute; left: 2px; right: 2px; height: 2px; border-radius: 2px; background: var(--p-accent); pointer-events: none; z-index: 5; }
+.workbench-widget.is-reorder-before::before { top: -7px; }
+.workbench-widget.is-reorder-after::after { bottom: -7px; }
+@media (hover: none) { .widget-drag-handle { opacity: .68; } }
 .weather-card { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 12px 14px; }
 .clock-time { margin: 0; font-size: 30px; font-weight: 700; color: var(--p-ink-strong); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .clock-date { margin: 2px 0 10px; font-size: 12px; color: var(--p-ink-4); }
