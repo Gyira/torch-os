@@ -14,6 +14,10 @@ test("the sample day matches the reference almanac exactly", () => {
   const data = lunarAlmanac(SAMPLE_DAY);
   assert.equal(data.day, SAMPLE_DAY);
   assert.equal(data.lunar.dateLabel, "农历九月十八");
+  assert.equal(data.lunar.yearGanZhi, "丙午");
+  assert.equal(data.lunar.zodiac, "马");
+  assert.equal(data.lunar.monthGanZhi, "戊戌");
+  assert.equal(data.lunar.dayGanZhi, "甲戌");
   assert.equal(data.lunar.yearLabel, "丙午马年");
   assert.equal(data.lunar.monthLabel, "戊戌月");
   assert.equal(data.lunar.dayLabel, "甲戌日");
@@ -79,30 +83,52 @@ test("month grid is Monday-first, padded, and marks the sample day", () => {
   assert.equal(december.cells.filter(Boolean).length, 31);
 });
 
-test("locked card does not leak almanac or fortune content", () => {
+test("locked compact card shows the date and sign-in but keeps the reading sealed", () => {
   const data = almanacForDay(SAMPLE_DAY);
   const locked = almanacCardHtml(data, { checkedIn: false, name: "阿泽" });
   assert.ok(locked.includes("签到查看今日运势"));
-  assert.ok(locked.includes("2026年10月27日 · 星期二"));
+  assert.ok(locked.includes("丙午年 马 戊戌月 甲戌日"));
+  assert.ok(locked.includes("九月十八"));
   assert.ok(locked.includes("今日运势已封存"));
+  assert.ok(locked.includes("almanac-compact"));
+  // 完整黄历与个人运势仍然封存
   assert.ok(!locked.includes("山头火"));
   assert.ok(!locked.includes("祭祀"));
   assert.ok(!locked.includes("五行"));
+  assert.ok(!locked.includes("吉神"));
   assert.ok(!locked.includes(data.personal.fortune));
+  assert.ok(!locked.includes(data.personal.auspicious[0][0]));
 });
 
-test("unlocked card renders the image-style sections and progress", () => {
+test("unlocked compact card keeps only the brief almanac and fortune", () => {
   const data = almanacForDay(SAMPLE_DAY);
   const html = almanacCardHtml(data, {
     checkedIn: true, name: "阿泽", progress: { done: 3, total: 24 },
   });
   for (const piece of [
-    "农历九月十八", "丙午马年", "戊戌月", "甲戌日", "星期二",
-    "五行", "山头火", "冲(戊辰)龙 煞北", "彭祖", "喜神", "福神", "财神",
-    "宜", "祭祀", "忌", "出货财", "吉神", "母仓", "凶神", "月建",
-    "个人运势", "今日闭环 3 / 24 项（含日记）", "查看详情",
+    "丙午年", "马", "戊戌月", "甲戌日", "九月十八",
+    "今日运势", data.personal.fortune, "✓ 已签到",
+    "宜", data.personal.auspicious[0][0], "忌", data.personal.inauspicious[0][0],
+    'data-almanac-unlocked="1"', 'role="button"',
   ]) {
     assert.ok(html.includes(piece), `缺少：${piece}`);
+  }
+  // 小尺寸只保留简要内容，完整黄历必须在详情浮窗里
+  for (const hidden of [
+    "山头火", "五行", "冲(戊辰)龙 煞北", "吉神", "凶神",
+    "今日闭环", "个人运势", "查看详情 →", "almanac-card-foot",
+  ]) {
+    assert.equal(html.includes(hidden), false, `${hidden} 不应该出现在小卡片里`);
+  }
+
+  // 详情浮窗仍然包含完整黄历与个人运势说明。
+  const sheet = almanacSheetHtml(data, {
+    name: "阿泽", progress: { done: 3, total: 24 }, detailed: true,
+  });
+  for (const piece of [
+    "五行", "山头火", "吉神", "凶神", "今日闭环 3 / 24 项（含日记）", "个人运势",
+  ]) {
+    assert.ok(sheet.includes(piece), `详情缺少：${piece}`);
   }
 });
 

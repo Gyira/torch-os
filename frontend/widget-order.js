@@ -1,14 +1,15 @@
 // 工作台左右小组件布局（2026-10-27）：纯函数 + 本机存储 + 拖放数据层。
 // 每个小组件有稳定 id；布局 = { left: [key...], right: [key...] }。
-// 旧版只存一个扁平数组，读取时按默认分栏迁移（天气/倒计时在左，运势/DeepSeek 在右）；
+// 旧版只存一个扁平数组，读取时按默认分栏迁移（天气/倒计时/纪念日在左，运势/DeepSeek 在右）；
 // 顺序只保存在当前浏览器，不写 Obsidian 库，也不上传。
 export const WIDGET_LAYOUT_DEFAULT = Object.freeze({
-  left: Object.freeze(["weather", "countdown"]),
+  left: Object.freeze(["weather", "countdown", "anniversary"]),
   right: Object.freeze(["almanac", "deepseek"]),
 });
 export const WIDGET_COLUMN_DEFAULT = Object.freeze({
   weather: "left",
   countdown: "left",
+  anniversary: "left",
   almanac: "right",
   deepseek: "right",
 });

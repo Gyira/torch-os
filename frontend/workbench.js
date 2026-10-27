@@ -6,6 +6,7 @@ import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
 import { initAlmanacWidget, renderAlmanac } from "./almanac-widget.js";
 import { initWeatherWidget, loadWeatherWidget } from "./weather-widget.js";
+import { initAnniversaryWidget } from "./anniversary-widget.js";
 import { applyBanner, startRotation, imageSrc } from "./banner.js";
 import { setBannerSource, initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
@@ -262,6 +263,7 @@ export function initWorkbench() {
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
   initCountdownWidget();
+  initAnniversaryWidget();
   initWidgetDrag();
   initAlmanacWidget();
   initDeepSeekBalance();

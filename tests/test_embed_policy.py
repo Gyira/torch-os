@@ -17,5 +17,10 @@ def test_only_local_dsh_and_obsidian_origins_may_frame_the_workbench(tmp_path):
     assert "frame-ancestors 'self' http://127.0.0.1:* http://localhost:* app:" in csp
     assert "frame-ancestors 'none'" not in csp
     assert "x-frame-options" not in response.headers
-    # 其它来源仍然没有机会：没有通配 *、没有 https:
-    assert "frame-ancestors *" not in csp and "https:" not in csp
+    # 仅图片允许用户自定义的 https 背景；脚本/连接仍限定 self。
+    assert "img-src 'self' data: https:" in csp
+    assert "script-src 'self'" in csp and "connect-src 'self'" in csp
+    # 其它来源仍然没有机会：frame-ancestors 里没有任意来源 *、没有 https:
+    frame_ancestors = csp.split("frame-ancestors", 1)[1].split(";", 1)[0]
+    assert "https:" not in frame_ancestors
+    assert "frame-ancestors *" not in csp

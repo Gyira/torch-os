@@ -407,8 +407,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             # by CSP frame-ancestors: loopback hosts on any port, nothing else.
             # /harness is dsh's own document: it needs its inline boot script,
             # so the proxy supplies only a frame-ancestors policy there.
+            # 纪念日卡允许用户填写 https 背景图 URL（仅图片；脚本/连接仍是 self）。
             response.headers['Content-Security-Policy'] = (
-                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; "
                 "connect-src 'self'; frame-ancestors 'self' http://127.0.0.1:* http://localhost:* app:; "
                 "base-uri 'self'; form-action 'self'")
         return response

@@ -475,18 +475,28 @@ body.view-workbench .topbar { display: none; }
 .workbench-welcome-dismiss { border: 0; background: transparent; color: var(--p-ink-5); font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
 .workbench-welcome-dismiss:hover { background: var(--p-hover); color: var(--p-ink); }
 @media (max-width: 760px) { .workbench-welcome { flex-direction: column; align-items: flex-start; gap: 10px; } .workbench-welcome-actions { width: 100%; } }
-/* 今日黄历（2026-10-27 重做）：参考传统黄历图片的分区；签到后才显示完整内容。 */
+/* 今日黄历（2026-10-27）：小卡片只保留干支/农历/运势摘要；完整黄历分区在详情浮窗里。 */
 .almanac { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 0; overflow: hidden; color: var(--p-ink); }
 .almanac.is-unlocked { cursor: pointer; }
-.almanac.is-unlocked:hover { border-color: var(--p-line-input); }
+.almanac.is-unlocked:hover, .almanac.is-locked:hover { border-color: var(--p-line-input); }
 .almanac-card { min-width: 0; }
 .almanac-unlocked:focus-visible { outline: none; box-shadow: inset 0 0 0 3px var(--p-focus-ring); }
-.almanac-locked { display: grid; justify-items: center; gap: 7px; padding: 20px 14px 17px; text-align: center; }
-.almanac-locked-date { margin: 0; font-size: 11px; color: var(--p-ink-4); }
-.almanac-locked-seal { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--p-err-line); border-radius: 50%; color: var(--p-err-ink); font-family: var(--p-font-display); font-size: 22px; }
-.almanac-locked-title { margin: 1px 0 0; font-family: var(--p-font-display); font-size: 18px; letter-spacing: .08em; color: var(--p-ink-strong); }
-.almanac-locked-hint { margin: 0; font-size: 11px; line-height: 1.6; color: var(--p-ink-4); }
-.almanac-checkin { width: 100%; margin-top: 5px; padding: 8px 10px; font-size: 12px; }
+/* 小尺寸黄历卡（2026-10-27，参考用户给的图）：与天气/倒计时/DeepSeek 同高，
+   只保留干支、农历大日期与运势摘要；完整黄历在点击后的详情浮窗里。 */
+.almanac-compact { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 7px; min-height: 156px; padding: 13px 14px 12px; text-align: center; }
+.almanac-compact-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 16px; color: var(--p-ink-4); font-size: 10px; line-height: 1.3; text-align: left; }
+.almanac-lantern { flex: 0 0 auto; width: 13px; height: 18px; color: var(--p-info); opacity: .9; }
+.almanac-gzline { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .02em; }
+.almanac-open-hint { position: absolute; top: 11px; right: 12px; color: var(--p-ink-faint); font-size: 16px; line-height: 1; opacity: .55; transition: opacity .15s ease; }
+.almanac.is-unlocked:hover .almanac-open-hint, .almanac-unlocked:focus-visible .almanac-open-hint { opacity: .9; }
+.almanac-compact-lunar { margin: 0; font-family: var(--p-font-display); font-size: 30px; line-height: 1.12; letter-spacing: .12em; color: var(--p-err-ink); }
+.almanac-compact-fortune { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; }
+.almanac-fortune-label { color: var(--p-ink-4); font-size: 10px; white-space: nowrap; }
+.almanac-fortune { padding: 0 7px; border: 1px solid var(--p-err-line); border-radius: 999px; color: var(--p-err-ink); font-family: var(--p-font-display); font-size: 12px; line-height: 1.7; white-space: nowrap; }
+.almanac-compact-yiji { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--p-ink-3); font-size: 10px; }
+.almanac-locked { cursor: pointer; }
+.almanac-locked-hint { margin: 0; color: var(--p-ink-4); font-size: 10px; line-height: 1.4; }
+.almanac-checkin { width: 100%; padding: 7px 10px; font-size: 11px; }
 .almanac-sheet { font-size: 12px; line-height: 1.45; }
 .almanac-top { display: grid; grid-template-columns: 96px minmax(0, 1fr); border-bottom: 1px solid var(--p-line-2); }
 .almanac-datecol { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: start; padding: 9px 6px 8px 14px; border-right: 1px solid var(--p-line-2); }
@@ -526,9 +536,7 @@ body.view-workbench .topbar { display: none; }
 .almanac-personal-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin: 6px 0 0; padding: 0; list-style: none; }
 .almanac-personal-notes li { display: grid; gap: 1px; font-size: 11px; color: var(--p-ink-4); }
 .almanac-personal-notes strong { font-weight: 600; color: var(--p-ink-2); }
-.almanac-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border-top: 1px solid var(--p-line-2); }
-.almanac-checked-badge { font-size: 10px; color: var(--p-ok-ink); }
-.almanac-detail-button { padding: 2px 0; font-size: 10px; color: var(--p-accent); }
+.almanac-checked-badge { color: var(--p-ok-ink); font-size: 10px; white-space: nowrap; }
 
 /* 黄历详细浮窗：宽版两栏（月历 + 选中日），窄屏上下堆叠。 */
 dialog.almanac-mode { width: min(1040px, calc(100vw - 24px)); max-width: min(1040px, calc(100vw - 24px)); max-height: 92vh; }
@@ -607,6 +615,58 @@ dialog.almanac-mode { width: min(1040px, calc(100vw - 24px)); max-width: min(104
 .countdown-bg-actions select { min-width: 0; border: 1px solid var(--p-line-input); border-radius: 6px; padding: 6px 8px; background: var(--p-surface); color: var(--p-ink); font-size: 12px; }
 .countdown-form-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .countdown-settings-form .field-help { margin: 0; }
+/* 纪念日卡（2026-10-27，参考 Apex Dashboard）：照片/渐变背景上的标题 + 已过去时长 + 历史日期。 */
+.anniversary-card { position: relative; isolation: isolate; overflow: hidden; min-height: 158px; border: 1px solid var(--p-line); border-radius: 12px; background-color: var(--p-sidebar); color: var(--p-banner-num); box-shadow: 0 1px 2px var(--p-shadow); cursor: pointer; }
+.anniversary-card:focus-visible { outline: none; box-shadow: inset 0 0 0 3px var(--p-focus-ring); }
+.anniversary-card, .anniversary-bg-preview { background-image: radial-gradient(ellipse at 18% 108%, color-mix(in srgb, var(--p-countdown-cloud) 88%, transparent), transparent 58%), radial-gradient(ellipse at 82% 104%, color-mix(in srgb, var(--p-countdown-glow) 78%, transparent), transparent 62%), linear-gradient(160deg, var(--p-countdown-sky) 0%, var(--p-countdown-deep) 58%, var(--p-countdown-glow) 100%); }
+.anniversary-bg { position: absolute; inset: 0; z-index: 0; background-position: center; background-size: cover; background-repeat: no-repeat; }
+.anniversary-shade { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, color-mix(in srgb, var(--p-sidebar) 18%, transparent) 0%, color-mix(in srgb, var(--p-sidebar) 58%, transparent) 100%); }
+.anniversary-settings-hint { position: absolute; top: 8px; right: 10px; z-index: 3; color: var(--p-banner-ink); font-size: 14px; line-height: 1; opacity: .45; transition: opacity .15s ease; }
+.anniversary-card:hover .anniversary-settings-hint, .anniversary-card:focus-visible .anniversary-settings-hint { opacity: .9; }
+@media (hover: none) { .anniversary-settings-hint { opacity: .8; } }
+.anniversary-inner { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px; min-height: 156px; padding: 20px 14px 16px; text-align: center; }
+.anniversary-label { max-width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--p-banner-ink); font-size: 12px; font-weight: 650; text-shadow: 0 1px 8px var(--p-banner-shadow); }
+.anniversary-value { margin: 1px 0 0; color: var(--p-banner-num); font-size: 30px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; text-shadow: 0 2px 14px var(--p-banner-shadow); }
+.anniversary-value.is-long { font-size: 24px; }
+.anniversary-value.is-longer { font-size: 20px; letter-spacing: -.01em; }
+.anniversary-date { max-width: 100%; margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--p-banner-ink-soft); font-size: 10px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px var(--p-banner-shadow); }
+.anniversary-reminder { margin: 3px 0 0; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--p-accent) 76%, transparent); color: var(--p-invert-ink); font-size: 9px; font-weight: 700; white-space: nowrap; }
+/* 纪念日设置弹窗（参考 Apex 的紧凑表单）。 */
+dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(560px, calc(100vw - 24px)); max-height: 92vh; }
+#detail-dialog.anniversary-mode #dialog-content { max-height: calc(92vh - 61px); overflow: auto; }
+.anniversary-form { display: grid; gap: 12px; }
+.anniversary-form .field { margin-bottom: 0; }
+.anniversary-form .field-help { margin: 0; }
+.anniversary-form .form-grid { gap: 12px; }
+.anniversary-date-row { display: flex; align-items: center; gap: 8px; }
+.anniversary-date-row input[type="date"] { flex: 1 1 auto; }
+.anniversary-date-row input[type="time"] { flex: 0 0 116px; }
+.anniversary-lunar-row { display: flex; align-items: center; gap: 6px; }
+.anniversary-lunar-row input[type="number"] { width: 86px; flex: 0 0 auto; }
+.anniversary-lunar-row select { flex: 1 1 0; min-width: 0; }
+.anniversary-toggle { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--p-ink-2); }
+.anniversary-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.anniversary-toggle-track { position: relative; flex: 0 0 auto; width: 34px; height: 18px; border-radius: 999px; background: var(--p-line-strong); transition: background-color .15s ease; }
+.anniversary-toggle-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--p-surface); box-shadow: 0 1px 2px var(--p-shadow); transition: transform .15s ease; }
+.anniversary-toggle input:checked + .anniversary-toggle-track { background: var(--p-accent); }
+.anniversary-toggle input:checked + .anniversary-toggle-track::after { transform: translateX(16px); }
+.anniversary-toggle input:focus-visible + .anniversary-toggle-track { outline: 3px solid var(--p-focus-ring); outline-offset: 2px; }
+.anniversary-bg-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.anniversary-bg-row input { flex: 1 1 220px; min-width: 0; }
+.anniversary-bg-preview { position: relative; display: grid; place-items: center; height: 84px; overflow: hidden; border: 1px solid var(--p-line); border-radius: 9px; background-color: var(--p-sidebar); background-position: center; background-size: cover; color: var(--p-banner-num); font-size: 11px; text-shadow: 0 1px 6px var(--p-banner-shadow); }
+.anniversary-preview { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); }
+.anniversary-preview > span { color: var(--p-ink-4); font-size: 11px; }
+.anniversary-preview strong { margin-left: auto; color: var(--p-ink-strong); font-size: 18px; font-variant-numeric: tabular-nums; }
+.anniversary-preview small { color: var(--p-ink-4); font-size: 10px; }
+.anniversary-form-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 520px) {
+  .anniversary-date-row { flex-wrap: wrap; }
+  .anniversary-date-row input[type="time"] { flex: 1 1 116px; }
+  .anniversary-lunar-row { flex-wrap: wrap; }
+  .anniversary-lunar-row select { flex: 1 1 120px; }
+  .anniversary-preview { flex-wrap: wrap; }
+  .anniversary-preview strong { margin-left: 0; }
+}
 /* DeepSeek 余额卡：深色卡片，余额来自官方 /user/balance（本地后端代理）。
    使用专用的深色 token，不跟随宿主浅色主题的侧栏/文字，避免白字浅底看不清。 */
 .deepseek-card { position: relative; isolation: isolate; overflow: hidden; min-height: 158px; border: 1px solid color-mix(in srgb, var(--p-deepseek-glow) 38%, var(--p-line)); border-radius: 12px; padding: 12px 14px; background: radial-gradient(ellipse at 88% -8%, color-mix(in srgb, var(--p-deepseek-glow) 36%, transparent), transparent 58%), linear-gradient(155deg, var(--p-deepseek-sky) 0%, var(--p-deepseek-deep) 100%); color: var(--p-deepseek-ink); box-shadow: 0 1px 2px var(--p-shadow); }
