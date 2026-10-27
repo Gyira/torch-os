@@ -168,6 +168,12 @@
   --p-countdown-deep: #8a4d48;
   --p-countdown-glow: #d8794c;
   --p-countdown-cloud: #f2b078;
+  /* 工作台 DeepSeek 余额卡：始终是深色品牌卡，宿主浅色主题下也保持对比度 */
+  --p-deepseek-sky: #0b1827;
+  --p-deepseek-deep: #12354f;
+  --p-deepseek-glow: #3f86c7;
+  --p-deepseek-ink: #f4f9ff;
+  --p-deepseek-ink-soft: #c4d9ec;
 }
 
 html[data-torch-theme="dark"] {
@@ -336,6 +342,12 @@ html[data-torch-theme="dark"] {
   --p-countdown-deep: #5d353d;
   --p-countdown-glow: #cf7c55;
   --p-countdown-cloud: #e6b089;
+  /* 工作台 DeepSeek 余额卡：深色版本 */
+  --p-deepseek-sky: #0a1018;
+  --p-deepseek-deep: #102a40;
+  --p-deepseek-glow: #4a90cc;
+  --p-deepseek-ink: #f4f9ff;
+  --p-deepseek-ink-soft: #c7dcee;
 }
 
 /* 嵌入 dsh 时：中性骨架（底/面/线/字/反色/主色）全部改由 dsh 的实时主题 token 推导，
@@ -487,40 +499,41 @@ body.view-workbench .topbar { display: none; }
 .countdown-bg-actions select { min-width: 0; border: 1px solid var(--p-line-input); border-radius: 6px; padding: 6px 8px; background: var(--p-surface); color: var(--p-ink); font-size: 12px; }
 .countdown-form-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .countdown-settings-form .field-help { margin: 0; }
-/* DeepSeek 余额卡：深色卡片，余额来自官方 /user/balance（本地后端代理）。 */
-.deepseek-card { position: relative; isolation: isolate; overflow: hidden; min-height: 158px; border: 1px solid color-mix(in srgb, var(--p-info) 28%, var(--p-line)); border-radius: 12px; padding: 12px 14px; background: radial-gradient(ellipse at 88% -8%, color-mix(in srgb, var(--p-info) 34%, transparent), transparent 58%), linear-gradient(155deg, var(--p-sidebar) 0%, color-mix(in srgb, var(--p-sidebar) 78%, var(--p-info)) 100%); color: var(--p-banner-ink); box-shadow: 0 1px 2px var(--p-shadow); }
-.deepseek-card::after { content: ""; position: absolute; z-index: 0; right: -30%; bottom: -58%; width: 190px; height: 130px; border-radius: 50%; background: color-mix(in srgb, var(--p-info) 24%, transparent); filter: blur(22px); pointer-events: none; }
+/* DeepSeek 余额卡：深色卡片，余额来自官方 /user/balance（本地后端代理）。
+   使用专用的深色 token，不跟随宿主浅色主题的侧栏/文字，避免白字浅底看不清。 */
+.deepseek-card { position: relative; isolation: isolate; overflow: hidden; min-height: 158px; border: 1px solid color-mix(in srgb, var(--p-deepseek-glow) 38%, var(--p-line)); border-radius: 12px; padding: 12px 14px; background: radial-gradient(ellipse at 88% -8%, color-mix(in srgb, var(--p-deepseek-glow) 36%, transparent), transparent 58%), linear-gradient(155deg, var(--p-deepseek-sky) 0%, var(--p-deepseek-deep) 100%); color: var(--p-deepseek-ink); box-shadow: 0 1px 2px var(--p-shadow); }
+.deepseek-card::after { content: ""; position: absolute; z-index: 0; right: -30%; bottom: -58%; width: 190px; height: 130px; border-radius: 50%; background: color-mix(in srgb, var(--p-deepseek-glow) 26%, transparent); filter: blur(22px); pointer-events: none; }
 .deepseek-card > * { position: relative; z-index: 1; }
 .deepseek-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.deepseek-brand { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--p-banner-ink); font-size: 12px; font-weight: 650; }
-.deepseek-mark { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 auto; border-radius: 6px; background: color-mix(in srgb, var(--p-info) 68%, transparent); color: var(--p-banner-num); font-size: 9px; font-weight: 800; letter-spacing: -.02em; }
+.deepseek-brand { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--p-deepseek-ink); font-size: 12px; font-weight: 650; }
+.deepseek-mark { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 auto; border-radius: 6px; background: color-mix(in srgb, var(--p-deepseek-glow) 72%, transparent); color: var(--p-deepseek-ink); font-size: 9px; font-weight: 800; letter-spacing: -.02em; }
 .deepseek-head-actions { display: flex; gap: 1px; flex: 0 0 auto; }
-.deepseek-icon-btn { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--p-banner-ink-soft); font-size: 14px; line-height: 1; opacity: .62; transition: opacity .15s ease, background-color .15s ease; }
-.deepseek-icon-btn:hover, .deepseek-icon-btn:focus-visible { background: color-mix(in srgb, var(--p-banner-ink) 12%, transparent); color: var(--p-banner-ink); opacity: 1; }
+.deepseek-icon-btn { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--p-deepseek-ink-soft); font-size: 14px; line-height: 1; opacity: .72; transition: opacity .15s ease, background-color .15s ease; }
+.deepseek-icon-btn:hover, .deepseek-icon-btn:focus-visible { background: color-mix(in srgb, var(--p-deepseek-ink) 12%, transparent); color: var(--p-deepseek-ink); opacity: 1; }
 .deepseek-icon-btn:disabled { opacity: .45; cursor: default; }
 .deepseek-card.is-loading .deepseek-icon-btn[data-balance-refresh] { animation: deepseek-spin .9s linear infinite; }
 @keyframes deepseek-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .deepseek-card.is-loading .deepseek-icon-btn[data-balance-refresh] { animation: none; } }
-.deepseek-amount { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 0; color: var(--p-banner-num); font-size: 27px; font-weight: 750; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.deepseek-currency { color: var(--p-banner-ink-soft); font-size: 10px; font-weight: 600; letter-spacing: .08em; }
-.deepseek-breakdown { margin: 0; color: var(--p-banner-ink-soft); font-size: 11px; line-height: 1.5; }
-.deepseek-alert { margin: 1px 0 0; color: var(--p-banner-ink-soft); font-size: 11px; line-height: 1.5; }
-.deepseek-alert.is-low { color: color-mix(in srgb, var(--p-warn-ink) 55%, var(--p-banner-num)); font-weight: 650; }
-.deepseek-alert.is-error { color: color-mix(in srgb, var(--p-err-ink) 55%, var(--p-banner-num)); }
-.deepseek-alert-link { display: inline; width: auto; padding: 0; border: 0; background: transparent; color: var(--p-banner-ink-soft); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.deepseek-alert-link:hover { color: var(--p-banner-ink); }
+.deepseek-amount { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 0; color: var(--p-deepseek-ink); font-size: 27px; font-weight: 750; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.deepseek-currency { color: var(--p-deepseek-ink-soft); font-size: 10px; font-weight: 600; letter-spacing: .08em; }
+.deepseek-breakdown { margin: 0; color: var(--p-deepseek-ink-soft); font-size: 11px; line-height: 1.5; }
+.deepseek-alert { margin: 1px 0 0; color: var(--p-deepseek-ink-soft); font-size: 11px; line-height: 1.5; }
+.deepseek-alert.is-low { color: color-mix(in srgb, var(--p-warn-ink) 55%, var(--p-deepseek-ink)); font-weight: 650; }
+.deepseek-alert.is-error { color: color-mix(in srgb, var(--p-err-ink) 55%, var(--p-deepseek-ink)); }
+.deepseek-alert-link { display: inline; width: auto; padding: 0; border: 0; background: transparent; color: var(--p-deepseek-ink-soft); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.deepseek-alert-link:hover { color: var(--p-deepseek-ink); }
 .deepseek-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
-.deepseek-updated { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--p-banner-ink-soft) 72%, transparent); font-size: 10px; }
+.deepseek-updated { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--p-deepseek-ink-soft) 72%, transparent); font-size: 10px; }
 .deepseek-topup { flex: 0 0 auto; border-radius: 999px; padding: 5px 11px; background: var(--p-accent-bg); color: var(--p-invert-ink); font-size: 11px; font-weight: 700; line-height: 1.2; text-decoration: none; }
 .deepseek-topup:hover { filter: brightness(1.06); text-decoration: none; }
-.deepseek-state-title { margin: 6px 0 0; color: var(--p-banner-num); font-size: 13px; font-weight: 700; line-height: 1.4; }
-.deepseek-state-text { margin: 2px 0 0; color: var(--p-banner-ink-soft); font-size: 11px; line-height: 1.55; }
-.deepseek-state-source { margin: 1px 0 0; color: color-mix(in srgb, var(--p-banner-ink-soft) 76%, transparent); font-size: 10px; }
+.deepseek-state-title { margin: 6px 0 0; color: var(--p-deepseek-ink); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.deepseek-state-text { margin: 2px 0 0; color: var(--p-deepseek-ink-soft); font-size: 11px; line-height: 1.55; }
+.deepseek-state-source { margin: 1px 0 0; color: color-mix(in srgb, var(--p-deepseek-ink-soft) 76%, transparent); font-size: 10px; }
 .deepseek-state-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-.deepseek-button { border: 1px solid color-mix(in srgb, var(--p-banner-ink) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--p-banner-ink) 10%, transparent); color: var(--p-banner-ink); padding: 5px 10px; font-size: 11px; font-weight: 600; }
-.deepseek-button:hover { background: color-mix(in srgb, var(--p-banner-ink) 18%, transparent); }
-.deepseek-card .text-button { color: var(--p-banner-ink-soft); }
-.deepseek-card .text-button:hover { color: var(--p-banner-ink); }
+.deepseek-button { border: 1px solid color-mix(in srgb, var(--p-deepseek-ink) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--p-deepseek-ink) 10%, transparent); color: var(--p-deepseek-ink); padding: 5px 10px; font-size: 11px; font-weight: 600; }
+.deepseek-button:hover { background: color-mix(in srgb, var(--p-deepseek-ink) 18%, transparent); }
+.deepseek-card .text-button { color: var(--p-deepseek-ink-soft); }
+.deepseek-card .text-button:hover { color: var(--p-deepseek-ink); }
 .deepseek-balance-form { display: grid; gap: 12px; }
 .deepseek-balance-form .field { margin-bottom: 0; }
 .deepseek-balance-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
@@ -629,12 +642,12 @@ body.view-workbench .topbar { display: none; }
 .workbench-widget:hover .widget-drag-handle, .workbench-widget:focus-within .widget-drag-handle { opacity: .8; }
 .widget-drag-handle:hover, .widget-drag-handle:focus-visible { opacity: 1; background: color-mix(in srgb, var(--p-surface) 72%, transparent); }
 .widget-drag-handle:active { cursor: grabbing; }
-.workbench-widget[data-widget="countdown"] .widget-drag-handle,
-.workbench-widget[data-widget="deepseek"] .widget-drag-handle { color: var(--p-banner-ink-soft); }
+.workbench-widget[data-widget="countdown"] .widget-drag-handle { color: var(--p-banner-ink-soft); }
+.workbench-widget[data-widget="deepseek"] .widget-drag-handle { color: var(--p-deepseek-ink-soft); }
 .workbench-widget[data-widget="countdown"] .widget-drag-handle:hover,
-.workbench-widget[data-widget="countdown"] .widget-drag-handle:focus-visible,
+.workbench-widget[data-widget="countdown"] .widget-drag-handle:focus-visible { background: color-mix(in srgb, var(--p-sidebar) 45%, transparent); }
 .workbench-widget[data-widget="deepseek"] .widget-drag-handle:hover,
-.workbench-widget[data-widget="deepseek"] .widget-drag-handle:focus-visible { background: color-mix(in srgb, var(--p-sidebar) 45%, transparent); }
+.workbench-widget[data-widget="deepseek"] .widget-drag-handle:focus-visible { background: color-mix(in srgb, var(--p-deepseek-sky) 45%, transparent); }
 .workbench-widget.is-reorder-before::before, .workbench-widget.is-reorder-after::after { content: ""; position: absolute; left: 2px; right: 2px; height: 2px; border-radius: 2px; background: var(--p-accent); pointer-events: none; z-index: 5; }
 .workbench-widget.is-reorder-before::before { top: -7px; }
 .workbench-widget.is-reorder-after::after { bottom: -7px; }
