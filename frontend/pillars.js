@@ -373,6 +373,8 @@ function renderShell(view) {
       </div>
     </header>`;
   const reading = state.reading[view];
+  // 阅读视图单独放宽容器：列表/总览 1680，文章阅读用更宽的 1840。
+  root.classList.toggle("is-reading", Boolean(reading));
   if (reading) {
     root.innerHTML = `${headHtml}${readerMarkup(view, reading, railItems)}`;
     if (reading.focusPending) {
@@ -1015,7 +1017,10 @@ export async function loadPillarModule(view) {
     await loadPillar(view);
   } catch (error) {
     const root = $(`#${view}-view .pillar-shell`);
-    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
+    if (root) {
+      root.classList.remove("is-reading");
+      root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
+    }
   }
 }
 

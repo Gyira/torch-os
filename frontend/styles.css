@@ -1390,7 +1390,9 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 /* ===== 四库（2026-10-21 重设计）：章节轨 + 条目列表 + 详情 + 捕获 ===== */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .pillar-view { padding: 0; }
-.pillar-shell { --pillar-accent: var(--p-accent); --pillar-soft: var(--p-accent-soft); max-width: 1240px; margin: 0 auto; }
+.pillar-shell { --pillar-accent: var(--p-accent); --pillar-soft: var(--p-accent-soft); max-width: min(1680px, 100%); margin: 0 auto; }
+/* 文章阅读视图比列表/总览再宽一档；两侧留白不再压着正文。 */
+.pillar-shell.is-reading { max-width: min(1840px, 100%); }
 .pillar-shell[data-pillar="life"] { --pillar-accent: var(--p-pillar-life); --pillar-soft: var(--p-pillar-life-soft); }
 .pillar-shell[data-pillar="self"] { --pillar-accent: var(--p-pillar-self); --pillar-soft: var(--p-pillar-self-soft); }
 .pillar-shell[data-pillar="ops"] { --pillar-accent: var(--p-pillar-ops); --pillar-soft: var(--p-pillar-ops-soft); }
@@ -1501,6 +1503,9 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-reader-crumbs { margin: 0; color: var(--p-ink-5); font-size: 12px; letter-spacing: .02em; }
 .pillar-reader-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pillar-reader-grid { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 30px; align-items: start; }
+@media (min-width: 1500px) {
+  .pillar-reader-grid { grid-template-columns: minmax(0, 1fr) 220px; gap: 36px; }
+}
 .pillar-reader-article { min-width: 0; background: var(--p-surface); border: 1px solid var(--p-line); border-radius: 20px; padding: clamp(24px, 3.6vw, 48px); box-shadow: 0 26px 60px -34px var(--p-shadow); }
 .pillar-reader-head { padding-bottom: 22px; margin-bottom: 26px; border-bottom: 1px solid var(--p-line); }
 .pillar-reader-head .eyebrow { color: var(--pillar-accent); }
