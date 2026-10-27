@@ -14,6 +14,7 @@ import { initCountdownWidget } from "./countdown.js";
 import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js";
 import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
+import { loadPendingStrip } from "./pending.js";
 
 let current = null;
 let bannerStats = null;
@@ -177,6 +178,7 @@ export async function loadWorkbench() {
   loadWeatherWidget();
   loadDeepSeekBalance();
   loadTrainTrackerWidget();
+  loadPendingStrip();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */

@@ -81,6 +81,21 @@ L1 只读摘要，不读正文。摘要写不出结论的笔记，等于没写�
 接口：`GET /api/identity/drafts`、`POST /api/identity/drafts/{name}/accept|reject`；
 自我档案的 `GET /api/pillars/self/overview` 会顺带返回 `drafts`，面板一次请求就够。
 
+## 待确认中枢：三处积压一个入口
+
+身份候选只是"等我拍板"的一种。工作台顶部那行数字把三种收在一起（`docs/FEATURE_MAP.md`
+的「待确认中枢」有完整口径）：
+
+| 房间 | 来源 | 动作 |
+|---|---|---|
+| 草稿 | `inbox_items`（早报/晚报/周报） | 标记已读 / 丢弃（不删数据） |
+| 事实 | `memories.candidate` + 身份候选 | 采纳（写四库）/ 拒绝（不动四库） |
+| 收件箱 | `03_知识库/00_收件箱` | 按建议或自选章节真的搬过去 |
+| 恋爱记忆 | 恋爱系统 `memory_drafts` | 写入四库 / 丢弃（动作走恋爱系统的接口） |
+
+统一结构 `{kind,id,title,preview,lines,source,created,actions}` 由 `backend/app/pending.py`
+适配——前端不为每种状态机写一套渲染，加第五种队列只改适配层。
+
 ## 数据流
 
 ```
@@ -145,6 +160,9 @@ L1 只读摘要，不读正文。摘要写不出结论的笔记，等于没写�
 | `scripts/archive_note.py` | 归档出口（`--list-chapters` / `--dry-run`） |
 | `scripts/identity_draft.py` | 身份候选投递（`add` / `list`），只写 `.torch-os/身份待确认/` |
 | `backend/app/identity_inbox.py` | 候选队列的读取、采纳（写身份字段 / 记忆与自传）、丢弃 |
+| `backend/app/pending.py` | 待确认中枢的适配层：把草稿/事实/分流映射成统一结构 |
+| `frontend/pending.js` | 工作台那行数字 + 三 tab 弹层（取数、动作） |
+| `frontend/pending-markup.js` | 弹层的纯渲染（可在 node 里单测） |
 | `frontend/identity-inbox.js` | 自我档案右栏的「身份待确认」卡片（纯函数，`node --test` 可测） |
 | `tests/test_mentor_workflow.py` | 上面这些的守卫 |
 | `tests/test_identity_inbox.py` | 候选队列：不越界、不覆盖、丢弃不动四库 |

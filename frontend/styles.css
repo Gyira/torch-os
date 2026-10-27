@@ -1727,6 +1727,27 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .steward-tab:hover { color: var(--p-ink-2); }
 .steward-tab.is-active { color: var(--pillar-accent); border-bottom-color: var(--pillar-accent); }
 .steward-body { padding: 16px 22px 22px; max-height: 64vh; overflow: auto; }
+/* 待确认中枢：工作台顶部一个常驻数字 + 带 tab 的弹层（2026-10-27）。 */
+.pending-strip { margin: 0 0 10px; }
+.pending-strip-button { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid var(--p-line-2); border-radius: 12px; background: var(--p-surface-2); color: var(--p-ink-2); font: inherit; font-size: 13px; padding: 8px 14px; cursor: pointer; text-align: left; }
+.pending-strip-button:hover { border-color: var(--pillar-accent); }
+.pending-strip-button:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
+.pending-strip-count { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--p-invert-bg); color: var(--p-invert-ink); font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+.pending-strip-text { font-weight: 600; color: var(--p-ink-strong); }
+.pending-strip-parts { color: var(--p-ink-5); font-size: 12px; }
+.pending-tabs { display: flex; gap: 4px; padding: 10px 22px 0; border-bottom: 1px solid var(--p-line); }
+.pending-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--p-ink-4); font: inherit; font-size: 13px; font-weight: 600; padding: 9px 12px 10px; cursor: pointer; }
+.pending-tab span { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--p-surface-2); font-size: 11px; font-weight: 700; }
+.pending-tab:hover { color: var(--p-ink-2); }
+.pending-tab.is-active { color: var(--pillar-accent); border-bottom-color: var(--pillar-accent); }
+.pending-body { padding: 16px 22px 22px; max-height: 64vh; overflow: auto; }
+.pending-item { border: 1px solid var(--p-line); border-radius: 12px; padding: 13px 15px; margin-bottom: 10px; }
+.pending-item-title { margin: 2px 0 4px; font-family: var(--p-font-display); font-size: 16px; color: var(--p-ink-strong); }
+.pending-item-preview { margin: 0; font-size: 13px; line-height: 1.55; color: var(--p-ink-3); }
+.pending-item-lines { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--p-ink-4); }
+.pending-item-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.pending-chapter-select { max-width: 46%; border: 1px solid var(--p-line-2); border-radius: 8px; background: var(--p-surface); color: var(--p-ink-2); font: inherit; font-size: 12px; padding: 6px 8px; }
+.pending-chapter-select:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
 .steward-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .steward-section-head .field-help { margin: 0; }
 .steward-proposal { border: 1px solid var(--p-line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; background: var(--p-surface); }

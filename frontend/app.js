@@ -15,6 +15,7 @@ import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
+import { initPending } from "./pending.js";
 import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
@@ -385,7 +386,7 @@ function scheduleWorkbenchAnchor() {
 // 先把库里的值灌回 localStorage，再初始化各小组件；后端不可用时用本机缓存继续启动。
 try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
 initSettings(); initInbox();
-initWorkbench(); initPillars();
+initWorkbench(); initPillars(); initPending();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
 initHelp();

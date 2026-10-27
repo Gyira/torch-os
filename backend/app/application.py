@@ -84,6 +84,7 @@ from .import_history import (
     restore_wolai_import_history,
 )
 from .memory_export import create_memory_export_router
+from .pending import create_pending_router
 from .planning_export import create_planning_export_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
@@ -782,6 +783,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_scheduler_router(
         database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
+    # 待确认中枢：草稿 / 事实 / 分流 三处积压的只读汇总 + 三个动作转发。
+    app.include_router(create_pending_router(database, vault_dir, read_only=vault_read_only))
     # Read-only export of the user's own memories; no vault or review writes.
     app.include_router(create_memory_export_router(database))
     # Read-only self-check: counts and integrity only, no content and no audit.

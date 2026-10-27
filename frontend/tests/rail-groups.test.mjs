@@ -43,6 +43,7 @@ const IMPORTS = {
   "./pillar-ops.js": ["bindOpsEvents", "mountOps"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
   "./pillar-steward.js": ["openSteward"],
+  "./identity-inbox.js": ["identityInboxMarkup"],
   "./journal-model.js": ["shanghaiDay"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],
 };

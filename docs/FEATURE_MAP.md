@@ -23,6 +23,20 @@
 
 ## 工作台
 
+- **待确认中枢（2026-10-27）**：工作台顶部一行常驻数字，点开是带四个 tab 的弹层，
+  把四处各自为政的积压收成一个入口：
+  - **草稿** `inbox_items`（早报/晚报/周报）：2026-10-05 删掉「提醒与草稿」列表后一直没人看得见，
+    现在可以读摘要、标记已读、丢弃（只标记，不删数据）；
+  - **事实**：`memories.status='candidate'` + `.torch-os/身份待确认/`，采纳才写进身份卡或
+    `01_自我档案/02_记忆与自传`，拒绝不动四库；
+  - **收件箱**：`03_知识库/00_收件箱` 带 `steward_policy` 给的章节建议，选好章节一键真的搬过去
+    （重名自动 `-2`，不覆盖；任务/日记/习惯不由这里搬）；原入口保持不变；
+  - **恋爱记忆**：恋爱系统 `memory_drafts` 里还没写入的每日记忆草稿，写入四库或丢弃；
+    动作仍由恋爱系统自己的接口执行，中枢只做汇总。
+  接口：`GET /api/pending/summary`、`GET /api/pending/items?kind=`、
+  `POST /api/pending/drafts`、`POST /api/pending/facts`、`POST /api/pending/triage`；
+  统一结构 `{kind,id,title,preview,lines,source,created,actions}` 由 `backend/app/pending.py` 适配，
+  前端不为每种类型写一套渲染。
 - 问候语、横幅（座右铭/统计、背景、字体）、时钟、紧凑天气卡、黄历。
 - 横幅编辑器（2026-10-27）：座右铭用空行分隔多句，同一条内部的换行原样显示（CSS `pre-line`），
   第一句仍是主字号；图片改成文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB），
