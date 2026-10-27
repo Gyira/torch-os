@@ -1,13 +1,15 @@
 """恋爱系统（原生模块）。
 
 把原来的「恋爱分析助手」重做成薪火OS 的一部分：
-- 直接读写它已有的 SQLite 数据库（默认在 %LOCALAPPDATA%\\love-analysis-assistant），
-  不启动、也不依赖原来那个 FastAPI/Electron 进程；
+- 数据统一放在当前个人数据库的 ``.torch-os/love/``（数据库、加密 Key、交路表、时刻表、
+  停用词）；旧版 ``%LOCALAPPDATA%`` / 仓库 ``data/love`` 的数据只在首次启动时复制过来；
+- 不启动、也不依赖原来那个 FastAPI/Electron 进程；
 - 保留原有表结构、数据格式和 DeepSeek 分析口径，已有项目/日志/画像可以继续使用；
 - 只通过本机工作台的会话鉴权暴露 API，所有聊天内容都留在本机；
   AI 分析前按原有规则脱敏姓名、电话、证件、邮箱、链接等。
 
-文件故意保持为「一个功能一个文件」：交路表/排班表在 ``love_schedule.py``。
+文件故意保持为「一个功能一个文件」：交路表/排班表在 ``love_schedule.py``，
+数据目录与迁移在 ``love_storage.py``。
 """
 from __future__ import annotations
 
@@ -31,6 +33,8 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, StrictBool
 from starlette.concurrency import run_in_threadpool
+
+from .love_storage import DB_NAME, EXCEL_DIR_NAME, KEY_NAME, STOPWORDS_NAME, TIMETABLE_NAME
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MAX_IMPORT_BYTES = 40 * 1024 * 1024
@@ -193,6 +197,8 @@ class LoveSettings:
     key_file: Path | None = None
     # 排班对象姓名只从本机配置读取，不写进仓库；空串表示自动识别。
     target_name: str = ""
+    # 仅在个人模式首次启动时由 application.create_app 填入的迁移报告。
+    migration: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls, *, db_path: Path | None = None,
@@ -204,26 +210,19 @@ class LoveSettings:
             value = Path(raw)
             return value if value.is_absolute() else PROJECT_ROOT / value
 
-        local_appdata = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
-        database = db_path or path_value(
-            "LOVE_DB_PATH", local_appdata / "love-analysis-assistant" / "love_analysis.db"
-        )
-        app_dir = path_value("LOVE_APP_DIR", PROJECT_ROOT)
+        data_dir = path_value("DATA_DIR", PROJECT_ROOT / "data")
+        love_root = path_value("LOVE_DATA_DIR", data_dir / "love")
+        database = Path(db_path) if db_path else love_root / DB_NAME
+        root = Path(database).parent
         return cls(
-            db_path=Path(database),
-            app_dir=app_dir,
-            stopwords_path=path_value(
-                "LOVE_STOPWORDS_PATH", app_dir / "resources" / "stopwords" / "cn_stopwords.txt"
-            ),
-            excel_dir=path_value(
-                "LOVE_EXCEL_DIR", PROJECT_ROOT / "data" / "love" / "xlsx"
-            ),
-            timetable_path=path_value(
-                "LOVE_TIMETABLE_PATH", app_dir / "backend" / "data" / "train_timetable.json"
-            ),
+            db_path=database,
+            app_dir=path_value("LOVE_APP_DIR", PROJECT_ROOT),
+            stopwords_path=root / STOPWORDS_NAME,
+            excel_dir=root / EXCEL_DIR_NAME,
+            timetable_path=root / TIMETABLE_NAME,
             api_base_url=(os.getenv("LOVE_API_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             api_model=os.getenv("LOVE_API_MODEL") or "deepseek-chat",
-            key_file=Path(key_file) if key_file else Path(database).parent / ".api_key.key",
+            key_file=Path(key_file) if key_file else root / KEY_NAME,
             target_name=(os.getenv("LOVE_TARGET_NAME") or "").strip(),
         )
 
@@ -268,6 +267,8 @@ class LoveStore:
         exists = self.db_path.exists()
         info: dict[str, Any] = {
             "available": False,
+            "data_dir": str(self.db_path.parent),
+            "data_dir_exists": self.db_path.parent.is_dir(),
             "db_path": str(self.db_path),
             "db_exists": exists,
             "db_size": self.db_path.stat().st_size if exists else 0,
@@ -281,6 +282,7 @@ class LoveStore:
             "app_dir_exists": settings.app_dir.is_dir(),
             "schedule_excel_dir": str(settings.excel_dir),
             "schedule_timetable": str(settings.timetable_path),
+            "migration": settings.migration or {},
             "error": "",
         }
         try:
@@ -1419,7 +1421,14 @@ class ApiKeyRequest(BaseModel):
 
 def create_love_router(store: LoveStore | None = None,
                        settings: LoveSettings | None = None) -> APIRouter:
-    settings = settings or (store.settings if store else None) or LoveSettings.from_env()
+    if settings is None and store is not None:
+        settings = store.settings
+    if settings is None:
+        # 独立测试/嵌入调用：从传入 store 的数据库位置推导同目录结构，避免读到真实个人库路径。
+        settings = LoveSettings.from_env(
+            db_path=store.db_path if store else None,
+            key_file=store.key_file if store else None,
+        )
     if store is None:
         store = LoveStore(settings.db_path, key_file=settings.key_file, settings=settings)
     elif store.settings is None:

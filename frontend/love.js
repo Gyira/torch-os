@@ -465,7 +465,7 @@ async function renderDashboard(content) {
     </div>
     <div class="love-tip-strip">
       <span>🔒</span>
-      <p>聊天、画像与日志只保存在本机原有数据库中，不进入 Obsidian 库，也不参与普通导出。AI 分析只发送脱敏后的内容。</p>
+      <p>聊天、画像与日志只保存在当前个人数据库的 <code>.torch-os/love/</code> 里，不参与普通导出；拷贝整个个人数据库即可迁移。AI 分析只发送脱敏后的内容。</p>
     </div>`;
 }
 
@@ -1329,7 +1329,7 @@ async function renderSchedule(content) {
       </div>
       <dl class="love-facts">
         <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.excel_dir || "—")}</dd></div>
-        <div><dt>时刻表</dt><dd>${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : "未找到 train_timetable.json"}</dd></div>
+        <div><dt>时刻表</dt><dd title="${escapeHtml(status.timetable_path || "")}">${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : `未找到 ${escapeHtml(status.timetable_path || "train_timetable.json")}`}</dd></div>
       </dl>
       ${schedule.fallback_note ? `<p class="inline-warning">${escapeHtml(schedule.fallback_note)}</p>` : ""}
     `, { eyebrow: "SCHEDULE", subtitle: "读取本机交路表与时刻表；天气走 Open-Meteo，不连接 12306。" });
@@ -1399,7 +1399,7 @@ async function renderSchedule(content) {
         <dl class="love-facts">
           <div><dt>交路表</dt><dd>${escapeHtml(schedule.excel_file || status.excel_file || "—")}</dd></div>
           <div><dt>可用范围</dt><dd>${status.date_range ? `${escapeHtml(status.date_range.start)} ~ ${escapeHtml(status.date_range.end)}` : "—"}</dd></div>
-          <div><dt>时刻表</dt><dd>${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : "未找到"}</dd></div>
+          <div><dt>时刻表</dt><dd title="${escapeHtml(status.timetable_path || "")}">${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : "未找到"}</dd></div>
         </dl>
       </aside>
     </div>`;
@@ -1468,17 +1468,22 @@ async function renderSettings(content) {
         </div>
         <span id="love-key-feedback" class="status-message" role="status"></span>
       </form>
-      <p class="field-help">Key 使用 AES-256-GCM 加密后存进原有本机数据库；密钥文件在数据库同目录。页面不会回显已保存的 Key。</p>
+      <p class="field-help">Key 使用 AES-256-GCM 加密后存进当前个人数据库的恋爱数据库；密钥文件在数据库同目录（<code>.torch-os/love/</code>）。页面不会回显已保存的 Key。</p>
     `, { eyebrow: "AI SETTINGS", subtitle: "只有 AI 分析、生成日记和报告会用到这把 Key；其余功能完全离线。" })}
     ${card("数据与存储", `
       <dl class="love-facts">
-        <div><dt>本机数据库</dt><dd class="love-path">${escapeHtml(status.db_path || "—")}</dd></div>
+        <div><dt>数据目录</dt><dd class="love-path">${escapeHtml(status.data_dir || "—")}</dd></div>
+        <div><dt>数据库</dt><dd class="love-path">${escapeHtml(status.db_path || "—")}</dd></div>
         <div><dt>数据库大小</dt><dd>${status.db_size ? `${(Number(status.db_size) / 1024 / 1024).toFixed(1)} MB` : "—"}</dd></div>
         <div><dt>项目 / 消息 / 日志</dt><dd>${formatInt(status.project_count)} / ${formatInt(status.message_count)} / ${formatInt(status.journal_count)}</dd></div>
-        <div><dt>原项目资源</dt><dd class="love-path">${escapeHtml(status.app_dir || "—")}</dd></div>
         <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.schedule_excel_dir || "—")}</dd></div>
+        <div><dt>时刻表</dt><dd class="love-path">${escapeHtml(status.schedule_timetable || "—")}</dd></div>
       </dl>
-      <p class="field-help">这份数据库是原「恋爱分析助手」的本机数据，不进入 Obsidian 库、不参与工作台备份。需要备份时请直接复制上面的数据库文件（先退出分析任务）。</p>
+      <p class="field-help">恋爱系统的数据库、加密 Key、交路表和时刻表都放在当前个人数据库的 <code>.torch-os/love/</code> 里；拷贝整个个人数据库即可带走。API Key 只会保存在本机，不上传。</p>
+      ${(status.migration?.db === "copied" || status.migration?.key
+          || Number(status.migration?.excel) > 0 || status.migration?.timetable
+          || status.migration?.stopwords)
+        ? '<p class="inline-warning">已把旧位置的数据复制到当前个人数据库；原文件保留在原处。</p>' : ""}
       <div class="love-inline-actions">
         <button class="button secondary" type="button" data-love-action="settings-refresh">重新检查</button>
         <button class="button secondary" type="button" data-love-action="goto" data-page="schedule">查看排班表</button>

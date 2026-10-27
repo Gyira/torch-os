@@ -147,11 +147,13 @@
 00_人生路/08_任务与待办/_系统/    # 任务（tasks）.md、待办（todos）.md、迁移记录/
 .obsidian/plugins/torch/          # 插件本体 + data.json
 .torch-os/                        # 索引、备份、审计、清单
+.torch-os/love/                   # 恋爱系统数据库、加密 Key、交路表、时刻表（首次使用恋爱系统时创建）
 ```
 
 `任务/` 与 `_系统/` 在「任务与待办」章节内部，章节本身也在 `CHAPTERS` 里。创建时还会
 额外补建四个目录：`任务/`、`_系统/`、`.obsidian/plugins/torch/`、`.torch-os/`；其余目录
-是章节路径的父目录，随章节一起出现。
+是章节路径的父目录，随章节一起出现。恋爱系统第一次打开时会在 `.torch-os/love/` 下创建
+`love_analysis.db`、`xlsx/` 和时刻表位置；旧版数据会从原位置复制过来，原文件保留。
 
 ## .torch-os/vault-layout.json
 

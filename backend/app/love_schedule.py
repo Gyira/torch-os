@@ -530,6 +530,7 @@ def create_schedule_router(excel_dir: Path, timetable_path: Path,
             # 只回是否已配置，姓名本身不出接口。
             "target_configured": bool(target_name),
             "timetable_exists": timetable_path.is_file(),
+            "timetable_path": str(timetable_path),
             "timetable_trains": len(_load_timetable(timetable_path)),
             "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "error": error,

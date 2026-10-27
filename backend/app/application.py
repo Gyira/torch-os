@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+from dataclasses import replace
 from urllib.parse import urlsplit
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -65,6 +66,11 @@ from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
 from .love_schedule import create_schedule_router
+from .love_storage import (
+    DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
+    STOPWORDS_NAME as LOVE_STOPWORDS_NAME, TIMETABLE_NAME as LOVE_TIMETABLE_NAME,
+    migrate_love_data,
+)
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
 from .task_import import create_task_import_router
@@ -209,7 +215,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                enable_dida_auto_push: bool | None = None,
                dsh_runtime: DshWebRuntime | DisabledDshRuntime | None = None,
                enable_dsh: bool | None = None,
-               dsh_workspace: Path | None = None) -> FastAPI:
+               dsh_workspace: Path | None = None,
+               love_legacy_migration: bool | None = None) -> FastAPI:
+    # 只有未注入工作区的真实个人实例才自动迁移旧恋爱数据；测试/QA 的临时库不会碰真实路径。
+    provided_paths = database is not None or vault_dir is not None
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
@@ -685,20 +694,44 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_weather_router())
     # DeepSeek 余额：官方余额接口的白名单代理；Key 不返回前端、不写日志，QA 模式不联网。
     app.include_router(create_deepseek_balance_router(deepseek_balance))
-    # 恋爱系统：原生读写原有 love_analysis.db，不启动独立服务；AI 只走用户配置的 DeepSeek。
-    # QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据；配置只在个人模式下读取 .env。
+    # 恋爱系统：数据统一放在当前个人数据库的 .torch-os/love/，不启动独立服务；
+    # AI 只走用户配置的 DeepSeek。QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据。
     if runtime_label == 'personal':
         from .config import (
-            LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DB_PATH,
-            LOVE_EXCEL_DIR, LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME,
-            LOVE_TIMETABLE_PATH,
+            LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DATA_DIR,
+            LOVE_LEGACY_DB_PATH, LOVE_LEGACY_EXCEL_DIR, LOVE_LEGACY_TIMETABLE_PATH,
+            LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME,
         )
+        # 默认跟着当前选中的个人数据库走（<DATA_DIR>/love）；真实个人实例才认显式覆盖，
+        # 测试/QA 注入的临时库一律使用自己的数据目录，避免碰到真实路径。
+        explicit_love_dir = (os.getenv('LOVE_DATA_DIR') or '').strip()
+        love_data_dir = (LOVE_DATA_DIR if explicit_love_dir and not provided_paths
+                         else (Path(database.path).parent / 'love'))
         love_settings = LoveSettings(
-            db_path=LOVE_DB_PATH, app_dir=LOVE_APP_DIR,
-            stopwords_path=LOVE_STOPWORDS_PATH, excel_dir=LOVE_EXCEL_DIR,
-            timetable_path=LOVE_TIMETABLE_PATH, api_base_url=LOVE_API_BASE_URL,
-            api_model=LOVE_API_MODEL, target_name=LOVE_TARGET_NAME,
+            db_path=love_data_dir / LOVE_DB_NAME,
+            key_file=love_data_dir / LOVE_KEY_NAME,
+            app_dir=LOVE_APP_DIR,
+            stopwords_path=love_data_dir / LOVE_STOPWORDS_NAME,
+            excel_dir=love_data_dir / LOVE_EXCEL_DIR_NAME,
+            timetable_path=love_data_dir / LOVE_TIMETABLE_NAME,
+            api_base_url=LOVE_API_BASE_URL,
+            api_model=LOVE_API_MODEL,
+            target_name=LOVE_TARGET_NAME,
         )
+        if love_legacy_migration is None:
+            love_legacy_migration = not provided_paths
+        if love_legacy_migration:
+            love_settings = replace(love_settings, migration=migrate_love_data(
+                love_data_dir,
+                legacy_db_path=LOVE_LEGACY_DB_PATH,
+                legacy_key_file=Path(LOVE_LEGACY_DB_PATH).parent / LOVE_KEY_NAME,
+                legacy_excel_dir=LOVE_LEGACY_EXCEL_DIR,
+                legacy_timetable_path=LOVE_LEGACY_TIMETABLE_PATH,
+                legacy_stopwords_path=LOVE_STOPWORDS_PATH,
+            ))
+        else:
+            love_data_dir.mkdir(parents=True, exist_ok=True)
+            (love_data_dir / LOVE_EXCEL_DIR_NAME).mkdir(parents=True, exist_ok=True)
         app.state.love_settings = love_settings
         app.include_router(create_love_router(settings=love_settings))
         app.include_router(create_schedule_router(
