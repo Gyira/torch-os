@@ -69,9 +69,9 @@ from .love import LoveSettings, create_love_router
 from .love_schedule import create_schedule_router
 from .love_storage import (
     DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
-    STOPWORDS_NAME as LOVE_STOPWORDS_NAME, TIMETABLE_NAME as LOVE_TIMETABLE_NAME,
-    migrate_love_data,
+    STOPWORDS_NAME as LOVE_STOPWORDS_NAME, migrate_love_data,
 )
+from .train_tracker import create_train_tracker_router
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
 from .task_import import create_task_import_router
@@ -471,7 +471,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'personal_data':True,'planning_export':True,
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
                     'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
-                    'tasks':True,'tools':True,'vault_audit':True,
+                    'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
                     'vault_admin':runtime_label == 'personal',
                     'vault_connection':not vault_scoped,'weather':True,'workbench':True,
                     'workspaces':runtime_label == 'personal' and not vault_scoped,
@@ -702,24 +702,29 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_deepseek_balance_router(deepseek_balance))
     # 恋爱系统：数据统一放在当前个人数据库的 .torch-os/love/，不启动独立服务；
     # AI 只走用户配置的 DeepSeek。QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据。
+    train_tracker_legacy: list[Path] = []
     if runtime_label == 'personal':
         from .config import (
             LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DATA_DIR,
             LOVE_LEGACY_DB_PATH, LOVE_LEGACY_EXCEL_DIR, LOVE_LEGACY_TIMETABLE_PATH,
-            LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME,
+            LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME, ROOT_DIR,
         )
         # 默认跟着当前选中的个人数据库走（<DATA_DIR>/love）；真实个人实例才认显式覆盖，
         # 测试/QA 注入的临时库一律使用自己的数据目录，避免碰到真实路径。
         explicit_love_dir = (os.getenv('LOVE_DATA_DIR') or '').strip()
         love_data_dir = (LOVE_DATA_DIR if explicit_love_dir and not provided_paths
                          else (Path(database.path).parent / 'love'))
+        train_tracker_legacy = [
+            love_data_dir / 'train_timetable.json',
+            Path(LOVE_LEGACY_TIMETABLE_PATH),
+            ROOT_DIR / 'data' / 'love' / 'train_timetable.json',
+        ] if not provided_paths else []
         love_settings = LoveSettings(
             db_path=love_data_dir / LOVE_DB_NAME,
             key_file=love_data_dir / LOVE_KEY_NAME,
             app_dir=LOVE_APP_DIR,
             stopwords_path=love_data_dir / LOVE_STOPWORDS_NAME,
             excel_dir=love_data_dir / LOVE_EXCEL_DIR_NAME,
-            timetable_path=love_data_dir / LOVE_TIMETABLE_NAME,
             api_base_url=LOVE_API_BASE_URL,
             api_model=LOVE_API_MODEL,
             target_name=LOVE_TARGET_NAME,
@@ -732,7 +737,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                 legacy_db_path=LOVE_LEGACY_DB_PATH,
                 legacy_key_file=Path(LOVE_LEGACY_DB_PATH).parent / LOVE_KEY_NAME,
                 legacy_excel_dir=LOVE_LEGACY_EXCEL_DIR,
-                legacy_timetable_path=LOVE_LEGACY_TIMETABLE_PATH,
                 legacy_stopwords_path=LOVE_STOPWORDS_PATH,
             ))
         else:
@@ -741,8 +745,18 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         app.state.love_settings = love_settings
         app.include_router(create_love_router(settings=love_settings))
         app.include_router(create_schedule_router(
-            love_settings.excel_dir, love_settings.timetable_path,
-            love_settings.target_name))
+            love_settings.excel_dir,
+            love_data_dir / 'schedule-notes.json',
+            love_settings.target_name,
+            read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+    # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
+    # 12306 同步只在用户点击时发生；QA 模式禁用同步，但仍可导入本地时刻表。
+    app.include_router(create_train_tracker_router(
+        vault_dir, read_only=vault_read_only,
+        legacy_paths=train_tracker_legacy,
+        sync_enabled=runtime_label == 'personal',
+    ), dependencies=[Depends(journal_data_guard)])
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
     app.include_router(create_activity_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])

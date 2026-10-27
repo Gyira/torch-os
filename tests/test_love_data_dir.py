@@ -28,7 +28,7 @@ def test_love_data_is_stored_inside_the_selected_personal_database(tmp_path: Pat
     assert Path(payload["data_dir"]) == expected
     assert Path(payload["db_path"]) == expected / "love_analysis.db"
     assert Path(payload["schedule_excel_dir"]) == expected / "xlsx"
-    assert Path(payload["schedule_timetable"]) == expected / "train_timetable.json"
+    assert Path(payload["schedule_notes"]) == expected / "schedule-notes.json"
     assert expected.is_relative_to(vault), "恋爱数据必须位于所选的个人数据库内"
     assert (expected / "xlsx").is_dir()
     assert (expected / "love_analysis.db").is_file()  # /status 会确保表结构

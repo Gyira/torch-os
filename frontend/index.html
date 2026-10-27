@@ -163,6 +163,17 @@
                新增组件照此补属性并放进某一栏即可自动获得拖拽（widget-drag.js）。 -->
           <aside class="workbench-side workbench-side-right" data-widget-column="right" data-widget-column-label="右侧" aria-label="右侧小组件">
             <aside id="workbench-almanac" class="almanac" data-widget="almanac" data-widget-label="运势" aria-label="今日黄历"></aside>
+            <aside id="workbench-train-tracker" class="train-tracker-card" data-widget="train-tracker" data-widget-label="列车追踪" role="button" tabindex="0" aria-label="列车运行追踪，点击添加或查看车次">
+              <div class="train-tracker-inner">
+                <p class="train-tracker-eyebrow">TRAIN</p>
+                <p id="train-tracker-code" class="train-tracker-code">添加车次</p>
+                <p id="train-tracker-status" class="train-tracker-status">追踪你关心的列车</p>
+                <p id="train-tracker-route" class="train-tracker-route"></p>
+                <div id="train-tracker-progress" class="train-tracker-progress" role="progressbar" aria-label="列车区间进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="train-tracker-progress-fill"></i></div>
+                <p id="train-tracker-meta" class="train-tracker-meta">点击添加车次</p>
+              </div>
+              <span class="train-tracker-open-hint" aria-hidden="true">›</span>
+            </aside>
             <aside id="workbench-deepseek" class="deepseek-card" data-widget="deepseek" data-widget-label="DeepSeek 余额" aria-label="DeepSeek API 余额" aria-busy="true">
               <p class="deepseek-state-text">正在读取余额…</p>
             </aside>
@@ -191,7 +202,7 @@
             <button type="button" class="love-nav-item" data-love-page="profile"><span>05</span>画像</button>
             <button type="button" class="love-nav-item" data-love-page="journal"><span>06</span>恋爱日志</button>
             <button type="button" class="love-nav-item" data-love-page="report"><span>07</span>报告</button>
-            <button type="button" class="love-nav-item" data-love-page="schedule"><span>08</span>查看排班表</button>
+            <button type="button" class="love-nav-item" data-love-page="schedule"><span>08</span>值班日历</button>
             <button type="button" class="love-nav-item" data-love-page="settings"><span>09</span>设置</button>
           </nav>
           <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>

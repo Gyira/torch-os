@@ -17,7 +17,8 @@
 | `.torch-os/torch_os.sqlite3` | 索引、记忆、审计、签到、调度设置等 |
 | `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
-| `.torch-os/love/` | 恋爱系统数据库、AES Key、交路表、时刻表、停用词 |
+| `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
+| `.torch-os/love/` | 恋爱系统数据库、AES Key、排班表 Excel、值班备注、停用词 |
 | `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
 | `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`task-trash/`、`restored/` | 备份、日志、诊断、迁移与回收站 |
 | `.torch-os/dida-credentials.json` | 滴答清单登录凭据（敏感） |
@@ -130,9 +131,16 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
   直接向该地址请求图片，请只填你信任的地址；选择本机图片时只由浏览器读取，不上传。
 - 所有 AI 对话由本地 DeepSeek Harness 发起；是否联网、用哪个模型、发送哪些上下文，
   都由 dsh 自己的设置与权限决定。
-- 恋爱系统的数据库、加密 Key、交路表和时刻表放在当前个人数据库的 `.torch-os/love/`；
+- 恋爱系统的数据库、加密 Key、排班表和值班备注放在当前个人数据库的 `.torch-os/love/`；
   `.torch-os` 不参与普通 Vault 扫描和工作台备份快照，但拷贝整个个人数据库文件夹时会一起带走。
   首次启动会把旧版 `%LOCALAPPDATA%` / `data/love` / 原项目目录里的数据复制过来，原文件保留。
+- 列车追踪组件只在用户点击「从 12306 同步」时访问 `kyfw.12306.cn` 官方接口，取一次车次经停站；
+  不做后台轮询，也不上传本地时刻表。失败时保留 `.torch-os/train-tracker/timetable.json`。
+  该组件与恋爱系统互不读取：恋爱系统只保留上班/休息日历和用户自己写的备注。
+  同步流程是：`leftTicket/init` 取会话 Cookie → 用起止站和日期查 `leftTicket/query*`
+  （入口会自动轮换）取车次内部编号 → `czxx/queryByTrainNo` 取经停站。只允许
+  `kyfw.12306.cn` 一个主机，15 秒超时，无后台重试；官方接口改版或限流时会返回可读错误，
+  本地时刻表不受影响。没有接入任何第三方车次 API，也没有保存 12306 账号。
 - 恋爱系统的 AI 分析/日记生成是例外，且必须由你点击触发：它使用你在恋爱设置里单独配置的
   DeepSeek Key，发送前脱敏姓名、电话、证件、邮箱、链接与银行卡号；Key 用 AES-256-GCM
   加密保存在同一目录，不上传。

@@ -35,10 +35,8 @@ def test_migrates_legacy_love_files_into_the_new_data_dir(tmp_path: Path) -> Non
     (legacy / ".api_key.key").write_bytes(b"legacy-key")
     old_xlsx = legacy / "xlsx"
     old_xlsx.mkdir()
-    (old_xlsx / "5月交路.xlsx").write_bytes(b"xlsx")
-    (old_xlsx / "6月交路.xlsm").write_bytes(b"xlsm")
-    old_timetable = legacy / "train_timetable.json"
-    old_timetable.write_text('{"G1": {"stops": []}}', encoding="utf-8")
+    (old_xlsx / "5月排班.xlsx").write_bytes(b"xlsx")
+    (old_xlsx / "6月排班.xlsm").write_bytes(b"xlsm")
     old_stopwords = legacy / "cn_stopwords.txt"
     old_stopwords.write_text("的\n了\n", encoding="utf-8")
 
@@ -48,24 +46,22 @@ def test_migrates_legacy_love_files_into_the_new_data_dir(tmp_path: Path) -> Non
         legacy_db_path=old_db,
         legacy_key_file=legacy / ".api_key.key",
         legacy_excel_dir=old_xlsx,
-        legacy_timetable_path=old_timetable,
         legacy_stopwords_path=old_stopwords,
     )
 
     assert report["db"] == "copied"
     assert report["excel"] == 2
-    assert report["timetable"] is True
     assert report["stopwords"] is True
     assert report["key"] is True
     assert report["errors"] == []
+    assert "timetable" not in report
     assert _read_db(target / "love_analysis.db") == "old"
     assert (target / ".api_key.key").read_bytes() == b"legacy-key"
-    assert (target / "xlsx" / "5月交路.xlsx").read_bytes() == b"xlsx"
-    assert (target / "xlsx" / "6月交路.xlsm").read_bytes() == b"xlsm"
-    assert (target / "train_timetable.json").is_file()
+    assert (target / "xlsx" / "5月排班.xlsx").read_bytes() == b"xlsx"
+    assert (target / "xlsx" / "6月排班.xlsm").read_bytes() == b"xlsm"
     assert (target / "cn_stopwords.txt").is_file()
     # 旧文件保留，不搬空原位置。
-    assert old_db.is_file() and (old_xlsx / "5月交路.xlsx").is_file()
+    assert old_db.is_file() and (old_xlsx / "5月排班.xlsx").is_file()
 
 
 def test_existing_new_love_data_is_never_overwritten(tmp_path: Path) -> None:
@@ -108,12 +104,11 @@ def test_missing_legacy_sources_still_create_the_empty_structure(tmp_path: Path)
         legacy_db_path=tmp_path / "missing.db",
         legacy_key_file=tmp_path / "missing.key",
         legacy_excel_dir=tmp_path / "missing-xlsx",
-        legacy_timetable_path=tmp_path / "missing.json",
         legacy_stopwords_path=tmp_path / "missing.txt",
     )
 
     assert report["db"] == "missing"
     assert report["excel"] == 0
-    assert report["timetable"] is False and report["stopwords"] is False
+    assert report["stopwords"] is False
     assert report["errors"] == []
     assert (target / "xlsx").is_dir()

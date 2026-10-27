@@ -1,7 +1,7 @@
 // 「恋爱系统」= 原生重做进「生活运营」的二级分区。
 // 数据来自原有 love_analysis.db，由 torch 后端直接读写；这里只做界面与交互。
 // 不在前端保存任何聊天内容：所有渲染都来自本机 API，页面刷新后重新读取。
-import { $, api, escapeHtml, openDialog, confirmAction, toast } from "./core.js";
+import { $, api, escapeHtml, jsonBody, openDialog, confirmAction, toast } from "./core.js";
 
 const PAGE_TITLES = {
   dashboard: "总览",
@@ -11,7 +11,7 @@ const PAGE_TITLES = {
   profile: "画像",
   journal: "恋爱日志",
   report: "报告",
-  schedule: "查看排班表",
+  schedule: "值班日历",
   settings: "设置",
 };
 const CONSENT_KEY = "torch-os:love-consent-v1";
@@ -41,8 +41,8 @@ const love = {
   selectedAnalysisId: "",
   analysisPoll: 0,
   lastReport: null,
-  scheduleMode: "today",
-  scheduleDate: "",
+  scheduleMonth: "",
+  scheduleData: null,
 };
 
 // ── 小工具 ─────────────────────────────────────────────────────────
@@ -1293,156 +1293,168 @@ function printReport() {
   }, 900);
 }
 
-// ── 查看排班表 ───────────────────────────────────────────────────────
+// ── 值班日历 ─────────────────────────────────────────────────────────
 
-async function renderSchedule(content) {
-  let endpoint = "/api/love/schedule/today";
-  if (love.scheduleMode === "tomorrow") endpoint = "/api/love/schedule/tomorrow";
-  if (love.scheduleMode === "date" && love.scheduleDate) {
-    endpoint = `/api/love/schedule/day?date=${encodeURIComponent(love.scheduleDate)}`;
-  }
-  const [status, schedule] = await Promise.all([
-    loveApi("/api/love/schedule/status", { timeoutMs: 20000 }),
-    loveApi(endpoint, { timeoutMs: 45000 }),
-  ]);
-  if (love.page !== "schedule") return;
-  const modeButtons = [["today", "今天"], ["tomorrow", "明天"]].map(([value, label]) =>
-    `<button type="button" class="love-seg${love.scheduleMode === value ? " active" : ""}" data-love-action="schedule-mode" data-value="${value}">${label}</button>`).join("");
-  const toolbar = `<div class="love-schedule-toolbar">
-    <div class="love-segmented">${modeButtons}</div>
-    <div class="love-schedule-date">
-      <input id="love-schedule-date" type="date" value="${escapeHtml(love.scheduleDate || todayText())}" aria-label="选择日期" />
-      <button class="small-button" type="button" data-love-action="schedule-date">查看</button>
+function currentMonth() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit",
+  }).format(new Date()).slice(0, 7);
+}
+
+function validMonth(value) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || "")) ? String(value) : "";
+}
+
+function shiftMonth(month, delta) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(month) {
+  const [year, monthNumber] = month.split("-");
+  return `${year}年${Number(monthNumber)}月`;
+}
+
+/** 周一开头：返回本月 1 号前面要补几个空格。 */
+function monthLeadingBlanks(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
+  return (weekday + 6) % 7;
+}
+
+function scheduleToolbar(month) {
+  return `<div class="love-schedule-toolbar">
+    <div class="love-month-nav">
+      <button class="small-button" type="button" data-love-action="schedule-month" data-value="-1" aria-label="上个月">‹</button>
+      <strong>${monthLabel(month)}</strong>
+      <button class="small-button" type="button" data-love-action="schedule-month" data-value="1" aria-label="下个月">›</button>
+      <button class="text-button" type="button" data-love-action="schedule-today">今天</button>
     </div>
     <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden />
-    <button class="small-button" type="button" data-love-action="schedule-upload">替换交路表</button>
-    <input id="love-schedule-timetable" type="file" accept=".json,application/json" hidden />
-    <button class="small-button" type="button" data-love-action="schedule-upload-timetable" title="导入 train_timetable.json，补全车次经停信息">更新时刻表</button>
+    <button class="small-button" type="button" data-love-action="schedule-upload">导入排班表</button>
   </div>`;
+}
 
-  if (!schedule.found) {
-    content.innerHTML = card("查看排班表", `
+async function renderSchedule(content) {
+  const stored = validMonth(readStorage("torch-os:love-schedule-month"));
+  const month = validMonth(love.scheduleMonth) || stored || currentMonth();
+  love.scheduleMonth = month;
+  writeStorage("torch-os:love-schedule-month", month);
+  const [status, data] = await Promise.all([
+    loveApi("/api/love/schedule/status", { timeoutMs: 20000 }),
+    loveApi(`/api/love/schedule/month?month=${encodeURIComponent(month)}`, { timeoutMs: 30000 }),
+  ]);
+  if (love.page !== "schedule") return;
+  love.scheduleData = data?.found ? data : null;
+  const toolbar = scheduleToolbar(month);
+
+  if (!data.found) {
+    content.innerHTML = card("值班日历", `
       ${toolbar}
       <div class="state-message error-state love-schedule-missing">
-        <strong>${escapeHtml(schedule.error || "没有找到交路表")}</strong>
-        <p>${schedule.available_date_range ? `当前交路表可用范围：${escapeHtml(schedule.available_date_range)}` : `把 .xlsx 交路表放进 ${escapeHtml(status.excel_dir || "交路表目录")}，或点「替换交路表」。`}</p>
+        <strong>${escapeHtml(data.error || "还没有排班表")}</strong>
+        <p>把 .xlsx 排班表放进 <code>${escapeHtml(status.excel_dir || ".torch-os/love/xlsx")}</code>，或点「导入排班表」。</p>
       </div>
-      <dl class="love-facts">
-        <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.excel_dir || "—")}</dd></div>
-        <div><dt>时刻表</dt><dd title="${escapeHtml(status.timetable_path || "")}">${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : `未找到 ${escapeHtml(status.timetable_path || "train_timetable.json")}`}</dd></div>
-      </dl>
-      ${schedule.fallback_note ? `<p class="inline-warning">${escapeHtml(schedule.fallback_note)}</p>` : ""}
-    `, { eyebrow: "SCHEDULE", subtitle: "读取本机交路表与时刻表；天气走 Open-Meteo，不连接 12306。" });
+    `, { eyebrow: "SCHEDULE", subtitle: "只读取哪天上班、哪天休息；备注可以写车次等自由文本。" });
     bindScheduleFile();
     return;
   }
 
-  const realtime = schedule.realtime;
-  const missingTrains = (schedule.trains || [])
-    .filter((train) => !(train.stops || []).length)
-    .map((train) => train.train_code);
-  const realtimeHtml = realtime ? `<div class="love-schedule-live status-${escapeHtml(realtime.status || "unknown")}">
-    <div class="love-schedule-live-head"><span class="love-badge ${realtime.status === "running" ? "ok" : "warn"}">${escapeHtml(realtime.status_text || "运行中")}</span>
-      <strong>${escapeHtml(realtime.message || "")}</strong></div>
-    ${realtime.countdown_minutes ? `<p class="meta">倒计时约 ${formatInt(realtime.countdown_minutes)} 分钟</p>` : ""}
-    <div class="love-progress"><i class="${widthClass(Number(realtime.progress_pct) || 0)}"></i></div>
-    ${realtime.segment_progress_pct !== undefined ? `<div class="love-progress small"><i class="${widthClass(Number(realtime.segment_progress_pct) || 0)}"></i></div>` : ""}
-  </div>` : "";
-
-  const trainsHtml = (schedule.trains || []).map((train) => {
-    const isCurrent = realtime?.current_train?.train_code === train.train_code;
-    const stops = (train.stops || []).map((stop) => {
-      const current = isCurrent && realtime?.current_station === stop.station;
-      const next = isCurrent && realtime?.next_station === stop.station;
-      const weather = stop.city_en ? schedule.weather?.[stop.city_en] : null;
-      return `<li class="${current ? "current" : ""}${next ? " next" : ""}">
-        <span class="love-stop-time">${escapeHtml(stop.arrive || stop.depart || "—")}</span>
-        <span class="love-stop-dot" aria-hidden="true"></span>
-        <span class="love-stop-name">${escapeHtml(stop.station || "")}${current ? ' <em>当前</em>' : next ? ' <em>下一站</em>' : ""}</span>
-        <span class="meta">${stop.depart && stop.arrive && stop.depart !== stop.arrive ? `发 ${escapeHtml(stop.depart)}` : ""}${weather?.temp_c !== undefined ? ` · ${escapeHtml(String(weather.temp_c))}°C ${escapeHtml(weather.weather_desc || "")}` : ""}</span>
-      </li>`;
-    }).join("");
-    return `<article class="love-train-card ${isCurrent ? "current" : ""}">
-      <div class="love-train-head">
-        <div><span class="eyebrow">TRAIN</span><h3>${escapeHtml(train.train_code)} <span>${escapeHtml(String(train.duration_minutes || 0))} 分钟</span></h3></div>
-        ${isCurrent ? '<span class="love-badge ok">当前值乘</span>' : ""}
+  const cells = [];
+  for (let index = 0; index < monthLeadingBlanks(month); index += 1) {
+    cells.push('<span class="love-day-cell is-empty" aria-hidden="true"></span>');
+  }
+  for (const day of data.days) {
+    const state = day.in_range ? (day.rest ? "休息" : "上班") : "—";
+    const note = String(day.note || "").replace(/\s+/g, " ").trim();
+    const classes = ["love-day-cell"];
+    classes.push(day.in_range ? (day.rest ? "is-rest" : "is-work") : "is-out");
+    if (day.date === data.today) classes.push("is-today");
+    const label = `${day.date} ${state}${note ? `，备注：${note}` : ""}`;
+    cells.push(`<button type="button" class="${classes.join(" ")}" data-love-action="schedule-note"
+      data-date="${day.date}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+      <span class="love-day-num">${Number(day.date.slice(8))}</span>
+      <span class="love-day-state">${state}</span>
+      ${note ? `<span class="love-day-note">${escapeHtml(note)}</span>` : ""}
+    </button>`);
+  }
+  const inRange = data.days.filter((day) => day.in_range).length;
+  const range = data.range || status.date_range;
+  content.innerHTML = card("值班日历", `
+    ${toolbar}
+    ${inRange ? "" : `<p class="inline-warning">本月不在当前排班表范围内${range ? `（覆盖 ${escapeHtml(range.start)} ~ ${escapeHtml(range.end)}）` : ""}。</p>`}
+    <div class="love-calendar-wrap">
+      <div class="love-calendar-weekdays" aria-hidden="true">
+        ${["一", "二", "三", "四", "五", "六", "日"].map((name) => `<span>${name}</span>`).join("")}
       </div>
-      <div class="love-train-route">
-        <div><strong>${escapeHtml(train.from_station)}</strong><span>${escapeHtml(train.depart_time)} 发</span></div>
-        <span class="love-train-arrow" aria-hidden="true">→</span>
-        <div><strong>${escapeHtml(train.to_station)}</strong><span>${escapeHtml(train.arrive_time)} 到</span></div>
-      </div>
-      ${stops ? `<ol class="love-stop-list">${stops}</ol>` : '<p class="meta">时刻表里没有这趟车的经停信息。</p>'}
-    </article>`;
-  }).join("");
-
-  const weatherCards = Object.entries(schedule.weather || {}).map(([, weather]) => `
-    <article class="love-weather-card"><span>${escapeHtml(weather.city || weather.city_en || "")}</span>
-      <strong>${escapeHtml(String(weather.temp_c ?? "—"))}°C</strong>
-      <small>${escapeHtml(weather.weather_desc || "")} · 体感 ${escapeHtml(String(weather.feels_like_c ?? "—"))}°C · 湿度 ${escapeHtml(String(weather.humidity ?? "—"))}%</small>
-    </article>`).join("");
-
-  content.innerHTML = `
-    <div class="love-schedule-header">
-      <div><span class="eyebrow">SCHEDULE</span><h2>${escapeHtml(schedule.date_display)} <span class="meta">${escapeHtml(schedule.weekday)}</span></h2>
-        <p class="meta">${schedule.group ? `${escapeHtml(schedule.group)} · ` : ""}${schedule.is_rest ? "休息" : `${formatInt(schedule.total_segments)} 趟值乘`}</p></div>
-      ${toolbar}
+      <div class="love-calendar-grid">${cells.join("")}</div>
     </div>
-    ${schedule.fallback_note ? `<p class="inline-warning">${escapeHtml(schedule.fallback_note)}</p>` : ""}
-    ${missingTrains.length ? `<p class="inline-warning">本机时刻表还缺少 ${missingTrains.map(escapeHtml).join("、")} 的经停信息；交路表本身已读到。补全 train_timetable.json 后，实时位置与沿线天气才会出现。</p>` : ""}
-    ${schedule.is_rest ? `<div class="love-rest-card"><span>💤</span><strong>今天没有值乘任务</strong><p>交路表里这一天是休息。好好休息。</p></div>` : ""}
-    ${realtimeHtml}
-    <div class="love-schedule-grid">
-      <div class="love-schedule-trains">${trainsHtml || (schedule.is_rest ? "" : emptyBox("没有车次信息", "交路表里这一天没有可识别的车次。"))}</div>
-      <aside class="love-schedule-side">
-        ${weatherCards ? `<div class="love-weather-grid">${weatherCards}</div>` : '<p class="field-help">暂时没有取到沿线天气；不影响交路信息。</p>'}
-        <dl class="love-facts">
-          <div><dt>交路表</dt><dd>${escapeHtml(schedule.excel_file || status.excel_file || "—")}</dd></div>
-          <div><dt>可用范围</dt><dd>${status.date_range ? `${escapeHtml(status.date_range.start)} ~ ${escapeHtml(status.date_range.end)}` : "—"}</dd></div>
-          <div><dt>时刻表</dt><dd title="${escapeHtml(status.timetable_path || "")}">${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : "未找到"}</dd></div>
-        </dl>
-      </aside>
-    </div>`;
+    <div class="love-calendar-legend" aria-hidden="true">
+      <span><i class="is-work"></i>上班</span>
+      <span><i class="is-rest"></i>休息</span>
+      <span><i class="is-out"></i>不在表内</span>
+    </div>
+    <p class="field-help">点任意一天写备注；备注只保存在当前个人数据库的 <code>.torch-os/love/</code>。${range ? `当前排班表覆盖 ${escapeHtml(range.start)} ~ ${escapeHtml(range.end)}。` : ""}</p>
+  `, { eyebrow: "SCHEDULE", subtitle: "只显示上班/休息；车次、交接事项等写在当天备注里。" });
   bindScheduleFile();
 }
 
 function bindScheduleFile() {
   const input = node("love-schedule-file");
-  if (input && !input.dataset.bound) {
-    input.dataset.bound = "1";
-    input.addEventListener("change", async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const form = new FormData();
-      form.append("file", file);
-      try {
-        toast("正在上传交路表…", "info");
-        const result = await loveApi("/api/love/schedule/excel", { method: "POST", body: form, timeoutMs: 120000 });
-        toast(result.message || "交路表已更新。", "success");
-        await renderLovePage();
-      } catch (error) {
-        toast(`替换失败：${error.message}`, "error");
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = "1";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      toast("正在导入排班表…", "info");
+      const result = await loveApi("/api/love/schedule/excel", {
+        method: "POST", body: form, timeoutMs: 120000,
+      });
+      toast(result.message || "排班表已更新。", "success");
+      await renderLovePage();
+    } catch (error) {
+      toast(`导入失败：${error.message}`, "error");
+    }
+  });
+}
+
+function openScheduleNote(day) {
+  const state = day.in_range ? (day.rest ? "休息" : "上班") : "这一天不在排班表范围内";
+  openDialog(`${day.date} 值班备注`, `
+    <form id="love-schedule-note-form" class="love-dialog-form">
+      <p class="field-help">${state}。备注只保存在当前个人数据库，可以写车次、交接事项等。</p>
+      <div class="field"><label for="love-schedule-note">备注</label>
+        <textarea id="love-schedule-note" rows="4" maxlength="500" placeholder="例如：G1 / G2，下午交接…">${escapeHtml(day.note || "")}</textarea>
+      </div>
+      <div class="love-inline-actions">
+        <button type="button" class="button secondary" id="love-schedule-note-cancel">取消</button>
+        <button type="submit" class="button primary">保存备注</button>
+      </div>
+      <span id="love-schedule-note-feedback" class="status-message" role="status"></span>
+    </form>
+  `);
+  node("love-schedule-note-cancel")?.addEventListener("click", () => node("detail-dialog")?.close());
+  node("love-schedule-note-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const note = String(node("love-schedule-note")?.value || "");
+    const feedback = node("love-schedule-note-feedback");
+    if (feedback) feedback.textContent = "正在保存…";
+    try {
+      await loveApi("/api/love/schedule/note", jsonBody("PUT", { date: day.date, note }));
+      node("detail-dialog")?.close();
+      toast("备注已保存。", "success");
+      await renderLovePage();
+    } catch (error) {
+      if (feedback) {
+        feedback.textContent = `保存失败：${error.message}`;
+        feedback.className = "status-message error";
       }
-    });
-  }
-  const timetable = node("love-schedule-timetable");
-  if (timetable && !timetable.dataset.bound) {
-    timetable.dataset.bound = "1";
-    timetable.addEventListener("change", async () => {
-      const file = timetable.files?.[0];
-      if (!file) return;
-      const form = new FormData();
-      form.append("file", file);
-      try {
-        toast("正在导入时刻表…", "info");
-        const result = await loveApi("/api/love/schedule/timetable", { method: "POST", body: form, timeoutMs: 60000 });
-        toast(result.message || "时刻表已更新。", "success");
-        await renderLovePage();
-      } catch (error) {
-        toast(`时刻表导入失败：${error.message}`, "error");
-      }
-    });
-  }
+    }
+  });
 }
 
 // ── 设置 ───────────────────────────────────────────────────────────
@@ -1476,17 +1488,16 @@ async function renderSettings(content) {
         <div><dt>数据库</dt><dd class="love-path">${escapeHtml(status.db_path || "—")}</dd></div>
         <div><dt>数据库大小</dt><dd>${status.db_size ? `${(Number(status.db_size) / 1024 / 1024).toFixed(1)} MB` : "—"}</dd></div>
         <div><dt>项目 / 消息 / 日志</dt><dd>${formatInt(status.project_count)} / ${formatInt(status.message_count)} / ${formatInt(status.journal_count)}</dd></div>
-        <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.schedule_excel_dir || "—")}</dd></div>
-        <div><dt>时刻表</dt><dd class="love-path">${escapeHtml(status.schedule_timetable || "—")}</dd></div>
+        <div><dt>排班表目录</dt><dd class="love-path">${escapeHtml(status.schedule_excel_dir || "—")}</dd></div>
+        <div><dt>值班备注</dt><dd class="love-path">${escapeHtml(status.schedule_notes || "—")}</dd></div>
       </dl>
-      <p class="field-help">恋爱系统的数据库、加密 Key、交路表和时刻表都放在当前个人数据库的 <code>.torch-os/love/</code> 里；拷贝整个个人数据库即可带走。API Key 只会保存在本机，不上传。</p>
+      <p class="field-help">恋爱系统的数据库、加密 Key、排班表和值班备注都放在当前个人数据库的 <code>.torch-os/love/</code> 里；拷贝整个个人数据库即可带走。API Key 只会保存在本机，不上传。</p>
       ${(status.migration?.db === "copied" || status.migration?.key
-          || Number(status.migration?.excel) > 0 || status.migration?.timetable
-          || status.migration?.stopwords)
+          || Number(status.migration?.excel) > 0 || status.migration?.stopwords)
         ? '<p class="inline-warning">已把旧位置的数据复制到当前个人数据库；原文件保留在原处。</p>' : ""}
       <div class="love-inline-actions">
         <button class="button secondary" type="button" data-love-action="settings-refresh">重新检查</button>
-        <button class="button secondary" type="button" data-love-action="goto" data-page="schedule">查看排班表</button>
+        <button class="button secondary" type="button" data-love-action="goto" data-page="schedule">打开值班日历</button>
       </div>
     `, { eyebrow: "DATA BOUNDARY", subtitle: "原生接入后仍然只认这一份本机数据，不做云端同步。" })}
     ${card("怎么用", `
@@ -1608,24 +1619,28 @@ async function handleLoveAction(event) {
     case "report-print":
       printReport();
       return;
-    case "schedule-mode":
-      love.scheduleMode = button.dataset.value === "tomorrow" ? "tomorrow" : "today";
-      await renderLovePage();
-      return;
-    case "schedule-date": {
-      const value = node("love-schedule-date")?.value;
-      if (!value) return;
-      love.scheduleDate = value;
-      love.scheduleMode = "date";
+    case "schedule-month": {
+      const delta = Number(button.dataset.value) < 0 ? -1 : 1;
+      love.scheduleMonth = shiftMonth(love.scheduleMonth || currentMonth(), delta);
+      writeStorage("torch-os:love-schedule-month", love.scheduleMonth);
       await renderLovePage();
       return;
     }
+    case "schedule-today":
+      love.scheduleMonth = currentMonth();
+      writeStorage("torch-os:love-schedule-month", love.scheduleMonth);
+      await renderLovePage();
+      return;
     case "schedule-upload":
       node("love-schedule-file")?.click();
       return;
-    case "schedule-upload-timetable":
-      node("love-schedule-timetable")?.click();
+    case "schedule-note": {
+      const date = button.dataset.date || "";
+      const day = love.scheduleData?.days?.find((item) => item.date === date)
+        || { date, in_range: false, work: null, rest: null, note: "" };
+      openScheduleNote(day);
       return;
+    }
     case "settings-delete-key":
       await deleteApiKey(button);
       return;

@@ -6,16 +6,16 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`2b4fd99`（`refactor(love): 统一恋爱系统数据目录至个人数据库子路径`，以 `git log -1` 为准）
-- 工作树：横幅选图、`.torch-os` 个性化数据仓库与文档改动未提交（2026-10-27，以 `git status` 为准）；
-  恋爱数据目录重构已提交（`2b4fd99`）
+- 代码基线：`c93122d`（`feat(personal-data): 统一小组件个性化数据写入个人数据库`，以 `git log -1` 为准）
+- 工作树：独立列车追踪组件、恋爱值班日历与文档改动未提交（2026-10-27，以 `git status` 为准）；
+  横幅选图、`.torch-os` 个性化数据与座右铭换行已提交（`c93122d`）
 - 布局版本：**`pillars-v2`**（2026-10-26 起；人生路分组目录，v1 章节只由迁移搬到新路径）
-- 后端：**761 passed / 1 skipped / 0 failed**（2026-10-27 全量，348.24 秒；5 个既有 QA 编码警告；
-  之后新增的座右铭换行用例与文档契约单独跑 **13 passed**）
-- 前端：**277 passed**（2026-10-27 实跑；其中 `frontend/tests/personal-data.test.mjs` 8 项、
-  `frontend/tests/banner.test.mjs` 10 项）
+- 后端：**772 passed / 1 skipped / 0 failed**（2026-10-27 全量，298.19 秒；5 个既有 QA 编码警告；
+  之后的列车跨零点状态边界与排班/文档契约用例单独跑 **8 + 25 passed**）
+- 前端：**284 passed**（2026-10-27 实跑；其中 `frontend/tests/personal-data.test.mjs` 8 项、
+  `frontend/tests/banner.test.mjs` 10 项、`frontend/tests/train-tracker.test.mjs` 6 项）
 - `scripts/check_all.ps1`：**2026-10-25 exit 0**；本轮未重跑全量脚本，后端/前端按上面分别实跑
-- 能力标记：**43**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
+- 能力标记：**44**；用户表：**25 张**（其中多张 deprecated）；MCP 只读工具：**12 个**
 - 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\Torch\个人数据库`）；
   后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。
 - 排障提示：如果全量测试突然出现大量 setup `PermissionError`（`%TEMP%\torch-pytest`
@@ -24,6 +24,26 @@
 
 ## 已完成
 
+- **2026-10-27 列车追踪独立 + 恋爱值班日历**：
+  - 新增工作台「列车追踪」小组件（默认右栏，独立于恋爱系统）：用户自己添加/删除关注车次；
+    卡片显示待发车/运行中/停站中/已到达、当前站→下一站、区间进度和倒计时；点开看全部经停站，
+    可导入 `timetable.json`，也可手动从 12306 同步。关注列表是 `torch-os:train-tracker`。
+  - 新增 `backend/app/train_tracker.py`：数据在 `<个人数据库>/.torch-os/train-tracker/timetable.json`；
+    `GET /api/train-tracker/status`、`GET /train?code=`、`POST /timetable`、`POST /sync`。
+    12306 只走官方 `kyfw.12306.cn`（余票查内部车次号 → `queryByTrainNo` 取经停站），
+    只在用户点击时请求一次，失败保留本地数据；旧 `train_timetable.json` 从 `.torch-os/love/`
+    与原项目位置复制迁移，只复制不删除。
+  - 恋爱系统「查看排班表」改为「值班日历」：`GET /api/love/schedule/month` 只返回每天
+    上班/休息；`PUT /note` 把备注写入 `.torch-os/love/schedule-notes.json`；点日期弹窗编辑，
+    可写车次。删除恋爱端的车次时刻表、实时位置、沿线天气、`/timetable`、`/train` 端点与
+    交路表界面用语；Excel 排班表导入保留（只判断上班/休息）。`LoveStore` 不再暴露时刻表路径。
+  - 月份 `torch-os:love-schedule-month` 与关注列表都通过 personal-data 镜像到 `.torch-os`。
+  - 测试：新增 `tests/test_train_tracker.py`、`frontend/tests/train-tracker.test.mjs`；更新
+    `tests/test_love.py` 的排班用例、`test_love_data_dir.py`、`test_love_storage.py`、
+    `test_phase5_cleanup.py`（能力 44）；`frontend/tests/love.test.mjs` 增加排班隐私静态用例。
+    后端全量 **772 passed / 1 skipped / 0 failed**；前端 **284 passed**；headless Edge 实测
+    列车卡片/经停站、值班日历（上班 21 / 休息 10）、备注写回；12306 官方接口手动同步
+    用 G1 实网验证通过（7 个经停站）。
 - **2026-10-27 横幅选图 + 顶层 `.torch-os` 数据规则**：
   - 横幅编辑器不再手填路径：`#banner-hero-file` 文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB）
     → `POST /api/identity/banner/image`。后端按文件头校验类型，写死复制到

@@ -2127,57 +2127,9 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .ops-love .love-report-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .ops-love .love-report-frame { display: block; width: 100%; height: 68vh; min-height: 420px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface); }
 
-/* 查看排班表 */
-.ops-love .love-schedule-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
-.ops-love .love-schedule-header h2 { margin: 2px 0 4px; font-size: 21px; }
-.ops-love .love-schedule-header h2 .meta { font-size: 12px; font-weight: 400; }
-.ops-love .love-schedule-header p { margin: 0; }
+/* 值班日历 */
 .ops-love .love-schedule-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ops-love .love-schedule-toolbar .love-segmented { margin-bottom: 0; }
-.ops-love .love-schedule-date { display: flex; align-items: center; gap: 5px; }
-.ops-love .love-schedule-date input { border: 1px solid var(--p-line-input); border-radius: 7px; background: var(--p-surface); color: var(--p-ink); padding: 5px 7px; font-size: 11px; }
 .ops-love .love-schedule-missing { margin: 12px 0; }
-.ops-love .love-schedule-live { display: grid; gap: 7px; padding: 15px 17px; border-radius: 12px; border: 1px solid var(--p-love-accent-line); background: linear-gradient(120deg, var(--p-love-accent-soft), var(--p-surface)); }
-.ops-love .love-schedule-live.status-running { border-color: var(--p-ok-line); }
-.ops-love .love-schedule-live-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.ops-love .love-schedule-live-head strong { font-size: 14px; color: var(--p-ink-strong); }
-.ops-love .love-schedule-live p { margin: 0; }
-.ops-love .love-progress { height: 8px; border-radius: 999px; background: var(--p-fill); overflow: hidden; }
-.ops-love .love-progress i { display: block; height: 100%; background: var(--p-love-accent); border-radius: inherit; }
-.ops-love .love-progress.small { height: 5px; opacity: .7; }
-.ops-love .love-schedule-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
-.ops-love .love-schedule-trains { display: grid; gap: 11px; min-width: 0; }
-.ops-love .love-schedule-side { display: grid; gap: 11px; min-width: 0; }
-.ops-love .love-train-card { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 15px 17px; box-shadow: 0 1px 2px var(--p-shadow); }
-.ops-love .love-train-card.current { border-color: var(--p-love-accent-line); box-shadow: 0 0 0 1px var(--p-love-accent-line), 0 4px 16px var(--p-shadow); }
-.ops-love .love-train-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
-.ops-love .love-train-head h3 { margin: 2px 0 0; font-size: 18px; }
-.ops-love .love-train-head h3 span { color: var(--p-ink-5); font-size: 11px; font-weight: 400; }
-.ops-love .love-train-route { display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 10px 12px; border-radius: 9px; background: var(--p-surface-2); }
-.ops-love .love-train-route > div { display: grid; gap: 2px; }
-.ops-love .love-train-route strong { font-size: 15px; }
-.ops-love .love-train-route span { color: var(--p-ink-5); font-size: 11px; }
-.ops-love .love-train-arrow { color: var(--p-love-accent); font-size: 18px; }
-.ops-love .love-stop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-.ops-love .love-stop-list li { display: grid; grid-template-columns: 46px 12px minmax(0, 1fr) auto; gap: 7px; align-items: center; min-height: 28px; color: var(--p-ink-3); font-size: 12px; border-left: 1px solid var(--p-line-2); margin-left: 5px; padding-left: 4px; }
-.ops-love .love-stop-list li.current { color: var(--p-love-accent-strong); font-weight: 700; }
-.ops-love .love-stop-list li.next { color: var(--p-love-cool); }
-.ops-love .love-stop-time { color: var(--p-ink-5); font-size: 10px; font-variant-numeric: tabular-nums; text-align: right; }
-.ops-love .love-stop-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--p-line-strong); margin-left: -8px; }
-.ops-love .love-stop-list li.current .love-stop-dot { background: var(--p-love-accent); box-shadow: 0 0 0 3px var(--p-love-accent-soft); }
-.ops-love .love-stop-list li.next .love-stop-dot { background: var(--p-love-cool); }
-.ops-love .love-stop-name { min-width: 0; overflow-wrap: anywhere; }
-.ops-love .love-stop-name em { color: var(--p-ink-5); font-size: 10px; font-style: normal; }
-.ops-love .love-stop-list .meta { white-space: nowrap; }
-.ops-love .love-weather-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.ops-love .love-weather-card { padding: 11px 12px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface); display: grid; gap: 1px; }
-.ops-love .love-weather-card > span { color: var(--p-ink-5); font-size: 11px; }
-.ops-love .love-weather-card > strong { font-size: 18px; color: var(--p-ink-strong); }
-.ops-love .love-weather-card > small { color: var(--p-ink-4); font-size: 10px; line-height: 1.45; }
-.ops-love .love-rest-card { display: flex; gap: 12px; align-items: center; padding: 18px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface-2); }
-.ops-love .love-rest-card > span { font-size: 26px; }
-.ops-love .love-rest-card strong { display: block; font-size: 15px; }
-.ops-love .love-rest-card p { margin: 3px 0 0; font-size: 12px; color: var(--p-ink-4); }
 
 /* 隐私边界确认 */
 .ops-love .love-consent { position: absolute; inset: -6px; z-index: 20; display: grid; place-items: center; padding: 18px; background: var(--p-bg); border-radius: 14px; }
@@ -2190,13 +2142,10 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 @media (max-width: 1100px) {
   .ops-love .love-shell { grid-template-columns: 165px minmax(0, 1fr); }
   .ops-love .love-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ops-love .love-schedule-grid { grid-template-columns: minmax(0, 1fr) 260px; }
 }
 @media (max-width: 900px) {
   .ops-love .love-dashboard-grid, .ops-love .love-stats-grid { grid-template-columns: minmax(0, 1fr); }
   .ops-love .love-span-2 { grid-column: auto; }
-  .ops-love .love-schedule-grid { grid-template-columns: minmax(0, 1fr); }
-  .ops-love .love-weather-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 860px) {
   .ops-love .love-shell { grid-template-columns: minmax(0, 1fr); }
@@ -2216,8 +2165,106 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .ops-love .love-analysis-tone { grid-template-columns: minmax(0, 1fr); }
   .ops-love .love-event { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .ops-love .love-journal-entry { grid-template-columns: 42px minmax(0, 1fr); gap: 8px; }
-  .ops-love .love-weather-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ops-love .love-facts > div { grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
   .ops-love .love-consent-card { padding: 20px; }
   .ops-love .love-report-frame { height: 60vh; }
+}
+
+/* 列车追踪小组件（独立于恋爱系统）：默认右栏，和天气/倒计时/纪念日同高的摘要卡。 */
+.train-tracker-card { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 7px; min-height: 158px; padding: 13px 15px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); box-shadow: 0 1px 2px var(--p-shadow); cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; }
+.train-tracker-card:hover { border-color: var(--p-line-input); box-shadow: 0 4px 14px var(--p-shadow); }
+.train-tracker-card:focus-visible { outline: 3px solid var(--p-focus-ring); outline-offset: 2px; }
+.train-tracker-card.is-loading { opacity: .82; }
+.train-tracker-inner { display: grid; gap: 2px; min-width: 0; }
+.train-tracker-eyebrow { margin: 0; color: var(--p-ink-5); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+.train-tracker-code { margin: 0; overflow: hidden; color: var(--p-ink-strong); font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
+.train-tracker-status { display: inline-flex; width: fit-content; margin: 1px 0 0; padding: 1px 7px; border-radius: 999px; background: var(--p-chip); color: var(--p-ink-3); font-size: 10px; font-weight: 700; }
+.train-tracker-status[data-tone="running"] { background: var(--p-ok-soft); color: var(--p-ok-ink); }
+.train-tracker-status[data-tone="waiting"] { background: var(--p-accent-soft); color: var(--p-warm-ink); }
+.train-tracker-status[data-tone="station"] { background: var(--p-chip); color: var(--p-info); }
+.train-tracker-status[data-tone="done"] { background: var(--p-chip); color: var(--p-ink-3); }
+.train-tracker-status[data-tone="unknown"] { background: var(--p-warn-soft); color: var(--p-warn-ink); }
+.train-tracker-route { margin: 1px 0 0; overflow: hidden; color: var(--p-ink-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.train-tracker-meta { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--p-ink-4); font-size: 10.5px; line-height: 1.4; }
+.train-tracker-progress { height: 3px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: var(--p-fill-strong); }
+.train-tracker-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--p-accent-2); transition: width .5s ease; }
+.train-tracker-open-hint { position: absolute; right: 10px; bottom: 9px; color: var(--p-ink-4); font-size: 18px; line-height: 1; opacity: .4; }
+.train-tracker-card:hover .train-tracker-open-hint, .train-tracker-card:focus-visible .train-tracker-open-hint { opacity: .85; }
+
+/* 列车追踪弹窗：关注车次 chips + 摘要 + 经停站 + 手动 12306 同步。 */
+dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: min(680px, calc(100vw - 20px)); max-height: 92vh; }
+#detail-dialog.train-tracker-mode #dialog-content { max-height: calc(92vh - 61px); overflow: auto; }
+.train-dialog { display: grid; gap: 12px; }
+.train-dialog-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.train-chip { border: 1px solid var(--p-line-input); border-radius: 999px; background: var(--p-surface); color: var(--p-ink-3); padding: 4px 11px; font-size: 12px; font-weight: 700; }
+.train-chip:hover { background: var(--p-hover); }
+.train-chip.active { border-color: var(--p-invert-bg); background: var(--p-invert-bg); color: var(--p-invert-ink); }
+.train-add-row { display: flex; align-items: center; gap: 7px; }
+.train-add-row input { flex: 1 1 auto; min-width: 0; border: 1px solid var(--p-line-input); border-radius: 7px; background: var(--p-surface); color: var(--p-ink); padding: 8px 10px; font-size: 13px; text-transform: uppercase; }
+.train-detail { overflow: hidden; border: 1px solid var(--p-line-2); border-radius: 10px; background: var(--p-surface); }
+.train-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--p-line-2); background: var(--p-surface-2); }
+.train-detail-head h3 { margin: 1px 0 2px; font-size: 23px; line-height: 1.1; color: var(--p-ink-strong); }
+.train-detail-head p { margin: 0; }
+.train-source { flex: 0 0 auto; border-radius: 999px; background: var(--p-chip); color: var(--p-ink-3); padding: 2px 8px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.train-live { display: grid; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--p-line-2); }
+.train-live > div:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.train-live strong { font-size: 12.5px; color: var(--p-ink-2); font-weight: 600; }
+.train-status-pill { border-radius: 999px; background: var(--p-chip); color: var(--p-ink-3); padding: 2px 8px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.train-tone-running .train-status-pill { background: var(--p-ok-soft); color: var(--p-ok-ink); }
+.train-tone-waiting .train-status-pill { background: var(--p-accent-soft); color: var(--p-warm-ink); }
+.train-tone-station .train-status-pill { background: var(--p-chip); color: var(--p-info); }
+.train-tone-unknown .train-status-pill { background: var(--p-warn-soft); color: var(--p-warn-ink); }
+.train-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--p-fill-strong); }
+.train-progress i { display: block; height: 100%; border-radius: inherit; background: var(--p-accent-2); transition: width .5s ease; }
+.train-stop-list { list-style: none; display: grid; margin: 0; padding: 7px 14px 9px; }
+.train-stop-list li { display: grid; grid-template-columns: 76px 12px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 5px 0; border-bottom: 1px dashed var(--p-line); font-size: 12px; }
+.train-stop-list li:last-child { border-bottom: 0; }
+.train-stop-time { color: var(--p-ink-4); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.train-stop-dot { width: 7px; height: 7px; justify-self: center; border-radius: 50%; background: var(--p-line-strong); }
+.train-stop-list li.current .train-stop-dot { background: var(--p-accent-2); box-shadow: 0 0 0 3px var(--p-accent-soft); }
+.train-stop-list li.next .train-stop-dot { border: 2px solid var(--p-accent-2); background: transparent; }
+.train-stop-list li.current strong { color: var(--p-ink-strong); }
+.train-stop-list em { border-radius: 999px; background: var(--p-accent-soft); color: var(--p-warm-ink); padding: 1px 6px; font-size: 9px; font-style: normal; font-weight: 700; white-space: nowrap; }
+.train-dialog-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.train-sync { border-top: 1px solid var(--p-line-2); padding-top: 9px; }
+.train-sync summary { cursor: pointer; color: var(--p-ink-2); font-size: 13px; font-weight: 700; }
+.train-sync-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 9px 0; }
+.train-sync-grid label { display: grid; gap: 4px; color: var(--p-ink-4); font-size: 10px; }
+.train-sync-grid input { min-width: 0; border: 1px solid var(--p-line-input); border-radius: 6px; background: var(--p-surface); color: var(--p-ink); padding: 6px 8px; font-size: 12px; }
+.train-dialog-empty { text-align: left; }
+@media (max-width: 560px) {
+  .train-sync-grid { grid-template-columns: minmax(0, 1fr); }
+  .train-stop-list li { grid-template-columns: 64px 12px minmax(0, 1fr); }
+  .train-stop-list em { grid-column: 3; justify-self: start; }
+}
+
+/* 恋爱系统 · 值班日历：只显示上班/休息，备注点日期弹窗编辑。 */
+.ops-love .love-month-nav { display: flex; align-items: center; gap: 7px; }
+.ops-love .love-month-nav strong { min-width: 92px; text-align: center; color: var(--p-ink-strong); font-size: 14px; }
+.ops-love .love-calendar-wrap { overflow: hidden; border: 1px solid var(--p-line-2); border-radius: 12px; background: var(--p-surface); }
+.ops-love .love-calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--p-line-2); background: var(--p-surface-2); }
+.ops-love .love-calendar-weekdays span { padding: 7px 4px; color: var(--p-ink-4); font-size: 10px; font-weight: 700; text-align: center; }
+.ops-love .love-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; padding: 4px; }
+.ops-love .love-day-cell { position: relative; display: grid; align-content: start; gap: 1px; min-height: 76px; padding: 6px 7px; overflow: hidden; border: 1px solid transparent; border-radius: 8px; background: var(--p-surface); color: var(--p-ink); text-align: left; }
+.ops-love .love-day-cell.is-empty { visibility: hidden; }
+.ops-love .love-day-cell.is-work { border-color: var(--p-ok-line); background: var(--p-ok-soft); }
+.ops-love .love-day-cell.is-rest { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.ops-love .love-day-cell.is-out { border-style: dashed; border-color: var(--p-line); background: var(--p-surface-2); color: var(--p-ink-5); }
+.ops-love .love-day-cell.is-today { box-shadow: inset 0 0 0 2px var(--p-focus-ring); }
+.ops-love .love-day-cell:hover { filter: brightness(.98); }
+.ops-love .love-day-num { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ops-love .love-day-state { color: var(--p-ink-4); font-size: 9px; font-weight: 700; }
+.ops-love .love-day-cell.is-work .love-day-state { color: var(--p-ok-ink); }
+.ops-love .love-day-cell.is-rest .love-day-state { color: var(--p-warm-ink); }
+.ops-love .love-day-note { margin-top: 2px; overflow: hidden; color: var(--p-ink-4); font-size: 9.5px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.ops-love .love-calendar-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 9px; color: var(--p-ink-4); font-size: 10px; }
+.ops-love .love-calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ops-love .love-calendar-legend i { display: inline-block; width: 10px; height: 10px; border: 1px solid transparent; border-radius: 3px; }
+.ops-love .love-calendar-legend i.is-work { border-color: var(--p-ok-line); background: var(--p-ok-soft); }
+.ops-love .love-calendar-legend i.is-rest { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.ops-love .love-calendar-legend i.is-out { border-color: var(--p-line); border-style: dashed; background: var(--p-surface-2); }
+@media (max-width: 760px) {
+  .ops-love .love-day-cell { min-height: 58px; padding: 4px 5px; }
+  .ops-love .love-day-note { display: none; }
+  .ops-love .love-day-num { font-size: 12px; }
 }

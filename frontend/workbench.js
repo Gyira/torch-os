@@ -12,6 +12,7 @@ import { setBannerSource, initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
 import { initCountdownWidget } from "./countdown.js";
 import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js";
+import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 
 let current = null;
@@ -175,6 +176,7 @@ export async function loadWorkbench() {
   }
   loadWeatherWidget();
   loadDeepSeekBalance();
+  loadTrainTrackerWidget();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */
@@ -267,5 +269,6 @@ export function initWorkbench() {
   initWidgetDrag();
   initAlmanacWidget();
   initDeepSeekBalance();
+  initTrainTrackerWidget();
   initTimeModule();
 }

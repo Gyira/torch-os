@@ -70,3 +70,19 @@ test("恋爱系统只调用本机原生 API", async () => {
   assert.equal(/https?:\/\//.test(love.replace(/https:\/\/api\.deepseek\.com\/v1/g, "")), false,
     "恋爱页面不应直接访问外部服务；AI 调用在后端完成");
 });
+
+test("排班页是值班日历，不再包含车次时刻表/沿线天气", async () => {
+  const html = await source("index.html");
+  const js = await source("love.js");
+  assert.match(html, /data-love-page="schedule"><span>08<\/span>值班日历/);
+  assert.match(js, /schedule: "值班日历"/);
+  assert.match(js, /\/api\/love\/schedule\/month/);
+  assert.match(js, /\/api\/love\/schedule\/note/);
+  assert.doesNotMatch(js, /交路|时刻表|沿线天气|查看排班表|schedule_timetable/);
+  assert.doesNotMatch(js, /\/api\/love\/schedule\/(timetable|train)/);
+
+  const start = html.indexOf('id="love-view"');
+  const end = html.indexOf('id="knowledge-view"', start);
+  const loveMarkup = html.slice(start, end);
+  assert.doesNotMatch(loveMarkup, /train-tracker|列车追踪/);
+});

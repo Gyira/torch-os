@@ -1,15 +1,16 @@
 """恋爱系统（原生模块）。
 
 把原来的「恋爱分析助手」重做成薪火OS 的一部分：
-- 数据统一放在当前个人数据库的 ``.torch-os/love/``（数据库、加密 Key、交路表、时刻表、
+- 数据统一放在当前个人数据库的 ``.torch-os/love/``（数据库、加密 Key、排班表、值班备注、
   停用词）；旧版 ``%LOCALAPPDATA%`` / 仓库 ``data/love`` 的数据只在首次启动时复制过来；
 - 不启动、也不依赖原来那个 FastAPI/Electron 进程；
 - 保留原有表结构、数据格式和 DeepSeek 分析口径，已有项目/日志/画像可以继续使用；
 - 只通过本机工作台的会话鉴权暴露 API，所有聊天内容都留在本机；
   AI 分析前按原有规则脱敏姓名、电话、证件、邮箱、链接等。
 
-文件故意保持为「一个功能一个文件」：交路表/排班表在 ``love_schedule.py``，
-数据目录与迁移在 ``love_storage.py``。
+文件故意保持为「一个功能一个文件」：排班表与值班备注在 ``love_schedule.py``，
+数据目录与迁移在 ``love_storage.py``。车次时刻表/运行追踪已移到独立的
+``train_tracker.py``，不放在恋爱系统里。
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, StrictBool
 from starlette.concurrency import run_in_threadpool
 
-from .love_storage import DB_NAME, EXCEL_DIR_NAME, KEY_NAME, STOPWORDS_NAME, TIMETABLE_NAME
+from .love_storage import DB_NAME, EXCEL_DIR_NAME, KEY_NAME, STOPWORDS_NAME
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MAX_IMPORT_BYTES = 40 * 1024 * 1024
@@ -191,7 +192,6 @@ class LoveSettings:
     app_dir: Path
     stopwords_path: Path
     excel_dir: Path
-    timetable_path: Path
     api_base_url: str
     api_model: str
     key_file: Path | None = None
@@ -219,7 +219,6 @@ class LoveSettings:
             app_dir=path_value("LOVE_APP_DIR", PROJECT_ROOT),
             stopwords_path=root / STOPWORDS_NAME,
             excel_dir=root / EXCEL_DIR_NAME,
-            timetable_path=root / TIMETABLE_NAME,
             api_base_url=(os.getenv("LOVE_API_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             api_model=os.getenv("LOVE_API_MODEL") or "deepseek-chat",
             key_file=Path(key_file) if key_file else root / KEY_NAME,
@@ -281,7 +280,7 @@ class LoveStore:
             "app_dir": str(settings.app_dir),
             "app_dir_exists": settings.app_dir.is_dir(),
             "schedule_excel_dir": str(settings.excel_dir),
-            "schedule_timetable": str(settings.timetable_path),
+            "schedule_notes": str(settings.excel_dir.parent / "schedule-notes.json"),
             "migration": settings.migration or {},
             "error": "",
         }

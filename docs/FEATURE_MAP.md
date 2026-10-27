@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -13,7 +13,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘；章节轨按分组折叠、最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
-| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务；二级分区「恋爱系统」（聊天分析、画像、日志、报告、查看排班表） |
+| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务；二级分区「恋爱系统」（聊天分析、画像、日志、报告、值班日历） |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -49,6 +49,11 @@
 - 纪念日卡（仿 Apex Dashboard，默认左栏）：从历史日期起已过去多久（年 月 日 / 总天数 / 天 + 小时），
   支持阳历/农历、每年同日提醒、本机图片或 https 图片 URL 背景；点卡片打开紧凑设置弹窗。
   配置写入 `.torch-os/personal-data.json`，不写 Markdown、不上传。
+- 列车追踪小组件（2026-10-27，默认右栏，独立于恋爱系统）：用户自己添加/删除关注车次；
+  卡片显示待发车/运行中/停站中/已到达、当前站→下一站、区间进度和倒计时，点开看全部经停站。
+  `GET /api/train-tracker/status`、`GET /train?code=`、`POST /timetable`（导入 JSON）、
+  `POST /sync`（用户点击时从 12306 官方接口取一次经停站，失败保留本地数据）；时刻表在
+  `<个人数据库>/.torch-os/train-tracker/timetable.json`，与 `.torch-os/love/` 完全分开。
 - DeepSeek 余额卡（默认右栏）：本地后端代理官方 `GET /api/deepseek/balance`（上游
   `https://api.deepseek.com/user/balance`），显示总余额、充值余额与赠金，支持本机预警线、
   「去充值」跳转和 60 秒自动刷新；Key 优先用本机保存的（AES-GCM 加密在数据目录，不进
@@ -58,8 +63,8 @@
   简要宜忌；未签到只显示签到入口。真实黄历（农历/干支/五行/冲煞/彭祖/喜福财神/宜忌/吉神凶神，
   来自本地 lunar 库）与个人运势说明都在点击后的宽版浮窗里，可自由切换年/月/日；
   签到记录存本地 SQLite（`fortune_checkins`）。
-- 左右两侧小组件栏（天气、倒计时、纪念日、运势、DeepSeek 余额）默认天气+倒计时+纪念日在左、
-  运势+DeepSeek 在右；卡片可拖拽互换位置与顺序，也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。
+- 左右两侧小组件栏（天气、倒计时、纪念日、运势、列车追踪、DeepSeek 余额）默认天气+倒计时+纪念日在左、
+  运势+列车追踪+DeepSeek 在右；卡片可拖拽互换位置与顺序，也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。
   布局写入 `.torch-os/personal-data.json`（localStorage 只是缓存）。新增组件时，给
   `.workbench-side-left` 或 `.workbench-side-right` 的直接子元素补 `data-widget`
   （可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
@@ -105,16 +110,18 @@
 - 月度表只读展示趋势 sparkline 与分类占比；「在 Obsidian 打开月度表」跳到原文，
   新增/修改/删除行都在 Obsidian 里做。
 
-### 恋爱系统（生活运营的二级分区，2026-10-26）
+### 恋爱系统（生活运营的二级分区，2026-10-27）
 
 - 位于「生活运营」模块的二级菜单（顶部「生活运营 / 恋爱系统」标签），不是新的顶层模块；不再启动原「恋爱分析助手」的 Electron/FastAPI 服务。
 - 数据统一放在当前个人数据库的 `.torch-os/love/`：`love_analysis.db`、AES 加密 Key、
-  交路表 `xlsx/`、时刻表 `train_timetable.json` 和停用词。首次启动会把旧版
-  `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的文件复制过来，
-  原文件保留；已有项目、消息、画像、分析记录和日志继续可用。
+  排班表 `xlsx/`、`schedule-notes.json` 值班备注和停用词。首次启动会把旧版
+  `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的数据复制过来，
+  原文件保留；已有项目、消息、画像、分析记录和日志继续可用。车次时刻表不在这里，
+  已独立到 `.torch-os/train-tracker/`。
 - 原生页面：总览、导入聊天（TXT/编码识别）、统计（趋势/回复间隔/媒体/高频词）、AI 深度分析、
   画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、HTML 报告（独立文档预览与打印）、
-  查看排班表（交路表 Excel、车次时刻表、实时位置、沿线天气）、设置（DeepSeek Key）。
+  **值班日历**（月历只显示上班/休息，点日期弹窗写自由备注，车次也可以写在备注里）、
+  设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
 - AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
   Key 使用 AES-256-GCM 加密保存在同一目录，不上传；`.torch-os` 不参与普通 Vault 扫描和
   工作台备份快照，拷贝整个个人数据库文件夹时会一起带走。
