@@ -56,12 +56,12 @@ test("与神对话嵌在待办事项下方，右侧留给小组件，二级菜�
   const workbenchStart = html.indexOf('id="workbench-view"');
   const timeStart = html.indexOf('id="workbench-time"');
   const agentStart = html.indexOf('<section id="agent-view"');
-  const sideStart = html.indexOf('<aside class="workbench-side">');
+  const sideStart = html.indexOf('workbench-side-right');
   const lifeStart = html.indexOf('<section id="life-view"');
   assert.ok(workbenchStart > 0, "找不到工作台视图");
   assert.ok(timeStart > workbenchStart, "找不到待办事项主界面");
   assert.ok(agentStart > timeStart && agentStart < sideStart && agentStart < lifeStart,
-    "与神对话要在待办事项之后、右侧小组件之前，仍位于工作台左列");
+    "与神对话要在待办事项之后、右侧小组件之前，仍位于工作台主区");
   assert.match(html, /id="agent-view"[^>]*aria-label="与神对话"/);
 
   const app = await source("app.js");

@@ -6,6 +6,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LAYOUT_KEY = "torch-os:workbench-widget-layout";
+const LEGACY_KEY = "torch-os:workbench-widget-order";
+
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
 async function loadModule() {
   const store = new Map();
@@ -21,21 +27,30 @@ async function loadModule() {
   });
   await module.link(() => { throw new Error("no imports expected"); });
   await module.evaluate();
-  return module.namespace;
+  return { order: module.namespace, store };
 }
 
-function fakeContainer(keys) {
+function fakeContainer(keys = [], label = "") {
   const container = {
     children: [],
     appends: 0,
+    dataset: { widgetColumnLabel: label },
     appendChild(node) {
-      this.appends += 1;
+      const previous = node.parentElement;
+      if (previous && previous !== container) {
+        const index = previous.children.indexOf(node);
+        if (index >= 0) previous.children.splice(index, 1);
+      }
       const index = this.children.indexOf(node);
       if (index >= 0) this.children.splice(index, 1);
       this.children.push(node);
+      node.parentElement = this;
+      this.appends += 1;
+      return node;
     },
   };
-  container.children = keys.map((key) => ({ dataset: { widget: key }, parentElement: container }));
+  for (const key of keys) container.appendChild({ dataset: { widget: key }, parentElement: null });
+  container.appends = 0;
   return container;
 }
 
@@ -51,122 +66,172 @@ function transfer({ types = [], data = new Map(), failSet = false } = {}) {
   };
 }
 
-test("resolveWidgetOrder keeps known keys, drops strangers and appends missing ones", async () => {
-  const { WIDGET_ORDER_DEFAULT, resolveWidgetOrder } = await loadModule();
-  assert.deepEqual(Array.from(resolveWidgetOrder(null)), Array.from(WIDGET_ORDER_DEFAULT));
-  assert.deepEqual(
-    Array.from(resolveWidgetOrder(["countdown", "gone", "weather", "countdown"])),
-    ["countdown", "weather", "almanac", "deepseek"],
-  );
-  assert.deepEqual(
-    Array.from(resolveWidgetOrder(["moon", "weather"], ["weather", "almanac"])),
-    ["weather", "almanac"],
-  );
-  assert.deepEqual(
-    Array.from(resolveWidgetOrder(["countdown"], ["weather", "almanac", "countdown"])),
-    ["countdown", "weather", "almanac"],
-  );
-});
+test("the default layout is balanced and legacy order helpers still work", async () => {
+  const { order: mod } = await loadModule();
+  assert.deepEqual(plain(mod.WIDGET_LAYOUT_DEFAULT), {
+    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+  });
+  assert.deepEqual(plain(mod.WIDGET_COLUMN_DEFAULT), {
+    weather: "left", countdown: "left", almanac: "right", deepseek: "right",
+  });
 
-test("moveWidget moves by one and clamps at the edges", async () => {
-  const { WIDGET_ORDER_DEFAULT, moveWidget } = await loadModule();
-  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "countdown", -1)),
+  assert.deepEqual(plain(mod.resolveWidgetOrder(null, ["weather", "countdown", "almanac", "deepseek"])),
     ["weather", "countdown", "almanac", "deepseek"]);
-  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "weather", -1)),
-    Array.from(WIDGET_ORDER_DEFAULT));
-  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "deepseek", 1)),
-    Array.from(WIDGET_ORDER_DEFAULT));
-  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "missing", 1)),
-    Array.from(WIDGET_ORDER_DEFAULT));
+  assert.deepEqual(plain(mod.resolveWidgetOrder(["countdown", "gone", "weather", "countdown"],
+    ["weather", "countdown", "almanac", "deepseek"])),
+  ["countdown", "weather", "almanac", "deepseek"]);
+  assert.deepEqual(plain(mod.moveWidget(["weather", "countdown", "almanac"], "almanac", -1)),
+    ["weather", "almanac", "countdown"]);
+  assert.deepEqual(plain(mod.moveWidget(["weather", "countdown", "almanac"], "weather", -1)),
+    ["weather", "countdown", "almanac"]);
 });
 
-test("storage round-trips the order and clear restores the default on a fresh page", async () => {
-  const {
-    WIDGET_ORDER_DEFAULT, clearWidgetOrder, currentWidgetOrder,
-    readStoredWidgetOrder, storeWidgetOrder,
-  } = await loadModule();
-  const custom = ["countdown", "weather", "almanac"];
-  assert.equal(readStoredWidgetOrder(), null);
-  storeWidgetOrder(custom);
-  assert.deepEqual(Array.from(readStoredWidgetOrder()), custom);
-  clearWidgetOrder();
-  assert.equal(readStoredWidgetOrder(), null);
-  assert.deepEqual(Array.from(WIDGET_ORDER_DEFAULT),
-    ["weather", "almanac", "countdown", "deepseek"]);
-  assert.deepEqual(Array.from(currentWidgetOrder(fakeContainer(WIDGET_ORDER_DEFAULT))),
-    Array.from(WIDGET_ORDER_DEFAULT));
+test("resolveWidgetLayout splits a legacy flat order by its default columns", async () => {
+  const { order: mod } = await loadModule();
+  const known = ["weather", "countdown", "almanac", "deepseek"];
+  assert.deepEqual(plain(mod.resolveWidgetLayout(null, known)), {
+    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+  });
+  assert.deepEqual(plain(mod.resolveWidgetLayout(
+    ["almanac", "weather", "deepseek", "countdown"], known)), {
+    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+  });
+  assert.deepEqual(plain(mod.resolveWidgetLayout(
+    { left: ["countdown", "gone", "weather"], right: ["almanac", "countdown"] }, known)), {
+    left: ["countdown", "weather"], right: ["almanac", "deepseek"],
+  });
+  // 旧版扁平顺序没有栏位信息时，用调用方给的落位（defaults）分栏。
+  assert.deepEqual(plain(mod.resolveWidgetLayout(
+    ["weather", "moon", "almanac"], ["weather", "moon", "almanac"],
+    { weather: "right", moon: "left", almanac: "left" })), {
+    left: ["moon", "almanac"], right: ["weather"],
+  });
 });
 
-test("applyStoredWidgetOrder applies the saved order and appends new widgets", async () => {
-  const { applyStoredWidgetOrder, storeWidgetOrder } = await loadModule();
-  // 没保存过：保持 HTML 里的默认顺序（新组件也留在作者放的位置）。
-  const untouched = fakeContainer(["weather", "moon", "almanac", "countdown"]);
-  assert.deepEqual(Array.from(applyStoredWidgetOrder(untouched)),
-    ["weather", "moon", "almanac", "countdown"]);
-  // 保存过：先按保存顺序，再把后来新增的组件追加到末尾。
-  storeWidgetOrder(["countdown", "weather", "almanac"]);
-  const container = fakeContainer(["weather", "moon", "almanac", "countdown"]);
-  const applied = Array.from(applyStoredWidgetOrder(container));
-  assert.deepEqual(applied, ["countdown", "weather", "almanac", "moon"]);
-  assert.deepEqual(container.children.map((node) => node.dataset.widget), applied);
+test("storage round-trips the two-column layout and migrates the old flat key", async () => {
+  const { order: mod, store } = await loadModule();
+  assert.equal(mod.readStoredWidgetLayout(), null);
+  mod.storeWidgetLayout({ left: ["countdown"], right: ["weather", "almanac"] });
+  assert.deepEqual(plain(mod.readStoredWidgetLayout()), {
+    layout: { left: ["countdown"], right: ["weather", "almanac"] }, legacy: false,
+  });
+
+  store.delete(LAYOUT_KEY);
+  store.set(LEGACY_KEY, JSON.stringify(["countdown", "weather", "almanac"]));
+  assert.deepEqual(plain(mod.readStoredWidgetLayout()), {
+    layout: ["countdown", "weather", "almanac"], legacy: true,
+  });
+
+  mod.clearWidgetOrder();
+  assert.equal(store.has(LAYOUT_KEY), false);
+  assert.equal(store.has(LEGACY_KEY), false);
+  assert.equal(mod.readStoredWidgetLayout(), null);
 });
 
-test("applyWidgetOrder is idempotent and drops widgets that no longer exist", async () => {
-  const { applyWidgetOrder } = await loadModule();
+test("applyStoredWidgetLayout applies the saved columns and appends new widgets", async () => {
+  const { order: mod, store } = await loadModule();
+  // 没保存过：保持 HTML 里的默认分栏。
+  const left = fakeContainer(["weather", "countdown"], "左侧");
+  const right = fakeContainer(["almanac", "deepseek"], "右侧");
+  assert.deepEqual(plain(mod.applyStoredWidgetLayout({ left, right })), {
+    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+  });
+
+  store.set(LAYOUT_KEY, JSON.stringify({
+    left: ["countdown"], right: ["weather", "almanac"],
+  }));
+  const movedLeft = fakeContainer(["weather", "countdown"], "左侧");
+  const movedRight = fakeContainer(["almanac", "deepseek", "moon"], "右侧");
+  const applied = plain(mod.applyStoredWidgetLayout({ left: movedLeft, right: movedRight }));
+  assert.deepEqual(applied, {
+    left: ["countdown"], right: ["weather", "almanac", "deepseek", "moon"],
+  });
+  assert.deepEqual(movedLeft.children.map((node) => node.dataset.widget), ["countdown"]);
+  assert.deepEqual(movedRight.children.map((node) => node.dataset.widget),
+    ["weather", "almanac", "deepseek", "moon"]);
+});
+
+test("a legacy flat order migrates by the current columns and is written back", async () => {
+  const { order: mod, store } = await loadModule();
+  store.set(LEGACY_KEY, JSON.stringify(["countdown", "weather", "almanac"]));
+  const left = fakeContainer(["weather", "countdown"], "左侧");
+  const right = fakeContainer(["almanac", "deepseek"], "右侧");
+  const applied = plain(mod.applyStoredWidgetLayout({ left, right }));
+  assert.deepEqual(applied, {
+    left: ["countdown", "weather"], right: ["almanac", "deepseek"],
+  });
+  assert.equal(store.has(LEGACY_KEY), false);
+  assert.deepEqual(JSON.parse(store.get(LAYOUT_KEY)), {
+    left: ["countdown", "weather"], right: ["almanac", "deepseek"],
+  });
+});
+
+test("applyWidgetOrder is idempotent within one column", async () => {
+  const { order: mod } = await loadModule();
   const container = fakeContainer(["weather", "almanac", "countdown"]);
-  assert.deepEqual(Array.from(applyWidgetOrder(container, ["countdown", "gone", "weather", "almanac"])),
+  assert.deepEqual(plain(mod.applyWidgetOrder(container, ["countdown", "gone", "weather", "almanac"])),
     ["countdown", "weather", "almanac"]);
   assert.deepEqual(container.children.map((node) => node.dataset.widget),
     ["countdown", "weather", "almanac"]);
-});
-
-test("applyWidgetOrder does not touch the DOM when it is already in order", async () => {
-  const { applyWidgetOrder } = await loadModule();
-  const container = fakeContainer(["weather", "almanac", "countdown"]);
   const before = container.appends;
-  applyWidgetOrder(container, ["weather", "almanac", "countdown"]);
+  mod.applyWidgetOrder(container, ["countdown", "weather", "almanac"]);
   assert.equal(container.appends, before);
-  applyWidgetOrder(container, ["countdown", "weather", "almanac"]);
-  assert.ok(container.appends > before);
-  assert.deepEqual(container.children.map((node) => node.dataset.widget),
-    ["countdown", "weather", "almanac"]);
+});
+
+test("applyWidgetLayout does not touch the DOM when it is already in place", async () => {
+  const { order: mod } = await loadModule();
+  const left = fakeContainer(["weather", "countdown"], "左侧");
+  const right = fakeContainer(["almanac", "deepseek"], "右侧");
+  const before = left.appends + right.appends;
+  mod.applyWidgetLayout({ left, right }, {
+    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+  });
+  assert.equal(left.appends + right.appends, before);
 });
 
 test("widget drag data only accepts our own MIME", async () => {
-  const {
-    WIDGET_DRAG_MIME, isWidgetDrag, readWidgetDragKey, setWidgetDragData,
-  } = await loadModule();
+  const { order: mod } = await loadModule();
   const data = new Map();
   const dt = transfer({ data });
-  assert.equal(setWidgetDragData(dt, "weather"), true);
+  assert.equal(mod.setWidgetDragData(dt, "weather"), true);
   assert.equal(dt.effectAllowed, "move");
-  assert.equal(data.get(WIDGET_DRAG_MIME), "weather");
+  assert.equal(data.get(mod.WIDGET_DRAG_MIME), "weather");
   assert.equal(data.get("text/plain"), "weather");
-  assert.equal(setWidgetDragData(null, "weather"), false);
-  assert.equal(setWidgetDragData(transfer({ failSet: true }), "weather"), false);
+  assert.equal(mod.setWidgetDragData(null, "weather"), false);
+  assert.equal(mod.setWidgetDragData(transfer({ failSet: true }), "weather"), false);
 
-  assert.equal(isWidgetDrag({ dataTransfer: transfer({ types: [WIDGET_DRAG_MIME] }) }), true);
-  assert.equal(isWidgetDrag({ dataTransfer: transfer({ types: ["Files"] }) }), false);
-  assert.equal(isWidgetDrag({}), false);
-  assert.equal(readWidgetDragKey({ dataTransfer: transfer({ data }) }), "weather");
-  assert.equal(readWidgetDragKey({ dataTransfer: transfer() }), "");
+  assert.equal(mod.isWidgetDrag({ dataTransfer: transfer({ types: [mod.WIDGET_DRAG_MIME] }) }), true);
+  assert.equal(mod.isWidgetDrag({ dataTransfer: transfer({ types: ["Files"] }) }), false);
+  assert.equal(mod.isWidgetDrag({}), false);
+  assert.equal(mod.readWidgetDragKey({ dataTransfer: transfer({ data }) }), "weather");
+  assert.equal(mod.readWidgetDragKey({ dataTransfer: transfer() }), "");
 });
 
 test("dropAfterTarget uses the lower half of the card as insertion point", async () => {
-  const { dropAfterTarget } = await loadModule();
-  assert.equal(dropAfterTarget({ top: 100, height: 40 }, 119), false);
-  assert.equal(dropAfterTarget({ top: 100, height: 40 }, 121), true);
-  assert.equal(dropAfterTarget(null, 121), false);
+  const { order: mod } = await loadModule();
+  assert.equal(mod.dropAfterTarget({ top: 100, height: 40 }, 119), false);
+  assert.equal(mod.dropAfterTarget({ top: 100, height: 40 }, 121), true);
+  assert.equal(mod.dropAfterTarget(null, 121), false);
 });
 
-test("the right-side widgets opt in and workbench wires drag sorting", async () => {
+test("the workbench has two widget columns and wires drag sorting", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
-  const sideStart = html.indexOf('<aside class="workbench-side">');
-  const lifeStart = html.indexOf('<section id="life-view"', sideStart);
-  assert.ok(sideStart > 0 && lifeStart > sideStart, "找不到工作台右侧栏");
-  for (const [key, label] of [["weather", "天气"], ["almanac", "运势"], ["countdown", "倒计时"], ["deepseek", "DeepSeek 余额"]]) {
-    const at = html.indexOf(`data-widget="${key}"`);
-    assert.ok(at > sideStart && at < lifeStart, `${key} 小组件必须带 data-widget 且在右栏内`);
+  const headStart = html.indexOf('<div class="workbench-head-row">');
+  const leftStart = html.indexOf('workbench-side-left', headStart);
+  const mainStart = html.indexOf('<div class="workbench-head-main">', leftStart);
+  const rightStart = html.indexOf('workbench-side-right', mainStart);
+  const lifeStart = html.indexOf('<section id="life-view"', rightStart);
+  assert.ok(headStart > 0 && leftStart > headStart && mainStart > leftStart
+    && rightStart > mainStart && lifeStart > rightStart, "找不到左右两栏工作台结构");
+
+  for (const [key, label] of [["weather", "天气"], ["countdown", "倒计时"]]) {
+    const at = html.indexOf(`data-widget="${key}"`, leftStart);
+    assert.ok(at > leftStart && at < mainStart, `${key} 小组件必须在左栏`);
+    assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));
+  }
+  for (const [key, label] of [["almanac", "运势"], ["deepseek", "DeepSeek 余额"]]) {
+    const at = html.indexOf(`data-widget="${key}"`, rightStart);
+    assert.ok(at > rightStart && at < lifeStart, `${key} 小组件必须在右栏`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));
   }
 
@@ -175,7 +240,10 @@ test("the right-side widgets opt in and workbench wires drag sorting", async () 
   assert.match(workbench, /refreshWorkbenchWidgets/);
 
   const drag = await readFile(path.join(frontend, "widget-drag.js"), "utf8");
-  for (const marker of ["enhanceWorkbenchWidgets", "ArrowUp", "ArrowDown", "is-reorder-before", "is-reorder-after"]) {
+  for (const marker of [
+    "enhanceWorkbenchWidgets", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "is-reorder-before", "is-reorder-after", "is-drop-target", "workbench-side-empty",
+  ]) {
     assert.ok(drag.includes(marker), `widget-drag.js 缺少 ${marker}`);
   }
 });

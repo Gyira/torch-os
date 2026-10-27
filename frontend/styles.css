@@ -448,9 +448,25 @@ body.view-workbench .topbar { display: none; }
 /* 工作台同页锚点：二级菜单用 scroll-margin 避开吸顶的模块导航。 */
 #workbench-view { --workbench-side-width: 248px; --workbench-column-gap: 18px; scroll-margin-top: calc(var(--panel-nav-h, 46px) + 64px); }
 .workbench-head { display: grid; gap: 14px; margin-bottom: 18px; }
-.workbench-head-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--workbench-side-width); gap: 10px var(--workbench-column-gap); align-items: start; }
-/* 左列：问候语一行 + 时间管理模块吃掉剩余高度（模块在问候语正下方、天气列左边）。 */
-.workbench-head-main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; align-content: start; }
+.workbench-head-row { display: grid; grid-template-columns: var(--workbench-side-width) minmax(0, 1fr) var(--workbench-side-width); grid-template-areas: "left main right"; gap: 10px var(--workbench-column-gap); align-items: start; }
+/* 中间主区：问候语一行 + 时间管理模块 + 与神对话；左右两栏小组件等宽。 */
+.workbench-head-main { grid-area: main; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; align-content: start; }
+.workbench-side-left { grid-area: left; }
+.workbench-side-right { grid-area: right; }
+/* 桌面宽度不够时把左右栏放到主区下方并排；太窄时单栏堆叠。 */
+@media (max-width: 1359px) {
+  .workbench-head-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "main main" "left right";
+    row-gap: 18px;
+  }
+}
+@media (max-width: 640px) {
+  .workbench-head-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "main" "left" "right";
+  }
+}
 .workbench-welcome { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 0 0 12px; padding: 13px 16px; border: 1px solid var(--p-accent-line); border-radius: 12px; background: var(--p-accent-soft-3); }
 .workbench-welcome h3 { margin: 2px 0 3px; font-size: 15px; }
 .workbench-welcome p { margin: 0; color: var(--p-ink-3); font-size: 12px; line-height: 1.6; }
@@ -629,7 +645,7 @@ dialog.almanac-mode { width: min(1040px, calc(100vw - 24px)); max-width: min(104
 .deepseek-balance-form { display: grid; gap: 12px; }
 .deepseek-balance-form .field { margin-bottom: 0; }
 .deepseek-balance-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-@media (max-width: 900px) { .workbench-head-row { grid-template-columns: minmax(0, 1fr); } .banner { min-height: 108px; } .banner .workbench-motto-line.primary { font-size: 18px; } }
+@media (max-width: 900px) { .banner { min-height: 108px; } .banner .workbench-motto-line.primary { font-size: 18px; } }
 /* 工作台 2.0（2026-10-05）：横幅（照 Apex Dashboard 的 banner）、右列（时钟天气+黄历）、待办精修、日记活动流。 */
 /* 矮横条（2026-10-05 用户反馈）：高度照 Apex 的 banner 压到 120px——原来是 172px（引言）/200px（统计），
    又高又厚；内容照样居中，字体换成 var(--banner-font)（编辑器里选）。 */
@@ -725,8 +741,10 @@ dialog.almanac-mode { width: min(1040px, calc(100vw - 24px)); max-width: min(104
 .banner-preview.banner-empty .banner-overlay { display: none; }
 .banner-preview.banner-empty .banner-preview-label { color: var(--p-ink-4); text-shadow: none; }
 .banner-mode-field { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
-.workbench-side { display: grid; gap: 12px; align-content: start; }
-/* 右侧小组件拖拽排序（2026-10-27）：整张卡可拖，左侧手柄提示可抓；落点线在卡片间隙里。 */
+.workbench-side { display: grid; gap: 12px; align-content: start; align-self: stretch; min-width: 0; }
+.workbench-side-empty { margin: 0; padding: 24px 12px; border: 1px dashed var(--p-line-strong); border-radius: 12px; color: var(--p-ink-4); font-size: 12px; line-height: 1.5; text-align: center; pointer-events: none; }
+.workbench-side.is-drop-target { outline: 2px dashed var(--p-accent); outline-offset: 4px; border-radius: 12px; }
+/* 左右小组件拖拽排序（2026-10-27）：整张卡可拖，左侧手柄提示可抓；可跨栏拖动。 */
 .workbench-widget { position: relative; min-width: 0; }
 .workbench-widget.is-dragging { opacity: .45; }
 .widget-drag-handle { position: absolute; top: 50%; left: 1px; z-index: 4; width: 12px; height: 44px; margin: 0; padding: 0; transform: translateY(-50%); border: 0; border-radius: 5px; background: transparent; color: var(--p-ink-4); opacity: .32; cursor: grab; transition: opacity .15s ease, background-color .15s ease; }
@@ -875,7 +893,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .time-side-folder { margin: 6px 0 2px 8px; color: var(--p-ink-5); font-size: 11px; }
 .time-side-empty { margin: 2px 8px 6px; }
 .time-main, .time-page { flex: 1 1 auto; min-width: 0; padding: 12px 16px 18px; }
-.time-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.time-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .time-head h3 { margin: 0; font-size: 17px; color: var(--p-ink-strong); }
 .time-progress { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .time-progress-bar { width: 84px; height: 6px; border-radius: 3px; background: var(--p-fill-strong); overflow: hidden; }

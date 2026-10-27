@@ -1,24 +1,35 @@
-// 工作台右侧小组件拖拽排序（2026-10-27）。
-// 约定：.workbench-side 的每个直接子元素只要带 data-widget="<稳定 id>"，
-// 就会被自动包进 .workbench-widget 并配一个拖拽手柄；以后再加右侧小组件
-// 不需要改这个文件，只要补 data-widget / data-widget-label 即可。
-// 整张卡片都可以拖（卡片里的按钮、下拉、输入框除外）；落点在目标的上/下半区
-// 决定插到前面还是后面。顺序由 widget-order.js 记在本机；聚焦手柄后 ↑/↓ 也能移动。
+// 工作台左右小组件拖拽（2026-10-27）。
+// 约定：左右两个 .workbench-side 栏的直接子元素只要带 data-widget="<稳定 id>"，
+// 就会被自动包进 .workbench-widget 并配一个拖拽手柄；以后新增小组件
+// 不需要改这个文件，只要补 data-widget / data-widget-label 并放进某一栏即可。
+// 整张卡片都可以拖（卡片里的按钮、下拉、输入框除外）；可以跨栏拖动，
+// 落点在目标的上/下半区决定插到前面还是后面；空栏会显示可拖入的提示。
+// 布局由 widget-order.js 记在本机；聚焦手柄后 ↑/↓ 在本栏移动，←/→ 换到另一栏。
 import {
-  applyStoredWidgetOrder, dropAfterTarget, isWidgetDrag, moveWidget,
-  readWidgetDragKey, setWidgetDragData, storeWidgetOrder, currentWidgetOrder,
-  applyWidgetOrder,
+  applyStoredWidgetLayout, applyWidgetOrder, currentWidgetLayout, currentWidgetOrder,
+  dropAfterTarget, isWidgetDrag, moveWidget, readWidgetDragKey, setWidgetDragData,
+  storeWidgetLayout,
 } from "./widget-order.js";
 
 const WRAPPER_CLASS = "workbench-widget";
 const HANDLE_CLASS = "widget-drag-handle";
+const EMPTY_CLASS = "workbench-side-empty";
 const DRAG_READY = "widgetDragReady";
 const statusNodes = new WeakMap();
 let draggedKey = "";
 let pressedTarget = null;
 
-function defaultContainer() {
-  return typeof document === "undefined" ? null : document.querySelector?.(".workbench-side");
+function defaultColumns() {
+  if (typeof document === "undefined") return { left: null, right: null };
+  const left = document.querySelector?.(".workbench-side-left") || null;
+  const right = document.querySelector?.(".workbench-side-right") || null;
+  if (left || right) return { left, right };
+  // 兼容旧版单栏结构（以及测试里的极简 DOM）：只有一个 .workbench-side。
+  return { left: null, right: document.querySelector?.(".workbench-side") || null };
+}
+
+function columnsList(columns) {
+  return [columns?.left, columns?.right].filter(Boolean);
 }
 
 function widgetByKey(container, key) {
@@ -27,9 +38,18 @@ function widgetByKey(container, key) {
     .find((node) => node?.classList?.contains(WRAPPER_CLASS) && node.dataset?.widget === key) || null;
 }
 
+function wrapperInColumns(columns, key) {
+  return widgetByKey(columns?.left, key) || widgetByKey(columns?.right, key);
+}
+
+function columnLabel(container) {
+  return String(container?.dataset?.widgetColumnLabel || "组件栏");
+}
+
 /**
  * 当前拖动位置应该插到哪个小组件的前/后。
- * 落在卡片上时看上下半区；落在卡片间隙（container 自身）时按中线找最近的插入点。
+ * 落在卡片上时看上下半区；落在卡片间隙（container 自身）时按中线找最近的插入点；
+ * 目标栏为空时返回 empty，交给调用方直接 append。
  */
 function dropSpot(container, event, dragged) {
   const hovered = event.target?.closest?.(`.${WRAPPER_CLASS}`);
@@ -39,7 +59,7 @@ function dropSpot(container, event, dragged) {
   }
   const others = Array.from(container?.children || [])
     .filter((node) => node?.classList?.contains(WRAPPER_CLASS) && node !== dragged);
-  if (!others.length) return null;
+  if (!others.length) return { empty: true };
   const y = Number(event.clientY);
   for (const node of others) {
     const rect = node.getBoundingClientRect?.();
@@ -71,13 +91,18 @@ function announce(container, wrapper) {
   const key = wrapper?.dataset?.widget || "";
   const index = currentWidgetOrder(container).indexOf(key);
   if (!key || index < 0) return;
-  statusFor(container).textContent = `已把「${wrapperLabel(wrapper)}」移到第 ${index + 1} 位。`;
+  statusFor(container).textContent = `已把「${wrapperLabel(wrapper)}」移到${columnLabel(container)}第 ${index + 1} 位。`;
 }
 
-function clearDropMarks(container) {
+function clearColumnMarks(container) {
+  container?.classList?.remove?.("is-drop-target");
   for (const node of Array.from(container?.children || [])) {
-    node.classList?.remove("is-reorder-before", "is-reorder-after");
+    node.classList?.remove?.("is-reorder-before", "is-reorder-after");
   }
+}
+
+function clearDropMarks(columns) {
+  for (const container of columnsList(columns)) clearColumnMarks(container);
 }
 
 function setWrappersDraggable(container, draggable) {
@@ -86,12 +111,14 @@ function setWrappersDraggable(container, draggable) {
   }
 }
 
-function finishDrag(container) {
-  for (const node of Array.from(container?.children || [])) {
-    node.classList?.remove("is-dragging");
+function finishDrag(columns) {
+  clearDropMarks(columns);
+  for (const container of columnsList(columns)) {
+    for (const node of Array.from(container?.children || [])) {
+      node.classList?.remove?.("is-dragging");
+    }
+    setWrappersDraggable(container, true);
   }
-  clearDropMarks(container);
-  setWrappersDraggable(container, true);
   draggedKey = "";
   pressedTarget = null;
 }
@@ -102,14 +129,15 @@ function makeHandle(wrapper) {
   handle.className = HANDLE_CLASS;
   handle.draggable = true;
   handle.dataset.widgetHandle = "";
-  handle.setAttribute("aria-label", `拖动「${wrapperLabel(wrapper)}」调整位置，也可以按上下方向键移动`);
-  handle.title = "拖动调整位置（聚焦后按 ↑/↓）";
+  handle.setAttribute("aria-label",
+    `拖动「${wrapperLabel(wrapper)}」调整位置；聚焦后按 ↑/↓ 在本栏移动，←/→ 换到另一栏`);
+  handle.title = "拖动调整位置（聚焦后按 ↑/↓ 本栏移动，←/→ 换栏）";
   wrapper.appendChild(handle);
   return handle;
 }
 
 /** 把还没有包装的小组件包进 .workbench-widget，并补齐手柄。幂等。 */
-export function enhanceWorkbenchWidgets(container = defaultContainer()) {
+export function enhanceWorkbenchWidgets(container) {
   if (!container) return [];
   const created = [];
   for (const child of Array.from(container.children || [])) {
@@ -133,7 +161,27 @@ export function enhanceWorkbenchWidgets(container = defaultContainer()) {
   return created;
 }
 
-function bind(container) {
+function renderEmptyState(container) {
+  if (!container) return;
+  const hasWidget = Array.from(container.children || [])
+    .some((node) => node?.classList?.contains(WRAPPER_CLASS));
+  const existing = container.querySelector?.(`.${EMPTY_CLASS}`);
+  if (hasWidget) {
+    existing?.remove?.();
+    return;
+  }
+  if (existing) return;
+  const hint = document.createElement("p");
+  hint.className = EMPTY_CLASS;
+  hint.textContent = "拖动小组件到这里";
+  container.appendChild(hint);
+}
+
+function renderEmptyStates(columns) {
+  for (const container of columnsList(columns)) renderEmptyState(container);
+}
+
+function bind(container, columns) {
   // 记录按下时的真实目标：从卡片内按钮/下拉开始拖时，dragstart 的 target
   // 可能已经是 draggable 的包装层，光看 dragstart 会漏掉这些控件。
   // 同时在这些控件上临时关掉包装层的 draggable，避免手抖把点击变成整卡拖动。
@@ -145,14 +193,12 @@ function bind(container) {
     const fromHandle = Boolean(event.target?.closest?.(`.${HANDLE_CLASS}`));
     targetWrapper.draggable = !interactive || fromHandle;
   }, true);
-  container.addEventListener("pointerup", () => {
-    setWrappersDraggable(container, true);
+  const release = () => {
+    for (const column of columnsList(columns)) setWrappersDraggable(column, true);
     pressedTarget = null;
-  }, true);
-  container.addEventListener("pointercancel", () => {
-    setWrappersDraggable(container, true);
-    pressedTarget = null;
-  }, true);
+  };
+  container.addEventListener("pointerup", release, true);
+  container.addEventListener("pointercancel", release, true);
 
   container.addEventListener("dragstart", (event) => {
     const wrapper = event.target?.closest?.(`.${WRAPPER_CLASS}`);
@@ -178,53 +224,67 @@ function bind(container) {
   container.addEventListener("dragover", (event) => {
     if (!draggedKey && !isWidgetDrag(event)) return;
     const key = draggedKey || readWidgetDragKey(event);
-    const dragged = widgetByKey(container, key);
+    const dragged = wrapperInColumns(columns, key);
     if (!dragged) return;
     const spot = dropSpot(container, event, dragged);
     if (!spot) {
-      clearDropMarks(container);
+      clearDropMarks(columns);
       return;
     }
     event.preventDefault?.();
     if (event.dataTransfer) {
       try { event.dataTransfer.dropEffect = "move"; } catch { /* 合成事件不一定支持 */ }
     }
-    clearDropMarks(container);
-    spot.wrapper.classList.add(spot.after ? "is-reorder-after" : "is-reorder-before");
+    clearDropMarks(columns);
+    if (spot.empty) container.classList?.add?.("is-drop-target");
+    else spot.wrapper.classList.add(spot.after ? "is-reorder-after" : "is-reorder-before");
   });
 
   container.addEventListener("dragleave", (event) => {
-    if (!container.contains?.(event.relatedTarget)) clearDropMarks(container);
+    if (!container.contains?.(event.relatedTarget)) clearColumnMarks(container);
   });
 
   container.addEventListener("drop", (event) => {
     if (!draggedKey && !isWidgetDrag(event)) return;
     const key = draggedKey || readWidgetDragKey(event);
-    const dragged = widgetByKey(container, key);
+    const dragged = wrapperInColumns(columns, key);
     if (!dragged) {
-      finishDrag(container);
+      finishDrag(columns);
       return;
     }
     const spot = dropSpot(container, event, dragged);
     if (!spot) {
-      finishDrag(container);
+      finishDrag(columns);
       return;
     }
     event.preventDefault?.();
-    if (spot.after) container.insertBefore(dragged, spot.wrapper.nextSibling);
+    if (spot.empty) container.appendChild(dragged);
+    else if (spot.after) container.insertBefore(dragged, spot.wrapper.nextSibling);
     else container.insertBefore(dragged, spot.wrapper);
-    storeWidgetOrder(currentWidgetOrder(container));
+    storeWidgetLayout(currentWidgetLayout(columns));
+    renderEmptyStates(columns);
     announce(container, dragged);
-    finishDrag(container);
+    finishDrag(columns);
   });
 
-  container.addEventListener("dragend", () => finishDrag(container));
+  container.addEventListener("dragend", () => finishDrag(columns));
 
   container.addEventListener("keydown", (event) => {
     const handle = event.target?.closest?.(`.${HANDLE_CLASS}`);
     if (!handle) return;
     const wrapper = handle.closest?.(`.${WRAPPER_CLASS}`);
     if (!wrapper || wrapper.parentElement !== container) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const target = event.key === "ArrowLeft" ? columns?.left : columns?.right;
+      if (!target || target === container) return;
+      event.preventDefault?.();
+      target.appendChild(wrapper);
+      storeWidgetLayout(currentWidgetLayout(columns));
+      renderEmptyStates(columns);
+      announce(target, wrapper);
+      handle.focus?.({ preventScroll: true });
+      return;
+    }
     const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
     if (!delta) return;
     event.preventDefault?.();
@@ -233,25 +293,30 @@ function bind(container) {
     const moved = moveWidget(order, key, delta);
     if (moved.join("|") === order.join("|")) return;
     applyWidgetOrder(container, moved);
-    storeWidgetOrder(currentWidgetOrder(container));
+    storeWidgetLayout(currentWidgetLayout(columns));
     announce(container, wrapper);
     handle.focus?.({ preventScroll: true });
   });
 }
 
-/** 初始化 / 刷新右栏小组件；重复调用安全（重画后新出现的组件也会被接进来）。 */
-export function initWidgetDrag(container = defaultContainer()) {
-  if (!container) return false;
-  enhanceWorkbenchWidgets(container);
-  if (!draggedKey) applyStoredWidgetOrder(container);
-  if (container.dataset && container.dataset[DRAG_READY] !== "1") {
-    container.dataset[DRAG_READY] = "1";
-    bind(container);
+/** 初始化 / 刷新左右两栏小组件；重复调用安全（重画后新出现的组件也会被接进来）。 */
+export function initWidgetDrag(columns = defaultColumns()) {
+  const normalized = { left: columns?.left || null, right: columns?.right || null };
+  const list = columnsList(normalized);
+  if (!list.length) return false;
+  for (const container of list) enhanceWorkbenchWidgets(container);
+  if (!draggedKey) applyStoredWidgetLayout(normalized);
+  for (const container of list) {
+    if (container.dataset && container.dataset[DRAG_READY] !== "1") {
+      container.dataset[DRAG_READY] = "1";
+      bind(container, normalized);
+    }
   }
+  renderEmptyStates(normalized);
   return true;
 }
 
-/** renderWorkbench 每次重画后调用：新组件自动包装、顺序保持本机保存的结果。 */
-export function refreshWorkbenchWidgets(container = defaultContainer()) {
-  return initWidgetDrag(container);
+/** renderWorkbench 每次重画后调用：新组件自动包装、布局保持本机保存的结果。 */
+export function refreshWorkbenchWidgets(columns = defaultColumns()) {
+  return initWidgetDrag(columns);
 }

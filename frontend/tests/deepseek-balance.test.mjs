@@ -77,9 +77,9 @@ test("balance source labels distinguish saved, env and DSH", async () => {
 
 test("the right-side DeepSeek card is wired into the workbench", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
-  const sideStart = html.indexOf('<aside class="workbench-side">');
+  const sideStart = html.indexOf('workbench-side-right');
   const lifeStart = html.indexOf('<section id="life-view"', sideStart);
-  const widget = html.indexOf('id="workbench-deepseek"');
+  const widget = html.indexOf('id="workbench-deepseek"', sideStart);
   assert.ok(sideStart > 0 && lifeStart > sideStart, "找不到工作台右侧栏");
   assert.ok(widget > sideStart && widget < lifeStart, "DeepSeek 余额卡必须在右侧小组件区");
   assert.match(html, /id="workbench-deepseek"[^>]*data-widget="deepseek"/);

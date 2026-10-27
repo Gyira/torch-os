@@ -39,6 +39,18 @@
           <button id="workbench-banner-collapse" class="banner-collapse-btn" type="button" aria-label="收起或展开横幅" aria-expanded="true">▾</button>
         </section>
         <div class="workbench-head-row">
+          <!-- 左侧小组件栏：默认放天气与倒计时；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
+          <aside class="workbench-side workbench-side-left" data-widget-column="left" data-widget-column-label="左侧" aria-label="左侧小组件">
+            <section class="weather-card" data-widget="weather" data-widget-label="天气" aria-label="时钟与五日天气">
+              <div id="workbench-clock" class="clock"></div>
+              <div class="weather-head"><span class="weather-head-title">5 日天气</span><button id="workbench-weather-today" class="text-button weather-today-btn" type="button" aria-pressed="true">今天</button></div>
+              <div id="workbench-weather" class="weather"><p class="weather-empty field-help">正在读取天气…</p></div>
+              <div class="weather-actions"><span id="workbench-weather-status" class="status-message" role="status"></span><button id="workbench-weather-refresh" class="text-button" type="button">刷新天气</button></div>
+            </section>
+            <aside id="workbench-countdown" class="countdown-card" data-widget="countdown" data-widget-label="倒计时" data-theme="sunset" aria-label="倒计时">
+              <div class="countdown-inner"><p class="countdown-label">正在读取倒计时…</p></div>
+            </aside>
+          </aside>
           <div class="workbench-head-main">
             <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
@@ -104,7 +116,7 @@
               <div id="time-trash-list"></div>
             </section>
           </section>
-          <!-- 与神对话并进工作台同一页：位于待办事项下方、与任务主区同宽，右侧继续留给小组件；
+          <!-- 与神对话并进工作台同一页：位于待办事项下方、与任务主区同宽，两侧继续留给小组件；
                顶部二级菜单（待办事项 / 与神对话）只负责滚动定位。 -->
           <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-label="与神对话" hidden>
             <div class="dsh-shell" id="dsh-shell">
@@ -136,19 +148,11 @@
             </div>
           </section>
           </div>
-          <!-- 右侧小组件：每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
-               新增组件照此补属性即可自动获得拖拽换位（widget-drag.js）。 -->
-          <aside class="workbench-side">
-            <section class="weather-card" data-widget="weather" data-widget-label="天气" aria-label="时钟与五日天气">
-              <div id="workbench-clock" class="clock"></div>
-              <div class="weather-head"><span class="weather-head-title">5 日天气</span><button id="workbench-weather-today" class="text-button weather-today-btn" type="button" aria-pressed="true">今天</button></div>
-              <div id="workbench-weather" class="weather"><p class="weather-empty field-help">正在读取天气…</p></div>
-              <div class="weather-actions"><span id="workbench-weather-status" class="status-message" role="status"></span><button id="workbench-weather-refresh" class="text-button" type="button">刷新天气</button></div>
-            </section>
+          <!-- 右侧小组件栏：默认放运势与 DeepSeek 余额；左右两栏都可拖入/拖出。
+               每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
+               新增组件照此补属性并放进某一栏即可自动获得拖拽（widget-drag.js）。 -->
+          <aside class="workbench-side workbench-side-right" data-widget-column="right" data-widget-column-label="右侧" aria-label="右侧小组件">
             <aside id="workbench-almanac" class="almanac" data-widget="almanac" data-widget-label="运势" aria-label="今日黄历"></aside>
-            <aside id="workbench-countdown" class="countdown-card" data-widget="countdown" data-widget-label="倒计时" data-theme="sunset" aria-label="倒计时">
-              <div class="countdown-inner"><p class="countdown-label">正在读取倒计时…</p></div>
-            </aside>
             <aside id="workbench-deepseek" class="deepseek-card" data-widget="deepseek" data-widget-label="DeepSeek 余额" aria-label="DeepSeek API 余额" aria-busy="true">
               <p class="deepseek-state-text">正在读取余额…</p>
             </aside>
