@@ -266,6 +266,13 @@ def _schedule_client(excel_dir: Path, notes_path: Path, target_name: str = "小�
     return TestClient(app)
 
 
+def test_schedule_duty_text_only_returns_train_cells() -> None:
+    assert love_schedule._duty_text("G336/G1571") == "G336/G1571"
+    assert love_schedule._duty_text("G334-C2735-C2736-G337") == "G334-C2735-C2736-G337"
+    for value in ("休", "公休", "段抽", "育儿假", "疗养", "热备", "", None):
+        assert love_schedule._duty_text(value) == ""
+
+
 def test_schedule_month_calendar_and_notes(tmp_path: Path) -> None:
     excel_dir = _make_schedule_fixture(tmp_path)
     notes_path = tmp_path / "schedule-notes.json"
@@ -276,8 +283,12 @@ def test_schedule_month_calendar_and_notes(tmp_path: Path) -> None:
     days = {item["date"]: item for item in payload["days"]}
     assert days["2026-05-20"]["in_range"] is True
     assert days["2026-05-20"]["work"] is True and days["2026-05-20"]["rest"] is False
+    assert days["2026-05-20"]["duty"] == "G1"
     assert days["2026-05-21"]["work"] is False and days["2026-05-21"]["rest"] is True
+    assert days["2026-05-21"]["duty"] == ""
+    assert days["2026-05-22"]["duty"] == "G2"
     assert days["2026-05-19"]["in_range"] is False
+    assert days["2026-05-19"]["duty"] == ""
     assert "trains" not in payload and "weather" not in payload
     assert payload["range"] == {"start": "2026-05-20", "end": "2026-06-22"}
 
@@ -303,10 +314,35 @@ def test_schedule_day_endpoint_reports_work_and_rest(tmp_path: Path) -> None:
 
     work = client.get("/api/love/schedule/day?date=2026-05-20").json()
     assert work["found"] is True and work["work"] is True and work["weekday"] == "周三"
+    assert work["duty"] == "G1"
     rest = client.get("/api/love/schedule/day?date=2026-05-21").json()
-    assert rest["found"] is True and rest["rest"] is True
+    assert rest["found"] is True and rest["rest"] is True and rest["duty"] == ""
     out = client.get("/api/love/schedule/day?date=2026-05-19").json()
-    assert out["found"] is True and out["in_range"] is False
+    assert out["found"] is True and out["in_range"] is False and out["duty"] == ""
+
+
+def test_schedule_upcoming_days_for_workbench_widget(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json")
+    payload = client.get(
+        "/api/love/schedule/upcoming?start=2026-05-20&days=3"
+    ).json()
+    assert payload["found"] is True
+    assert payload["start"] == "2026-05-20"
+    assert [item["date"] for item in payload["days"]] == [
+        "2026-05-20", "2026-05-21", "2026-05-22",
+    ]
+    assert [item["duty"] for item in payload["days"]] == ["G1", "", "G2"]
+    assert payload["days"][0]["weekday"] == "周三"
+    assert payload["days"][1]["rest"] is True
+    assert "target_name" not in payload
+
+    outside = client.get(
+        "/api/love/schedule/upcoming?start=2026-05-18&days=1"
+    ).json()
+    assert outside["found"] is True
+    assert outside["days"][0]["in_range"] is False
+    assert outside["days"][0]["duty"] == ""
 
 
 def test_schedule_auto_detects_single_person_without_configured_name(tmp_path: Path) -> None:

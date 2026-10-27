@@ -41,7 +41,7 @@
           <button id="workbench-banner-collapse" class="banner-collapse-btn" type="button" aria-label="收起或展开横幅" aria-expanded="true">▾</button>
         </section>
         <div class="workbench-head-row">
-          <!-- 左侧小组件栏：默认放天气与倒计时；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
+          <!-- 左侧小组件栏：默认放天气、倒计时、纪念日与值班；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
           <aside class="workbench-side workbench-side-left" data-widget-column="left" data-widget-column-label="左侧" aria-label="左侧小组件">
             <section class="weather-card" id="workbench-weather-card" data-widget="weather" data-widget-label="天气" role="button" tabindex="0" aria-label="天气正在读取，点击查看详情">
               <div id="workbench-clock" class="clock"></div>
@@ -61,6 +61,17 @@
                 <p class="anniversary-date">点击设置日期</p>
                 <p class="anniversary-reminder" hidden></p>
               </div>
+            </aside>
+            <aside id="workbench-duty" class="duty-card" data-widget="duty" data-widget-label="值班" role="button" tabindex="0" aria-label="值班日历，点击查看">
+              <div class="duty-card-head">
+                <p class="duty-eyebrow">值班 · DUTY</p>
+                <p id="duty-card-date" class="duty-date">正在读取…</p>
+              </div>
+              <p id="duty-card-state" class="duty-state" data-tone="out">—</p>
+              <p id="duty-card-train" class="duty-train">正在读取排班表…</p>
+              <div id="duty-card-strip" class="duty-strip" aria-hidden="true"></div>
+              <p id="duty-card-next" class="duty-next"></p>
+              <span class="duty-open-hint" aria-hidden="true">›</span>
             </aside>
           </aside>
           <div class="workbench-head-main">
@@ -160,7 +171,7 @@
             </div>
           </section>
           </div>
-          <!-- 右侧小组件栏：默认放运势与 DeepSeek 余额；左右两栏都可拖入/拖出。
+          <!-- 右侧小组件栏：默认放运势、列车追踪与 DeepSeek 余额；左右两栏都可拖入/拖出。
                每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
                新增组件照此补属性并放进某一栏即可自动获得拖拽（widget-drag.js）。 -->
           <aside class="workbench-side workbench-side-right" data-widget-column="right" data-widget-column-label="右侧" aria-label="右侧小组件">

@@ -1,11 +1,12 @@
 """恋爱系统 · 值班日历（原生实现）。
 
-只读最新排班表 Excel，得到「哪天上班 / 哪天休息」；用户备注存在
-`<个人数据库>/.torch-os/love/schedule-notes.json`，可以写车次等自由文本。
+只读最新排班表 Excel，得到「哪天上班 / 哪天休息」，并把单元格里的当天值乘车次
+作为 `duty` 字段返回；前端在当天备注位置直接显示。用户备注存在
+`<个人数据库>/.torch-os/love/schedule-notes.json`，可以追加交接事项或改车次。
 
 车次时刻表、实时位置与沿线天气已经拆分到独立的工作台「列车追踪」组件，
-这里不再读取 train_timetable.json，也不出现交路/值乘/乘务等界面用语。
-排班对象姓名只从本机配置读取（LOVE_TARGET_NAME），不写进仓库，也不在接口里回显。
+这里不再读取 train_timetable.json。排班对象姓名只从本机配置读取
+（LOVE_TARGET_NAME），不写进仓库，也不在接口里回显。
 """
 from __future__ import annotations
 
@@ -52,6 +53,17 @@ def _is_rest_cell(cell_value: Any) -> bool:
         return True
     text = str(cell_value).strip()
     return not text or text in ("休", "公休") or text.startswith("段抽")
+
+
+def _duty_text(cell_value: Any) -> str:
+    """值班表单元格里的当天值乘车次；休/公休/请假等没有车次时返回空。"""
+    if cell_value is None or _is_rest_cell(cell_value):
+        return ""
+    text = re.sub(r"\s+", " ", str(cell_value)).strip()
+    # 只把真正含车次号的单元格当成“当天值乘”，避免把育儿假、疗养等当车次。
+    if not re.search(r"[A-Za-z]\d{1,5}", text):
+        return ""
+    return text[:MAX_NOTE_LENGTH]
 
 
 def _excel_serial_date(serial: int) -> date:
@@ -276,11 +288,13 @@ def _month_payload(month: str, excel_dir: Path, notes: dict[str, str],
         note = notes.get(day.isoformat(), "")
         if column is None:
             days.append({"date": day.isoformat(), "in_range": False,
-                         "work": None, "rest": None, "note": note})
+                         "work": None, "rest": None, "note": note, "duty": ""})
             continue
-        rest = _is_rest_cell(workbook.cell_for(row, column))
+        cell = workbook.cell_for(row, column)
+        rest = _is_rest_cell(cell)
         days.append({"date": day.isoformat(), "in_range": True,
-                     "work": not rest, "rest": rest, "note": note})
+                     "work": not rest, "rest": rest, "note": note,
+                     "duty": "" if rest else _duty_text(cell)})
     span = workbook.date_range()
     return {
         **base,
@@ -355,7 +369,54 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
             return {"found": False, "date": target_date, "error": payload.get("error", "排班表不可用")}
         item = next((day for day in payload["days"] if day["date"] == target_date), None)
         return {"found": True, "date": target_date, "weekday": WEEKDAYS[parsed.weekday()],
-                **(item or {"in_range": False, "work": None, "rest": None, "note": ""})}
+                **(item or {"in_range": False, "work": None, "rest": None,
+                            "note": "", "duty": ""})}
+
+    @router.get("/upcoming")
+    def upcoming(days: int = Query(default=7, ge=1, le=31),
+                 start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+        """工作台值班小组件：从今天（或 start）起连续几天。"""
+        if start:
+            try:
+                first = date.fromisoformat(start)
+            except ValueError as error:
+                raise HTTPException(422, "日期格式应为 YYYY-MM-DD") from error
+        else:
+            first = datetime.now(TZ).date()
+        dates = [first + timedelta(days=offset) for offset in range(days)]
+        grouped: dict[str, list[date]] = {}
+        for item in dates:
+            grouped.setdefault(item.strftime("%Y-%m"), []).append(item)
+        items: list[dict[str, Any]] = []
+        found = False
+        error = ""
+        notes = _load_notes(notes_path)
+        for month, month_dates in grouped.items():
+            payload = _month_payload(month, excel_dir, notes, target_name)
+            if not payload.get("found"):
+                error = error or str(payload.get("error") or "排班表不可用")
+                for item in month_dates:
+                    items.append({
+                        "date": item.isoformat(), "weekday": WEEKDAYS[item.weekday()],
+                        "in_range": False, "work": None, "rest": None,
+                        "note": notes.get(item.isoformat(), ""), "duty": "",
+                    })
+                continue
+            found = True
+            by_date = {entry["date"]: entry for entry in payload.get("days", [])}
+            for item in month_dates:
+                entry = by_date.get(item.isoformat()) or {
+                    "date": item.isoformat(), "in_range": False, "work": None,
+                    "rest": None, "note": notes.get(item.isoformat(), ""), "duty": "",
+                }
+                items.append({**entry, "weekday": WEEKDAYS[item.weekday()]})
+        return {
+            "today": datetime.now(TZ).date().isoformat(),
+            "start": first.isoformat(),
+            "found": found,
+            "error": error,
+            "days": items,
+        }
 
     @router.put("/note")
     def save_note(payload: NoteWrite):

@@ -13,6 +13,7 @@ import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module
 import { initCountdownWidget } from "./countdown.js";
 import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js";
 import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-widget.js";
+import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 import { loadPendingStrip } from "./pending.js";
 
@@ -272,5 +273,6 @@ export function initWorkbench() {
   initAlmanacWidget();
   initDeepSeekBalance();
   initTrainTrackerWidget();
+  initDutyWidget();
   initTimeModule();
 }

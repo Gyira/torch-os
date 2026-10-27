@@ -2241,6 +2241,45 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .train-tracker-open-hint { position: absolute; right: 10px; bottom: 9px; color: var(--p-ink-4); font-size: 18px; line-height: 1; opacity: .4; }
 .train-tracker-card:hover .train-tracker-open-hint, .train-tracker-card:focus-visible .train-tracker-open-hint { opacity: .85; }
 
+/* 工作台「值班」小组件：今天/未来 7 天的上班、休息与车次；点击看 14 天。 */
+.duty-card { position: relative; display: flex; flex-direction: column; gap: 5px; min-height: 158px; padding: 13px 15px; overflow: hidden; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); box-shadow: 0 1px 2px var(--p-shadow); cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; }
+.duty-card:hover { border-color: var(--p-line-input); box-shadow: 0 4px 14px var(--p-shadow); }
+.duty-card:focus-visible { outline: 3px solid var(--p-focus-ring); outline-offset: 2px; }
+.duty-card.is-loading { opacity: .82; }
+.duty-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.duty-eyebrow { margin: 0; color: var(--p-ink-5); font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+.duty-date { margin: 0; color: var(--p-ink-4); font-size: 10px; white-space: nowrap; }
+.duty-state { margin: 0; color: var(--p-ink-strong); font-size: 26px; font-weight: 700; line-height: 1.05; }
+.duty-state[data-tone="work"] { color: var(--p-ok-ink); }
+.duty-state[data-tone="rest"] { color: var(--p-warm-ink); }
+.duty-state[data-tone="out"] { color: var(--p-ink-4); }
+.duty-train { margin: 0; overflow: hidden; color: var(--p-ink-2); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.duty-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-top: auto; }
+.duty-strip-day { display: grid; justify-items: center; gap: 0; padding: 3px 1px; border: 1px solid var(--p-line); border-radius: 6px; background: var(--p-surface-2); color: var(--p-ink-4); line-height: 1.1; }
+.duty-strip-day strong { font-size: 10px; font-variant-numeric: tabular-nums; }
+.duty-strip-day small { font-size: 8px; font-weight: 700; }
+.duty-strip-day.is-work { border-color: var(--p-ok-line); background: var(--p-ok-soft); color: var(--p-ok-ink); }
+.duty-strip-day.is-rest { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); color: var(--p-warm-ink); }
+.duty-strip-day.is-out { border-style: dashed; }
+.duty-strip-day.is-today { box-shadow: inset 0 0 0 2px var(--p-focus-ring); }
+.duty-next { margin: 0; padding-right: 12px; overflow: hidden; color: var(--p-ink-4); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.duty-open-hint { position: absolute; right: 10px; bottom: 8px; color: var(--p-ink-4); font-size: 18px; line-height: 1; opacity: .35; }
+.duty-card:hover .duty-open-hint, .duty-card:focus-visible .duty-open-hint { opacity: .8; }
+.duty-dialog { display: grid; gap: 10px; }
+.duty-dialog-list { list-style: none; display: grid; gap: 4px; max-height: 52vh; margin: 0; padding: 0; overflow: auto; }
+.duty-dialog-row { display: grid; grid-template-columns: 66px 52px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--p-line); border-radius: 7px; background: var(--p-surface); }
+.duty-dialog-row.is-work { border-color: var(--p-ok-line); background: var(--p-ok-soft); }
+.duty-dialog-row.is-rest { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.duty-dialog-row.is-out { border-style: dashed; color: var(--p-ink-4); }
+.duty-dialog-date { display: flex; align-items: baseline; gap: 4px; }
+.duty-dialog-date strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.duty-dialog-date small, .duty-dialog-row small { color: var(--p-ink-5); font-size: 9px; }
+.duty-dialog-state { font-size: 10px; font-weight: 700; }
+.duty-dialog-duty { overflow: hidden; color: var(--p-ink-2); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.duty-dialog-note { grid-column: 1 / -1; }
+dialog.duty-widget-mode { width: min(620px, calc(100vw - 20px)); max-width: min(620px, calc(100vw - 20px)); max-height: 92vh; }
+#detail-dialog.duty-widget-mode #dialog-content { max-height: calc(92vh - 61px); overflow: auto; }
+
 /* 列车追踪弹窗：关注车次 chips + 摘要 + 经停站 + 手动 12306 同步。 */
 dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: min(680px, calc(100vw - 20px)); max-height: 92vh; }
 #detail-dialog.train-tracker-mode #dialog-content { max-height: calc(92vh - 61px); overflow: auto; }

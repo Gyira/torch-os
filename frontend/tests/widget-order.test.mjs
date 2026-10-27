@@ -69,10 +69,10 @@ function transfer({ types = [], data = new Map(), failSet = false } = {}) {
 test("the default layout is balanced and legacy order helpers still work", async () => {
   const { order: mod } = await loadModule();
   assert.deepEqual(plain(mod.WIDGET_LAYOUT_DEFAULT), {
-    left: ["weather", "countdown", "anniversary"], right: ["almanac", "train-tracker", "deepseek"],
+    left: ["weather", "countdown", "anniversary", "duty"], right: ["almanac", "train-tracker", "deepseek"],
   });
   assert.deepEqual(plain(mod.WIDGET_COLUMN_DEFAULT), {
-    weather: "left", countdown: "left", anniversary: "left",
+    weather: "left", countdown: "left", anniversary: "left", duty: "left",
     almanac: "right", "train-tracker": "right", deepseek: "right",
   });
 
@@ -225,7 +225,7 @@ test("the workbench has two widget columns and wires drag sorting", async () => 
   assert.ok(headStart > 0 && leftStart > headStart && mainStart > leftStart
     && rightStart > mainStart && lifeStart > rightStart, "找不到左右两栏工作台结构");
 
-  for (const [key, label] of [["weather", "天气"], ["countdown", "倒计时"], ["anniversary", "纪念日"]]) {
+  for (const [key, label] of [["weather", "天气"], ["countdown", "倒计时"], ["anniversary", "纪念日"], ["duty", "值班"]]) {
     const at = html.indexOf(`data-widget="${key}"`, leftStart);
     assert.ok(at > leftStart && at < mainStart, `${key} 小组件必须在左栏`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));

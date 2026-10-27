@@ -1403,7 +1403,7 @@ async function renderSchedule(content) {
         <strong>${escapeHtml(data.error || "还没有排班表")}</strong>
         <p>把 .xlsx 排班表放进 <code>${escapeHtml(status.excel_dir || ".torch-os/love/xlsx")}</code>，或点「导入排班表」。</p>
       </div>
-    `, { eyebrow: "SCHEDULE", subtitle: "只读取哪天上班、哪天休息；备注可以写车次等自由文本。" });
+    `, { eyebrow: "SCHEDULE", subtitle: "从排班表读取上班/休息和当天值乘车次；点日期可补备注。" });
     bindScheduleFile();
     return;
   }
@@ -1414,16 +1414,27 @@ async function renderSchedule(content) {
   }
   for (const day of data.days) {
     const state = day.in_range ? (day.rest ? "休息" : "上班") : "—";
+    const duty = String(day.duty || "").replace(/\s+/g, " ").trim();
     const note = String(day.note || "").replace(/\s+/g, " ").trim();
+    // 用户备注优先；没有用户备注时，直接显示排班表里的当天值乘车次。
+    const parts = [];
+    if (duty) parts.push(duty);
+    if (note) {
+      const extra = duty && note.startsWith(duty)
+        ? note.slice(duty.length).replace(/^[\s·,，;；/]+/, "").trim()
+        : note;
+      if (extra && extra !== duty) parts.push(extra);
+    }
+    const display = parts.join(" · ");
     const classes = ["love-day-cell"];
     classes.push(day.in_range ? (day.rest ? "is-rest" : "is-work") : "is-out");
     if (day.date === data.today) classes.push("is-today");
-    const label = `${day.date} ${state}${note ? `，备注：${note}` : ""}`;
+    const label = `${day.date} ${state}${duty ? `，值乘：${duty}` : ""}${note && note !== duty ? `，备注：${note}` : ""}`;
     cells.push(`<button type="button" class="${classes.join(" ")}" data-love-action="schedule-note"
       data-date="${day.date}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
       <span class="love-day-num">${Number(day.date.slice(8))}</span>
       <span class="love-day-state">${state}</span>
-      ${note ? `<span class="love-day-note">${escapeHtml(note)}</span>` : ""}
+      ${display ? `<span class="love-day-note">${escapeHtml(display)}</span>` : ""}
     </button>`);
   }
   const inRange = data.days.filter((day) => day.in_range).length;
@@ -1443,7 +1454,7 @@ async function renderSchedule(content) {
       <span><i class="is-out"></i>不在表内</span>
     </div>
     <p class="field-help">点任意一天写备注；备注只保存在当前个人数据库的 <code>.torch-os/love/</code>。${range ? `当前排班表覆盖 ${escapeHtml(range.start)} ~ ${escapeHtml(range.end)}。` : ""}</p>
-  `, { eyebrow: "SCHEDULE", subtitle: "只显示上班/休息；车次、交接事项等写在当天备注里。" });
+  `, { eyebrow: "SCHEDULE", subtitle: "上班/休息与排班表里的值乘车次会直接显示；点日期可补交接事项。" });
   bindScheduleFile();
 }
 
@@ -1471,11 +1482,14 @@ function bindScheduleFile() {
 
 function openScheduleNote(day) {
   const state = day.in_range ? (day.rest ? "休息" : "上班") : "这一天不在排班表范围内";
+  const duty = String(day.duty || "").replace(/\s+/g, " ").trim();
+  const dutyHint = duty ? `，当天值乘 ${duty}` : "";
+  const initial = day.note || duty;
   openDialog(`${day.date} 值班备注`, `
     <form id="love-schedule-note-form" class="love-dialog-form">
-      <p class="field-help">${state}。备注只保存在当前个人数据库，可以写车次、交接事项等。</p>
+      <p class="field-help">${escapeHtml(state)}${escapeHtml(dutyHint)}。车次来自排班表；备注只保存在当前个人数据库，可以补交接事项。</p>
       <div class="field"><label for="love-schedule-note">备注</label>
-        <textarea id="love-schedule-note" rows="4" maxlength="500" placeholder="例如：G1 / G2，下午交接…">${escapeHtml(day.note || "")}</textarea>
+        <textarea id="love-schedule-note" rows="4" maxlength="500" placeholder="例如：G1 / G2，下午交接…">${escapeHtml(initial)}</textarea>
       </div>
       <div class="love-inline-actions">
         <button type="button" class="button secondary" id="love-schedule-note-cancel">取消</button>

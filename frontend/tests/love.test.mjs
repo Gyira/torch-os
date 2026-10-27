@@ -82,6 +82,8 @@ test("排班页是值班日历，不再包含车次时刻表/沿线天气", asyn
   assert.match(js, /schedule: "值班日历"/);
   assert.match(js, /\/api\/love\/schedule\/month/);
   assert.match(js, /\/api\/love\/schedule\/note/);
+  assert.match(js, /day\.duty/);
+  assert.match(js, /当天值乘/);
   assert.doesNotMatch(js, /交路|时刻表|沿线天气|查看排班表|schedule_timetable/);
   assert.doesNotMatch(js, /\/api\/love\/schedule\/(timetable|train)/);
 
