@@ -1,4 +1,4 @@
-"""天气：白名单出站、城市定位优先级、WMO 映射与 30 分钟缓存。"""
+"""天气：白名单出站、城市定位优先级、在线城市搜索、WMO 映射与 30 分钟缓存。"""
 
 import httpx
 import pytest
@@ -9,6 +9,19 @@ from backend.app.weather import (
     WeatherError, WeatherService, create_weather_router, daily_forecast, describe_weather,
     http_json, wind_label,
 )
+
+GEOCODE = {
+    "results": [
+        {"name": "绵阳", "admin1": "四川省", "country": "中国",
+         "latitude": 31.4678, "longitude": 104.6817},
+        {"name": "绵阳", "admin1": "四川省", "country": "中国",
+         "latitude": 31.4678, "longitude": 104.6817},
+        {"name": "绵阳北", "admin1": "四川省", "country": "中国",
+         "latitude": 31.58, "longitude": 104.75},
+        {"name": "", "latitude": 1.0, "longitude": 2.0},          # 无名字：丢弃
+        {"name": "坏坐标", "latitude": None, "longitude": None},   # 无坐标：丢弃
+    ]
+}
 
 FORECAST = {
     "current": {
@@ -42,9 +55,11 @@ GEO = {"success": True, "city": "赣州", "latitude": 25.83, "longitude": 114.93
 
 
 class FakeFetcher:
-    def __init__(self, geo=GEO, forecast=FORECAST, geo_error=False):
+    def __init__(self, geo=GEO, forecast=FORECAST, geo_error=False, geocode=GEOCODE,
+                 geocode_error=False):
         self.calls = []
         self.geo, self.forecast, self.geo_error = geo, forecast, geo_error
+        self.geocode, self.geocode_error = geocode, geocode_error
 
     def __call__(self, url, params=None):
         self.calls.append((url, params))
@@ -52,6 +67,10 @@ class FakeFetcher:
             if self.geo_error:
                 raise WeatherError("IP 定位不可用")
             return self.geo
+        if "geocoding-api" in url:
+            if self.geocode_error:
+                raise WeatherError("城市搜索服务不可用")
+            return self.geocode
         return self.forecast
 
 
@@ -230,6 +249,106 @@ def test_wind_label_covers_eight_directions():
 def test_describe_weather_covers_unknown_codes():
     assert describe_weather(61) == {"weather": "小雨", "icon": "🌧️"}
     assert describe_weather(None)["weather"] == "未知"
+
+
+def test_geocoding_search_returns_deduped_places_with_coordinates():
+    """添加常用城市：一次在线 geocoding，丢弃重名重复项与坏坐标。"""
+    fetcher = FakeFetcher()
+    service = WeatherService(fetcher=fetcher, city_override="", clock=lambda: 1000.0)
+    results = service.search_cities("绵阳")
+    assert results == [
+        {"name": "绵阳", "admin1": "四川省", "country": "中国",
+         "latitude": 31.4678, "longitude": 104.6817},
+        {"name": "绵阳北", "admin1": "四川省", "country": "中国",
+         "latitude": 31.58, "longitude": 104.75},
+    ]
+    assert fetcher.calls[-1][0].startswith("https://geocoding-api.open-meteo.com/")
+    assert fetcher.calls[-1][1]["language"] == "zh"
+    assert fetcher.calls[-1][1]["name"] == "绵阳"
+
+
+def test_blank_city_search_does_not_call_upstream():
+    fetcher = FakeFetcher()
+    service = WeatherService(fetcher=fetcher, city_override="", clock=lambda: 1000.0)
+    assert service.search_cities("   ") == []
+    assert fetcher.calls == []
+
+
+def test_geocoding_tolerates_missing_or_malformed_results():
+    for payload in ({}, {"results": None}, {"results": {"name": "x"}}, {"results": ["bad", None]}):
+        service = WeatherService(fetcher=FakeFetcher(geocode=payload), city_override="")
+        assert service.search_cities("x") == []
+
+
+def test_geocoding_failure_is_reported():
+    service = WeatherService(fetcher=FakeFetcher(geocode_error=True), city_override="")
+    with pytest.raises(WeatherError, match="城市搜索服务不可用"):
+        service.search_cities("绵阳")
+
+
+def test_searched_city_uses_its_coordinates_and_skips_ip():
+    fetcher = FakeFetcher()
+    service = WeatherService(fetcher=fetcher, city_override="赣州", clock=lambda: 1000.0)
+    payload = service.current(city="绵阳", latitude=31.4678, longitude=104.6817)
+    assert payload["city"] == "绵阳" and payload["source"] == "search"
+    assert (payload["latitude"], payload["longitude"]) == (31.4678, 104.6817)
+    assert all("ipwho.is" not in url for url, _ in fetcher.calls)
+    assert fetcher.calls[-1][1]["latitude"] == 31.4678
+    assert fetcher.calls[-1][1]["longitude"] == 104.6817
+
+
+def test_same_city_name_with_different_coordinates_gets_separate_cache_slots():
+    """同名异地（例如两个 Springfield）不能用一个缓存槽互相覆盖。"""
+    fetcher = FakeFetcher()
+    clock = {"now": 1000.0}
+    service = WeatherService(fetcher=fetcher, city_override="", clock=lambda: clock["now"])
+
+    service.current(city="Springfield", latitude=39.80, longitude=-89.64)
+    service.current(city="Springfield", latitude=42.10, longitude=-72.59)
+    assert len([1 for url, _ in fetcher.calls if "forecast" in url]) == 2
+    # 各自再取一次都命中自己的缓存。
+    assert service.current(city="Springfield", latitude=39.80, longitude=-89.64)["cached"] is True
+    assert service.current(city="Springfield", latitude=42.10, longitude=-72.59)["cached"] is True
+
+
+def test_custom_city_without_coordinates_is_rejected():
+    service = WeatherService(fetcher=FakeFetcher(), city_override="")
+    with pytest.raises(WeatherError, match="请先搜索城市"):
+        service.current(city="绵阳")
+
+
+def test_router_accepts_searched_coordinates_and_rejects_partial_coordinates():
+    app = FastAPI()
+    fetcher = FakeFetcher()
+    app.include_router(create_weather_router(service=WeatherService(
+        fetcher=fetcher, city_override="赣州")))
+    client = TestClient(app)
+
+    response = client.get("/api/weather", params={
+        "city": "绵阳", "latitude": 31.4678, "longitude": 104.6817,
+    })
+    assert response.status_code == 200
+    assert response.json()["city"] == "绵阳"
+
+    partial = client.get("/api/weather", params={"city": "绵阳", "latitude": 31.4})
+    assert partial.status_code == 422
+    assert "同时提供" in partial.json()["detail"]
+
+    no_name = client.get("/api/weather", params={"latitude": 31.4, "longitude": 104.6})
+    assert no_name.status_code == 422
+    assert "城市名" in no_name.json()["detail"]
+
+
+def test_router_city_search_endpoint():
+    app = FastAPI()
+    app.include_router(create_weather_router(service=WeatherService(
+        fetcher=FakeFetcher(), city_override="赣州")))
+    client = TestClient(app)
+    response = client.get("/api/weather/cities", params={"q": "绵阳"})
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results[0]["name"] == "绵阳" and results[0]["latitude"] == 31.4678
+    assert client.get("/api/weather/cities", params={"q": ""}).json() == {"results": []}
 
 
 def test_http_json_refuses_hosts_outside_the_allowlist():

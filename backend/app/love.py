@@ -7,7 +7,7 @@
 - 只通过本机工作台的会话鉴权暴露 API，所有聊天内容都留在本机；
   AI 分析前按原有规则脱敏姓名、电话、证件、邮箱、链接等。
 
-文件故意保持为「一个功能一个文件」：交路表/丽洁追踪在 ``love_lijie.py``。
+文件故意保持为「一个功能一个文件」：交路表/排班表在 ``love_schedule.py``。
 """
 from __future__ import annotations
 
@@ -191,6 +191,8 @@ class LoveSettings:
     api_base_url: str
     api_model: str
     key_file: Path | None = None
+    # 排班对象姓名只从本机配置读取，不写进仓库；空串表示自动识别。
+    target_name: str = ""
 
     @classmethod
     def from_env(cls, *, db_path: Path | None = None,
@@ -213,13 +215,16 @@ class LoveSettings:
             stopwords_path=path_value(
                 "LOVE_STOPWORDS_PATH", app_dir / "resources" / "stopwords" / "cn_stopwords.txt"
             ),
-            excel_dir=path_value("LOVE_EXCEL_DIR", app_dir / "胡丽洁" / "file" / "xlsx"),
+            excel_dir=path_value(
+                "LOVE_EXCEL_DIR", PROJECT_ROOT / "data" / "love" / "xlsx"
+            ),
             timetable_path=path_value(
                 "LOVE_TIMETABLE_PATH", app_dir / "backend" / "data" / "train_timetable.json"
             ),
             api_base_url=(os.getenv("LOVE_API_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             api_model=os.getenv("LOVE_API_MODEL") or "deepseek-chat",
             key_file=Path(key_file) if key_file else Path(database).parent / ".api_key.key",
+            target_name=(os.getenv("LOVE_TARGET_NAME") or "").strip(),
         )
 
 
@@ -274,8 +279,8 @@ class LoveStore:
             "api_model": settings.api_model,
             "app_dir": str(settings.app_dir),
             "app_dir_exists": settings.app_dir.is_dir(),
-            "lijie_excel_dir": str(settings.excel_dir),
-            "lijie_timetable": str(settings.timetable_path),
+            "schedule_excel_dir": str(settings.excel_dir),
+            "schedule_timetable": str(settings.timetable_path),
             "error": "",
         }
         try:

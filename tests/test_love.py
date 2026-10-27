@@ -1,4 +1,4 @@
-"""原生恋爱系统：数据库复用、导入、统计、画像、日志、AI 编排与丽洁追踪。"""
+"""原生恋爱系统：数据库复用、导入、统计、画像、日志、AI 编排与查看排班表。"""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app import love as love_module
-from backend.app import love_lijie
+from backend.app import love_schedule
 from backend.app.love import ChatParser, LoveStore, create_love_router
 
 SAMPLE = """2026-05-20 10:00:00 我: 你好，我的电话是13800138000
-2026-05-20 10:01:00 胡丽洁: 嗯嗯，今天做什么
+2026-05-20 10:01:00 小林: 嗯嗯，今天做什么
 2026-05-20 10:02:00 我: 明天见面吧
-2026-05-21 09:00:00 胡丽洁: 好呀
+2026-05-21 09:00:00 小林: 好呀
 2026-05-21 09:01:00 我: 那说定了
 """
 
@@ -60,17 +60,17 @@ def test_parser_handles_gbk_and_multiline() -> None:
     raw = (
         "2026-05-20 22:19:08 '我'\n"
         "你已添加了🦋，以上是打招呼的消息。\n"
-        "2026-05-20 22:20:00 '胡丽洁'\n"
+        "2026-05-20 22:20:00 '小林'\n"
         "嗨\n"
     ).encode("gb18030")
     parsed = parser.decode_and_parse(raw)
     assert len(parsed.messages) == 2
-    assert parsed.senders == ["我", "胡丽洁"]
+    assert parsed.senders == ["我", "小林"]
     assert parsed.messages[0].is_system is False or parsed.messages[0].sender == "我"
     # 单行与多行混排也要能解析。
     mixed = parser.parse(
         "2026-05-21 10:00:00 我: 早上好\n"
-        "2026-05-21 10:01:00 '胡丽洁'\n"
+        "2026-05-21 10:01:00 '小林'\n"
         "早呀\n"
     )
     assert [message.content for message in mixed.messages] == ["早上好", "早呀"]
@@ -87,7 +87,7 @@ def test_import_stats_journal_profile_and_report(tmp_path: Path) -> None:
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()["message_count"] == 5
-    assert preview.json()["senders"] == ["胡丽洁", "我"] or set(preview.json()["senders"]) == {"胡丽洁", "我"}
+    assert preview.json()["senders"] == ["小林", "我"] or set(preview.json()["senders"]) == {"小林", "我"}
     uploaded = client.post(
         "/api/love/import",
         files={"file": ("sample.txt", SAMPLE.encode("gb18030"), "text/plain")},
@@ -221,7 +221,7 @@ def test_api_key_is_encrypted_and_analysis_runs_offline(
 
     prompt = seen[0][1]["content"]
     assert "13800138000" not in prompt
-    assert "胡丽洁" not in prompt
+    assert "小林" not in prompt
     assert "用户B" in prompt
     profile = client.get(f"/api/love/projects/{project_id}/profile").json()
     assert any(item["trait"] == "沟通风格" for item in profile["traits"])
@@ -235,7 +235,7 @@ def _excel_serial(day: date) -> int:
     return (day - date(1899, 12, 30)).days
 
 
-def _make_lijie_fixture(tmp_path: Path) -> tuple[Path, Path]:
+def _make_schedule_fixture(tmp_path: Path) -> tuple[Path, Path]:
     import openpyxl
 
     excel_dir = tmp_path / "xlsx"
@@ -253,7 +253,7 @@ def _make_lijie_fixture(tmp_path: Path) -> tuple[Path, Path]:
         sheet.cell(row=8, column=column, value=_excel_serial(day))
         sheet.cell(row=10, column=column, value=train)
     sheet.cell(row=9, column=3, value="高1组")
-    sheet.cell(row=10, column=5, value="胡丽洁")
+    sheet.cell(row=10, column=5, value="小林")
     excel_path = excel_dir / "5月份交路.xlsx"
     workbook.save(excel_path)
 
@@ -273,39 +273,45 @@ def _make_lijie_fixture(tmp_path: Path) -> tuple[Path, Path]:
     return excel_dir, timetable_path
 
 
-def test_lijie_schedule_fallback_and_realtime(
+def test_schedule_fallback_and_realtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    excel_dir, timetable_path = _make_lijie_fixture(tmp_path)
-    monkeypatch.setattr(love_lijie, "_weather", lambda cities: {})
+    excel_dir, timetable_path = _make_schedule_fixture(tmp_path)
+    monkeypatch.setattr(love_schedule, "_weather", lambda cities: {})
 
     app = FastAPI()
-    app.include_router(love_lijie.create_lijie_router(excel_dir, timetable_path))
+    app.include_router(love_schedule.create_schedule_router(
+        excel_dir, timetable_path, target_name="小林"))
     client = TestClient(app)
 
-    exact = client.get("/api/love/lijie/day?date=2026-05-20").json()
+    exact = client.get("/api/love/schedule/day?date=2026-05-20").json()
     assert exact["found"] is True
     assert exact["is_rest"] is False
     assert [train["train_code"] for train in exact["trains"]] == ["G1"]
     assert exact["group"] == "高1组"
+    # 数据脱敏：接口不回显排班对象姓名。
+    assert "name" not in exact
+    status = client.get("/api/love/schedule/status").json()
+    assert status["target_configured"] is True
+    assert "target_name" not in status
 
-    rest = client.get("/api/love/lijie/day?date=2026-05-21").json()
+    rest = client.get("/api/love/schedule/day?date=2026-05-21").json()
     assert rest["found"] is True and rest["is_rest"] is True
 
-    fallback = client.get("/api/love/lijie/day?date=2026-07-20").json()
+    fallback = client.get("/api/love/schedule/day?date=2026-07-20").json()
     assert fallback["found"] is True
     assert "06月" in fallback["fallback_note"]
     assert [train["train_code"] for train in fallback["trains"]] == ["G3"]
 
     # 运行中：10:33 已离开武汉，正在前往北京西。
-    monkeypatch.setattr(love_lijie, "_now_minutes", lambda: 10 * 60 + 33)
-    realtime = love_lijie._realtime(exact["trains"])
+    monkeypatch.setattr(love_schedule, "_now_minutes", lambda: 10 * 60 + 33)
+    realtime = love_schedule._realtime(exact["trains"])
     assert realtime["status"] == "running"
     assert realtime["current_station"] == "武汉"
     assert realtime["next_station"] == "北京西"
 
     # 有车次但时刻表缺这趟车：不能误报“今日休息”。
-    missing = love_lijie._realtime([{
+    missing = love_schedule._realtime([{
         "train_code": "G999", "from_station": "未知", "to_station": "未知",
         "depart_time": "未知", "arrive_time": "未知",
         "duration_minutes": 0, "stops": [],
@@ -315,8 +321,44 @@ def test_lijie_schedule_fallback_and_realtime(
 
     # 时刻表导入接口：只接受结构正确的 UTF-8 JSON。
     response = client.post(
-        "/api/love/lijie/timetable",
+        "/api/love/schedule/timetable",
         files={"file": ("timetable.json", timetable_path.read_bytes(), "application/json")},
     )
     assert response.status_code == 200, response.text
     assert response.json()["trains"] == 5
+
+
+def test_schedule_auto_detects_single_person_without_configured_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel_dir, timetable_path = _make_schedule_fixture(tmp_path)
+    monkeypatch.setattr(love_schedule, "_weather", lambda cities: {})
+    app = FastAPI()
+    app.include_router(love_schedule.create_schedule_router(excel_dir, timetable_path))
+    client = TestClient(app)
+
+    payload = client.get("/api/love/schedule/day?date=2026-05-20").json()
+    assert payload["found"] is True
+    assert payload["group"] == "高1组"
+
+
+def test_schedule_asks_for_name_instead_of_guessing_between_people(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel_dir, timetable_path = _make_schedule_fixture(tmp_path)
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(excel_dir / "5月份交路.xlsx")
+    workbook.active.cell(row=11, column=5, value="另一个姓名")
+    workbook.save(excel_dir / "5月份交路.xlsx")
+    monkeypatch.setattr(love_schedule, "_weather", lambda cities: {})
+    app = FastAPI()
+    app.include_router(love_schedule.create_schedule_router(excel_dir, timetable_path))
+    client = TestClient(app)
+
+    payload = client.get("/api/love/schedule/day?date=2026-05-20").json()
+    assert payload["found"] is False
+    assert "LOVE_TARGET_NAME" in payload["error"]
+    # 错误信息只提示配置，不把交路表里的真实姓名回给界面。
+    assert "小林" not in payload["error"]
+    assert "另一个姓名" not in payload["error"]

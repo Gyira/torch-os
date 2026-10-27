@@ -1,8 +1,9 @@
-"""恋爱系统 · 丽洁追踪（原生实现）。
+"""恋爱系统 · 查看排班表（原生实现）。
 
-原项目把交路表 Excel、车次时刻表和天气 API 拼成一块「今天她在哪」的看板。
+原项目把交路表 Excel、车次时刻表和天气 API 拼成一块「今天排班在哪」的看板。
 这里不启动旧的 Electron/FastAPI，也不做 12306 抓取；直接读本机交路表与时刻表，
 天气走薪火OS 已允许的出站域名（Open-Meteo），查不到就安静地留空。
+排班对象姓名只从本机配置读取（LOVE_TARGET_NAME），不写进仓库，也不在接口里回显。
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 
-TARGET_NAME = "胡丽洁"
 TARGET_SHEET_HINTS = ("高1", "14")
 MAX_EXCEL_BYTES = 20 * 1024 * 1024
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
@@ -121,11 +121,12 @@ def _load_timetable(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-class LijieWorkbook:
+class ScheduleWorkbook:
     """交路表读取：日期列按「日号递推」而不是直接相信序列号（沿用原项目踩坑后的算法）。"""
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, target_name: str = ""):
         self.path = Path(path) if path else None
+        self.target_name = str(target_name or "").strip()
         self.workbook = None
         self.sheet = None
         self.date_columns: dict[date, str] = {}
@@ -195,14 +196,29 @@ class LijieWorkbook:
                 openpyxl.utils.get_column_letter(col)
             )
 
-    def find_person_row(self) -> int | None:
+    def person_rows(self) -> list[tuple[int, str]]:
+        """交路表 E 列里的姓名行；只在本机内存里用于定位，不回给前端。"""
         if self.sheet is None:
-            return None
+            return []
+        rows: list[tuple[int, str]] = []
         for row in range(7, self.sheet.max_row + 1):
             value = self.sheet.cell(row=row, column=5).value
-            if value and str(value).strip() == TARGET_NAME:
-                return row
-        return None
+            name = str(value).strip() if value is not None else ""
+            if name:
+                rows.append((row, name))
+        return rows
+
+    def find_person_row(self) -> int | None:
+        rows = self.person_rows()
+        if not rows:
+            return None
+        if self.target_name:
+            for row, name in rows:
+                if name == self.target_name:
+                    return row
+            return None
+        # 没配置姓名时只在恰好只有一个姓名时自动识别，避免猜错排班对象。
+        return rows[0][0] if len(rows) == 1 else None
 
     def date_column(self, target: date) -> tuple[str | None, str]:
         if target in self.date_columns:
@@ -433,10 +449,11 @@ def _weather(cities: set[str]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _schedule(target: date, excel_dir: Path, timetable_path: Path) -> dict[str, Any]:
+def _schedule(target: date, excel_dir: Path, timetable_path: Path,
+              target_name: str = "") -> dict[str, Any]:
     try:
         latest = _find_latest_excel(excel_dir)
-        workbook = LijieWorkbook(latest)
+        workbook = ScheduleWorkbook(latest, target_name)
     except Exception as exc:
         return {"found": False, "error": f"交路表读取失败：{exc}"}
     if workbook.sheet is None:
@@ -446,7 +463,13 @@ def _schedule(target: date, excel_dir: Path, timetable_path: Path) -> dict[str, 
         }
     row = workbook.find_person_row()
     if row is None:
-        return {"found": False, "error": f"未找到 {TARGET_NAME} 的信息", "excel_file": latest.name}
+        if not workbook.target_name:
+            count = len(workbook.person_rows())
+            error = ("交路表里有多个姓名，请在本机 .env 设置 LOVE_TARGET_NAME 后重启服务。"
+                     if count > 1 else "交路表里没有找到可识别的排班对象姓名。")
+        else:
+            error = "交路表里没有找到配置的排班对象，请检查 LOVE_TARGET_NAME。"
+        return {"found": False, "error": error, "excel_file": latest.name}
     column, fallback_note = workbook.date_column(target)
     if column is None:
         span = workbook.date_range()
@@ -469,7 +492,6 @@ def _schedule(target: date, excel_dir: Path, timetable_path: Path) -> dict[str, 
         "date": target.isoformat(),
         "date_display": target.strftime("%Y年%m月%d日"),
         "weekday": WEEKDAYS[target.weekday()],
-        "name": str(workbook.sheet.cell(row=row, column=5).value or ""),
         "group": workbook.group_info(row),
         "trains": trains,
         "total_segments": len(trains),
@@ -480,10 +502,12 @@ def _schedule(target: date, excel_dir: Path, timetable_path: Path) -> dict[str, 
     }
 
 
-def create_lijie_router(excel_dir: Path, timetable_path: Path) -> APIRouter:
+def create_schedule_router(excel_dir: Path, timetable_path: Path,
+                           target_name: str = "") -> APIRouter:
     excel_dir = Path(excel_dir)
     timetable_path = Path(timetable_path)
-    router = APIRouter(prefix="/api/love/lijie", tags=["love-lijie"])
+    target_name = str(target_name or "").strip()
+    router = APIRouter(prefix="/api/love/schedule", tags=["love-schedule"])
 
     @router.get("/status")
     def status():
@@ -492,7 +516,7 @@ def create_lijie_router(excel_dir: Path, timetable_path: Path) -> APIRouter:
         error = ""
         try:
             latest = _find_latest_excel(excel_dir)
-            workbook = LijieWorkbook(latest)
+            workbook = ScheduleWorkbook(latest, target_name)
             span = workbook.date_range()
         except Exception as exc:
             error = f"交路表读取失败：{exc}"
@@ -503,7 +527,8 @@ def create_lijie_router(excel_dir: Path, timetable_path: Path) -> APIRouter:
             "date_range": (
                 {"start": span[0].isoformat(), "end": span[1].isoformat()} if span else None
             ),
-            "target_name": TARGET_NAME,
+            # 只回是否已配置，姓名本身不出接口。
+            "target_configured": bool(target_name),
             "timetable_exists": timetable_path.is_file(),
             "timetable_trains": len(_load_timetable(timetable_path)),
             "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -512,11 +537,11 @@ def create_lijie_router(excel_dir: Path, timetable_path: Path) -> APIRouter:
 
     @router.get("/today")
     def today():
-        return _schedule(date.today(), excel_dir, timetable_path)
+        return _schedule(date.today(), excel_dir, timetable_path, target_name)
 
     @router.get("/tomorrow")
     def tomorrow():
-        return _schedule(date.today() + timedelta(days=1), excel_dir, timetable_path)
+        return _schedule(date.today() + timedelta(days=1), excel_dir, timetable_path, target_name)
 
     @router.get("/day")
     def day(target_date: str = Query(alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")):
@@ -524,7 +549,7 @@ def create_lijie_router(excel_dir: Path, timetable_path: Path) -> APIRouter:
             parsed = date.fromisoformat(target_date)
         except ValueError as exc:
             raise HTTPException(422, "日期格式应为 YYYY-MM-DD") from exc
-        return _schedule(parsed, excel_dir, timetable_path)
+        return _schedule(parsed, excel_dir, timetable_path, target_name)
 
     @router.get("/train")
     def train(code: str = Query(pattern=r"^[GCD]\d+$")):

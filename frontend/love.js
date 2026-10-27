@@ -11,7 +11,7 @@ const PAGE_TITLES = {
   profile: "画像",
   journal: "恋爱日志",
   report: "报告",
-  lijie: "丽洁追踪",
+  schedule: "查看排班表",
   settings: "设置",
 };
 const CONSENT_KEY = "torch-os:love-consent-v1";
@@ -41,8 +41,8 @@ const love = {
   selectedAnalysisId: "",
   analysisPoll: 0,
   lastReport: null,
-  lijieMode: "today",
-  lijieDate: "",
+  scheduleMode: "today",
+  scheduleDate: "",
 };
 
 // ── 小工具 ─────────────────────────────────────────────────────────
@@ -1293,37 +1293,37 @@ function printReport() {
   }, 900);
 }
 
-// ── 丽洁追踪 ───────────────────────────────────────────────────────
+// ── 查看排班表 ───────────────────────────────────────────────────────
 
-async function renderLijie(content) {
-  let endpoint = "/api/love/lijie/today";
-  if (love.lijieMode === "tomorrow") endpoint = "/api/love/lijie/tomorrow";
-  if (love.lijieMode === "date" && love.lijieDate) {
-    endpoint = `/api/love/lijie/day?date=${encodeURIComponent(love.lijieDate)}`;
+async function renderSchedule(content) {
+  let endpoint = "/api/love/schedule/today";
+  if (love.scheduleMode === "tomorrow") endpoint = "/api/love/schedule/tomorrow";
+  if (love.scheduleMode === "date" && love.scheduleDate) {
+    endpoint = `/api/love/schedule/day?date=${encodeURIComponent(love.scheduleDate)}`;
   }
   const [status, schedule] = await Promise.all([
-    loveApi("/api/love/lijie/status", { timeoutMs: 20000 }),
+    loveApi("/api/love/schedule/status", { timeoutMs: 20000 }),
     loveApi(endpoint, { timeoutMs: 45000 }),
   ]);
-  if (love.page !== "lijie") return;
+  if (love.page !== "schedule") return;
   const modeButtons = [["today", "今天"], ["tomorrow", "明天"]].map(([value, label]) =>
-    `<button type="button" class="love-seg${love.lijieMode === value ? " active" : ""}" data-love-action="lijie-mode" data-value="${value}">${label}</button>`).join("");
-  const toolbar = `<div class="love-lijie-toolbar">
+    `<button type="button" class="love-seg${love.scheduleMode === value ? " active" : ""}" data-love-action="schedule-mode" data-value="${value}">${label}</button>`).join("");
+  const toolbar = `<div class="love-schedule-toolbar">
     <div class="love-segmented">${modeButtons}</div>
-    <div class="love-lijie-date">
-      <input id="love-lijie-date" type="date" value="${escapeHtml(love.lijieDate || todayText())}" aria-label="选择日期" />
-      <button class="small-button" type="button" data-love-action="lijie-date">查看</button>
+    <div class="love-schedule-date">
+      <input id="love-schedule-date" type="date" value="${escapeHtml(love.scheduleDate || todayText())}" aria-label="选择日期" />
+      <button class="small-button" type="button" data-love-action="schedule-date">查看</button>
     </div>
-    <input id="love-lijie-file" type="file" accept=".xlsx,.xlsm" hidden />
-    <button class="small-button" type="button" data-love-action="lijie-upload">替换交路表</button>
-    <input id="love-lijie-timetable" type="file" accept=".json,application/json" hidden />
-    <button class="small-button" type="button" data-love-action="lijie-upload-timetable" title="导入 train_timetable.json，补全车次经停信息">更新时刻表</button>
+    <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden />
+    <button class="small-button" type="button" data-love-action="schedule-upload">替换交路表</button>
+    <input id="love-schedule-timetable" type="file" accept=".json,application/json" hidden />
+    <button class="small-button" type="button" data-love-action="schedule-upload-timetable" title="导入 train_timetable.json，补全车次经停信息">更新时刻表</button>
   </div>`;
 
   if (!schedule.found) {
-    content.innerHTML = card("丽洁追踪", `
+    content.innerHTML = card("查看排班表", `
       ${toolbar}
-      <div class="state-message error-state love-lijie-missing">
+      <div class="state-message error-state love-schedule-missing">
         <strong>${escapeHtml(schedule.error || "没有找到交路表")}</strong>
         <p>${schedule.available_date_range ? `当前交路表可用范围：${escapeHtml(schedule.available_date_range)}` : `把 .xlsx 交路表放进 ${escapeHtml(status.excel_dir || "交路表目录")}，或点「替换交路表」。`}</p>
       </div>
@@ -1332,8 +1332,8 @@ async function renderLijie(content) {
         <div><dt>时刻表</dt><dd>${status.timetable_exists ? `${formatInt(status.timetable_trains)} 趟` : "未找到 train_timetable.json"}</dd></div>
       </dl>
       ${schedule.fallback_note ? `<p class="inline-warning">${escapeHtml(schedule.fallback_note)}</p>` : ""}
-    `, { eyebrow: "LIJIE TRACKER", subtitle: "读取本机交路表与时刻表；天气走 Open-Meteo，不连接 12306。" });
-    bindLijieFile();
+    `, { eyebrow: "SCHEDULE", subtitle: "读取本机交路表与时刻表；天气走 Open-Meteo，不连接 12306。" });
+    bindScheduleFile();
     return;
   }
 
@@ -1341,8 +1341,8 @@ async function renderLijie(content) {
   const missingTrains = (schedule.trains || [])
     .filter((train) => !(train.stops || []).length)
     .map((train) => train.train_code);
-  const realtimeHtml = realtime ? `<div class="love-lijie-live status-${escapeHtml(realtime.status || "unknown")}">
-    <div class="love-lijie-live-head"><span class="love-badge ${realtime.status === "running" ? "ok" : "warn"}">${escapeHtml(realtime.status_text || "运行中")}</span>
+  const realtimeHtml = realtime ? `<div class="love-schedule-live status-${escapeHtml(realtime.status || "unknown")}">
+    <div class="love-schedule-live-head"><span class="love-badge ${realtime.status === "running" ? "ok" : "warn"}">${escapeHtml(realtime.status_text || "运行中")}</span>
       <strong>${escapeHtml(realtime.message || "")}</strong></div>
     ${realtime.countdown_minutes ? `<p class="meta">倒计时约 ${formatInt(realtime.countdown_minutes)} 分钟</p>` : ""}
     <div class="love-progress"><i class="${widthClass(Number(realtime.progress_pct) || 0)}"></i></div>
@@ -1383,18 +1383,18 @@ async function renderLijie(content) {
     </article>`).join("");
 
   content.innerHTML = `
-    <div class="love-lijie-header">
-      <div><span class="eyebrow">LIJIE TRACKER</span><h2>${escapeHtml(schedule.date_display)} <span class="meta">${escapeHtml(schedule.weekday)}</span></h2>
-        <p class="meta">${escapeHtml(schedule.name || "")}${schedule.group ? ` · ${escapeHtml(schedule.group)}` : ""} · ${schedule.is_rest ? "休息" : `${formatInt(schedule.total_segments)} 趟值乘`}</p></div>
+    <div class="love-schedule-header">
+      <div><span class="eyebrow">SCHEDULE</span><h2>${escapeHtml(schedule.date_display)} <span class="meta">${escapeHtml(schedule.weekday)}</span></h2>
+        <p class="meta">${schedule.group ? `${escapeHtml(schedule.group)} · ` : ""}${schedule.is_rest ? "休息" : `${formatInt(schedule.total_segments)} 趟值乘`}</p></div>
       ${toolbar}
     </div>
     ${schedule.fallback_note ? `<p class="inline-warning">${escapeHtml(schedule.fallback_note)}</p>` : ""}
     ${missingTrains.length ? `<p class="inline-warning">本机时刻表还缺少 ${missingTrains.map(escapeHtml).join("、")} 的经停信息；交路表本身已读到。补全 train_timetable.json 后，实时位置与沿线天气才会出现。</p>` : ""}
     ${schedule.is_rest ? `<div class="love-rest-card"><span>💤</span><strong>今天没有值乘任务</strong><p>交路表里这一天是休息。好好休息。</p></div>` : ""}
     ${realtimeHtml}
-    <div class="love-lijie-grid">
-      <div class="love-lijie-trains">${trainsHtml || (schedule.is_rest ? "" : emptyBox("没有车次信息", "交路表里这一天没有可识别的车次。"))}</div>
-      <aside class="love-lijie-side">
+    <div class="love-schedule-grid">
+      <div class="love-schedule-trains">${trainsHtml || (schedule.is_rest ? "" : emptyBox("没有车次信息", "交路表里这一天没有可识别的车次。"))}</div>
+      <aside class="love-schedule-side">
         ${weatherCards ? `<div class="love-weather-grid">${weatherCards}</div>` : '<p class="field-help">暂时没有取到沿线天气；不影响交路信息。</p>'}
         <dl class="love-facts">
           <div><dt>交路表</dt><dd>${escapeHtml(schedule.excel_file || status.excel_file || "—")}</dd></div>
@@ -1403,11 +1403,11 @@ async function renderLijie(content) {
         </dl>
       </aside>
     </div>`;
-  bindLijieFile();
+  bindScheduleFile();
 }
 
-function bindLijieFile() {
-  const input = node("love-lijie-file");
+function bindScheduleFile() {
+  const input = node("love-schedule-file");
   if (input && !input.dataset.bound) {
     input.dataset.bound = "1";
     input.addEventListener("change", async () => {
@@ -1417,7 +1417,7 @@ function bindLijieFile() {
       form.append("file", file);
       try {
         toast("正在上传交路表…", "info");
-        const result = await loveApi("/api/love/lijie/excel", { method: "POST", body: form, timeoutMs: 120000 });
+        const result = await loveApi("/api/love/schedule/excel", { method: "POST", body: form, timeoutMs: 120000 });
         toast(result.message || "交路表已更新。", "success");
         await renderLovePage();
       } catch (error) {
@@ -1425,7 +1425,7 @@ function bindLijieFile() {
       }
     });
   }
-  const timetable = node("love-lijie-timetable");
+  const timetable = node("love-schedule-timetable");
   if (timetable && !timetable.dataset.bound) {
     timetable.dataset.bound = "1";
     timetable.addEventListener("change", async () => {
@@ -1435,7 +1435,7 @@ function bindLijieFile() {
       form.append("file", file);
       try {
         toast("正在导入时刻表…", "info");
-        const result = await loveApi("/api/love/lijie/timetable", { method: "POST", body: form, timeoutMs: 60000 });
+        const result = await loveApi("/api/love/schedule/timetable", { method: "POST", body: form, timeoutMs: 60000 });
         toast(result.message || "时刻表已更新。", "success");
         await renderLovePage();
       } catch (error) {
@@ -1476,12 +1476,12 @@ async function renderSettings(content) {
         <div><dt>数据库大小</dt><dd>${status.db_size ? `${(Number(status.db_size) / 1024 / 1024).toFixed(1)} MB` : "—"}</dd></div>
         <div><dt>项目 / 消息 / 日志</dt><dd>${formatInt(status.project_count)} / ${formatInt(status.message_count)} / ${formatInt(status.journal_count)}</dd></div>
         <div><dt>原项目资源</dt><dd class="love-path">${escapeHtml(status.app_dir || "—")}</dd></div>
-        <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.lijie_excel_dir || "—")}</dd></div>
+        <div><dt>交路表目录</dt><dd class="love-path">${escapeHtml(status.schedule_excel_dir || "—")}</dd></div>
       </dl>
       <p class="field-help">这份数据库是原「恋爱分析助手」的本机数据，不进入 Obsidian 库、不参与工作台备份。需要备份时请直接复制上面的数据库文件（先退出分析任务）。</p>
       <div class="love-inline-actions">
         <button class="button secondary" type="button" data-love-action="settings-refresh">重新检查</button>
-        <button class="button secondary" type="button" data-love-action="goto" data-page="lijie">去丽洁追踪</button>
+        <button class="button secondary" type="button" data-love-action="goto" data-page="schedule">查看排班表</button>
       </div>
     `, { eyebrow: "DATA BOUNDARY", subtitle: "原生接入后仍然只认这一份本机数据，不做云端同步。" })}
     ${card("怎么用", `
@@ -1603,23 +1603,23 @@ async function handleLoveAction(event) {
     case "report-print":
       printReport();
       return;
-    case "lijie-mode":
-      love.lijieMode = button.dataset.value === "tomorrow" ? "tomorrow" : "today";
+    case "schedule-mode":
+      love.scheduleMode = button.dataset.value === "tomorrow" ? "tomorrow" : "today";
       await renderLovePage();
       return;
-    case "lijie-date": {
-      const value = node("love-lijie-date")?.value;
+    case "schedule-date": {
+      const value = node("love-schedule-date")?.value;
       if (!value) return;
-      love.lijieDate = value;
-      love.lijieMode = "date";
+      love.scheduleDate = value;
+      love.scheduleMode = "date";
       await renderLovePage();
       return;
     }
-    case "lijie-upload":
-      node("love-lijie-file")?.click();
+    case "schedule-upload":
+      node("love-schedule-file")?.click();
       return;
-    case "lijie-upload-timetable":
-      node("love-lijie-timetable")?.click();
+    case "schedule-upload-timetable":
+      node("love-schedule-timetable")?.click();
       return;
     case "settings-delete-key":
       await deleteApiKey(button);
@@ -1672,6 +1672,6 @@ const PAGE_RENDERERS = {
   profile: renderProfile,
   journal: renderJournal,
   report: renderReport,
-  lijie: renderLijie,
+  schedule: renderSchedule,
   settings: renderSettings,
 };

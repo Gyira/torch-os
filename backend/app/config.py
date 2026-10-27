@@ -34,10 +34,14 @@ _LOCALAPPDATA = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Lo
 LOVE_DB_PATH = _path_from_env(
     "LOVE_DB_PATH", _LOCALAPPDATA / "love-analysis-assistant" / "love_analysis.db"
 )
-# 原项目目录：交路表 Excel、时刻表和停用词都在这里。未配置时恋爱日志/统计仍可用，
-# 只有「丽洁追踪」会提示找不到交路表。
+# 原项目目录：时刻表和停用词仍可从这里读取。未配置时恋爱日志/统计仍可用，
+# 只有「查看排班表」会提示找不到交路表。
 LOVE_APP_DIR = _path_from_env("LOVE_APP_DIR", ROOT_DIR)
-LOVE_EXCEL_DIR = _path_from_env("LOVE_EXCEL_DIR", LOVE_APP_DIR / "胡丽洁" / "file" / "xlsx")
+# 交路表默认放本机 data/love/xlsx（data/ 不进仓库）；已有文件可用 LOVE_EXCEL_DIR 指向别处。
+LOVE_EXCEL_DIR = _path_from_env("LOVE_EXCEL_DIR", ROOT_DIR / "data" / "love" / "xlsx")
+# 排班对象姓名只从本机 .env 读取（示例见 .env.example），仓库里不写真实姓名；
+# 留空时只在这一工作表恰好只有一个姓名时自动识别。
+LOVE_TARGET_NAME = (os.getenv("LOVE_TARGET_NAME") or "").strip()
 LOVE_TIMETABLE_PATH = _path_from_env(
     "LOVE_TIMETABLE_PATH", LOVE_APP_DIR / "backend" / "data" / "train_timetable.json"
 )

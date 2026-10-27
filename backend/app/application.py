@@ -64,7 +64,7 @@ from .tasks import create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
-from .love_lijie import create_lijie_router
+from .love_schedule import create_schedule_router
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
 from .task_import import create_task_import_router
@@ -454,7 +454,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'history_cleanup_preview':True,'history_restore':True,'identity':True,
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'love': runtime_label == 'personal',
-                    'love_lijie': runtime_label == 'personal',
+                    'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
                     'memory_export':True,'monthly_review':True,'planning_export':True,
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
@@ -689,18 +689,20 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     if runtime_label == 'personal':
         from .config import (
             LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DB_PATH,
-            LOVE_EXCEL_DIR, LOVE_STOPWORDS_PATH, LOVE_TIMETABLE_PATH,
+            LOVE_EXCEL_DIR, LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME,
+            LOVE_TIMETABLE_PATH,
         )
         love_settings = LoveSettings(
             db_path=LOVE_DB_PATH, app_dir=LOVE_APP_DIR,
             stopwords_path=LOVE_STOPWORDS_PATH, excel_dir=LOVE_EXCEL_DIR,
             timetable_path=LOVE_TIMETABLE_PATH, api_base_url=LOVE_API_BASE_URL,
-            api_model=LOVE_API_MODEL,
+            api_model=LOVE_API_MODEL, target_name=LOVE_TARGET_NAME,
         )
         app.state.love_settings = love_settings
         app.include_router(create_love_router(settings=love_settings))
-        app.include_router(create_lijie_router(
-            love_settings.excel_dir, love_settings.timetable_path))
+        app.include_router(create_schedule_router(
+            love_settings.excel_dir, love_settings.timetable_path,
+            love_settings.target_name))
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
     app.include_router(create_activity_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])

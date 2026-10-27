@@ -62,7 +62,7 @@ test("恋爱系统只调用本机原生 API", async () => {
     "/journal",
     "/profile",
     "/report",
-    "/lijie/",
+    "/schedule/",
     "/settings/api-key",
   ]) {
     assert.ok(love.includes(endpoint), `缺少接口：${endpoint}`);

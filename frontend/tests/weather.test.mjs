@@ -1,15 +1,20 @@
-// 天气卡：5 天缩略条、点选切换、8 项日级数据与转义。
+// 天气小组件：紧凑卡片、详情浮窗、常用城市与转义。
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  clockPieces, startClock, clockHtml, weatherHtml, forecastDays, clampSelection, cityOptions,
+  WEATHER_AUTO_KEY, addFavorite, cityKey, clampSelection, clockDateLabel,
+  clockHtml, clockPieces, findFavorite, forecastDays, normalizeCity, normalizeFavorites,
+  removeFavorite, startClock, weatherAriaLabel, weatherCardHtml, weatherDetailHtml,
+  weatherSearchResultsHtml,
 } from "../weather.js";
 
 const PAYLOAD = {
   city: "南昌", source: "env", note: "", cities: ["赣州", "南昌", "上海", "北京"],
+  latitude: 28.68, longitude: 115.86,
   temperature: 17.3, apparent_temperature: 16.1, relative_humidity: 66,
   wind_speed: 10.1, weather_code: 0, weather: "晴", icon: "☀️",
   observed_at: "2026-10-06T23:15", cached: false,
+  fetched_at: "2026-10-06T23:15:00",
   forecast: [
     {
       day: "2026-10-06", weekday: "周二", weather: "晴", icon: "☀️",
@@ -31,6 +36,11 @@ const PAYLOAD = {
     },
   ],
 };
+
+const FAVORITES = [
+  { name: "南昌" },
+  { name: "上海", latitude: 31.23, longitude: 121.47 },
+];
 
 test("forecastDays trims to five days and labels the first one 今天", () => {
   const days = forecastDays(PAYLOAD);
@@ -58,60 +68,124 @@ test("clampSelection keeps a stale index inside the list", () => {
   assert.equal(clampSelection(3, 0), 0); // 没有预报数据也不炸
 });
 
-test("the top half shows today's live reading and all eight daily items", () => {
-  const html = weatherHtml(PAYLOAD, { selected: 0 });
-  assert.ok(html.includes("17.3°"));            // 今天用实况温度
+test("the compact card only shows time, date, city and today's weather", () => {
+  const html = weatherCardHtml(PAYLOAD);
+  assert.ok(html.includes("17°"));                       // 实况温度取整
   assert.ok(html.includes("南昌") && html.includes("晴"));
-  assert.ok(html.includes("实况 23:15"));
-  assert.ok(html.includes("高 26° · 低 17°"));
-  for (const label of ["体感", "湿度", "降水可能性", "风向", "风速", "气压", "日出", "日落"]) {
-    assert.ok(html.includes(`<small>${label}</small>`), label);
+  assert.ok(html.includes("最高 26° · 最低 17°"));       // 今日高/低温
+  for (const hidden of ["体感", "湿度", "降水可能性", "weather-week", "weather-city-select", "五日"]) {
+    assert.equal(html.includes(hidden), false, `${hidden} 应该在详情浮窗里，不在卡片上`);
   }
-  assert.ok(html.includes("28° / 16°"));        // 体感最高/最低
+  // 没有数据时的空态
+  assert.ok(weatherCardHtml(null).includes("天气暂时拿不到"));
+  assert.ok(weatherCardHtml({ ...PAYLOAD, forecast: [] }).includes("今日高低温暂缺"));
+});
+
+test("the card aria label reads out city, weather and the daily range", () => {
+  const label = weatherAriaLabel(PAYLOAD);
+  assert.ok(label.includes("南昌") && label.includes("晴") && label.includes("17°"));
+  assert.ok(label.includes("最高 26°") && label.includes("最低 17°"));
+  assert.ok(label.includes("点击查看详情"));
+  assert.ok(weatherAriaLabel(null).includes("天气暂时拿不到"));
+});
+
+test("the detail dialog contains the 5-day strip, city management and every metric", () => {
+  const html = weatherDetailHtml(PAYLOAD, {
+    selected: 0, favorites: FAVORITES, selectedKey: "南昌",
+  });
+  assert.ok(html.includes("weather-city-search"));         // 搜索添加
+  assert.ok(html.includes("data-weather-city-remove=\"南昌\"")); // 删除常用城市
+  assert.ok(html.includes(`data-weather-city="${cityKey(FAVORITES[1])}"`));
+  assert.ok(html.includes("data-weather-day=\"2\""));      // 5 日缩略条
+  for (const label of ["体感", "湿度", "降水可能性", "风向", "风速", "气压", "日出", "日落"]) {
+    assert.ok(html.includes(`<span>${label}</span>`), label);
+  }
   assert.ok(html.includes("东北风") && html.includes("12.4 km/h"));
   assert.ok(html.includes("1021 hPa") && html.includes("06:12") && html.includes("17:52"));
-  assert.ok(html.includes('<span class="weather-week-name">今天</span>'));
-  assert.ok(html.includes('data-weather-day="2"'));  // 5 天缩略条按天出按钮
+  assert.ok(html.includes("更新于 2026-10-06 23:15"));
 });
 
-test("picking another day swaps the top half and marks the tile", () => {
-  const html = weatherHtml(PAYLOAD, { selected: 1 });
-  assert.ok(html.includes("21°"));              // 周三当天最高温当主数字（21.2 → 21°）
-  assert.ok(html.includes("周三") && html.includes("小雨"));
-  assert.ok(html.includes("高 21° · 低 17°"));
+test("picking another day swaps the hero and metrics in the dialog", () => {
+  const html = weatherDetailHtml(PAYLOAD, {
+    selected: 1, favorites: FAVORITES, selectedKey: "南昌",
+  });
+  assert.ok(html.includes("21°"));                 // 周三最高温当主数字
+  assert.ok(html.includes("小雨") && html.includes("周三"));
   assert.ok(html.includes("80%") && html.includes("南风") && html.includes("20.1 km/h"));
-  assert.equal(html.includes("实况 23:15"), false); // 实况只在今天那格
   assert.ok(html.includes('data-weather-day="1" aria-pressed="true"'));
   assert.ok(html.includes('data-weather-day="0" aria-pressed="false"'));
+  assert.equal(html.includes("实况 23:15"), false); // 实况只在今天那格
 });
 
-test("the five-day strip renders five buttons with compact ranges", () => {
-  const html = weatherHtml(PAYLOAD, { selected: 0 });
-  assert.equal((html.match(/data-weather-day="/g) || []).length, 3);
-  assert.ok(html.includes("26°/17°") && html.includes("21°/17°")); // 紧凑写法，窄卡片放得下
-  assert.ok(html.includes('aria-label="查看 周三 10-07 的天气：小雨"'));
+test("the current location row appears when no saved city is selected", () => {
+  const html = weatherDetailHtml(PAYLOAD, {
+    selected: 0, favorites: FAVORITES, selectedKey: WEATHER_AUTO_KEY,
+  });
+  assert.ok(html.includes("当前定位"));
+  assert.ok(html.includes(`data-weather-city="${WEATHER_AUTO_KEY}"`));
+  assert.ok(html.includes(`data-weather-city="${cityKey(FAVORITES[1])}"`));
+  assert.ok(html.includes("data-weather-city-save-current")); // 当前定位可直接加入常用
 });
 
-test("the city is a dropdown when the backend ships a list", () => {
-  const html = weatherHtml(PAYLOAD, { selected: 0 });
-  assert.ok(html.includes('<select class="weather-city-select" aria-label="选择城市">'));
-  assert.ok(html.includes('<option value="上海">上海</option>'));
-  assert.ok(html.includes('<option value="南昌" selected>南昌</option>'));
-  // 换了城市、后端不再给清单（老后端）：退回纯文字，不画空下拉
-  const old = weatherHtml({ ...PAYLOAD, cities: [] }, { selected: 0 });
-  assert.equal(old.includes("weather-city-select"), false);
-  assert.ok(old.includes('class="weather-city-name">南昌<'));
+test("the dialog handles loading, failure and notes without crashing", () => {
+  assert.ok(weatherDetailHtml(null, { loading: true }).includes("正在读取天气…"));
+  const failed = weatherDetailHtml(null, { notice: "无法连接天气服务" });
+  assert.ok(failed.includes("天气暂时拿不到"));
+  assert.ok(failed.includes("无法连接天气服务"));
+  assert.ok(failed.includes("data-weather-retry"));
+  // 天气取不到时仍能管理和搜索常用城市
+  assert.ok(failed.includes("data-weather-city-search"));
+
+  const cached = weatherDetailHtml({ ...PAYLOAD, cached: true, source: "ip" }, {
+    favorites: FAVORITES, selectedKey: "南昌", notice: "刷新失败，显示上次数据",
+  });
+  assert.ok(cached.includes("缓存") && cached.includes("IP 定位"));
+  assert.ok(cached.includes("刷新失败，显示上次数据"));
 });
 
-test("cityOptions keeps the current city even when it is off the list", () => {
-  assert.deepEqual(cityOptions(PAYLOAD), ["赣州", "南昌", "上海", "北京"]);
-  assert.deepEqual(cityOptions({ ...PAYLOAD, city: "火星" }), ["火星", "赣州", "南昌", "上海", "北京"]);
-  assert.deepEqual(cityOptions({ city: "南昌" }), []);
-  assert.deepEqual(cityOptions(null), []);
-  // 城市名里的引号/尖括号要被转义（它会进 option 的 value 属性）
-  const tricky = weatherHtml({ ...PAYLOAD, city: '"><script>x</script>', cities: ['"><script>x</script>'] },
-    { selected: 0 });
-  assert.equal(tricky.includes("<script>"), false);
+test("favorites normalize, dedupe and keep same-name cities apart by coordinates", () => {
+  assert.deepEqual(normalizeCity(" 南昌 "), {
+    name: "南昌", latitude: null, longitude: null, admin1: "", country: "",
+  });
+  assert.equal(normalizeCity(""), null);
+  assert.equal(normalizeCity({ name: "" }), null);
+  const withBadCoords = normalizeCity({ name: "火星", latitude: 999, longitude: 0 });
+  assert.equal(withBadCoords.latitude, null); // 越界坐标丢掉，城市名保留
+
+  const list = normalizeFavorites(["南昌", { name: "南昌" }, "上海", null]);
+  assert.deepEqual(list.map((city) => city.name), ["南昌", "上海"]);
+
+  const springfieldA = normalizeCity({ name: "Springfield", latitude: 39.8, longitude: -89.6 });
+  const springfieldB = normalizeCity({ name: "Springfield", latitude: 42.1, longitude: -72.6 });
+  assert.notEqual(cityKey(springfieldA), cityKey(springfieldB));
+
+  const added = addFavorite(list, springfieldA);
+  assert.equal(added.length, 3);
+  assert.equal(addFavorite(added, springfieldA).length, 3); // 重复添加不增加
+  assert.equal(findFavorite(added, cityKey(springfieldA)).name, "Springfield");
+  assert.deepEqual(removeFavorite(added, "上海").map((city) => city.name), ["南昌", "Springfield"]);
+});
+
+test("city search results mark already-added cities and escape hostile names", () => {
+  const state = {
+    query: "南",
+    results: [{ name: "南昌" }, { name: "南京", admin1: "江苏省", country: "中国" }],
+    loading: false, error: "",
+  };
+  const html = weatherSearchResultsHtml(state, FAVORITES);
+  assert.ok(html.includes("data-weather-city-add=\"0\" disabled")); // 南昌已添加
+  assert.ok(html.includes("data-weather-city-add=\"1\""));           // 南京可添加
+  assert.ok(html.includes("江苏省 · 中国"));
+
+  const hostile = weatherSearchResultsHtml({
+    query: "x", results: [{ name: "<img src=x>", admin1: "<b>省</b>" }], loading: false, error: "",
+  }, []);
+  assert.equal(hostile.includes("<img src=x>"), false);
+  assert.equal(hostile.includes("<b>省</b>"), false);
+
+  assert.ok(weatherSearchResultsHtml({ query: "", results: [] }, []).includes("weather-search-status"));
+  assert.ok(weatherSearchResultsHtml({ query: "zz", results: [], error: "在线搜索不可用" })
+    .includes("在线搜索不可用"));
 });
 
 test("weather html escapes text and degrades without a forecast", () => {
@@ -119,34 +193,37 @@ test("weather html escapes text and degrades without a forecast", () => {
     ...PAYLOAD, city: "<b>南昌</b>", weather: "<script>x</script>", icon: "<img src=x>",
     forecast: [{ ...PAYLOAD.forecast[0], weather: "<i>雨</i>", wind_direction: "<b>北</b>" }],
   };
-  const html = weatherHtml(hostile, { selected: 0 });
-  assert.equal(html.includes("<script>"), false);
-  assert.equal(html.includes("<img src=x>"), false);
-  assert.equal(html.includes("<i>雨</i>"), false);
-  assert.ok(html.includes("&lt;b&gt;北&lt;/b&gt;"));
+  const card = weatherCardHtml(hostile);
+  assert.equal(card.includes("<script>"), false);
+  assert.equal(card.includes("<img src=x>"), false);
 
-  // 没有 forecast（老后端/降级）：只画实况，不画缩略条
-  const bare = weatherHtml({ ...PAYLOAD, forecast: [] }, { selected: 2 });
+  const detail = weatherDetailHtml(hostile, { favorites: [], selectedKey: "" });
+  assert.equal(detail.includes("<script>"), false);
+  assert.equal(detail.includes("<img src=x>"), false);
+  assert.equal(detail.includes("<i>雨</i>"), false);
+  assert.ok(detail.includes("&lt;b&gt;北&lt;/b&gt;"));
+
+  // 没有 forecast（老后端/降级）：详情只画实况，不画缩略条
+  const bare = weatherDetailHtml({ ...PAYLOAD, forecast: [] }, { favorites: [], selectedKey: "" });
   assert.ok(bare.includes("17.3°") && bare.includes("南昌"));
-  assert.equal(bare.includes("weather-week"), false);
-  assert.equal(bare.includes("降水可能性"), false);
-
-  // 拿不到数据时的空态
-  const empty = weatherHtml(null, { selected: 0 });
-  assert.ok(empty.includes("天气暂时拿不到"));
-  assert.equal(empty.includes("weather-week"), false);
+  assert.equal(bare.includes("weather-detail-days"), false);
+  assert.ok(bare.includes("这次没有拿到五日预报"));
 
   // 缺字段的那一天：— 占位，不出现 NaN
-  const partial = weatherHtml({ ...PAYLOAD, forecast: [{ day: "2026-10-06", weekday: "周二" }] },
-    { selected: 0 });
+  const partial = weatherDetailHtml(
+    { ...PAYLOAD, forecast: [{ day: "2026-10-06", weekday: "周二" }] },
+    { favorites: [], selectedKey: "" },
+  );
   assert.equal(partial.includes("NaN"), false);
   assert.ok(partial.includes("—"));
 });
 
-test("clock pieces and the ticking clock stay shanghai-bound", () => {
+test("clock pieces format as 年月日 + 星期 and the ticking clock stays shanghai-bound", () => {
   const pieces = clockPieces(Date.parse("2026-10-06T15:15:07Z"));
   assert.deepEqual(pieces, { time: "23:15:07", date: "2026-10-06", weekday: "周二" });
-  assert.ok(clockHtml(pieces).includes("23:15:07"));
+  assert.equal(clockDateLabel(pieces), "2026年10月6日 周二");
+  const html = clockHtml(pieces);
+  assert.ok(html.includes("23:15:07") && html.includes("2026年10月6日 周二"));
 
   const ticks = [];
   const scheduled = [];
