@@ -22,7 +22,7 @@ GROUPS: dict[str, set[str]] = {
     '资料与记忆': {'documents', 'memories', 'memory_events', 'memory_usages', 'memory_deletions', 'memory_embeddings'},
     '对话': {'conversations', 'messages', 'harness_sessions'},
     '目标与任务': {'goals', 'tasks', 'task_import_ledger'},
-    '每日记录': {'journal_entries', 'journal_actions', 'body_entries', 'inbox_items', 'scheduler_settings'},
+    '每日记录': {'journal_entries', 'journal_actions', 'body_entries', 'inbox_items', 'scheduler_settings', 'fortune_checkins'},
     '习惯与学习': {'habit_definitions', 'habit_entries', 'study_subjects', 'study_sessions'},
     '个人参考': {'bazi_profiles'},
     '建议与提醒': {'suggestions'},

@@ -57,6 +57,7 @@ from .growth_export import create_growth_export_router
 from .identity import create_identity_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
+from .fortune import create_fortune_router
 from .journal_note import create_journal_note_router
 from .todo_note import create_todo_router
 from .tasks import create_tasks_router
@@ -673,6 +674,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                        dependencies=[Depends(journal_data_guard)])
     # Workbench: one read of everything today; drafts are deterministic.
     app.include_router(create_workbench_router(database, vault_dir),
+                       dependencies=[Depends(journal_data_guard)])
+    # 每日运势签到：只写一行 DB 状态；黄历内容在浏览器本地由 lunar 库生成。
+    app.include_router(create_fortune_router(database),
                        dependencies=[Depends(journal_data_guard)])
     app.include_router(create_dsh_router(dsh_runtime, dsh_proxy))
 

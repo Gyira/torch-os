@@ -4,7 +4,7 @@
 import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
-import { renderAlmanac } from "./almanac.js";
+import { initAlmanacWidget, renderAlmanac } from "./almanac-widget.js";
 import { renderClock, renderWeather, startClock } from "./weather.js";
 import { applyBanner, startRotation, imageSrc } from "./banner.js";
 import { setBannerSource, initBannerEditor } from "./banner-editor.js";
@@ -65,7 +65,9 @@ export function renderWorkbench(payload) {
   const progress = $("#time-progress-bar");
   if (progress) progress.title = describeProgress(payload.progress);
 
-  renderAlmanac($("#workbench-almanac"), payload.day, name, payload.progress);
+  renderAlmanac($("#workbench-almanac"), {
+    day: payload.day, name, progress: payload.progress, fortune: payload.fortune,
+  });
   renderDaily(payload);
   renderWelcome(payload);
   // 右侧小组件可以拖拽换位：重画后把新出现的组件接进来，顺序保持本机保存的结果。
@@ -354,6 +356,7 @@ export function initWorkbench() {
   initBannerCollapse();
   initCountdownWidget();
   initWidgetDrag();
+  initAlmanacWidget();
   initDeepSeekBalance();
   initTimeModule();
   if (!clockStarted) {

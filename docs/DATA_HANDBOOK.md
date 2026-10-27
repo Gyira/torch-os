@@ -14,6 +14,7 @@
 | `dida_sync_settings` | 系统 |
 | `dida_task_links` | 系统 |
 | `documents` | 资料与记忆 |
+| `fortune_checkins` | 每日记录 |
 | `goals` | 目标与任务 |
 | `habit_definitions` | 习惯 |
 | `habit_entries` | 习惯 |
@@ -45,7 +46,8 @@
 - 目标与任务：`goals`、`tasks`、`task_import_ledger` 是旧 SQLite 结构（deprecated，无写入方）；
   目标和任务以 Markdown 为权威，任务导入用任务笔记的稳定导入键去重。
 - 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，
-  仅保留历史数据与导出读取）；`inbox_items`、`scheduler_settings` 是收件箱与调度设置。
+  仅保留历史数据与导出读取）；`inbox_items`、`scheduler_settings` 是收件箱与调度设置；
+  `fortune_checkins` 是每日运势签到（只记日期与签到时间，黄历内容本身不落库）。
   身体记录改读健康月度 Markdown 表，旧 `body_entries` 表不再创建。
 - 习惯：`habit_definitions`、`habit_entries`；旧学习表已退役且不再创建。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。

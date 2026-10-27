@@ -459,17 +459,109 @@ body.view-workbench .topbar { display: none; }
 .workbench-welcome-dismiss { border: 0; background: transparent; color: var(--p-ink-5); font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
 .workbench-welcome-dismiss:hover { background: var(--p-hover); color: var(--p-ink); }
 @media (max-width: 760px) { .workbench-welcome { flex-direction: column; align-items: flex-start; gap: 10px; } .workbench-welcome-actions { width: 100%; } }
-/* 今日黄历（2026-10-05）：右上角小巧挂件，按日期确定性生成。 */
-.almanac { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 12px 14px; }
-.almanac-title { margin: 0; text-align: center; font-size: 13px; color: var(--p-ink-3); }
-.almanac-fortune { margin: 6px 0 10px; text-align: center; font-size: 20px; font-weight: 700; letter-spacing: .12em; color: var(--p-err-ink); }
-.almanac-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.almanac-item { margin: 0; font-size: 13px; color: var(--p-ink); }
-.almanac-good .almanac-item strong { color: var(--p-err-ink); }
-.almanac-bad .almanac-item strong { color: var(--p-ink-strong); }
-.almanac-note { display: block; margin: 1px 0 8px; font-size: 11px; color: var(--p-ink-4); }
-.almanac-note:last-child { margin-bottom: 0; }
-.almanac-meta { margin: 10px 0 0; text-align: center; font-size: 11px; color: var(--p-ink-4); }
+/* 今日黄历（2026-10-27 重做）：参考传统黄历图片的分区；签到后才显示完整内容。 */
+.almanac { border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 0; overflow: hidden; color: var(--p-ink); }
+.almanac.is-unlocked { cursor: pointer; }
+.almanac.is-unlocked:hover { border-color: var(--p-line-input); }
+.almanac-card { min-width: 0; }
+.almanac-unlocked:focus-visible { outline: none; box-shadow: inset 0 0 0 3px var(--p-focus-ring); }
+.almanac-locked { display: grid; justify-items: center; gap: 7px; padding: 20px 14px 17px; text-align: center; }
+.almanac-locked-date { margin: 0; font-size: 11px; color: var(--p-ink-4); }
+.almanac-locked-seal { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--p-err-line); border-radius: 50%; color: var(--p-err-ink); font-family: var(--p-font-display); font-size: 22px; }
+.almanac-locked-title { margin: 1px 0 0; font-family: var(--p-font-display); font-size: 18px; letter-spacing: .08em; color: var(--p-ink-strong); }
+.almanac-locked-hint { margin: 0; font-size: 11px; line-height: 1.6; color: var(--p-ink-4); }
+.almanac-checkin { width: 100%; margin-top: 5px; padding: 8px 10px; font-size: 12px; }
+.almanac-sheet { font-size: 12px; line-height: 1.45; }
+.almanac-top { display: grid; grid-template-columns: 96px minmax(0, 1fr); border-bottom: 1px solid var(--p-line-2); }
+.almanac-datecol { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: start; padding: 9px 6px 8px 14px; border-right: 1px solid var(--p-line-2); }
+.almanac-lunar-name { margin: 0; writing-mode: vertical-rl; text-orientation: upright; font-family: var(--p-font-display); font-size: 16px; line-height: 1.05; letter-spacing: .06em; color: var(--p-ink-strong); }
+.almanac-gz { display: flex; align-items: flex-start; gap: 2px; }
+.almanac-gz span { writing-mode: vertical-rl; text-orientation: upright; font-size: 9px; line-height: 1.15; color: var(--p-ink-4); }
+.almanac-info { display: grid; align-content: start; }
+.almanac-info-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 6px; padding: 7px 9px; border-bottom: 1px solid var(--p-line-faint); }
+.almanac-info-row:last-child { border-bottom: 0; }
+.almanac-info-key { font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--p-ink-4); }
+.almanac-info-value { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: var(--p-ink-2); }
+.almanac-gods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--p-line-2); }
+.almanac-god { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border-right: 1px solid var(--p-line-faint); }
+.almanac-god:last-child { border-right: 0; }
+.almanac-god-label { font-size: 10px; color: var(--p-ink-4); }
+.almanac-god strong { font-size: 12px; font-weight: 600; color: var(--p-ink-strong); }
+.almanac-yiji { display: grid; gap: 7px; padding: 9px; border-bottom: 1px solid var(--p-line-2); }
+.almanac-yiji-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 7px; align-items: start; }
+.almanac-seal { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: var(--p-invert-ink); font-size: 11px; font-weight: 700; line-height: 1; }
+.almanac-seal.is-good { background: var(--p-ok-solid); }
+.almanac-seal.is-bad { background: var(--p-err-solid); }
+.almanac-yiji-terms { display: flex; flex-wrap: wrap; gap: 2px 6px; padding-top: 2px; }
+.almanac-term { white-space: nowrap; font-size: 11px; color: var(--p-ink-2); }
+.almanac-spirits { display: grid; gap: 4px; padding: 8px 9px; border-bottom: 1px solid var(--p-line-2); }
+.almanac-spirits p { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 6px; margin: 0; font-size: 11px; color: var(--p-ink-2); }
+.almanac-term-label { font-size: 10px; font-weight: 600; color: var(--p-ink-4); }
+.almanac-terms { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.almanac-personal { padding: 9px 9px 10px; background: var(--p-surface-2); }
+.almanac-personal-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.almanac-personal-title { font-size: 10px; color: var(--p-ink-4); }
+.almanac-personal-level { white-space: nowrap; font-family: var(--p-font-display); font-size: 15px; letter-spacing: .08em; color: var(--p-err-ink); }
+.almanac-personal-line { margin: 3px 0 0; font-size: 11px; line-height: 1.5; color: var(--p-ink-2); }
+.almanac-personal-line b { margin-right: 3px; font-weight: 700; }
+.almanac-personal-good { color: var(--p-ok-ink); }
+.almanac-personal-bad { color: var(--p-err-ink); }
+.almanac-meta { margin: 5px 0 0; font-size: 10px; color: var(--p-ink-4); }
+.almanac-personal-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin: 6px 0 0; padding: 0; list-style: none; }
+.almanac-personal-notes li { display: grid; gap: 1px; font-size: 11px; color: var(--p-ink-4); }
+.almanac-personal-notes strong { font-weight: 600; color: var(--p-ink-2); }
+.almanac-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border-top: 1px solid var(--p-line-2); }
+.almanac-checked-badge { font-size: 10px; color: var(--p-ok-ink); }
+.almanac-detail-button { padding: 2px 0; font-size: 10px; color: var(--p-accent); }
+
+/* 黄历详细浮窗：宽版两栏（月历 + 选中日），窄屏上下堆叠。 */
+dialog.almanac-mode { width: min(1040px, calc(100vw - 24px)); max-width: min(1040px, calc(100vw - 24px)); max-height: 92vh; }
+#detail-dialog.almanac-mode #dialog-content { max-height: calc(92vh - 61px); padding: 0; overflow: auto; background: var(--p-surface-2); }
+.almanac-dialog { padding: 0; }
+.almanac-dialog-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--p-line-2); background: var(--p-surface); }
+.almanac-dialog-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.almanac-dialog-nav select { border: 1px solid var(--p-line-input); border-radius: 6px; padding: 5px 7px; background: var(--p-surface); color: var(--p-ink); font-size: 12px; }
+.almanac-dialog-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px; }
+.almanac-calendar { padding: 10px; border: 1px solid var(--p-line-2); border-radius: 10px; background: var(--p-surface); }
+.almanac-calendar-title { margin: 0 0 8px; text-align: center; font-family: var(--p-font-display); font-size: 16px; color: var(--p-ink-strong); }
+.almanac-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin-bottom: 4px; text-align: center; font-size: 10px; color: var(--p-ink-4); }
+.almanac-month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.almanac-day-cell { display: grid; gap: 1px; min-height: 40px; padding: 4px 2px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--p-ink); text-align: center; }
+.almanac-day-cell:hover { background: var(--p-hover); }
+.almanac-day-cell.is-empty { visibility: hidden; }
+.almanac-day-cell.is-today { border-color: var(--p-accent-line); }
+.almanac-day-cell.is-selected { background: var(--p-invert-bg); color: var(--p-invert-ink); }
+.almanac-day-cell.is-selected .almanac-day-lunar { color: var(--p-banner-ink-soft); }
+.almanac-day-num { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.almanac-day-lunar { overflow: hidden; font-size: 9px; color: var(--p-ink-4); text-overflow: ellipsis; white-space: nowrap; }
+.almanac-day-cell.has-jieqi .almanac-day-lunar { color: var(--p-accent); }
+.almanac-calendar-hint { margin: 8px 0 0; font-size: 10px; line-height: 1.5; color: var(--p-ink-4); }
+.almanac-detail { min-width: 0; overflow: hidden; border: 1px solid var(--p-line-2); border-radius: 10px; background: var(--p-surface); }
+.almanac-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--p-line-2); background: var(--p-surface-2); }
+.almanac-detail-head h3 { margin: 0; font-family: var(--p-font-display); font-size: 18px; color: var(--p-ink-strong); }
+.almanac-detail-head p { margin: 3px 0 0; font-size: 11px; color: var(--p-ink-4); }
+.almanac-today-badge { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: var(--p-accent-soft); color: var(--p-warm-ink); font-size: 10px; font-weight: 700; }
+.almanac-detail .almanac-sheet { font-size: 13px; }
+.almanac-detail .almanac-top { grid-template-columns: 106px minmax(0, 1fr); }
+.almanac-detail .almanac-datecol { gap: 6px; padding-left: 14px; }
+.almanac-detail .almanac-lunar-name { font-size: 22px; }
+.almanac-detail .almanac-gz span { font-size: 10px; }
+.almanac-detail .almanac-info-key { font-size: 11px; }
+.almanac-detail .almanac-info-value { font-size: 12px; }
+.almanac-detail .almanac-term { font-size: 12px; }
+.almanac-detail .almanac-god strong { font-size: 14px; }
+.almanac-detail .almanac-personal-notes { gap: 6px 18px; }
+@media (max-width: 860px) {
+  .almanac-dialog-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .almanac-dialog-toolbar { position: static; }
+  .almanac-dialog-body { padding: 10px; }
+  .almanac-detail .almanac-top { grid-template-columns: 100px minmax(0, 1fr); }
+  .almanac-detail .almanac-lunar-name { font-size: 20px; }
+  .almanac-detail .almanac-gz span { font-size: 9px; }
+  .almanac-personal-notes { grid-template-columns: minmax(0, 1fr); }
+}
 /* 倒计时卡（仿 Apex Dashboard）：右侧窄卡，渐变/自定义图片背景，齿轮进设置。 */
 .countdown-card { position: relative; isolation: isolate; overflow: hidden; min-height: 154px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-sidebar); color: var(--p-banner-num); box-shadow: 0 1px 2px var(--p-shadow); }
 .countdown-bg { position: absolute; inset: 0; z-index: 0; background-color: var(--p-sidebar); background-position: center; background-size: cover; }

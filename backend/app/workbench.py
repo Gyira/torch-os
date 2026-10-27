@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict
 
 from . import journal_note, todo_note, vault_layout
 from .db import Database, utc_now
+from .fortune import FortuneService
 from .habits import HabitService
 from .identity import greeting_for, read_identity
 
@@ -142,6 +143,7 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
     total = len(todos) + len(daily) + len(habits) + 1
     done = len(done_todos) + len(done_daily) + len(done_habits) + (1 if journal_written else 0)
     percent = round(done * 100 / total) if total else 0
+    fortune = FortuneService(database).status(day)
 
     return {
         "day": day,
@@ -178,6 +180,7 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
             "has_next_action": _has_next_action(journal.get("content") or ""),
         },
         "progress": {"done": done, "total": total, "percent": percent},
+        "fortune": fortune,
     }
 
 

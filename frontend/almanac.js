@@ -1,6 +1,7 @@
-// 今日黄历（挂件）：按日期确定性生成——同一天刷新不变，每天自动换一副。
-// 内容池 = 传统黄历腔 + 个人生活梗（含对洛谷运势挂件的致意条目）。
+// 今日黄历数据层（2026-10-27 重做）：真实黄历来自 vendored lunar-javascript，
+// 个人运势沿用原来的确定性内容池（同一天刷新不变、每天自动换一副）。
 // 这个模块保持“无 DOM 依赖”的纯函数风格，方便在 node 测试里直接跑。
+import { Solar } from "./vendor/lunar.js";
 
 const AUSPICIOUS_POOL = [
   ["祭祀", "获得祖宗的庇护"],
@@ -64,6 +65,10 @@ const FORTUNES = [
   ["大吉", 3], ["中吉", 6], ["小吉", 8], ["吉", 8], ["末吉", 5], ["平", 4],
 ];
 
+const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
+export const ALMANAC_MIN_YEAR = 1900;
+export const ALMANAC_MAX_YEAR = 2100;
+
 function hashDay(day) {
   let hash = 2166136261 >>> 0;
   for (const char of String(day)) {
@@ -117,32 +122,254 @@ function esc(value) {
   ));
 }
 
-export function almanacHtml(day, name, progress) {
-  const data = buildAlmanac(day);
-  const who = String(name || "").trim() || "你";
-  const column = (items, label) => items.map(([title, note]) => (
-    `<p class="almanac-item"><strong>${label}：</strong>${esc(title)}</p>` +
-    `<span class="almanac-note">${esc(note)}</span>`
-  )).join("");
-  const meta = progress && progress.total
-    ? `<p class="almanac-meta">今日闭环 ${Number(progress.done) || 0} / ${Number(progress.total) || 0} 项（含日记）</p>`
-    : "";
-  return [
-    '<div class="almanac-card">',
-    `<p class="almanac-title">${esc(who)} 的运势</p>`,
-    `<p class="almanac-fortune">§ ${esc(data.fortune)} §</p>`,
-    '<div class="almanac-lists">',
-    `<div class="almanac-col almanac-good">${column(data.auspicious, "宜")}</div>`,
-    `<div class="almanac-col almanac-bad">${column(data.inauspicious, "忌")}</div>`,
-    "</div>",
-    meta,
-    "</div>",
-  ].join("");
+function listOrNone(items) {
+  return Array.isArray(items) && items.length ? items : ["无"];
 }
 
-export function renderAlmanac(element, day, name, progress) {
-  if (!element) return;
-  element.innerHTML = almanacHtml(day, name, progress);
+function solarOf(day) {
+  const [year, month, date] = String(day).split("-").map(Number);
+  return Solar.fromYmd(year, month, date);
+}
+
+/** 真实黄历：农历、干支、纳音、冲煞、彭祖、喜福财方位、宜忌、吉神凶神。 */
+export function lunarAlmanac(day) {
+  const solar = solarOf(day);
+  const lunar = solar.getLunar();
+  const chong = String(lunar.getDayChongDesc() || "");
+  const sha = String(lunar.getDaySha() || "");
+  const weekday = solar.getWeekInChinese();
+  return {
+    day: solar.toYmd(),
+    solar: {
+      year: solar.getYear(),
+      month: solar.getMonth(),
+      day: solar.getDay(),
+      weekday,
+      weekdayLabel: `星期${weekday}`,
+      monthDayLabel: `${solar.getMonth()}月${solar.getDay()}日`,
+    },
+    lunar: {
+      yearLabel: `${lunar.getYearInGanZhi()}${lunar.getYearShengXiao()}年`,
+      monthLabel: `${lunar.getMonthInGanZhi()}月`,
+      dayLabel: `${lunar.getDayInGanZhi()}日`,
+      dateLabel: `农历${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`,
+      monthChinese: lunar.getMonthInChinese(),
+      dayChinese: lunar.getDayInChinese(),
+    },
+    wuxing: lunar.getDayNaYin(),
+    chong: `冲${chong}`,
+    sha: sha ? `煞${sha}` : "",
+    chongSha: `冲${chong}${sha ? ` 煞${sha}` : ""}`,
+    pengzu: [lunar.getPengZuGan(), lunar.getPengZuZhi()].filter(Boolean),
+    gods: [
+      { label: "喜神", direction: lunar.getDayPositionXiDesc() },
+      { label: "福神", direction: lunar.getDayPositionFuDesc() },
+      { label: "财神", direction: lunar.getDayPositionCaiDesc() },
+    ],
+    yi: listOrNone(lunar.getDayYi()),
+    ji: listOrNone(lunar.getDayJi()),
+    jiShen: listOrNone(lunar.getDayJiShen()),
+    xiongSha: listOrNone(lunar.getDayXiongSha()),
+  };
+}
+
+/** 真实黄历 + 原来的个人运势/生活宜忌。 */
+export function almanacForDay(day) {
+  return { ...lunarAlmanac(day), personal: buildAlmanac(day) };
+}
+
+/**
+ * 月历数据（周一起始）。today 传入才标记“今天”，保持纯函数。
+ * cells 里 null 是月初/月末的占位；其余含公历日、农历日、节气。
+ */
+export function monthGridData(year, month, today = "") {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const offset = (first.getUTCDay() + 6) % 7;
+  const cells = Array.from({ length: offset }, () => null);
+  for (let date = 1; date <= daysInMonth; date += 1) {
+    const day = `${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+    const solar = Solar.fromYmd(year, month, date);
+    const lunar = solar.getLunar();
+    const lunarDay = lunar.getDayInChinese();
+    const jieQi = lunar.getJieQi() || "";
+    cells.push({
+      day,
+      solarDay: date,
+      lunarLabel: lunarDay === "初一" ? `${lunar.getMonthInChinese()}月` : lunarDay,
+      jieQi,
+      isToday: day === today,
+    });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return { year, month, offset, cells };
+}
+
+function infoRow(label, value) {
+  return `<div class="almanac-info-row"><span class="almanac-info-key">${esc(label)}</span><span class="almanac-info-value">${esc(value)}</span></div>`;
+}
+
+function termList(items, label) {
+  return `<span class="almanac-term-label">${esc(label)}</span><span class="almanac-terms">${items.map((item) => `<span class="almanac-term">${esc(item)}</span>`).join("")}</span>`;
+}
+
+function personalHtml(personal, name, progress, detailed) {
+  const who = String(name || "").trim() || "你";
+  const lines = (items) => items.map(([title]) => esc(title)).join(" · ");
+  const notes = detailed
+    ? `<ul class="almanac-personal-notes">
+        ${personal.auspicious.map(([title, note]) => `<li><strong>宜 · ${esc(title)}</strong><span>${esc(note)}</span></li>`).join("")}
+        ${personal.inauspicious.map(([title, note]) => `<li><strong>忌 · ${esc(title)}</strong><span>${esc(note)}</span></li>`).join("")}
+      </ul>`
+    : "";
+  const progressLine = progress && Number(progress.total) > 0
+    ? `<p class="almanac-meta">今日闭环 ${Number(progress.done) || 0} / ${Number(progress.total) || 0} 项（含日记）</p>`
+    : "";
+  return `<div class="almanac-personal">
+    <div class="almanac-personal-head">
+      <span class="almanac-personal-title">${esc(who)} · 个人运势</span>
+      <span class="almanac-personal-level">§ ${esc(personal.fortune)} §</span>
+    </div>
+    <p class="almanac-personal-line"><b class="almanac-personal-good">宜</b> ${lines(personal.auspicious)}</p>
+    <p class="almanac-personal-line"><b class="almanac-personal-bad">忌</b> ${lines(personal.inauspicious)}</p>
+    ${notes}
+    ${progressLine}
+  </div>`;
+}
+
+/** 图片版式的黄历主体（组件和浮窗共用）。 */
+export function almanacSheetHtml(data, { name = "", progress = null, detailed = false } = {}) {
+  const info = [
+    infoRow("五行", data.wuxing),
+    infoRow("冲煞", data.chongSha),
+    `<div class="almanac-info-row"><span class="almanac-info-key">彭祖</span><span class="almanac-info-value">${data.pengzu.map((line) => `<span>${esc(line)}</span>`).join("")}</span></div>`,
+  ].join("");
+  const gods = data.gods.map((god) => (
+    `<div class="almanac-god"><span class="almanac-god-label">${esc(god.label)}</span><strong>${esc(god.direction)}</strong></div>`
+  )).join("");
+  const yiji = ["宜", "忌"].map((label) => {
+    const good = label === "宜";
+    return `<div class="almanac-yiji-row">
+      <span class="almanac-seal ${good ? "is-good" : "is-bad"}" aria-hidden="true">${label}</span>
+      <div class="almanac-yiji-terms">${(good ? data.yi : data.ji).map((item) => `<span class="almanac-term">${esc(item)}</span>`).join("")}</div>
+    </div>`;
+  }).join("");
+  return `<div class="almanac-sheet">
+    <div class="almanac-top">
+      <div class="almanac-datecol">
+        <p class="almanac-lunar-name">${esc(data.lunar.dateLabel)}</p>
+        <div class="almanac-gz">
+          <span>${esc(data.lunar.yearLabel)}</span>
+          <span>${esc(data.lunar.monthLabel)}</span>
+          <span>${esc(data.lunar.dayLabel)}</span>
+          <span>${esc(data.solar.weekdayLabel)}</span>
+        </div>
+      </div>
+      <div class="almanac-info">${info}</div>
+    </div>
+    <div class="almanac-gods">${gods}</div>
+    <div class="almanac-yiji">${yiji}</div>
+    <div class="almanac-spirits">
+      <p>${termList(data.jiShen, "吉神")}</p>
+      <p>${termList(data.xiongSha, "凶神")}</p>
+    </div>
+    ${personalHtml(data.personal, name, progress, detailed)}
+  </div>`;
+}
+
+function lockedHtml(data) {
+  return `<div class="almanac-card almanac-locked">
+    <p class="almanac-locked-date">${esc(data.solar.year)}年${esc(data.solar.monthDayLabel)} · ${esc(data.solar.weekdayLabel)}</p>
+    <span class="almanac-locked-seal" aria-hidden="true">签</span>
+    <p class="almanac-locked-title">今日运势已封存</p>
+    <p class="almanac-locked-hint">先签到，再看今天的黄历与个人运势。</p>
+    <button type="button" class="button primary almanac-checkin" data-almanac-checkin>签到查看今日运势</button>
+  </div>`;
+}
+
+/** 右栏组件：未签到只给签到入口；签到后是完整图片版式。 */
+export function almanacCardHtml(data, { checkedIn = false, name = "", progress = null } = {}) {
+  if (!checkedIn) return lockedHtml(data);
+  return `<div class="almanac-card almanac-unlocked" data-almanac-unlocked="1" tabindex="0" role="group" aria-label="今日黄历，按回车查看详情">
+    ${almanacSheetHtml(data, { name, progress })}
+    <div class="almanac-card-foot">
+      <span class="almanac-checked-badge">✓ 今日已签到</span>
+      <button type="button" class="text-button almanac-detail-button" data-almanac-open>查看详情 →</button>
+    </div>
+  </div>`;
+}
+
+function yearOptions(selected) {
+  const years = [];
+  for (let year = ALMANAC_MIN_YEAR; year <= ALMANAC_MAX_YEAR; year += 1) {
+    years.push(`<option value="${year}"${year === selected ? " selected" : ""}>${year}年</option>`);
+  }
+  return years.join("");
+}
+
+function monthOptions(selected) {
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    return `<option value="${month}"${month === selected ? " selected" : ""}>${month}月</option>`;
+  }).join("");
+}
+
+function monthCellsHtml(monthData, selectedDay) {
+  return monthData.cells.map((cell) => {
+    if (!cell) return '<span class="almanac-day-cell is-empty" aria-hidden="true"></span>';
+    const classes = ["almanac-day-cell"];
+    if (cell.day === selectedDay) classes.push("is-selected");
+    if (cell.isToday) classes.push("is-today");
+    if (cell.jieQi) classes.push("has-jieqi");
+    const hint = cell.jieQi ? `${cell.jieQi} · 农历${cell.lunarLabel}` : `农历${cell.lunarLabel}`;
+    return `<button type="button" class="${classes.join(" ")}" data-almanac-day="${esc(cell.day)}" aria-label="${esc(`${cell.solarDay}日 ${hint}`)}" aria-pressed="${cell.day === selectedDay}">
+      <span class="almanac-day-num">${cell.solarDay}</span>
+      <span class="almanac-day-lunar">${esc(cell.jieQi || cell.lunarLabel)}</span>
+    </button>`;
+  }).join("");
+}
+
+/** 详细浮窗：年/月/日切换 + 月历 + 选中日黄历。 */
+export function almanacDialogHtml(data, {
+  name = "", progress = null, viewYear, viewMonth, today = "",
+} = {}) {
+  const year = Number(viewYear) || data.solar.year;
+  const month = Number(viewMonth) || data.solar.month;
+  const monthData = monthGridData(year, month, today);
+  const isToday = data.day === today;
+  return `<div class="almanac-dialog">
+    <div class="almanac-dialog-toolbar">
+      <div class="almanac-dialog-nav">
+        <button type="button" class="small-button" data-almanac-nav="prev-month" aria-label="上个月">‹</button>
+        <select data-almanac-year aria-label="年份">${yearOptions(year)}</select>
+        <select data-almanac-month aria-label="月份">${monthOptions(month)}</select>
+        <button type="button" class="small-button" data-almanac-nav="next-month" aria-label="下个月">›</button>
+        <button type="button" class="small-button" data-almanac-nav="today">今天</button>
+      </div>
+      <div class="almanac-dialog-nav">
+        <button type="button" class="small-button" data-almanac-nav="prev-day" aria-label="前一天">前一天</button>
+        <button type="button" class="small-button" data-almanac-nav="next-day" aria-label="后一天">后一天</button>
+      </div>
+    </div>
+    <div class="almanac-dialog-body">
+      <section class="almanac-calendar" aria-label="选择日期">
+        <p class="almanac-calendar-title">${year}年${month}月</p>
+        <div class="almanac-weekdays" aria-hidden="true">${WEEKDAYS.map((label) => `<span>${label}</span>`).join("")}</div>
+        <div class="almanac-month-grid">${monthCellsHtml(monthData, data.day)}</div>
+        <p class="almanac-calendar-hint">点日期查看当天黄历；吉神凶神、真实宜忌都在详情里。</p>
+      </section>
+      <section class="almanac-detail" aria-label="当日黄历">
+        <header class="almanac-detail-head">
+          <div>
+            <h3>${esc(data.solar.year)}年${esc(data.solar.monthDayLabel)} · ${esc(data.solar.weekdayLabel)}</h3>
+            <p>${esc(data.lunar.dateLabel)} · ${esc(data.lunar.yearLabel)} · ${esc(data.lunar.monthLabel)} · ${esc(data.lunar.dayLabel)}</p>
+          </div>
+          ${isToday ? '<span class="almanac-today-badge">今天</span>' : ""}
+        </header>
+        ${almanacSheetHtml(data, { name, progress, detailed: true })}
+      </section>
+    </div>
+  </div>`;
 }
 
 export { AUSPICIOUS_POOL, INAUSPICIOUS_POOL, FORTUNES };
