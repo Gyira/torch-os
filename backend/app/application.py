@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
+from .deepseek_balance import DeepSeekBalanceService, create_deepseek_balance_router
 from .dsh_proxy import DshProxy, create_dsh_router
 from .dsh_web import DisabledDshRuntime, DshWebRuntime
 from .envfile import write_env_value
@@ -243,6 +244,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                 database.path.parent, Path(configured_workspace),
             )
     dsh_proxy = DshProxy(dsh_runtime)
+    deepseek_balance = DeepSeekBalanceService(
+        database.path.parent, enabled=runtime_label == 'personal')
     scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
@@ -337,6 +340,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.dida_sync_service = dida_service
     app.state.dsh_runtime = dsh_runtime
     app.state.dsh_proxy = dsh_proxy
+    app.state.deepseek_balance = deepseek_balance
     app.mount('/assets', StaticFiles(directory=frontend), name='assets')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1','localhost','[::1]','testserver',host])
 
@@ -442,6 +446,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'attachment_localize':True,'attachment_plan':True,
                     'audit_summary':True,'backup_plan':True,'candidate_tidy':True,
                     'conversation_export':True,'conversation_extract':True,
+                    'deepseek_balance':runtime_label == 'personal',
                     'diagnostics':True,'dida_sync':runtime_label == 'personal',
                     'dsh_web':getattr(dsh_runtime, 'enabled', False),
                     'export_bundle':True,'growth_export':True,'habits':True,
@@ -673,6 +678,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
 
     # 时钟天气卡：白名单出站 + 30 分钟内存缓存，纯读不落盘。
     app.include_router(create_weather_router())
+    # DeepSeek 余额：官方余额接口的白名单代理；Key 不返回前端、不写日志，QA 模式不联网。
+    app.include_router(create_deepseek_balance_router(deepseek_balance))
     # 恋爱系统：原生读写原有 love_analysis.db，不启动独立服务；AI 只走用户配置的 DeepSeek。
     # QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据；配置只在个人模式下读取 .env。
     if runtime_label == 'personal':

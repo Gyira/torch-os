@@ -3,7 +3,7 @@
 // data-widget="<稳定 id>"（可选 data-widget-label="显示名"），
 // widget-drag.js 就会自动把它纳入拖拽 / 上下键排序；顺序只保存在当前浏览器，
 // 不写 Obsidian 库，也不上传。和 nav-order.js 一样，默认顺序是重排的锚点。
-export const WIDGET_ORDER_DEFAULT = ["weather", "almanac", "countdown"];
+export const WIDGET_ORDER_DEFAULT = ["weather", "almanac", "countdown", "deepseek"];
 export const WIDGET_DRAG_MIME = "application/x-torch-workbench-widget";
 const STORAGE_KEY = "torch-os:workbench-widget-order";
 

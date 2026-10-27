@@ -56,7 +56,7 @@ test("resolveWidgetOrder keeps known keys, drops strangers and appends missing o
   assert.deepEqual(Array.from(resolveWidgetOrder(null)), Array.from(WIDGET_ORDER_DEFAULT));
   assert.deepEqual(
     Array.from(resolveWidgetOrder(["countdown", "gone", "weather", "countdown"])),
-    ["countdown", "weather", "almanac"],
+    ["countdown", "weather", "almanac", "deepseek"],
   );
   assert.deepEqual(
     Array.from(resolveWidgetOrder(["moon", "weather"], ["weather", "almanac"])),
@@ -71,10 +71,10 @@ test("resolveWidgetOrder keeps known keys, drops strangers and appends missing o
 test("moveWidget moves by one and clamps at the edges", async () => {
   const { WIDGET_ORDER_DEFAULT, moveWidget } = await loadModule();
   assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "countdown", -1)),
-    ["weather", "countdown", "almanac"]);
+    ["weather", "countdown", "almanac", "deepseek"]);
   assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "weather", -1)),
     Array.from(WIDGET_ORDER_DEFAULT));
-  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "countdown", 1)),
+  assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "deepseek", 1)),
     Array.from(WIDGET_ORDER_DEFAULT));
   assert.deepEqual(Array.from(moveWidget(WIDGET_ORDER_DEFAULT, "missing", 1)),
     Array.from(WIDGET_ORDER_DEFAULT));
@@ -91,7 +91,8 @@ test("storage round-trips the order and clear restores the default on a fresh pa
   assert.deepEqual(Array.from(readStoredWidgetOrder()), custom);
   clearWidgetOrder();
   assert.equal(readStoredWidgetOrder(), null);
-  assert.deepEqual(Array.from(WIDGET_ORDER_DEFAULT), ["weather", "almanac", "countdown"]);
+  assert.deepEqual(Array.from(WIDGET_ORDER_DEFAULT),
+    ["weather", "almanac", "countdown", "deepseek"]);
   assert.deepEqual(Array.from(currentWidgetOrder(fakeContainer(WIDGET_ORDER_DEFAULT))),
     Array.from(WIDGET_ORDER_DEFAULT));
 });
@@ -158,12 +159,12 @@ test("dropAfterTarget uses the lower half of the card as insertion point", async
   assert.equal(dropAfterTarget(null, 121), false);
 });
 
-test("the three right-side widgets opt in and workbench wires drag sorting", async () => {
+test("the right-side widgets opt in and workbench wires drag sorting", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const sideStart = html.indexOf('<aside class="workbench-side">');
   const lifeStart = html.indexOf('<section id="life-view"', sideStart);
   assert.ok(sideStart > 0 && lifeStart > sideStart, "找不到工作台右侧栏");
-  for (const [key, label] of [["weather", "天气"], ["almanac", "运势"], ["countdown", "倒计时"]]) {
+  for (const [key, label] of [["weather", "天气"], ["almanac", "运势"], ["countdown", "倒计时"], ["deepseek", "DeepSeek 余额"]]) {
     const at = html.indexOf(`data-widget="${key}"`);
     assert.ok(at > sideStart && at < lifeStart, `${key} 小组件必须带 data-widget 且在右栏内`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));

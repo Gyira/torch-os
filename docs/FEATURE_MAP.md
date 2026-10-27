@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_lijie`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_lijie`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -37,9 +37,14 @@
 - 右侧倒计时卡（仿 Apex Dashboard）：目标日期时间、天/小时/分钟、提前提醒、标签与背景；
   齿轮打开设置，默认指向下一个元旦。配置保存在浏览器 LocalStorage（不写 Markdown、不上传），
   本地图片背景也只在浏览器里读取。
-- 右侧小组件（天气、运势、倒计时）可拖拽互换顺序，落点上下半区决定插到前/后；顺序只保存在
-  当前浏览器。新增右栏组件时，只要给 `.workbench-side` 的直接子元素补 `data-widget`（可选
-  `data-widget-label`），就会自动获得拖拽和 ↑/↓ 排序。
+- 右侧 DeepSeek 余额卡：本地后端代理官方 `GET /api/deepseek/balance`（上游
+  `https://api.deepseek.com/user/balance`），显示总余额、充值余额与赠金，支持本机预警线、
+  「去充值」跳转和 60 秒自动刷新；Key 优先用本机保存的（AES-GCM 加密在数据目录，不进
+  Markdown/备份/导出），否则用 `DEEPSEEK_API_KEY` 环境变量或 DSH 凭据；只发往官方余额接口，
+  不写日志、不返回浏览器。QA 模式不联网。
+- 右侧小组件（天气、运势、倒计时、DeepSeek 余额）可拖拽互换顺序，落点上下半区决定插到前/后；
+  顺序只保存在当前浏览器。新增右栏组件时，只要给 `.workbench-side` 的直接子元素补
+  `data-widget`（可选 `data-widget-label`），就会自动获得拖拽和 ↑/↓ 排序。
 
 ## 四库
 

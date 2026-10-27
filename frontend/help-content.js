@@ -3,8 +3,8 @@ export const HELP_SECTIONS = [
   {
     id: "start", title: "快速上手", keywords: ["开始", "第一步", "上手"],
     items: [
-      { title: "四库导航", body: "顶部导航是：工作台 / 人生路 / 自我档案 / 生活运营 / 知识库 / 设置。工作台保留任务、日历、习惯、四象限，并新增「与神对话」agent 页；其余四库负责过程、自我、数据与知识。", keywords: ["四库", "导航", "人生路", "知识库"] },
-      { title: "与神对话", body: "工作台里的「与神对话」是完整的 DeepSeek Harness（dsh）界面，不再有独立的 torch 聊天页。dsh 自动启动，默认可直接读写当前库；模型、密钥和权限都在 dsh 内设置。重要改动请自行备份。", keywords: ["与神对话", "对话", "dsh", "deepseek", "harness"] },
+      { title: "四库导航", body: "顶部导航是：工作台 / 人生路 / 自我档案 / 生活运营 / 知识库 / 设置。工作台保留任务、日历、习惯、四象限，「与神对话」完整界面在同页待办事项下方；顶部二级菜单用于页面定位。其余四库负责过程、自我、数据与知识。", keywords: ["四库", "导航", "人生路", "知识库"] },
+      { title: "与神对话", body: "工作台里的「与神对话」是完整的 DeepSeek Harness（dsh）界面，位于待办事项下方，不再有独立的 torch 聊天页；顶部「待办事项 / 与神对话」只负责滚动定位。dsh 自动启动，默认可直接读写当前库；模型、密钥和权限都在 dsh 内设置。重要改动请自行备份。", keywords: ["与神对话", "对话", "dsh", "deepseek", "harness"] },
       { title: "在 Obsidian 新建", body: "四库只读浏览；每库右上角「＋ 在 Obsidian 新建」会直接打开 Obsidian 新建一篇笔记，标题、正文、标签都在 Obsidian 里写。不知道放哪就先进知识库收件箱。", keywords: ["捕获", "收件箱", "新建"] },
       { title: "今日日记", body: "人生路右侧的「写今日日记」会打开今天的 00_人生路/01_日记/YYYY-MM-DD.md；还没有就让 Obsidian 新建，插件自己不写盘。下方「最近 7 天」圆点可以点开对应日期。", keywords: ["日记", "今天", "写日记", "最近7天"] },
       { title: "全局搜索", body: "顶部「搜索」或 Ctrl/⌘ K 可以跨四库查标题、正文和标签；↑↓ 选择结果，回车打开。", keywords: ["搜索", "快捷键", "Ctrl", "K"] },
@@ -52,7 +52,8 @@ export const HELP_SECTIONS = [
   {
     id: "privacy", title: "隐私与外部边界", keywords: ["隐私", "dsh", "审计", "Wolai"],
     items: [
-      { title: "唯一的 AI：dsh", body: "torch 不再保存或调用任何模型，也没有模型密钥设置。所有 AI 对话与模型配置都在本地 DeepSeek Harness 内完成；dsh 会按自己的设置访问网络、读写当前库。torch 自身只访问固定的天气白名单主机。", keywords: ["dsh", "模型", "密钥", "隐私"] },
+      { title: "对话 AI：dsh", body: "torch 的对话与模型配置都在本地 DeepSeek Harness 内完成；dsh 会按自己的设置访问网络、读写当前库。torch 自身的固定出站只有天气白名单主机和 DeepSeek 官方余额接口；恋爱系统的 AI 分析使用它自己在设置里保存的 Key。", keywords: ["dsh", "模型", "密钥", "隐私"] },
+      { title: "DeepSeek 余额小组件", body: "右侧余额卡经本地后端代理只请求 DeepSeek 官方 api.deepseek.com/user/balance。Key 优先用本机保存的（AES-GCM 加密在数据目录，不进 Markdown、备份或导出），否则读取 DEEPSEEK_API_KEY 环境变量或 DSH 凭据；Key 不写日志、不返回浏览器。QA/离线模式不联网。", keywords: ["DeepSeek", "余额", "API Key", "隐私", "余额小组件"] },
       { title: "审计只计数", body: "透明度面板按事件类型统计数量，不显示正文、问题或路径；体检、保留预览、恢复副本验证等只读视图不写审计。", keywords: ["审计", "透明度"] },
       { title: "导入边界", body: "Wolai 导入仍有后端接口（当前没有前端入口）：只接受服务器发现的 ZIP，默认不选、敏感目录拒绝、每批最多 20 篇；不会自动确认成记忆，也不把私密资料自动发到云端。", keywords: ["导入", "Wolai", "附件"] },
     ],
