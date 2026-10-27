@@ -31,9 +31,10 @@ torch 的普通资料与任务功能不联网、不保存 dsh 密钥；对话由
     渐变或本地图片背景；点齿轮编辑，配置保存在本机浏览器（不上传、不写 Markdown）。
     默认指向下一个元旦。天气、运势、倒计时三张右栏卡片都可以拖拽互换位置，
     顺序只保存在本机浏览器；新增右栏小组件只要补 `data-widget` 就会自动接入。
-- **与神对话**：工作台内嵌完整的 DeepSeek Harness（dsh）Web UI。torch 自动检测
-  `dsh`，缺失时用 `npx` 启动；界面通过同源 `/harness/` 代理加载，浏览器和 Obsidian
-  内嵌都可用。模型、密钥与权限都在 dsh 内配置；torch 不再有自己的聊天页或本地回答。
+- **与神对话**：工作台内嵌完整的 DeepSeek Harness（dsh）Web UI，位于待办事项下方、
+  与任务主区同宽，右侧保留小组件列；顶部「待办事项 / 与神对话」二级菜单只做页面定位。
+  torch 自动检测 `dsh`，缺失时用 `npx` 启动；界面通过同源 `/harness/` 代理加载，
+  浏览器和 Obsidian 内嵌都可用。模型、密钥与权限都在 dsh 内配置；torch 不再有自己的聊天页或本地回答。
   dsh 的长期工作流规则内置在仓库 `dsh/AGENTS.md`（开场读四库、确认后自动分类归档、
   边界约束），torch 启动时注入 `DSH_AGENTS_HOME`，换库也生效；见 `docs/DSH_WORKFLOW.md`。
 - **人生路**：日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘。
@@ -112,7 +113,7 @@ torch 的普通资料与任务功能不联网、不保存 dsh 密钥；对话由
 | 2 | 起本地服务 | `scripts\start.ps1` |
 | 3 | 把工作台装进 Obsidian（推荐） | `scripts\install-obsidian-plugin.ps1` |
 
-首次点击「与神对话」时，torch 会启动本地 dsh：优先使用已安装的 `dsh`，否则使用
+进入工作台时，torch 会启动本地 dsh：优先使用已安装的 `dsh`，否则使用
 `npx -y @deepseek-ai/dsh web`。也可提前安装：
 
 ```powershell

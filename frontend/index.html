@@ -29,7 +29,7 @@
     <p id="environment-banner" class="environment-banner" role="status" hidden></p>
     <header class="topbar"><div><span class="eyebrow">PERSONAL MENTOR</span><h1 id="page-title" tabindex="-1">今日</h1></div><div class="topbar-actions"><span id="scan-status" class="status-message" role="status">尚未扫描</span><button id="scan-btn" class="button secondary">扫描 Vault</button></div></header>
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
-      <header class="workbench-head">
+      <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
           <div class="banner-overlay" aria-hidden="true"></div>
@@ -103,6 +103,38 @@
               <p id="time-trash-status" class="status-message" role="status"></p>
               <div id="time-trash-list"></div>
             </section>
+          </section>
+          <!-- 与神对话并进工作台同一页：位于待办事项下方、与任务主区同宽，右侧继续留给小组件；
+               顶部二级菜单（待办事项 / 与神对话）只负责滚动定位。 -->
+          <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-label="与神对话" hidden>
+            <div class="dsh-shell" id="dsh-shell">
+              <div class="dsh-statusbar" id="dsh-statusbar" role="status" aria-live="polite">
+                <span class="dsh-dot" aria-hidden="true"></span>
+                <strong class="dsh-title">与神对话</strong>
+                <span id="dsh-status-text">正在读取 DeepSeek Harness…</span>
+                <span class="dsh-spacer"></span>
+                <button id="dsh-reload" class="text-button" type="button">重新载入</button>
+                <button id="dsh-restart" class="text-button" type="button">重启 dsh</button>
+                <a id="dsh-open-external" class="text-button" href="/harness/" target="_blank" rel="noopener noreferrer">新标签打开</a>
+                <a id="dsh-official" class="text-button" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">官网 ↗</a>
+              </div>
+              <div class="dsh-frame-wrap" id="dsh-frame-wrap">
+                <iframe id="dsh-frame" class="dsh-frame" title="与神对话 · DeepSeek Harness" src="about:blank" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+                <div class="dsh-overlay" id="dsh-overlay">
+                  <div class="dsh-overlay-card">
+                    <p class="eyebrow">DEEPSEEK HARNESS</p>
+                    <h2 id="dsh-overlay-title">正在启动 dsh…</h2>
+                    <p id="dsh-overlay-text" class="field-help">正在连接本地 DeepSeek Harness。</p>
+                    <pre id="dsh-overlay-command" class="dsh-overlay-command" hidden><code></code></pre>
+                    <div class="dsh-overlay-actions">
+                      <button type="button" id="dsh-retry" class="button primary">重新检测并启动</button>
+                      <a class="button secondary" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">DeepSeek Harness ↗</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
           </div>
           <!-- 右侧小组件：每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
                新增组件照此补属性即可自动获得拖拽换位（widget-drag.js）。 -->
@@ -118,39 +150,6 @@
               <div class="countdown-inner"><p class="countdown-label">正在读取倒计时…</p></div>
             </aside>
           </aside>
-        </div>
-      </header>
-      </section>
-    </section>
-
-
-
-    <section id="agent-view" class="pane workbench-agent" data-module="workbench" data-pane-label="与神对话" aria-labelledby="page-title" hidden>
-      <div class="dsh-shell" id="dsh-shell">
-        <div class="dsh-statusbar" id="dsh-statusbar" role="status" aria-live="polite">
-          <span class="dsh-dot" aria-hidden="true"></span>
-          <strong class="dsh-title">与神对话</strong>
-          <span id="dsh-status-text">正在读取 DeepSeek Harness…</span>
-          <span class="dsh-spacer"></span>
-          <button id="dsh-reload" class="text-button" type="button">重新载入</button>
-          <button id="dsh-restart" class="text-button" type="button">重启 dsh</button>
-          <a id="dsh-open-external" class="text-button" href="/harness/" target="_blank" rel="noopener noreferrer">新标签打开</a>
-          <a id="dsh-official" class="text-button" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">官网 ↗</a>
-        </div>
-        <div class="dsh-frame-wrap" id="dsh-frame-wrap">
-          <iframe id="dsh-frame" class="dsh-frame" title="与神对话 · DeepSeek Harness" src="about:blank" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-          <div class="dsh-overlay" id="dsh-overlay">
-            <div class="dsh-overlay-card">
-              <p class="eyebrow">DEEPSEEK HARNESS</p>
-              <h2 id="dsh-overlay-title">正在启动 dsh…</h2>
-              <p id="dsh-overlay-text" class="field-help">正在连接本地 DeepSeek Harness。</p>
-              <pre id="dsh-overlay-command" class="dsh-overlay-command" hidden><code></code></pre>
-              <div class="dsh-overlay-actions">
-                <button type="button" id="dsh-retry" class="button primary">重新检测并启动</button>
-                <a class="button secondary" href="https://www.deepseek.com/harness/" target="_blank" rel="noopener noreferrer">DeepSeek Harness ↗</a>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>

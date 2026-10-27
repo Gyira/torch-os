@@ -50,3 +50,28 @@ test("「与神对话」是工作台分区，不是新的顶层模块", async ()
   const app = await source("app.js");
   assert.match(app, /\["agent-view", "与神对话"\]/);
 });
+
+test("与神对话嵌在待办事项下方，右侧留给小组件，二级菜单只做页面定位", async () => {
+  const html = await source("index.html");
+  const workbenchStart = html.indexOf('id="workbench-view"');
+  const timeStart = html.indexOf('id="workbench-time"');
+  const agentStart = html.indexOf('<section id="agent-view"');
+  const sideStart = html.indexOf('<aside class="workbench-side">');
+  const lifeStart = html.indexOf('<section id="life-view"');
+  assert.ok(workbenchStart > 0, "找不到工作台视图");
+  assert.ok(timeStart > workbenchStart, "找不到待办事项主界面");
+  assert.ok(agentStart > timeStart && agentStart < sideStart && agentStart < lifeStart,
+    "与神对话要在待办事项之后、右侧小组件之前，仍位于工作台左列");
+  assert.match(html, /id="agent-view"[^>]*aria-label="与神对话"/);
+
+  const app = await source("app.js");
+  assert.match(app, /workbench: \{[\s\S]*?stacked: true,/);
+  assert.match(app, /syncModuleNavActive/);
+  assert.match(app, /scheduleWorkbenchAnchor/);
+
+  const css = await source("styles.css");
+  assert.match(css, /--workbench-side-width: 248px/);
+  assert.match(css, /\.workbench-head-row \{[^}]*var\(--workbench-side-width\)/);
+  assert.match(css, /\.workbench-agent \{[^}]*margin-top/);
+  assert.match(css, /\.workbench-agent \{[^}]*scroll-margin-top/);
+});

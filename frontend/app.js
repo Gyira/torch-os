@@ -21,10 +21,11 @@ import { initKeyboardShortcuts } from "./shortcuts.js";
 const titles = NAV_LABELS;
 
 // 五大模块（工作台内含「与神对话」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
-// 工作台的两个分区是互斥标签：待办事项和完整的 dsh 界面各自占满一页。
+// 工作台的两个分区同页上下排列：待办事项在上，完整的 dsh 界面在下；二级菜单只做滚动定位。
 const MODULES = {
+  // 待办事项和与神对话现在同页上下排列；二级菜单不再切页，只做滚动定位。
   workbench: {
-    stacked: false,
+    stacked: true,
     panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"]],
   },
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
@@ -179,7 +180,11 @@ export async function switchView(view, updateHash = true) {
   // 两级导航：侧边栏选模块，模块内再用 #module-nav 选分区。
   const module = MODULES[view];
   const panes = module?.panes || [];
-  if (!module?.stacked && !(paneChoice[view] && panes.some(([id]) => id === paneChoice[view]))) {
+  // 同页锚点模式每次进入模块都会滚回顶部，菜单高亮也回到第一段；
+  // 普通模块则保留上次选择的有效分区。
+  if (module?.stacked) {
+    paneChoice[view] = panes[0]?.[0] || "";
+  } else if (!(paneChoice[view] && panes.some(([id]) => id === paneChoice[view]))) {
     paneChoice[view] = panes[0]?.[0] || "";
   }
   const wanted = module?.stacked ? panes.map(([id]) => id) : [paneChoice[view]].filter(Boolean);
@@ -244,12 +249,27 @@ function renderModuleNav(view) {
     bar.replaceChildren();
     return;
   }
-  const current = module.stacked ? "" : paneChoice[view];
+  const current = paneChoice[view] || module.panes[0]?.[0] || "";
   bar.hidden = false;
-  bar.innerHTML = module.panes.map(([id, label]) => `<button type="button" class="module-nav-item${module.stacked ? "" : (id === current ? " active" : "")}" data-pane="${id}"${module.stacked ? "" : ` aria-current="${id === current ? "true" : "false"}"`}>${escapeHtml(label)}</button>`).join("");
+  bar.innerHTML = module.panes.map(([id, label]) => {
+    const active = id === current;
+    return `<button type="button" class="module-nav-item${active ? " active" : ""}" data-pane="${id}" aria-current="${active ? "true" : "false"}">${escapeHtml(label)}</button>`;
+  }).join("");
   bar.querySelectorAll("[data-pane]").forEach((button) => button.addEventListener("click", () => {
     activatePane(view, button.dataset.pane);
   }));
+}
+
+/** 只同步二级菜单的 active/aria-current，不重建按钮（滚动监听会频繁调用）。 */
+function syncModuleNavActive(view) {
+  const module = MODULES[view];
+  if (!module || !module.panes.length) return;
+  const current = paneChoice[view] || module.panes[0]?.[0] || "";
+  document.querySelectorAll("#module-nav [data-pane]").forEach((button) => {
+    const active = button.dataset.pane === current;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "true" : "false");
+  });
 }
 
 /** 侧边栏二级菜单：只展开当前模块的分区，并标出正在看的那一项。 */
@@ -279,6 +299,7 @@ export async function activatePane(view, paneId, { scroll = true } = {}) {
   if (module.stacked) {
     paneChoice[view] = paneId;
     renderSidebarState(view);
+    syncModuleNavActive(view);
     if (scroll) document.getElementById(paneId)?.scrollIntoView({ behavior: "auto", block: "start" });
     return true;
   }
@@ -323,6 +344,42 @@ function runModuleLoaders(view, visiblePanes) {
   }
 }
 
+/**
+ * 工作台两个分区在同一页：滚动到哪一段，二级菜单就高亮哪一项。
+ * 阈值取“导航栏下沿 + 24”和视口 40% 的较大值，dsh 很长时滑到底也能正确高亮。
+ */
+let workbenchAnchorTimer = 0;
+
+function syncWorkbenchAnchor() {
+  if (state.view !== "workbench") return;
+  const module = MODULES.workbench;
+  const panes = module?.panes || [];
+  if (!module?.stacked || !panes.length) return;
+  const nav = document.getElementById("module-nav");
+  const navBottom = nav?.getBoundingClientRect?.().bottom || 0;
+  const viewport = Number(window.innerHeight) || 900;
+  const threshold = Math.max(navBottom + 24, Math.floor(viewport * 0.4));
+  let current = panes[0][0];
+  for (const [id] of panes) {
+    const section = document.getElementById(id);
+    if (!section || section.hidden) continue;
+    const rect = section.getBoundingClientRect?.();
+    if (rect && rect.top <= threshold) current = id;
+  }
+  if (paneChoice.workbench === current) return;
+  paneChoice.workbench = current;
+  syncModuleNavActive("workbench");
+  renderSidebarState("workbench");
+}
+
+function scheduleWorkbenchAnchor() {
+  if (state.view !== "workbench" || workbenchAnchorTimer) return;
+  workbenchAnchorTimer = window.setTimeout(() => {
+    workbenchAnchorTimer = 0;
+    syncWorkbenchAnchor();
+  }, 100);
+}
+
 initSettings(); initInbox();
 initWorkbench(); initPillars();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
@@ -354,6 +411,9 @@ const navigable = (view) => view === "help" || Object.hasOwn(titles, view) || Ob
 window.addEventListener("hashchange", async () => { const view = location.hash.slice(1); if (navigable(view)) await goTo(view, false); });
 window.addEventListener("popstate", async () => { const view = location.hash.slice(1); if (!view || navigable(view)) await goTo(view || "workbench", false); });
 window.addEventListener("online", loadSettings);
+// 同页锚点的滚动高亮：只监听，不改变路由或滚动位置。
+window.addEventListener("scroll", scheduleWorkbenchAnchor, { passive: true });
+window.addEventListener("resize", scheduleWorkbenchAnchor);
 loadSettings();
 const bootView = location.hash.slice(1);
 goTo(Object.hasOwn(titles, bootView) || GO_TARGETS[bootView] ? bootView : "workbench");

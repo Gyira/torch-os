@@ -63,9 +63,10 @@ function statusText(status) {
 function fitFrame() {
   const shell = node("dsh-shell");
   if (!shell || !state.active) return;
-  const top = shell.getBoundingClientRect?.().top || 0;
-  const height = Math.max(420, Math.floor((window.innerHeight || 900) - top - 18));
-  shell.style.height = `${height}px`;
+  // 与神对话现在在待办事项下方：高度取“视口减去吸顶导航和页面底部留白”，
+  // 滚到聊天区时正好铺满剩余屏幕，二级菜单的滚动定位也能对齐到顶部。
+  const viewport = Number(window.innerHeight) || 900;
+  shell.style.height = `${Math.max(420, Math.floor(viewport - 160))}px`;
 }
 
 function schedulePoll(delay) {

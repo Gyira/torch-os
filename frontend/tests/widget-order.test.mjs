@@ -161,11 +161,11 @@ test("dropAfterTarget uses the lower half of the card as insertion point", async
 test("the three right-side widgets opt in and workbench wires drag sorting", async () => {
   const html = await readFile(path.join(frontend, "index.html"), "utf8");
   const sideStart = html.indexOf('<aside class="workbench-side">');
-  const agentStart = html.indexOf('<section id="agent-view"', sideStart);
-  assert.ok(sideStart > 0 && agentStart > sideStart, "找不到工作台右侧栏");
+  const lifeStart = html.indexOf('<section id="life-view"', sideStart);
+  assert.ok(sideStart > 0 && lifeStart > sideStart, "找不到工作台右侧栏");
   for (const [key, label] of [["weather", "天气"], ["almanac", "运势"], ["countdown", "倒计时"]]) {
     const at = html.indexOf(`data-widget="${key}"`);
-    assert.ok(at > sideStart && at < agentStart, `${key} 小组件必须带 data-widget 且在右栏内`);
+    assert.ok(at > sideStart && at < lifeStart, `${key} 小组件必须带 data-widget 且在右栏内`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));
   }
 

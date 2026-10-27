@@ -331,7 +331,8 @@ test("the shell keeps its skip link, main landmark and single page-title contrac
     const panes = new RegExp(`data-module="${view}"`).test(html);
     assert.ok(shell || panes, `${view} exposes a shell or panes`);
   }
-  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 3);
+  // 工作台与设置页用页面标题；与神对话现在是同页区块，用自己的「与神对话」标签。
+  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 2);
 });
 
 test("static markup keeps accessible names and live status regions", async () => {

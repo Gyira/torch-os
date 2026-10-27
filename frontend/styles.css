@@ -433,8 +433,10 @@ body.view-workbench .topbar { display: none; }
 .module-nav-item:hover { background: var(--p-hover); color: var(--p-ink); }
 .module-nav-item.active { background: var(--p-fill-strong); border-color: var(--p-line-strong); color: var(--p-ink-strong); font-weight: 600; }
 
+/* 工作台同页锚点：二级菜单用 scroll-margin 避开吸顶的模块导航。 */
+#workbench-view { --workbench-side-width: 248px; --workbench-column-gap: 18px; scroll-margin-top: calc(var(--panel-nav-h, 46px) + 64px); }
 .workbench-head { display: grid; gap: 14px; margin-bottom: 18px; }
-.workbench-head-row { display: grid; grid-template-columns: minmax(0, 1fr) 248px; gap: 10px 18px; align-items: start; }
+.workbench-head-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--workbench-side-width); gap: 10px var(--workbench-column-gap); align-items: start; }
 /* 左列：问候语一行 + 时间管理模块吃掉剩余高度（模块在问候语正下方、天气列左边）。 */
 .workbench-head-main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; min-width: 0; align-content: start; }
 .workbench-welcome { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 0 0 12px; padding: 13px 16px; border: 1px solid var(--p-accent-line); border-radius: 12px; background: var(--p-accent-soft-3); }
@@ -1552,9 +1554,11 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .time-cal-num { font-size: 12.5px; }
 .time-cal-weekday { color: var(--p-ink-4); }
 
-/* 与神对话 = 完整 dsh Web UI（同源 /harness/ 代理）。 */
-.workbench-agent { padding: 0; }
-.dsh-shell { display: flex; flex-direction: column; min-height: 0; height: 70vh; }
+/* 与神对话 = 完整 dsh Web UI（同源 /harness/ 代理）。
+   它现在在 .workbench-head-main 里、待办事项下方，自然与任务主区同宽；
+   外层两列网格继续给右侧小组件留位置。 */
+.workbench-agent { padding: 0; margin-top: 12px; min-width: 0; scroll-margin-top: calc(var(--panel-nav-h, 46px) + 64px); }
+.dsh-shell { display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 70vh; }
 .dsh-statusbar { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; margin-bottom: 8px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface); color: var(--p-ink-3); font-size: 12px; }
 .dsh-title { color: var(--p-ink-strong); font-size: 13px; white-space: nowrap; }
 .dsh-spacer { flex: 1 1 auto; }

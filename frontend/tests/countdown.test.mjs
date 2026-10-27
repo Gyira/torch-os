@@ -17,9 +17,11 @@ test("倒计时卡挂在工作的右侧栏", async () => {
   const html = await source("index.html");
   const sideStart = html.indexOf('<aside class="workbench-side">');
   const countdown = html.indexOf('id="workbench-countdown"');
-  const agent = html.indexOf('<section id="agent-view"', sideStart);
+  const agent = html.indexOf('<section id="agent-view"');
+  const life = html.indexOf('<section id="life-view"', sideStart);
   assert.ok(sideStart > 0, "找不到工作台右侧栏");
-  assert.ok(countdown > sideStart && countdown < agent, "倒计时必须位于工作台右侧栏内");
+  assert.ok(countdown > sideStart && countdown < life, "倒计时必须位于工作台右侧栏内");
+  assert.ok(agent > 0 && agent < sideStart, "与神对话不在右栏，应该并到待办事项下方");
   assert.match(html, /class="countdown-card"/);
   const workbench = await source("workbench.js");
   assert.match(workbench, /initCountdownWidget/);
