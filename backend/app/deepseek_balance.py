@@ -242,6 +242,12 @@ class DeepSeekBalanceService:
             return dsh, "dsh", sources
         return "", "", sources
 
+    def resolve_key(self) -> str:
+        """当前可用的 Key（saved > env > dsh），只给子进程注入环境用，不写日志、不回显。"""
+        if not self.enabled:
+            return ""
+        return self._resolve()[0]
+
     def describe(self) -> dict[str, Any]:
         if not self.enabled:
             return {"enabled": False, "saved": False, "env": False, "dsh": False, "source": ""}

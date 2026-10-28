@@ -15,8 +15,11 @@ import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
+import { initPending } from "./pending.js";
+import { initQuestions } from "./questions.js";
 import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
+import { initPersonalData } from "./personal-data.js";
 
 const titles = NAV_LABELS;
 
@@ -380,8 +383,11 @@ function scheduleWorkbenchAnchor() {
   }, 100);
 }
 
+// 顶层数据规则：小组件偏好等个性化数据以当前个人数据库的 .torch-os/personal-data.json 为准。
+// 先把库里的值灌回 localStorage，再初始化各小组件；后端不可用时用本机缓存继续启动。
+try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
 initSettings(); initInbox();
-initWorkbench(); initPillars();
+initWorkbench(); initPillars(); initPending(); initQuestions();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
 initHelp();

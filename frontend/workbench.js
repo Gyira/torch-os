@@ -5,21 +5,24 @@ import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
 import { initAlmanacWidget, renderAlmanac } from "./almanac-widget.js";
-import { renderClock, renderWeather, startClock } from "./weather.js";
+import { initWeatherWidget, loadWeatherWidget } from "./weather-widget.js";
+import { initAnniversaryWidget } from "./anniversary-widget.js";
 import { applyBanner, startRotation, imageSrc } from "./banner.js";
 import { setBannerSource, initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
 import { initCountdownWidget } from "./countdown.js";
 import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js";
+import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-widget.js";
+import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
+import { loadPendingStrip } from "./pending.js";
+import { loadQuestionCard } from "./questions.js";
+import { initBookmarks } from "./bookmarks.js";
 
 let current = null;
-let clockStarted = false;
 let bannerStats = null;
 let rotationSignature = "";
 let rotationGeneration = 0;
-let weatherPayload = null; // 最近一次 /api/weather（含 5 天预报）
-let weatherSelected = 0;   // 当前在看第几天：0 = 今天
 
 function timeGreeting() {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date()));
@@ -142,27 +145,21 @@ function renderWelcome(payload) {
 }
 
 function renderDaily(payload) {
-  const rows = [
-    ...(payload.daily || []).map((item) => ({
-      kind: "daily", title: item.title, note: item.in_master === false ? "仅今天" : "",
-      done: Boolean(item.done), key: item.key || "",
-    })),
-    ...(payload.habits || []).map((habit) => ({
-      kind: "habit", title: habit.title, note: habit.minimum_action || "",
-      done: Boolean(habit.done), id: habit.id, revision: habit.revision,
-    })),
-  ];
+  const rows = (payload.daily || []).map((item) => ({
+    title: item.title,
+    note: item.in_master === false ? "仅今天" : "",
+    done: Boolean(item.done),
+    key: item.key || "",
+  }));
   const done = rows.filter((row) => row.done).length;
   if (payload.daily_error) {
-    setStatus("#time-habits-count", `读取失败：${payload.daily_error}`, "error");
+    setStatus("#time-daily-count", `读取失败：${payload.daily_error}`, "error");
   } else {
-    $("#time-habits-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
+    $("#time-daily-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
   }
-  $("#time-habits-hint").textContent = "每日必做在 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记；习惯在人生路 →「习惯」里管理。";
-  $("#time-habits-list").innerHTML = rows.length
-    ? rows.map((row) => row.kind === "daily"
-      ? `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`
-      : `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-habit-toggle="${row.id}" data-habit-revision="${row.revision}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
+  $("#time-daily-hint").textContent = "每日必做在 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记。";
+  $("#time-daily-list").innerHTML = rows.length
+    ? rows.map((row) => `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
     : '<li class="empty-state">还没有每日必做——去 00_人生路/08_任务与待办/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
 }
 
@@ -175,8 +172,11 @@ export async function loadWorkbench() {
   } catch (error) {
     setStatus("#time-status", `读取失败：${error.message}`, "error");
   }
-  loadWeather(false);
+  loadWeatherWidget();
   loadDeepSeekBalance();
+  loadTrainTrackerWidget();
+  loadPendingStrip();
+  loadQuestionCard();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */
@@ -188,7 +188,7 @@ async function syncDailyIfNeeded(payload) {
     const result = await api("/api/todos/daily/sync", jsonBody("POST", { day: shanghaiDay() }));
     if (result.changed) renderWorkbench(await api(`/api/workbench/today?day=${shanghaiDay()}`));
   } catch (error) {
-    setStatus("#time-habits-hint", `每日必做同步失败：${error.message}`, "warning");
+    setStatus("#time-daily-hint", `每日必做同步失败：${error.message}`, "warning");
   }
 }
 
@@ -201,104 +201,17 @@ async function loadBannerStats() {
   applyBanner($("#workbench-banner"), current, bannerStats);
 }
 
-/** 画天气卡（上半区选中那天 / 下半区 5 天缩略条）+ 右上角“今天”按钮的状态。 */
-function paintWeather() {
-  renderWeather($("#workbench-weather"), weatherPayload, weatherSelected);
-  const today = $("#workbench-weather-today");
-  const onToday = weatherSelected === 0;
-  today.classList.toggle("is-active", onToday);
-  today.setAttribute("aria-pressed", onToday ? "true" : "false");
-}
-
-// 上次成功取到的天气存一份在本机（只存天气，不含任何私人内容）：网络抽风时卡片仍显示
-// 上次读到的 5 天，不至于变空；取到新的就覆盖。选过的城市同样记在本机（换城市不必进设置）。
-const WEATHER_CACHE_KEY = "torch-os:weather";
-const WEATHER_CITY_KEY = "torch-os:weather-city";
-
-function readWeatherCache() {
-  try {
-    const raw = localStorage.getItem(WEATHER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (error) {
-    return null; // 隐私模式 / 配额满 / 没这个全局：当没有缓存
-  }
-}
-
-function writeWeatherCache(payload) {
-  try {
-    localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(payload));
-  } catch (error) {
-    // 存不下就算了：缓存只是锦上添花
-  }
-}
-
-function readWeatherCity() {
-  try {
-    return String(localStorage.getItem(WEATHER_CITY_KEY) || "").trim();
-  } catch (error) {
-    return "";
-  }
-}
-
-function writeWeatherCity(name) {
-  try {
-    localStorage.setItem(WEATHER_CITY_KEY, String(name || ""));
-  } catch (error) {
-    // 同上：存不下不影响本次查看
-  }
-}
-
-/** /api/weather 的查询串：城市与强制刷新都是可选的（不选城市就让后端按配置/IP 定位）。 */
-function weatherUrl(force, city) {
-  const params = new URLSearchParams();
-  if (city) params.set("city", city);
-  if (force) params.set("refresh", "1");
-  const query = params.toString();
-  return `/api/weather${query ? `?${query}` : ""}`;
-}
-
-async function loadWeather(force, city = readWeatherCity()) {
-  try {
-    weatherPayload = await api(weatherUrl(force, city));
-    weatherSelected = 0; // 每次取新数据都回到今天
-    writeWeatherCache(weatherPayload);
-    writeWeatherCity(weatherPayload.city || ""); // 记下后端实际用的城市
-    paintWeather();
-    setStatus("#workbench-weather-status", "");
-  } catch (error) {
-    // 选过的城市已经不在内置表里（422）：忘掉它，别让卡片一直卡在报错上。
-    if (error.status === 422 && city) writeWeatherCity("");
-    weatherPayload = readWeatherCache();
-    weatherSelected = 0;
-    paintWeather();
-    setStatus("#workbench-weather-status",
-      weatherPayload ? `天气：${error.message}（显示上次读到的数据）` : `天气：${error.message}`, "warning");
-  }
-}
-
 async function toggleDaily(key, title, done) {
   try {
     await api("/api/todos/daily/toggle", jsonBody("POST", { day: shanghaiDay(), key, title, done }));
     await loadWorkbench();
   } catch (error) {
-    setStatus("#time-habits-count", `更新失败：${error.message}`, "error");
+    setStatus("#time-daily-count", `更新失败：${error.message}`, "error");
     await loadWorkbench();
   }
 }
 
-async function toggleHabit(id, revision, done) {
-  try {
-    await api(`/api/habits/${id}/entries/${shanghaiDay()}`, jsonBody("PUT", {
-      revision: Number(revision) || 0, status: done ? "done" : "unrecorded", note: "",
-    }));
-    await loadWorkbench();
-  } catch (error) {
-    setStatus("#time-habits-count", `打卡失败：${error.message}`, "error");
-    await loadWorkbench();
-  }
-}
-
-/** 收起/展开（照 Apex Dashboard）：状态存在浏览器本地；收起后是 4px 细条，书签按钮展开。 */
+/** 收起/展开（照 Apex Dashboard）：状态存 .torch-os 个性化数据（浏览器缓存只是镜像）；收起后是 4px 细条，书签按钮展开。 */
 function initBannerCollapse() {
   const KEY = "torch-os:banner-collapsed";
   const banner = $("#workbench-banner");
@@ -327,41 +240,24 @@ function initBannerCollapse() {
 }
 
 export function initWorkbench() {
-  $("#workbench-weather-refresh").addEventListener("click", () => loadWeather(true));
-  // 5 天缩略条：点哪天，上半区就换成那天；右上角“今天”随时回到今天。
-  $("#workbench-weather").addEventListener("click", (event) => {
-    const day = event.target.closest("[data-weather-day]");
-    if (!day) return;
-    weatherSelected = Number(day.dataset.weatherDay) || 0;
-    paintWeather();
-  });
-  $("#workbench-weather-today").addEventListener("click", () => {
-    weatherSelected = 0;
-    paintWeather();
-  });
-  // 换城市：下拉一改就按那座城市重取（选择记在本机，下次打开还是它）。
-  $("#workbench-weather").addEventListener("change", (event) => {
-    const select = event.target.closest(".weather-city-select");
-    if (select) loadWeather(false, select.value);
-  });
-  // 每日必做 + 习惯的勾选：现在挂在时间管理模块的「习惯打卡」页上
-  $("#time-habits-list").addEventListener("change", (event) => {
+  // 网页书签栏：问候语右侧的快捷入口（数据在 .torch-os，齿轮里增删改）。
+  initBookmarks();
+  // 天气卡：时钟、打开系统时自动刷新、点卡片打开详情浮窗；城市管理都在 weather-widget.js。
+  initWeatherWidget();
+  // 每日必做的勾选（习惯打卡本身由 habits-page.js 处理）
+  $("#time-daily-list").addEventListener("change", (event) => {
     const dailyBox = event.target.closest("[data-daily-toggle]");
-    if (dailyBox) { toggleDaily(dailyBox.dataset.dailyKey || "", dailyBox.dataset.dailyTitle || "", dailyBox.checked); return; }
-    const habitBox = event.target.closest("[data-habit-toggle]");
-    if (habitBox) toggleHabit(habitBox.dataset.habitToggle, habitBox.dataset.habitRevision, habitBox.checked);
+    if (dailyBox) toggleDaily(dailyBox.dataset.dailyKey || "", dailyBox.dataset.dailyTitle || "", dailyBox.checked);
   });
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
   initCountdownWidget();
+  initAnniversaryWidget();
   initWidgetDrag();
   initAlmanacWidget();
   initDeepSeekBalance();
+  initTrainTrackerWidget();
+  initDutyWidget();
   initTimeModule();
-  if (!clockStarted) {
-    clockStarted = true;
-    startClock((pieces) => renderClock($("#workbench-clock"), pieces),
-               (fn, ms) => window.setTimeout(fn, ms));
-  }
 }

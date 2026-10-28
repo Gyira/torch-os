@@ -1,5 +1,5 @@
 // 工作台右侧倒计时卡（仿 Apex Dashboard 的 countdown 小组件）。
-// 配置留在本机 localStorage；核心计算在 countdown-model.js，便于测试。
+// 配置写入 .torch-os/personal-data.json（localStorage 只是缓存）；核心计算在 countdown-model.js，便于测试。
 import { $, escapeHtml, openDialog } from "./core.js";
 import {
   COUNTDOWN_THEMES, countdownState, defaultCountdown,
@@ -133,7 +133,7 @@ function openSettings() {
   let pendingTheme = config.theme;
   openDialog("倒计时设置", `
     <form id="countdown-form" class="countdown-settings-form">
-      <p class="field-help">配置只保存在当前浏览器（LocalStorage），不写 Obsidian 库；不同端口/浏览器各有一份。</p>
+      <p class="field-help">配置写入当前个人数据库的 <code>.torch-os/personal-data.json</code>（浏览器缓存只是镜像）；换库/换机后仍保留。</p>
       <div class="field">
         <label for="countdown-label-input">标签</label>
         <input id="countdown-label-input" maxlength="80" value="${escapeHtml(config.label)}" placeholder="例如：New Year Countdown" />
@@ -168,7 +168,7 @@ function openSettings() {
           <button class="text-button" type="button" id="countdown-clear-image">使用渐变</button>
         </div>
         <input id="countdown-image-input" type="file" accept="image/*" hidden />
-        <p class="field-help">图片只从本机读取，保存在此浏览器的本地存储里；不上传。建议小于 1 MB。</p>
+        <p class="field-help">图片只从本机读取，保存后写入此个人数据库的 <code>.torch-os</code> 个性化数据；不上传。建议小于 1 MB。</p>
       </div>
       <div class="form-actions">
         <span id="countdown-settings-feedback" class="status-message" role="status"></span>

@@ -28,22 +28,29 @@ PORT = int(os.getenv("PORT", "8765"))
 VAULT_SCOPED = os.getenv("TORCH_VAULT_SCOPED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # ── 恋爱系统（原生模块）─────────────────────────────────────────────
-# 默认直接沿用原「恋爱分析助手」的本地数据库，因此已有项目和聊天分析不需要迁移。
-# 这是一份本机数据，不进仓库、不进备份；路径可用 .env 覆盖。
+# 运行时数据统一放在当前个人数据库的 .torch-os/love/：
+#   love_analysis.db / .api_key.key / xlsx/ / schedule-notes.json / cn_stopwords.txt
+# 车次时刻表已独立到 <Vault>/.torch-os/train-tracker/；LOVE_TIMETABLE_PATH 只作旧文件迁移来源。
+# LOVE_DATA_DIR 可显式覆盖；默认跟着 DATA_DIR（也就是所选个人数据库的 .torch-os）走。
+LOVE_DATA_DIR = _path_from_env("LOVE_DATA_DIR", DATA_DIR / "love")
+# 旧版位置：只在首次启动迁移时读取，迁移完成后原文件保留、不再作为运行时路径。
 _LOCALAPPDATA = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
-LOVE_DB_PATH = _path_from_env(
+LOVE_LEGACY_DB_PATH = _path_from_env(
     "LOVE_DB_PATH", _LOCALAPPDATA / "love-analysis-assistant" / "love_analysis.db"
 )
-# 原项目目录：交路表 Excel、时刻表和停用词都在这里。未配置时恋爱日志/统计仍可用，
-# 只有「丽洁追踪」会提示找不到交路表。
+LOVE_LEGACY_EXCEL_DIR = _path_from_env(
+    "LOVE_EXCEL_DIR", ROOT_DIR / "data" / "love" / "xlsx"
+)
 LOVE_APP_DIR = _path_from_env("LOVE_APP_DIR", ROOT_DIR)
-LOVE_EXCEL_DIR = _path_from_env("LOVE_EXCEL_DIR", LOVE_APP_DIR / "胡丽洁" / "file" / "xlsx")
-LOVE_TIMETABLE_PATH = _path_from_env(
+LOVE_LEGACY_TIMETABLE_PATH = _path_from_env(
     "LOVE_TIMETABLE_PATH", LOVE_APP_DIR / "backend" / "data" / "train_timetable.json"
 )
 LOVE_STOPWORDS_PATH = _path_from_env(
     "LOVE_STOPWORDS_PATH", LOVE_APP_DIR / "resources" / "stopwords" / "cn_stopwords.txt"
 )
+# 排班对象姓名只从本机 .env 读取（示例见 .env.example），仓库里不写真实姓名；
+# 留空时只在这一工作表恰好只有一个姓名时自动识别。
+LOVE_TARGET_NAME = (os.getenv("LOVE_TARGET_NAME") or "").strip()
 LOVE_API_BASE_URL = os.getenv("LOVE_API_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
 LOVE_API_MODEL = os.getenv("LOVE_API_MODEL", "deepseek-chat")
 

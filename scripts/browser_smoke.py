@@ -813,7 +813,7 @@ async def run(base_url: str, report_path: Path, screenshot_path: Path, port: int
                 legacyBadges: document.querySelectorAll('#time-board .task-legacy-badge').length,
                 vaultNote: (document.querySelector('#time-vault-note')?.textContent || '').slice(0, 160),
                 moduleSide: document.querySelectorAll('#time-sidebar .time-side-item').length,
-                daily: document.querySelectorAll('#time-habits-list .habit-check').length,
+                daily: document.querySelectorAll('#time-daily-list .habit-check').length,
                 noSuggestions: document.querySelector('#suggestion-list') === null,
             }))()""")
             report['body_summary'] = await cdp.evaluate("""(async () => {

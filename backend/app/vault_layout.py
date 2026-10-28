@@ -63,11 +63,15 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("meaning", "self", "意义与目标", "01_自我档案/05_意义与目标", "meaning"),
     ("distill_work", "self", "工作方法沉淀", "01_自我档案/06_沉淀与创作/01_工作方法", "principle"),
     ("distill_career", "self", "职业原则", "01_自我档案/06_沉淀与创作/02_职业原则", "principle"),
+    # 命理参考：个人命盘与长期自省用，独立成一个侧边栏分区
+    ("bazi", "self", "我的八字参考", "01_自我档案/07_我的八字参考", "bazi"),
     # 02_生活运营
     ("health", "ops", "健康与体重", "02_生活运营/01_健康与体重", "health_month"),
     ("finance", "ops", "财富与记账", "02_生活运营/02_财富与记账", "finance_month"),
     ("medical", "ops", "体检与医疗", "02_生活运营/03_体检与医疗", "medical"),
     ("affairs", "ops", "证件与事务", "02_生活运营/04_证件与事务", "document"),
+    # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
+    ("love_memory", "ops", "情感与记忆", "02_生活运营/05_情感与记忆", "memory"),
     # 03_知识库
     ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
     ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),

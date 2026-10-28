@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+from dataclasses import replace
 from urllib.parse import urlsplit
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -55,16 +56,25 @@ from .diagnostics import create_diagnostics_router
 from .export_bundle import create_export_bundle_router
 from .growth_export import create_growth_export_router
 from .identity import create_identity_router
+from .personal_data import create_personal_data_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
 from .fortune import create_fortune_router
 from .journal_note import create_journal_note_router
+from .journal_chat import create_journal_chat_router
+from .journal_inbox import create_journal_inbox_router
+from .journal_review import create_journal_review_router
 from .todo_note import create_todo_router
 from .tasks import create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
-from .love_lijie import create_lijie_router
+from .love_schedule import create_schedule_router
+from .love_storage import (
+    DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
+    STOPWORDS_NAME as LOVE_STOPWORDS_NAME, migrate_love_data,
+)
+from .train_tracker import create_train_tracker_router
 from .journal_export import create_journal_export_router
 from .habits import create_habits_router
 from .task_import import create_task_import_router
@@ -77,7 +87,9 @@ from .import_history import (
     restore_wolai_import_history,
 )
 from .memory_export import create_memory_export_router
+from .pending import create_pending_router
 from .planning_export import create_planning_export_router
+from .questions import create_questions_router
 from .scheduler import SchedulerService, create_scheduler_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
@@ -209,7 +221,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                enable_dida_auto_push: bool | None = None,
                dsh_runtime: DshWebRuntime | DisabledDshRuntime | None = None,
                enable_dsh: bool | None = None,
-               dsh_workspace: Path | None = None) -> FastAPI:
+               dsh_workspace: Path | None = None,
+               love_legacy_migration: bool | None = None) -> FastAPI:
+    # 只有未注入工作区的真实个人实例才自动迁移旧恋爱数据；测试/QA 的临时库不会碰真实路径。
+    provided_paths = database is not None or vault_dir is not None
     if database is None or vault_dir is None:
         from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
         database = database or Database(DB_PATH)
@@ -407,8 +422,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             # by CSP frame-ancestors: loopback hosts on any port, nothing else.
             # /harness is dsh's own document: it needs its inline boot script,
             # so the proxy supplies only a frame-ancestors policy there.
+            # 纪念日卡允许用户填写 https 背景图 URL（仅图片；脚本/连接仍是 self）。
             response.headers['Content-Security-Policy'] = (
-                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; "
                 "connect-src 'self'; frame-ancestors 'self' http://127.0.0.1:* http://localhost:* app:; "
                 "base-uri 'self'; form-action 'self'")
         return response
@@ -454,14 +470,18 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'history_cleanup_preview':True,'history_restore':True,'identity':True,
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'love': runtime_label == 'personal',
-                    'love_lijie': runtime_label == 'personal',
+                    'love_memory': runtime_label == 'personal',
+                    'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
-                    'memory_export':True,'monthly_review':True,'planning_export':True,
+                    'memory_export':True,'monthly_review':True,
+                    'personal_data':True,'planning_export':True,
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
                     'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
-                    'tasks':True,'tools':True,'vault_audit':True,
+                    'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
                     'vault_admin':runtime_label == 'personal',
-                    'vault_connection':not vault_scoped,'weather':True,'workbench':True,
+                    'vault_connection':not vault_scoped,'weather':True,
+                    'weflow_sync': runtime_label == 'personal',
+                    'workbench':True,
                     'workspaces':runtime_label == 'personal' and not vault_scoped,
                 }}
 
@@ -656,12 +676,25 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # 笔记路由必须先于 `/journal/{day}` 注册：否则 `note` 会被当成日期参数（FastAPI 按注册顺序匹配）。
     app.include_router(create_journal_note_router(database, vault_dir, read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
+    # 日记闭环：盘点/提问/草稿/写入。写入口只碰当天日记，见 docs/日记闭环设计-2026-10-28.md。
+    app.include_router(create_journal_review_router(database, vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
+    # 日记对话：一次一问，走 dsh headless 通道；QA/禁用 dsh 时只报不可用，不启动子进程。
+    app.include_router(create_journal_chat_router(
+        database, vault_dir, deepseek_balance,
+        getattr(dsh_runtime, "workspace", vault_dir),
+        enabled=(runtime_label == "personal" and enable_dsh is not False),
+    ), dependencies=[Depends(journal_data_guard)])
+    # 一个输入口：一段话判成日记/反思/心得，确认后各归各位（docs/人生路重设计-v3）。
+    app.include_router(create_journal_inbox_router(database, vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
     app.include_router(create_todo_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     app.include_router(create_tasks_router(vault_dir, database, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
     # 滴答同步：拉取在 data_lock 外，写入在 run_dida_sync 内手动加锁，避免网络请求阻塞任务页。
     app.include_router(create_dida_sync_router(dida_service, data_lock))
     app.include_router(create_task_import_router(database, vault_dir), dependencies=[Depends(journal_data_guard)])
-    app.include_router(create_habits_router(database, vault_dir=vault_dir),
+    app.include_router(create_habits_router(database, vault_dir=vault_dir,
+                                            read_only=vault_read_only),
                        dependencies=[Depends(journal_data_guard)])
     # Conversation snapshots are ordinary vault notes; keep them on the same data boundary.
     app.include_router(create_conversation_memory_router(database, vault_dir, read_only=vault_read_only), dependencies=[Depends(journal_data_guard)])
@@ -671,6 +704,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_tools_router(database, vault_dir))
     # Identity lives in the Vault (`01-Identity/身份（identity）.md`): Markdown is the source of truth.
     app.include_router(create_identity_router(vault_dir, read_only=vault_read_only),
+                       dependencies=[Depends(journal_data_guard)])
+    # 个性化数据（小组件偏好、城市、排序…）统一落在 <个人数据库>/.torch-os/personal-data.json。
+    app.include_router(create_personal_data_router(
+        vault_dir, read_only=vault_read_only, vault_id=vault_identity(vault_dir)),
                        dependencies=[Depends(journal_data_guard)])
     # Workbench: one read of everything today; drafts are deterministic.
     app.include_router(create_workbench_router(database, vault_dir),
@@ -684,23 +721,66 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_weather_router())
     # DeepSeek 余额：官方余额接口的白名单代理；Key 不返回前端、不写日志，QA 模式不联网。
     app.include_router(create_deepseek_balance_router(deepseek_balance))
-    # 恋爱系统：原生读写原有 love_analysis.db，不启动独立服务；AI 只走用户配置的 DeepSeek。
-    # QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据；配置只在个人模式下读取 .env。
+    # 恋爱系统：数据统一放在当前个人数据库的 .torch-os/love/，不启动独立服务；
+    # AI 只走用户配置的 DeepSeek。QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据。
+    train_tracker_legacy: list[Path] = []
     if runtime_label == 'personal':
         from .config import (
-            LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DB_PATH,
-            LOVE_EXCEL_DIR, LOVE_STOPWORDS_PATH, LOVE_TIMETABLE_PATH,
+            LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DATA_DIR,
+            LOVE_LEGACY_DB_PATH, LOVE_LEGACY_EXCEL_DIR, LOVE_LEGACY_TIMETABLE_PATH,
+            LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME, ROOT_DIR,
         )
+        # 默认跟着当前选中的个人数据库走（<DATA_DIR>/love）；真实个人实例才认显式覆盖，
+        # 测试/QA 注入的临时库一律使用自己的数据目录，避免碰到真实路径。
+        explicit_love_dir = (os.getenv('LOVE_DATA_DIR') or '').strip()
+        love_data_dir = (LOVE_DATA_DIR if explicit_love_dir and not provided_paths
+                         else (Path(database.path).parent / 'love'))
+        train_tracker_legacy = [
+            love_data_dir / 'train_timetable.json',
+            Path(LOVE_LEGACY_TIMETABLE_PATH),
+            ROOT_DIR / 'data' / 'love' / 'train_timetable.json',
+        ] if not provided_paths else []
         love_settings = LoveSettings(
-            db_path=LOVE_DB_PATH, app_dir=LOVE_APP_DIR,
-            stopwords_path=LOVE_STOPWORDS_PATH, excel_dir=LOVE_EXCEL_DIR,
-            timetable_path=LOVE_TIMETABLE_PATH, api_base_url=LOVE_API_BASE_URL,
+            db_path=love_data_dir / LOVE_DB_NAME,
+            key_file=love_data_dir / LOVE_KEY_NAME,
+            app_dir=LOVE_APP_DIR,
+            stopwords_path=love_data_dir / LOVE_STOPWORDS_NAME,
+            excel_dir=love_data_dir / LOVE_EXCEL_DIR_NAME,
+            api_base_url=LOVE_API_BASE_URL,
             api_model=LOVE_API_MODEL,
+            target_name=LOVE_TARGET_NAME,
         )
+        if love_legacy_migration is None:
+            love_legacy_migration = not provided_paths
+        if love_legacy_migration:
+            love_settings = replace(love_settings, migration=migrate_love_data(
+                love_data_dir,
+                legacy_db_path=LOVE_LEGACY_DB_PATH,
+                legacy_key_file=Path(LOVE_LEGACY_DB_PATH).parent / LOVE_KEY_NAME,
+                legacy_excel_dir=LOVE_LEGACY_EXCEL_DIR,
+                legacy_stopwords_path=LOVE_STOPWORDS_PATH,
+            ))
+        else:
+            love_data_dir.mkdir(parents=True, exist_ok=True)
+            (love_data_dir / LOVE_EXCEL_DIR_NAME).mkdir(parents=True, exist_ok=True)
         app.state.love_settings = love_settings
-        app.include_router(create_love_router(settings=love_settings))
-        app.include_router(create_lijie_router(
-            love_settings.excel_dir, love_settings.timetable_path))
+        app.include_router(create_love_router(
+            settings=love_settings, vault_dir=vault_dir,
+            database=database, read_only=vault_read_only,
+        ))
+        app.include_router(create_schedule_router(
+            love_settings.excel_dir,
+            love_data_dir / 'schedule-notes.json',
+            love_settings.target_name,
+            read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+    # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
+    # 12306 同步只在用户点击时发生；QA 模式禁用同步，但仍可导入本地时刻表。
+    app.include_router(create_train_tracker_router(
+        vault_dir, read_only=vault_read_only,
+        legacy_paths=train_tracker_legacy,
+        sync_enabled=runtime_label == 'personal',
+    ), dependencies=[Depends(journal_data_guard)])
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
     app.include_router(create_activity_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])
@@ -720,6 +800,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
     app.include_router(create_scheduler_router(
         database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
+    # 待确认中枢：草稿 / 事实 / 分流 三处积压的只读汇总 + 三个动作转发。
+    app.include_router(create_pending_router(database, vault_dir, read_only=vault_read_only))
+    # 主动提问：一天一个「关于我」的问题，答了直接写进自我档案。
+    app.include_router(create_questions_router(vault_dir, read_only=vault_read_only))
     # Read-only export of the user's own memories; no vault or review writes.
     app.include_router(create_memory_export_router(database))
     # Read-only self-check: counts and integrity only, no content and no audit.
@@ -727,7 +811,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # Read-only export of Markdown goals/tasks; no state changes.
     app.include_router(create_planning_export_router(database, vault_dir))
     # Read-only export of habits and check-ins; no state changes.
-    app.include_router(create_growth_export_router(database))
+    app.include_router(create_growth_export_router(database, vault_dir))
     # Read-only export of saved conversations and citations; no state changes.
     app.include_router(create_conversation_export_router(database))
     # 四库布局迁移：预览只读，执行/回滚需要显式确认并持有 data_lock。

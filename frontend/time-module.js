@@ -3,12 +3,14 @@
 // 数据来自 /api/time/*（Markdown 本体 `00_人生路/08_任务与待办/`）；写操作一律「POST → 重载 → 提示」，
 // 与 workbench.js 里待办/习惯那套写法保持一致。日历页与四象限页在第 3 轮接上（照滴答实测规格），
 // 2026-10-11 第 4 轮把日历扩成七种视图（状态：视图/锚点/档位/显示设置，全存本机）。
-import { $, state, api, jsonBody, toast, setStatus, confirmAction } from "./core.js";
+import { $, state, api, jsonBody, toast, setStatus, confirmAction, changed } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
   INBOX, INBOX_HINT, priorityMeta, filterTasks, groupTasks, sortTasks, boardTitle,
-  defaultCalendarState, defaultTaskDate,
+  defaultCalendarState, defaultTaskDate, isHabitTask,
 } from "./tasks-model.js";
+import { initHabitsPage, loadHabitsPage, focusHabit } from "./habits-page.js";
+import { openHabitLogDialog } from "./habits-dialogs.js";
 import { renderTaskSidebar } from "./tasks-sidebar.js";
 import { renderTaskBoard, openSortMenu, paintAddTools } from "./tasks.js";
 import { renderCalendar } from "./tasks-calendar.js";
@@ -145,7 +147,7 @@ export function initTimeModule() {
     // 旧任务是只读的：不进入批量选择（也避免全选后点了才发现被后端拒绝）。
     const visible = filterTasks(board?.tasks || [], selection.view || "today", {
       today: shanghaiDay(), list: selection.list || "", tag: selection.tag || "",
-    }).filter((task) => !task.legacy);
+    }).filter((task) => !task.legacy && !isHabitTask(task));
     const all = visible.length > 0 && visible.every((task) => picked.has(task.key));
     picked.clear();
     if (!all) for (const task of visible) picked.add(task.key);
@@ -235,6 +237,7 @@ export function initTimeModule() {
       loadTimeTasks({ silent: true });
     }
   });
+  initHabitsPage({ onChanged: () => loadTimeTasks({ silent: true }) });
   return loadTimeTasks();
 }
 
@@ -256,6 +259,7 @@ export function switchPage(next) {
   $("#time-quadrant-page").hidden = next !== "quadrant";
   $("#time-trash-page").hidden = next !== "trash";
   if (next === "tasks") paintBoard();
+  if (next === "habits") loadHabitsPage();
   if (next === "calendar") paintCalendar();
   if (next === "quadrant") paintQuadrant();
   if (next === "trash") loadTrash();
@@ -300,8 +304,12 @@ export async function loadTimeTasks({ silent = false } = {}) {
   const nextGoalSignature = JSON.stringify([...goalTitles.entries()].sort());
   const goalsChanged = nextGoalSignature !== goalSignature;
   goalSignature = nextGoalSignature;
-  // 自动重读：任务文件与目标标题都没变就不重画，避免打断正在进行的操作。
-  if (silent && board && next.revision === board.revision && !goalsChanged) return;
+  // 自动重读：任务文件、目标标题和习惯版本都没变就不重画，避免打断正在进行的操作。
+  if (silent && board && next.revision === board.revision
+      && (next.habit_board_revision || "") === (board.habit_board_revision || "")
+      && (next.habit_day || "") === (board.habit_day || "")
+      && !goalsChanged) return;
+  const previousHabitRevision = board?.habit_board_revision || "";
   board = next;
   const keys = new Set((next.tasks || []).map((task) => task.key));
   if (activeKey && !keys.has(activeKey)) activeKey = "";
@@ -314,6 +322,10 @@ export async function loadTimeTasks({ silent = false } = {}) {
   // 正好停在日历 / 四象限页时，数据变了也要跟着重画
   if (!$( "#time-calendar-page").hidden) paintCalendar();
   if (!$("#time-quadrant-page").hidden) paintQuadrant();
+  if (!$("#time-habits-page").hidden
+      && previousHabitRevision !== (next.habit_board_revision || "")) {
+    loadHabitsPage({ silent: true });
+  }
 }
 
 let warningSignature = "";
@@ -331,6 +343,9 @@ function paintVaultNote() {
     `${source}：${board.vault_name || "当前库"}`,
     `新任务保存为 ${board.task_dir || "00_人生路/08_任务与待办/任务"}/…md`,
   ];
+  if (board.habit_board_revision) {
+    bits.push("习惯在 00_人生路/06_目标与计划/04_习惯追踪/习惯/…md");
+  }
   if (board.legacy_tasks) {
     bits.push(`旧任务 ${board.legacy_tasks} 条（仍在总文件中，只读）`);
   }
@@ -339,13 +354,13 @@ function paintVaultNote() {
   node.hidden = false;
   const warnings = Array.isArray(board.warnings) ? board.warnings : [];
   node.title = warnings.length
-    ? `有 ${warnings.length} 个任务笔记未能读取：` + warnings.map((item) => `${item.path}（${item.reason}）`).join("；")
+    ? `有 ${warnings.length} 个任务/习惯笔记未能读取：` + warnings.map((item) => `${item.path}（${item.reason}）`).join("；")
     : "";
   const signature = JSON.stringify(warnings);
   if (signature !== warningSignature) {
     warningSignature = signature;
     if (warnings.length) {
-      toast(`有 ${warnings.length} 个任务笔记未能读取；打开 ${warnings[0].path} 检查 frontmatter。`, "warning");
+      toast(`有 ${warnings.length} 个任务/习惯笔记未能读取；打开 ${warnings[0].path} 检查 frontmatter。`, "warning");
     }
   }
 }
@@ -374,6 +389,10 @@ function taskByDragKey(key) {
 function moveTaskByDrop(key, listName) {
   const task = taskByDragKey(key);
   if (!task || task.list_name === listName) return;
+  if (isHabitTask(task)) {
+    toast("习惯不能移动到清单；请到习惯页编辑分组。", "warning");
+    return;
+  }
   post("/api/time/tasks/update", { key: task.key, list_name: listName },
     listName === INBOX ? "已移到收集箱。" : `已移到「${listName}」。`);
 }
@@ -381,6 +400,10 @@ function moveTaskByDrop(key, listName) {
 function reprioritizeTaskByDrop(key, priority) {
   const task = taskByDragKey(key);
   if (!task || task.priority === priority) return;
+  if (isHabitTask(task)) {
+    patchHabit(task, { priority });
+    return;
+  }
   post("/api/time/tasks/update", { key: task.key, priority },
     `已改为${priorityMeta(priority).label}。`);
 }
@@ -397,6 +420,7 @@ function taskReorderTarget(event) {
   const dragged = document.querySelector(".time-task.is-dragging");
   if (!row || !dragged || row === dragged) return null;
   if (row.classList?.contains("is-legacy")) return null;  // 旧任务只读，不能当锚点
+  if (row.dataset?.taskKind === "habit" || dragged.dataset?.taskKind === "habit") return null;
   if (row.parentElement !== dragged.parentElement) return null;
   const rect = row.getBoundingClientRect?.();
   const after = rect ? Number(event.clientY) > rect.top + rect.height / 2 : false;
@@ -417,6 +441,7 @@ function boardTaskKeys() {
   const keys = [];
   for (const row of document.querySelectorAll("#time-board .time-task")) {
     const key = row.dataset.taskKey || "";
+    if (row.dataset.taskKind === "habit") continue;
     if (key && !seen.has(key)) {
       seen.add(key);
       keys.push(key);
@@ -570,6 +595,7 @@ function paintSidebar() {
     tags: board?.tags || [],
     selection: viewState.selection,
     showDone: viewState.showDone !== false,
+    habitDay: board?.habit_day || shanghaiDay(),
     collapsed,
     onSelect: selectView,
     onToggleGroup: (name) => {
@@ -706,6 +732,7 @@ function syncPendingDefaults() {
 function taskOptions(selection, options = {}) {
   return {
     today: shanghaiDay(),
+    habitDay: board?.habit_day || shanghaiDay(),
     lists: board?.lists || [],
     selection,
     draggable: Boolean(options.draggable),
@@ -715,27 +742,37 @@ function taskOptions(selection, options = {}) {
     onOpenDocument: (task) => openTask(task),
     onToggle: (task, done) => {
       if (task.legacy) return;
+      if (isHabitTask(task)) { toggleHabitFromBoard(task, done); return; }
       patch(task, { done });
     },
     onRename: (task, title) => {
       if (task.legacy) return;
+      if (isHabitTask(task)) { patchHabit(task, { title }); return; }
       patch(task, { title });
     },
     onSelectTag: (tag) => selectView({ tag }),
     actions: {
       openDocument: (task) => openTask(task),
-      setDate: (task, date) => patch(task, { date }),
-      setTime: (task, time) => patch(task, { time }),
-      setPriority: (task, priority) => patch(task, { priority }),
-      setTags: (task, tags) => patch(task, { tags }),
-      setPinned: (task, pinned) => patch(task, { pinned }),
-      move: (task, list) => patch(task, { list_name: list }),
+      setDate: (task, date) => { if (habitGuard(task)) return; patch(task, { date }); },
+      setTime: (task, time) => { if (habitGuard(task)) return; patch(task, { time }); },
+      setPriority: (task, priority) => {
+        if (isHabitTask(task)) { patchHabit(task, { priority }); return; }
+        patch(task, { priority });
+      },
+      setTags: (task, tags) => { if (habitGuard(task)) return; patch(task, { tags }); },
+      setPinned: (task, pinned) => { if (habitGuard(task)) return; patch(task, { pinned }); },
+      move: (task, list) => { if (habitGuard(task)) return; patch(task, { list_name: list }); },
+      openHabit: (task) => openHabitFromBoard(task),
+      toggleHabit: (task) => {
+        if (task.entry_status === "skipped") { toggleHabitFromBoard(task, false); return; }
+        toggleHabitFromBoard(task, task.entry_status !== "done");
+      },
       duplicate: (task) => {
-        if (task.legacy) return;
+        if (task.legacy || habitGuard(task)) return;
         post("/api/time/tasks/duplicate", { key: task.key }, "已创建副本。");
       },
       remove: async (task) => {
-        if (task.legacy) return;
+        if (task.legacy || habitGuard(task)) return;
         const ok = await confirmAction({
           title: `把任务“${task.title}”移到回收站？`,
           message: "只会移入 .torch-os/task-trash，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
@@ -746,6 +783,70 @@ function taskOptions(selection, options = {}) {
       },
     },
   };
+}
+
+/** 习惯行不允许在任务页改日期/时间/标签/清单/置顶/删除/复制。 */
+function habitGuard(task) {
+  if (!isHabitTask(task)) return false;
+  toast("习惯的日期、时间、标签、清单等请在习惯页修改。", "warning");
+  return true;
+}
+
+async function patchHabit(task, changes) {
+  try {
+    await api(`/api/habits/${task.habit_id}`, jsonBody("PATCH", {
+      revision: task.definition_revision, ...changes,
+    }));
+    await loadTimeTasks();
+    if (!$("#time-habits-page").hidden) loadHabitsPage({ silent: true });
+    changed();
+    toast("习惯已更新。");
+    return true;
+  } catch (error) {
+    setStatus("#time-status", `习惯：${error.message}`, "warning");
+    toast(`习惯没保存成功：${error.message}`, "error");
+    await loadTimeTasks();
+    return false;
+  }
+}
+
+async function toggleHabitFromBoard(task, done) {
+  try {
+    const result = await api(`/api/habits/${task.habit_id}/toggle`, jsonBody("POST", {
+      day: task.date, done, revision: task.entry_revision || 0,
+    }));
+    await loadTimeTasks();
+    if (!$("#time-habits-page").hidden) loadHabitsPage({ silent: true });
+    changed();
+    if (done && task.auto_log) {
+      openHabitLogDialog({
+        habit: task, day: task.date, entry: result,
+        onSave: async (payload) => {
+          try {
+            await api(`/api/habits/${task.habit_id}/entries/${task.date}`, jsonBody("PUT", payload));
+            await loadTimeTasks();
+            if (!$("#time-habits-page").hidden) loadHabitsPage({ silent: true });
+            changed();
+            toast("打卡日志已保存。");
+          } catch (error) {
+            toast(`日志没保存成功：${error.message}`, "error");
+            throw error;
+          }
+        },
+      });
+    } else {
+      toast(done ? `已打卡：${task.title}` : `已取消打卡：${task.title}`);
+    }
+  } catch (error) {
+    setStatus("#time-status", `打卡失败：${error.message}`, "warning");
+    toast(`打卡失败：${error.message}`, "error");
+    await loadTimeTasks();
+  }
+}
+
+function openHabitFromBoard(task) {
+  document.querySelector('[data-time-page="habits"]')?.click();
+  focusHabit(task.habit_id);
 }
 
 function goalLabel(path) {
@@ -780,6 +881,7 @@ function paintBoard() {
   }
   const picked = filterTasks(tasks, selection.view || "today", {
     today,
+    habitDay: board?.habit_day || today,
     list: selection.list || "",
     tag: selection.tag || "",
     goal: selection.goal || "",
@@ -828,7 +930,7 @@ function paintQuadrant() {
 
 /** 单击一行：多选模式下是加/取消，普通模式下是「选中这一条」（再点一次取消）。 */
 function onPickTask(task) {
-  if (task.legacy) return;   // 旧任务只读，不参与选中/批量
+  if (task.legacy || isHabitTask(task)) return;   // 旧任务/习惯行不参与选中/批量
   if (multi) {
     if (picked.has(task.key)) picked.delete(task.key);
     else picked.add(task.key);
@@ -889,6 +991,14 @@ async function patch(task, changes) {
   if (task.legacy) {
     toast("旧任务仍在 任务（tasks）.md，应用内只读；请在 Obsidian 里修改。", "warning");
     return false;
+  }
+  if (isHabitTask(task)) {
+    const allowed = Object.keys(changes).every((key) => key === "title" || key === "priority");
+    if (!allowed) {
+      toast("习惯的日期、时间、标签、清单等请在习惯页修改。", "warning");
+      return false;
+    }
+    return patchHabit(task, changes);
   }
   return post("/api/time/tasks/update", { key: task.key, ...changes });
 }

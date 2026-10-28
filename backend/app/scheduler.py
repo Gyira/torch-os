@@ -238,31 +238,14 @@ class SchedulerService:
         if self.vault_dir is not None:
             completed = len(task_reports.completed_between(self.vault_dir, day, day))
             overdue = len(task_reports.overdue(self.vault_dir, day))
-        with self.database.connect() as connection:
+        try:
+            from .habits import HabitService
+
+            habits = HabitService(self.database, self.vault_dir).range_counts(today, today)
+        except Exception:
+            # A broken habit note must not stop the evening report.
             habits = {"done": 0, "skipped": 0, "unrecorded": 0}
-            if self._has_table(connection, "habit_definitions") and self._has_table(connection, "habit_entries"):
-                scheduled = []
-                for row in connection.execute(
-                    "SELECT id,weekdays_json,start_date FROM habit_definitions WHERE status='active'"
-                ).fetchall():
-                    try:
-                        weekdays = json.loads(row["weekdays_json"])
-                    except (TypeError, ValueError):
-                        continue
-                    if row["start_date"] <= day and today.weekday() in weekdays:
-                        scheduled.append(row["id"])
-                if scheduled:
-                    marks = {row["habit_id"]: row["status"] for row in connection.execute(
-                        "SELECT habit_id,status FROM habit_entries WHERE date=?", (day,)
-                    ).fetchall()}
-                    for habit_id in scheduled:
-                        status = marks.get(habit_id, "unrecorded")
-                        if status == "done":
-                            habits["done"] += 1
-                        elif status == "skipped":
-                            habits["skipped"] += 1
-                        else:
-                            habits["unrecorded"] += 1
+        with self.database.connect() as connection:
             journal_recorded = False
             next_action = ""
             if self.vault_dir is not None:
@@ -315,31 +298,13 @@ class SchedulerService:
                               "priority": note.get("priority") or "none",
                               "due_date": note.get("date")}
                              for note in task_reports.sorted_due(overdue_rows, 5)]
-        with self.database.connect() as connection:
+        try:
+            from .habits import HabitService
+
+            habits = HabitService(self.database, self.vault_dir).range_counts(week_start, week_end)
+        except Exception:
             habits = {"done": 0, "skipped": 0, "unrecorded": 0}
-            if self._has_table(connection, "habit_definitions") and self._has_table(connection, "habit_entries"):
-                marks = {(row["habit_id"], row["date"]): row["status"] for row in connection.execute(
-                    "SELECT habit_id,date,status FROM habit_entries WHERE date>=? AND date<=?",
-                    (start, end),
-                ).fetchall()}
-                for row in connection.execute(
-                    "SELECT id,weekdays_json,start_date FROM habit_definitions WHERE status='active'"
-                ).fetchall():
-                    try:
-                        weekdays = json.loads(row["weekdays_json"])
-                    except (TypeError, ValueError):
-                        continue
-                    for offset in range(7):
-                        day = week_start + timedelta(days=offset)
-                        if day.isoformat() < row["start_date"] or day.weekday() not in weekdays:
-                            continue
-                        status = marks.get((row["id"], day.isoformat()), "unrecorded")
-                        if status == "done":
-                            habits["done"] += 1
-                        elif status == "skipped":
-                            habits["skipped"] += 1
-                        else:
-                            habits["unrecorded"] += 1
+        with self.database.connect() as connection:
             journal_days = 0
             if self.vault_dir is not None:
                 for offset in range(7):

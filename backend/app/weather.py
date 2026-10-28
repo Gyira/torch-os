@@ -1,17 +1,20 @@
 """天气：Open-Meteo 实况 + 5 天日级预报（无 Key）+ IP 粗略定位；只做白名单出站与内存短缓存。
 
-- 出站域名只有两个：`api.open-meteo.com`（实况与日级预报，一次请求一起取）与 `ipwho.is`（按 IP 猜城市）；
+- 出站域名只有三个：`api.open-meteo.com`（实况与日级预报，一次请求一起取）、
+  `geocoding-api.open-meteo.com`（只在用户主动搜索“常用城市”时查询）与 `ipwho.is`（按 IP 猜城市）；
   遵循本地出站白名单纪律：https、固定 host、超时、大小上限、无重试；
-- 城市来源优先级：**界面上选的城市**（`?city=`，只认内置城市表，不做在线 geocoding）→ `WEATHER_CITY`
-  （.env，需重启生效）→ IP 定位 → 内置城市表兜底；
+- 城市来源优先级：**界面上选的内置城市**（`?city=`）→ 搜索结果的坐标（`?city=&latitude=&longitude=`）
+  → `WEATHER_CITY`（.env，需重启生效）→ IP 定位 → 内置城市表兜底；
+- 在线 geocoding 只用于“添加常用城市”，普通取天气仍走内置城市表或已保存的坐标，不会额外出站；
 - 5 天预报的日级字段照用户要求：体感、湿度、降水可能性、风向、风速、气压、日出、日落（WMO 码翻中文、
   风向按度数翻成八方位中文）；
-- 结果缓存 30 分钟（注入式闭包缓存，仿 scheduler_state 模式），手动刷新可强制重取；
+- 结果缓存 30 分钟（按城市 + 坐标分槽，注入式闭包缓存，仿 scheduler_state 模式），手动刷新可强制重取；
 - 纯读：不写保险库、不发审计、不碰模型 Key。
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 from datetime import datetime
 from typing import Any, Callable
@@ -22,11 +25,14 @@ from fastapi import APIRouter, HTTPException, Query
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 GEO_URL = "https://ipwho.is/"
-ALLOWED_HOSTS = ("api.open-meteo.com", "ipwho.is")
+ALLOWED_HOSTS = ("api.open-meteo.com", "geocoding-api.open-meteo.com", "ipwho.is")
 TIMEOUT_SECONDS = 8.0
 MAX_RESPONSE_BYTES = 256_000
 CACHE_SECONDS = 30 * 60
+MAX_CITY_NAME = 60
+SEARCH_LIMIT = 8
 DEFAULT_CITY = ("北京", 39.90, 116.41)   # IP 定位不可用时回退到这里（可在界面上换城市，选择存本机）
 
 # 一次拿够 5 天：日级变量都是 Open-Meteo 现成的（实测 2026-10-06 全部可用），
@@ -79,6 +85,24 @@ class WeatherError(Exception):
 
 def _has_cjk(text: str) -> bool:
     return any("一" <= char <= "鿿" for char in text)
+
+
+def _coords(latitude: Any, longitude: Any) -> tuple[float, float] | None:
+    """经纬度 → (lat, lon)；缺失、非数字、非有限值或越界都返回 None。"""
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    return lat, lon
+
+
+def _place_key(place: dict[str, Any]) -> tuple[str, float, float]:
+    """缓存槽：同名不同地的城市要分开（例如两个 Springfield）。"""
+    return (str(place["city"]), round(float(place["latitude"]), 3), round(float(place["longitude"]), 3))
 
 
 def describe_weather(code: Any) -> dict[str, str]:
@@ -178,53 +202,94 @@ class WeatherService:
         self.city_override = (city_override if city_override is not None
                               else os.getenv("WEATHER_CITY", "")).strip()
         self.clock = clock or (lambda: datetime.now().timestamp())
-        self.cache: dict[str, dict[str, Any]] = {}  # 城市 → {fetched_at, payload}
+        self.cache: dict[tuple[str, float, float], dict[str, Any]] = {}  # (城市, 纬度, 经度) → {fetched_at, payload}
 
-    def locate(self, pick: str = "") -> dict[str, Any]:
-        """定位：`pick`（用户在界面上选的城市）优先，其次 `WEATHER_CITY`，再 IP，最后内置兜底。
+    def locate(self, pick: str = "", latitude: Any = None,
+               longitude: Any = None) -> dict[str, Any]:
+        """定位：内置城市名或搜索结果的坐标优先，其次 `WEATHER_CITY`，再 IP，最后内置兜底。
 
-        `pick` 只认内置城市表——不做在线 geocoding，所以选了就直接有经纬度，连 IP 都不用问。
+        `pick` 是内置城市就直接查表，连 IP 都不用问；不是内置城市时必须同时给搜索结果的
+        经纬度，避免把任意字符串当成城市名去请求上游。
         """
         picked = (pick or "").strip()
-        if picked and picked not in CITY_DB:
-            raise WeatherError(f"内置城市表里没有“{picked}”")
+        explicit = _coords(latitude, longitude)
+        if picked and picked in CITY_DB:
+            lat, lon = CITY_DB[picked]
+            return {"city": picked, "latitude": lat, "longitude": lon, "source": "pick"}
+        if picked and explicit:
+            lat, lon = explicit
+            return {"city": picked, "latitude": lat, "longitude": lon, "source": "search"}
         if picked:
-            latitude, longitude = CITY_DB[picked]
-            return {"city": picked, "latitude": latitude, "longitude": longitude, "source": "pick"}
+            raise WeatherError(f"内置城市表里没有“{picked}”，请先搜索城市再选择")
         if self.city_override:
             if self.city_override in CITY_DB:
-                latitude, longitude = CITY_DB[self.city_override]
-                return {"city": self.city_override, "latitude": latitude,
-                        "longitude": longitude, "source": "env"}
-            # 非内置城市：留在 IP 定位上，并在说明里点出来，不上线 geocoding。
+                lat, lon = CITY_DB[self.city_override]
+                return {"city": self.city_override, "latitude": lat,
+                        "longitude": lon, "source": "env"}
+            # 非内置城市：留在 IP 定位上，并在说明里点出来，不默默按城市名猜测坐标。
             note = f"城市“{self.city_override}”不在内置表里，暂按 IP 定位"
         else:
             note = ""
         try:
             payload = self.fetcher(GEO_URL)
             if payload.get("success") is not False and payload.get("latitude") is not None:
-                latitude, longitude = float(payload["latitude"]), float(payload["longitude"])
+                lat, lon = float(payload["latitude"]), float(payload["longitude"])
                 name = str(payload.get("city") or "未知")
                 if not _has_cjk(name):
                     # ipwho.is 对国内城市常给英文名：就近映射回内置城市表的中文名。
                     nearest, (near_lat, near_lon) = min(
                         CITY_DB.items(),
-                        key=lambda item: (item[1][0] - latitude) ** 2 + (item[1][1] - longitude) ** 2)
-                    if (near_lat - latitude) ** 2 + (near_lon - longitude) ** 2 < 0.8:
+                        key=lambda item: (item[1][0] - lat) ** 2 + (item[1][1] - lon) ** 2)
+                    if (near_lat - lat) ** 2 + (near_lon - lon) ** 2 < 0.8:
                         name = nearest
-                return {"city": name, "latitude": latitude,
-                        "longitude": longitude, "source": "ip", "note": note}
+                return {"city": name, "latitude": lat,
+                        "longitude": lon, "source": "ip", "note": note}
         except WeatherError:
             pass
-        city, latitude, longitude = DEFAULT_CITY
-        return {"city": city, "latitude": latitude, "longitude": longitude,
+        city, lat, lon = DEFAULT_CITY
+        return {"city": city, "latitude": lat, "longitude": lon,
                 "source": "default", "note": note or "IP 定位不可用，已回退到默认城市"}
 
-    def current(self, force: bool = False, city: str = "") -> dict[str, Any]:
-        place = self.locate(city)
+    def search_cities(self, query: str) -> list[dict[str, Any]]:
+        """Open-Meteo geocoding：只在用户主动搜索“常用城市”时调用，结果带坐标。"""
+        text = (query or "").strip()
+        if not text:
+            return []
+        if len(text) > MAX_CITY_NAME:
+            raise WeatherError("城市名太长")
+        payload = self.fetcher(GEOCODING_URL, params={
+            "name": text, "count": SEARCH_LIMIT, "language": "zh", "format": "json",
+        })
+        found: list[dict[str, Any]] = []
+        seen: set[tuple[str, float, float]] = set()
+        results = payload.get("results")
+        for item in (results if isinstance(results, list) else [])[:SEARCH_LIMIT]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            coords = _coords(item.get("latitude"), item.get("longitude"))
+            if not name or not coords:
+                continue
+            key = (name, round(coords[0], 3), round(coords[1], 3))
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append({
+                "name": name,
+                "admin1": str(item.get("admin1") or "").strip(),
+                "country": str(item.get("country") or "").strip(),
+                "latitude": round(coords[0], 4),
+                "longitude": round(coords[1], 4),
+            })
+        return found
+
+    def current(self, force: bool = False, city: str = "",
+                latitude: Any = None, longitude: Any = None) -> dict[str, Any]:
+        place = self.locate(city, latitude, longitude)
         now = self.clock()
-        # 缓存按城市分开：来回切城市不互相冲掉，切回来仍然命中 30 分钟缓存。
-        entry = self.cache.get(place["city"])
+        # 缓存按城市 + 坐标分开：来回切城市不互相冲掉，同名异地也不会串数据。
+        key = _place_key(place)
+        entry = self.cache.get(key)
         if entry and not force and now - float(entry.get("fetched_at") or 0) < CACHE_SECONDS:
             return {**entry["payload"], "cached": True}
         forecast = self.fetcher(FORECAST_URL, params={
@@ -239,6 +304,7 @@ class WeatherService:
             raise WeatherError("天气服务没有返回实况数据")
         payload = {
             "city": place["city"], "source": place["source"],
+            "latitude": place["latitude"], "longitude": place["longitude"],
             "note": place.get("note", ""),
             "temperature": current.get("temperature_2m"),
             "apparent_temperature": current.get("apparent_temperature"),
@@ -248,12 +314,12 @@ class WeatherService:
             **describe_weather(current.get("weather_code")),
             "observed_at": current.get("time"),
             "forecast": daily_forecast(forecast),
-            # 内置城市表随回调一起带上：前端的下拉直接用这一份，不再有第二份清单。
+            # 内置城市表随回调一起带上：前端的快速添加直接用这一份，不再有第二份清单。
             "cities": list(CITY_DB),
             "fetched_at": datetime.fromtimestamp(now, SHANGHAI).isoformat(timespec="seconds"),
             "cached": False,
         }
-        self.cache[place["city"]] = {"fetched_at": now, "payload": payload}
+        self.cache[key] = {"fetched_at": now, "payload": payload}
         return payload
 
 
@@ -263,12 +329,27 @@ def create_weather_router(prefix: str = "/api", service: WeatherService | None =
 
     @router.get("/weather")
     def get_weather(refresh: int = Query(default=0, ge=0, le=1),
-                    city: str = Query(default="", max_length=30)):
+                    city: str = Query(default="", max_length=MAX_CITY_NAME),
+                    latitude: float | None = Query(default=None, ge=-90, le=90),
+                    longitude: float | None = Query(default=None, ge=-180, le=180)):
         picked = city.strip()
-        if picked and picked not in CITY_DB:
-            raise HTTPException(422, f"内置城市表里没有“{picked}”，请在列表里选")
+        if (latitude is None) != (longitude is None):
+            raise HTTPException(422, "latitude 与 longitude 需要同时提供")
+        has_coords = latitude is not None and longitude is not None
+        if picked and picked not in CITY_DB and not has_coords:
+            raise HTTPException(422, f"内置城市表里没有“{picked}”，请先在天气详情里搜索城市")
+        if has_coords and not picked:
+            raise HTTPException(422, "按坐标取天气时需要同时提供城市名")
         try:
-            return weather.current(force=bool(refresh), city=picked)
+            return weather.current(force=bool(refresh), city=picked,
+                                   latitude=latitude, longitude=longitude)
+        except WeatherError as error:
+            raise HTTPException(502, str(error)) from error
+
+    @router.get("/weather/cities")
+    def search_weather_cities(q: str = Query(default="", max_length=MAX_CITY_NAME)):
+        try:
+            return {"results": weather.search_cities(q)}
         except WeatherError as error:
             raise HTTPException(502, str(error)) from error
 

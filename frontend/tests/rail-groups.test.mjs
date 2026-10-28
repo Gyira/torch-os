@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
@@ -43,7 +43,10 @@ const IMPORTS = {
   "./pillar-ops.js": ["bindOpsEvents", "mountOps"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
   "./pillar-steward.js": ["openSteward"],
+  "./identity-inbox.js": ["identityInboxMarkup"],
+  "./archive-markup.js": ["archiveMarkup"],
   "./journal-model.js": ["shanghaiDay"],
+  "./journal-ritual.js": ["openJournalReview"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],
 };
 

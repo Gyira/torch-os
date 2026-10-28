@@ -1,13 +1,17 @@
 """恋爱系统（原生模块）。
 
 把原来的「恋爱分析助手」重做成薪火OS 的一部分：
-- 直接读写它已有的 SQLite 数据库（默认在 %LOCALAPPDATA%\\love-analysis-assistant），
-  不启动、也不依赖原来那个 FastAPI/Electron 进程；
+- 数据统一放在当前个人数据库的 ``.torch-os/love/``（数据库、加密 Key、排班表、值班备注、
+  停用词）；旧版 ``%LOCALAPPDATA%`` / 仓库 ``data/love`` 的数据只在首次启动时复制过来；
+- 不启动、也不依赖原来那个 FastAPI/Electron 进程；
 - 保留原有表结构、数据格式和 DeepSeek 分析口径，已有项目/日志/画像可以继续使用；
 - 只通过本机工作台的会话鉴权暴露 API，所有聊天内容都留在本机；
   AI 分析前按原有规则脱敏姓名、电话、证件、邮箱、链接等。
 
-文件故意保持为「一个功能一个文件」：交路表/丽洁追踪在 ``love_lijie.py``。
+文件故意保持为「一个功能一个文件」：排班表与值班备注在 ``love_schedule.py``，
+数据目录与迁移在 ``love_storage.py``；微信同步的外部 API 客户端与 ChatLab 解析在
+``weflow.py``，本地合并路由与每日记忆草稿留在本文件的 ``create_love_router`` 里。
+车次时刻表/运行追踪已移到独立的 ``train_tracker.py``，不放在恋爱系统里。
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -27,10 +32,17 @@ from pathlib import Path
 from typing import Any, Iterator, Literal
 
 import httpx
+import yaml
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, StrictBool
 from starlette.concurrency import run_in_threadpool
+
+from .love_storage import DB_NAME, EXCEL_DIR_NAME, KEY_NAME, STOPWORDS_NAME
+from .weflow import (
+    TZ as WEFLOW_TZ, WeFlowClient, WeFlowError, WeFlowMessage, iter_pages,
+    load_chatlab_export, parse_chatlab,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MAX_IMPORT_BYTES = 40 * 1024 * 1024
@@ -59,6 +71,13 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     is_system BOOLEAN,
     content_hash VARCHAR(64) NOT NULL,
+    platform_message_id VARCHAR(64),
+    sender_id VARCHAR(100),
+    message_type INTEGER,
+    is_send BOOLEAN,
+    reply_to_message_id VARCHAR(64),
+    media_path TEXT,
+    source VARCHAR(20),
     created_at DATETIME,
     FOREIGN KEY(project_id) REFERENCES projects (id) ON DELETE CASCADE
 );
@@ -114,6 +133,59 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME
 );
 CREATE INDEX IF NOT EXISTS ix_settings_key ON settings(key);
+
+-- 微信同步：一个项目绑定一个 WeFlow 会话；只同步这个会话。
+CREATE TABLE IF NOT EXISTS project_sources (
+    project_id VARCHAR(36) NOT NULL PRIMARY KEY,
+    provider VARCHAR(20) NOT NULL,
+    session_id VARCHAR(200),
+    contact_name VARCHAR(200),
+    me_sender VARCHAR(100),
+    partner_sender VARCHAR(100),
+    watermark INTEGER DEFAULT 0,
+    last_sync_at DATETIME,
+    created_at DATETIME,
+    updated_at DATETIME,
+    FOREIGN KEY(project_id) REFERENCES projects (id) ON DELETE CASCADE
+);
+
+-- 同步任务日志：预览/执行都走后台任务，前端轮询进度。
+CREATE TABLE IF NOT EXISTS weflow_sync_logs (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL,
+    mode VARCHAR(10) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    fetched INTEGER DEFAULT 0,
+    inserted INTEGER DEFAULT 0,
+    matched INTEGER DEFAULT 0,
+    duplicates INTEGER DEFAULT 0,
+    ambiguous INTEGER DEFAULT 0,
+    error_message TEXT,
+    started_at DATETIME,
+    finished_at DATETIME,
+    FOREIGN KEY(project_id) REFERENCES projects (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_weflow_sync_project ON weflow_sync_logs(project_id, started_at);
+-- 同一项目同时只允许一个排队/运行中的同步；占用的日志完成/失败后自动释放。
+CREATE UNIQUE INDEX IF NOT EXISTS ix_weflow_sync_running
+    ON weflow_sync_logs(project_id) WHERE status IN ('queued', 'running');
+
+-- 每日聊天记忆：先生成草稿，确认后才写四库。
+CREATE TABLE IF NOT EXISTS memory_drafts (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL,
+    day DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    content_json TEXT,
+    markdown TEXT,
+    usage_json TEXT,
+    note_path VARCHAR(500),
+    created_at DATETIME,
+    updated_at DATETIME,
+    FOREIGN KEY(project_id) REFERENCES projects (id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_memory_drafts_project_day
+    ON memory_drafts(project_id, day);
 """
 
 
@@ -187,10 +259,13 @@ class LoveSettings:
     app_dir: Path
     stopwords_path: Path
     excel_dir: Path
-    timetable_path: Path
     api_base_url: str
     api_model: str
     key_file: Path | None = None
+    # 排班对象姓名只从本机配置读取，不写进仓库；空串表示自动识别。
+    target_name: str = ""
+    # 仅在个人模式首次启动时由 application.create_app 填入的迁移报告。
+    migration: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls, *, db_path: Path | None = None,
@@ -202,25 +277,44 @@ class LoveSettings:
             value = Path(raw)
             return value if value.is_absolute() else PROJECT_ROOT / value
 
-        local_appdata = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
-        database = db_path or path_value(
-            "LOVE_DB_PATH", local_appdata / "love-analysis-assistant" / "love_analysis.db"
-        )
-        app_dir = path_value("LOVE_APP_DIR", PROJECT_ROOT)
+        data_dir = path_value("DATA_DIR", PROJECT_ROOT / "data")
+        love_root = path_value("LOVE_DATA_DIR", data_dir / "love")
+        database = Path(db_path) if db_path else love_root / DB_NAME
+        root = Path(database).parent
         return cls(
-            db_path=Path(database),
-            app_dir=app_dir,
-            stopwords_path=path_value(
-                "LOVE_STOPWORDS_PATH", app_dir / "resources" / "stopwords" / "cn_stopwords.txt"
-            ),
-            excel_dir=path_value("LOVE_EXCEL_DIR", app_dir / "胡丽洁" / "file" / "xlsx"),
-            timetable_path=path_value(
-                "LOVE_TIMETABLE_PATH", app_dir / "backend" / "data" / "train_timetable.json"
-            ),
+            db_path=database,
+            app_dir=path_value("LOVE_APP_DIR", PROJECT_ROOT),
+            stopwords_path=root / STOPWORDS_NAME,
+            excel_dir=root / EXCEL_DIR_NAME,
             api_base_url=(os.getenv("LOVE_API_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             api_model=os.getenv("LOVE_API_MODEL") or "deepseek-chat",
-            key_file=Path(key_file) if key_file else Path(database).parent / ".api_key.key",
+            key_file=Path(key_file) if key_file else root / KEY_NAME,
+            target_name=(os.getenv("LOVE_TARGET_NAME") or "").strip(),
         )
+
+
+# 微信同步（WeFlow）需要的字段；旧库通过 ALTER TABLE 补齐，旧消息保持 NULL。
+_MESSAGE_COLUMNS = {
+    "platform_message_id": "VARCHAR(64)",
+    "sender_id": "VARCHAR(100)",
+    "message_type": "INTEGER",
+    "is_send": "BOOLEAN",
+    "reply_to_message_id": "VARCHAR(64)",
+    "media_path": "TEXT",
+    "source": "VARCHAR(20)",
+}
+
+
+def _ensure_message_columns(con: sqlite3.Connection) -> None:
+    existing = {str(row["name"]) for row in con.execute("PRAGMA table_info(messages)")}
+    for name, sql_type in _MESSAGE_COLUMNS.items():
+        if name not in existing:
+            con.execute(f"ALTER TABLE messages ADD COLUMN {name} {sql_type}")
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_messages_platform "
+        "ON messages(project_id, platform_message_id) "
+        "WHERE platform_message_id IS NOT NULL"
+    )
 
 
 class LoveStore:
@@ -256,6 +350,7 @@ class LoveStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
             con.executescript(SCHEMA_SQL)
+            _ensure_message_columns(con)
         self._schema_ready = True
 
     def status(self) -> dict[str, Any]:
@@ -263,6 +358,8 @@ class LoveStore:
         exists = self.db_path.exists()
         info: dict[str, Any] = {
             "available": False,
+            "data_dir": str(self.db_path.parent),
+            "data_dir_exists": self.db_path.parent.is_dir(),
             "db_path": str(self.db_path),
             "db_exists": exists,
             "db_size": self.db_path.stat().st_size if exists else 0,
@@ -274,8 +371,9 @@ class LoveStore:
             "api_model": settings.api_model,
             "app_dir": str(settings.app_dir),
             "app_dir_exists": settings.app_dir.is_dir(),
-            "lijie_excel_dir": str(settings.excel_dir),
-            "lijie_timetable": str(settings.timetable_path),
+            "schedule_excel_dir": str(settings.excel_dir),
+            "schedule_notes": str(settings.excel_dir.parent / "schedule-notes.json"),
+            "migration": settings.migration or {},
             "error": "",
         }
         try:
@@ -300,6 +398,13 @@ def _stored_api_key_row(con: sqlite3.Connection) -> sqlite3.Row | None:
     return con.execute(
         "SELECT id, value, updated_at FROM settings WHERE key = 'api_key' "
         "ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+    ).fetchone()
+
+
+def _stored_setting_row(con: sqlite3.Connection, key: str) -> sqlite3.Row | None:
+    return con.execute(
+        "SELECT id, value, updated_at FROM settings WHERE key = ? "
+        "ORDER BY updated_at DESC, rowid DESC LIMIT 1", (key,)
     ).fetchone()
 
 
@@ -985,6 +1090,62 @@ def _api_key(store: LoveStore) -> str:
         raise HTTPException(400, str(exc)) from exc
 
 
+# ── WeFlow 本地 API（微信同步）──────────────────────────────────────
+
+WEFLOW_PORT_DEFAULT = 5031
+
+
+def _weflow_port(store: LoveStore) -> int:
+    with store.connect() as con:
+        row = _stored_setting_row(con, "weflow_port")
+    try:
+        port = int(row["value"]) if row and row["value"] else WEFLOW_PORT_DEFAULT
+    except (TypeError, ValueError):
+        port = WEFLOW_PORT_DEFAULT
+    return port if 1 <= port <= 65535 else WEFLOW_PORT_DEFAULT
+
+
+def _weflow_token_configured(store: LoveStore) -> bool:
+    with store.connect() as con:
+        row = _stored_setting_row(con, "weflow_token")
+    return bool(row and row["value"])
+
+
+def _weflow_token(store: LoveStore) -> str:
+    with store.connect() as con:
+        row = _stored_setting_row(con, "weflow_token")
+    if row is None or not row["value"]:
+        raise HTTPException(400, "还没有配置 WeFlow Access Token，请到「恋爱系统 → 微信同步」里填写")
+    try:
+        return _decrypt_key(store, row["value"])
+    except LoveKeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _save_weflow_token(store: LoveStore, token: str) -> None:
+    value = str(token or "").strip()
+    with store.connect() as con:
+        con.execute("DELETE FROM settings WHERE key = 'weflow_token'")
+        if value:
+            con.execute(
+                "INSERT INTO settings (id, key, value, updated_at) VALUES (?,?,?,?)",
+                (str(uuid.uuid4()), "weflow_token", _encrypt_key(store, value), _now_text()),
+            )
+
+
+def _save_weflow_port(store: LoveStore, port: int) -> int:
+    value = int(port)
+    if not 1 <= value <= 65535:
+        raise HTTPException(422, "WeFlow 端口应在 1-65535 之间")
+    with store.connect() as con:
+        con.execute("DELETE FROM settings WHERE key = 'weflow_port'")
+        con.execute(
+            "INSERT INTO settings (id, key, value, updated_at) VALUES (?,?,?,?)",
+            (str(uuid.uuid4()), "weflow_port", str(value), _now_text()),
+        )
+    return value
+
+
 # ── AI 分析 ─────────────────────────────────────────────────────────
 
 ANALYSIS_SYSTEM_PROMPT = """你是专业的恋爱关系分析顾问。你的任务是基于微信聊天记录，客观分析两人的关系状态。
@@ -1410,15 +1571,655 @@ class ApiKeyRequest(BaseModel):
     key: str = Field(min_length=8, max_length=300)
 
 
+# ── 微信同步（WeFlow）────────────────────────────────────────────────
+
+class WeFlowSettingsRequest(BaseModel):
+    token: str = Field(default="", max_length=300)
+    port: int = Field(default=WEFLOW_PORT_DEFAULT, ge=1, le=65535)
+
+
+class WeFlowConnectRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    session_id: str = Field(min_length=1, max_length=200)
+    me_sender: str = Field(default="", max_length=100)
+
+
+class WeFlowSyncRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    mode: Literal["preview", "apply"] = "preview"
+    since: int | None = Field(default=None, ge=0)
+
+
+class WeFlowCreateProjectRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    me_sender: str = Field(default="我", max_length=100)
+
+
+def _source_row(con: sqlite3.Connection, project_id: str) -> sqlite3.Row | None:
+    return con.execute(
+        "SELECT * FROM project_sources WHERE project_id = ?", (project_id,)
+    ).fetchone()
+
+
+def _source_json(row: sqlite3.Row | None) -> dict[str, Any]:
+    if row is None:
+        return {}
+    return {
+        "project_id": row["project_id"],
+        "provider": row["provider"],
+        "session_id": row["session_id"] or "",
+        "contact_name": row["contact_name"] or "",
+        "me_sender": row["me_sender"] or "",
+        "partner_sender": row["partner_sender"] or "",
+        "watermark": int(row["watermark"] or 0),
+        "last_sync_at": _iso(row["last_sync_at"]),
+    }
+
+
+def _sync_log_json(row: sqlite3.Row | None) -> dict[str, Any]:
+    if row is None:
+        return {"status": "none"}
+    return {
+        "id": row["id"],
+        "project_id": row["project_id"],
+        "mode": row["mode"],
+        "status": row["status"],
+        "fetched": int(row["fetched"] or 0),
+        "inserted": int(row["inserted"] or 0),
+        "matched": int(row["matched"] or 0),
+        "duplicates": int(row["duplicates"] or 0),
+        "ambiguous": int(row["ambiguous"] or 0),
+        "error": row["error_message"] or "",
+        "started_at": _iso(row["started_at"]),
+        "finished_at": _iso(row["finished_at"]),
+    }
+
+
+def _backup_love_db(store: LoveStore, label: str) -> Path:
+    backup_dir = store.db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    target = backup_dir / f"love-{label}-{stamp}-{uuid.uuid4().hex[:6]}.db"
+    with sqlite3.connect(str(store.db_path)) as source, sqlite3.connect(str(target)) as destination:
+        source.backup(destination)
+    return target
+
+
+class _WeFlowMergeState:
+    """一次同步/预览的内存索引；不跨请求复用。"""
+
+    def __init__(self, con: sqlite3.Connection, project_id: str,
+                 me_sender: str, partner_sender: str):
+        self.project_id = project_id
+        self.me_sender = me_sender
+        self.partner_sender = partner_sender
+        self.by_hash: dict[str, list[Any]] = {}
+        self.by_platform: dict[str, Any] = {}
+        self.fuzzy: dict[tuple[str, str, int], list[Any]] = {}
+        self.used: set[str] = set()
+        self.seen_platforms: set[str] = set()
+        self.seen_hashes: set[str] = set()
+        self.max_ts = 0
+        self.stats = {"fetched": 0, "inserted": 0, "matched": 0,
+                      "duplicates": 0, "ambiguous": 0}
+        rows = con.execute(
+            "SELECT id, timestamp, sender, content, content_hash, platform_message_id "
+            "FROM messages WHERE project_id = ?", (project_id,)
+        ).fetchall()
+        for row in rows:
+            platform = str(row["platform_message_id"] or "")
+            if platform:
+                self.by_platform[platform] = row
+            self.by_hash.setdefault(row["content_hash"], []).append(row)
+            stamp = _parse_dt(row["timestamp"])
+            if stamp is not None:
+                minute = int(stamp.timestamp() // 60)
+                self.fuzzy.setdefault((row["sender"], row["content"], minute), []).append(row)
+
+    def _register(self, row: Any) -> None:
+        platform = str(row["platform_message_id"] or "")
+        if platform:
+            self.by_platform[platform] = row
+        self.by_hash.setdefault(row["content_hash"], []).append(row)
+        stamp = _parse_dt(row["timestamp"])
+        if stamp is not None:
+            minute = int(stamp.timestamp() // 60)
+            self.fuzzy.setdefault((row["sender"], row["content"], minute), []).append(row)
+
+    def ingest(self, con: sqlite3.Connection, message: WeFlowMessage, *, apply: bool) -> None:
+        self.stats["fetched"] += 1
+        sender = self.me_sender if message.is_send else self.partner_sender
+        if not sender:
+            sender = message.sender
+        digest = hashlib.sha256(
+            f"{message.timestamp.isoformat()}|{sender}|{message.content}".encode("utf-8")
+        ).hexdigest()
+        platform = message.platform_message_id or ""
+        stamp_text = message.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.max_ts = max(
+            self.max_ts, int(message.timestamp.replace(tzinfo=WEFLOW_TZ).timestamp())
+        )
+
+        if platform and platform in self.seen_platforms:
+            self.stats["duplicates"] += 1
+            return
+        if digest in self.seen_hashes:
+            self.stats["duplicates"] += 1
+            return
+        if platform:
+            self.seen_platforms.add(platform)
+        self.seen_hashes.add(digest)
+
+        existing = self.by_platform.get(platform) if platform else None
+        if existing is not None:
+            self.stats["duplicates"] += 1
+            self.used.add(str(existing["id"]))
+            return
+
+        candidates = [row for row in self.by_hash.get(digest, [])
+                      if str(row["id"]) not in self.used]
+        if not candidates:
+            minute = int(message.timestamp.timestamp() // 60)
+            fuzzy_hits: dict[str, Any] = {}
+            for delta in (-2, -1, 0, 1, 2):
+                for row in self.fuzzy.get((sender, message.content, minute + delta), []):
+                    row_id = str(row["id"])
+                    if row_id in self.used or str(row["platform_message_id"] or ""):
+                        continue
+                    fuzzy_hits[row_id] = row
+            if len(fuzzy_hits) == 1:
+                candidates = [next(iter(fuzzy_hits.values()))]
+            elif len(fuzzy_hits) > 1:
+                self.stats["ambiguous"] += 1
+                return
+
+        if candidates:
+            row = candidates[0]
+            row_id = str(row["id"])
+            self.used.add(row_id)
+            if str(row["platform_message_id"] or ""):
+                self.stats["duplicates"] += 1
+                return
+            self.stats["matched"] += 1
+            if apply:
+                con.execute(
+                    "UPDATE messages SET platform_message_id=?, sender_id=?, message_type=?, "
+                    "is_send=?, reply_to_message_id=?, media_path=?, source='weflow' WHERE id=?",
+                    (platform or None, message.sender_id or None, message.message_type,
+                     1 if message.is_send else 0, message.reply_to_message_id or None,
+                     message.media_path or None, row_id),
+                )
+            updated = {
+                "id": row_id, "timestamp": row["timestamp"], "sender": row["sender"],
+                "content": row["content"], "content_hash": row["content_hash"],
+                "platform_message_id": platform or None,
+            }
+            self._register(updated)
+            return
+
+        row_id = str(uuid.uuid4())
+        created = _now_text()
+        if apply:
+            con.execute(
+                "INSERT INTO messages (id, project_id, timestamp, sender, content, is_system, "
+                "content_hash, platform_message_id, sender_id, message_type, is_send, "
+                "reply_to_message_id, media_path, source, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (row_id, self.project_id, stamp_text, sender, message.content,
+                 1 if message.is_system else 0, digest, platform or None,
+                 message.sender_id or None, message.message_type,
+                 1 if message.is_send else 0, message.reply_to_message_id or None,
+                 message.media_path or None, "weflow", created),
+            )
+        self.stats["inserted"] += 1
+        self._register({
+            "id": row_id, "timestamp": stamp_text, "sender": sender,
+            "content": message.content, "content_hash": digest,
+            "platform_message_id": platform or None,
+        })
+
+
+def _run_weflow_sync(store: LoveStore, log_id: str, project_id: str,
+                     session_id: str, me_sender: str, partner_sender: str,
+                     token: str, port: int, mode: str, since: int) -> None:
+    apply = mode == "apply"
+    client: WeFlowClient | None = None
+    try:
+        client = WeFlowClient(token, port)
+        with store.connect() as con:
+            source = _source_row(con, project_id)
+            if source is None:
+                raise WeFlowError("这个项目还没有绑定 WeFlow 会话")
+            con.execute(
+                "UPDATE weflow_sync_logs SET status='running', started_at=?, error_message='' WHERE id=?",
+                (_now_text(), log_id),
+            )
+            con.commit()
+            if apply:
+                # 在写入任何消息之前备份，合并中途失败也能回到同步前状态。
+                _backup_love_db(store, "weflow-before-merge")
+            state = _WeFlowMergeState(con, project_id, me_sender, partner_sender)
+            for page in iter_pages(
+                client, session_id, since=max(0, int(since)), retry_empty=True,
+            ):
+                if page.messages and not page.owner_id:
+                    raise WeFlowError(
+                        "WeFlow 没有返回 ownerId，无法判断哪条消息是你发的；"
+                        "请更新 WeFlow，或改用 ChatLab 文件导入"
+                    )
+                for message in page.messages:
+                    state.ingest(con, message, apply=apply)
+                con.execute(
+                    "UPDATE weflow_sync_logs SET fetched=?, inserted=?, matched=?, "
+                    "duplicates=?, ambiguous=? WHERE id=?",
+                    (state.stats["fetched"], state.stats["inserted"], state.stats["matched"],
+                     state.stats["duplicates"], state.stats["ambiguous"], log_id),
+                )
+                con.commit()
+            watermark = max(int(source["watermark"] or 0), state.max_ts)
+            if apply:
+                row = con.execute(
+                    "SELECT COUNT(*) AS count, MIN(timestamp) AS first, MAX(timestamp) AS last "
+                    "FROM messages WHERE project_id = ?", (project_id,)
+                ).fetchone()
+                con.execute(
+                    "UPDATE projects SET message_count=?, date_range_start=?, date_range_end=?, "
+                    "updated_at=? WHERE id=?",
+                    (int(row["count"] or 0), row["first"], row["last"], _now_text(), project_id),
+                )
+                con.execute(
+                    "UPDATE project_sources SET watermark=?, last_sync_at=?, updated_at=? "
+                    "WHERE project_id=?",
+                    (watermark, _now_text(), _now_text(), project_id),
+                )
+            con.execute(
+                "UPDATE weflow_sync_logs SET status='completed', finished_at=?, fetched=?, "
+                "inserted=?, matched=?, duplicates=?, ambiguous=? WHERE id=?",
+                (_now_text(), state.stats["fetched"], state.stats["inserted"],
+                 state.stats["matched"], state.stats["duplicates"],
+                 state.stats["ambiguous"], log_id),
+            )
+            con.commit()
+    except Exception as exc:  # noqa: BLE001 - 后台任务需要把错误写进日志
+        try:
+            with store.connect() as con:
+                con.execute(
+                    "UPDATE weflow_sync_logs SET status='failed', finished_at=?, error_message=? "
+                    "WHERE id=?",
+                    (_now_text(), str(exc)[:1000], log_id),
+                )
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception("could not record weflow sync failure")
+    finally:
+        if client is not None:
+            client.close()
+
+
+# ── 每日聊天记忆（AI 起草 → 用户确认 → 写入生活运营）────────────────
+
+MEMORY_SYSTEM_PROMPT = """你是个人记忆助手，帮用户把当天和对象的微信聊天整理成一段可以长期保存的私密记忆。
+
+请遵守：
+1. 只写聊天里明确出现的事实、约定、情绪和细节，不推测、不评价关系、不编造。
+2. 用第一人称「我」，把对方称为「对象」；语气自然、克制，像写给自己的记录。
+3. 忽略广告、系统提示、重复刷屏；不记录电话、证件、地址、银行卡等敏感信息。
+4. 标题不超过 30 字；摘要 60-180 字；小事最多 10 条，只保留有意义的。
+5. 只输出 JSON，不要 Markdown 代码块，不要额外说明。
+
+JSON 结构：
+{
+  "title": "一句当天记忆的标题",
+  "summary": "60-180 字，第一人称概括这一天",
+  "moments": [{"time": "HH:MM", "text": "一件具体的小事"}],
+  "plans": ["双方明确约定或计划的事"],
+  "feelings": ["从对话中能明确感受到的情绪"],
+  "keywords": ["3-8 个关键词"]
+}
+没有内容的字段输出空数组。"""
+
+MEMORY_MAX_MESSAGES = 800
+MEMORY_MAX_NOTE_BYTES = 200_000
+
+
+class MemoryGenerateRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    overwrite: StrictBool = False
+
+
+class MemoryDraftUpdate(BaseModel):
+    markdown: str = Field(min_length=1, max_length=MEMORY_MAX_NOTE_BYTES)
+
+
+class MemoryWriteRequest(BaseModel):
+    overwrite: StrictBool = False
+
+
+def _memory_target_path(day: str) -> str:
+    return f"02_生活运营/05_情感与记忆/{day} 恋爱记忆.md"
+
+
+def _memory_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit]
+
+
+def _memory_list(value: Any, *, limit: int, text_limit: int = 200) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in _list_value(value):
+        text = _memory_text(item, text_limit)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _memory_payload(raw_text: str, day: str, message_count: int) -> dict[str, Any]:
+    parsed = _parse_ai_json(raw_text)
+    if not isinstance(parsed, dict) or parsed.get("_parse_error"):
+        raise ValueError("AI 返回的记忆格式无法解析，请重试")
+    moments: list[dict[str, str]] = []
+    for item in _list_value(parsed.get("moments")):
+        if not isinstance(item, dict):
+            continue
+        text = _memory_text(item.get("text"), 300)
+        if text:
+            moments.append({"time": _memory_text(item.get("time"), 10), "text": text})
+        if len(moments) >= 10:
+            break
+    title = _memory_text(parsed.get("title"), 80) or f"{day} 的聊天记忆"
+    summary = _memory_text(parsed.get("summary"), 600)
+    if not summary:
+        summary = f"这一天共有 {message_count} 条聊天消息。"
+    return {
+        "title": title,
+        "summary": summary,
+        "moments": moments,
+        "plans": _memory_list(parsed.get("plans"), limit=8),
+        "feelings": _memory_list(parsed.get("feelings"), limit=6),
+        "keywords": _memory_list(parsed.get("keywords"), limit=10, text_limit=40),
+        "message_count": int(message_count),
+    }
+
+
+def _memory_lines(project: sqlite3.Row, messages: list[sqlite3.Row]) -> list[str]:
+    names = {str(project["partner_a"] or ""): "我", str(project["partner_b"] or ""): "对象"}
+    if len(messages) > MEMORY_MAX_MESSAGES:
+        recent = messages[-600:]
+        older = messages[:-600]
+        step = max(1, len(older) // 200)
+        selected = older[::step][:200] + recent
+    else:
+        selected = messages
+    lines: list[str] = []
+    for message in selected:
+        stamp = _parse_dt(message["timestamp"])
+        time_text = stamp.strftime("%H:%M") if stamp else ""
+        sender = names.get(message["sender"], message["sender"])
+        content = _desensitize(message["content"], names)[:1000]
+        lines.append(f"[{time_text}] {sender}: {content}")
+    return lines
+
+
+def _build_memory_prompt(project: sqlite3.Row, messages: list[sqlite3.Row],
+                         day: str, traits: list[dict[str, Any]]) -> list[dict[str, str]]:
+    locked = [item for item in traits if item.get("locked")][:20]
+    aliases = {str(project["partner_a"] or ""): "我", str(project["partner_b"] or ""): "对象"}
+    profile = "\n".join(
+        f"- {_desensitize(_memory_text(item.get('trait'), 40), aliases)}: "
+        f"{_desensitize(_memory_text(item.get('value'), 200), aliases)}"
+        for item in locked
+    ) or "暂无已确认档案"
+    lines = _memory_lines(project, messages)
+    selected: list[str] = []
+    total = 0
+    for line in reversed(lines):
+        if total + len(line) + 1 > 45_000:
+            break
+        selected.append(line)
+        total += len(line) + 1
+    selected.reverse()
+    if len(selected) < len(lines):
+        selected.insert(0, "（更早的消息已省略）")
+    return [
+        {"role": "system", "content": MEMORY_SYSTEM_PROMPT},
+        {"role": "user", "content": "\n\n".join([
+            f"【日期】{day}",
+            f"【已确认的档案】\n{profile}",
+            "【当天的聊天记录（已脱敏）】\n" + "\n".join(selected),
+            "请按 JSON 结构输出当天的记忆。",
+        ])},
+    ]
+
+
+def _memory_markdown(project: sqlite3.Row, day: str, content: dict[str, Any],
+                     draft_id: str) -> str:
+    partner = _memory_text(project["partner_b"], 100) or "对象"
+
+    def readable(value: Any) -> str:
+        text = str(value or "").replace("用户A", "我")
+        if partner:
+            text = text.replace("用户B", partner)
+            if partner != "对象":
+                text = text.replace("对象", partner)
+        return text
+
+    title = _memory_text(readable(content.get("title")), 80) or f"{day} 的聊天记忆"
+    note_title = f"{day} · {title}"
+    summary = readable(content.get("summary"))
+    moments = [
+        {"time": _memory_text(item.get("time"), 10), "text": readable(item.get("text"))}
+        for item in _list_value(content.get("moments")) if isinstance(item, dict)
+    ]
+    plans = [readable(item) for item in _list_value(content.get("plans")) if str(item).strip()]
+    feelings = [readable(item) for item in _list_value(content.get("feelings")) if str(item).strip()]
+    keywords = [str(item).strip() for item in _list_value(content.get("keywords")) if str(item).strip()]
+
+    metadata = {
+        "id": f"love-memory-{project['id']}-{day}",
+        "type": "memory",
+        "title": note_title,
+        "date": day,
+        "source": "torch-love",
+        "project": str(project["name"]),
+        "project_id": str(project["id"]),
+        "draft_id": draft_id,
+        "source_kind": "torch-love",
+        "visibility": "private",
+        "tags": ["恋爱记忆"],
+    }
+    lines = [
+        f"# {note_title}",
+        "",
+        summary,
+    ]
+    if moments:
+        lines.extend(["", "## 今天的小事"])
+        lines.extend(
+            f"- {item['time'] + ' ' if item['time'] else ''}{item['text']}"
+            for item in moments
+        )
+    if plans:
+        lines.extend(["", "## 约定与计划"])
+        lines.extend(f"- {item}" for item in plans)
+    if feelings:
+        lines.extend(["", "## 心情"])
+        lines.extend(f"- {item}" for item in feelings)
+    if keywords:
+        lines.extend(["", "## 关键词"])
+        lines.append(" · ".join(f"`{item}`" for item in keywords))
+    body = "\n".join(lines).strip() + "\n"
+    front = "---\n" + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False) + "---\n\n"
+    return front + body
+
+
+def _memory_body(markdown: str) -> str:
+    text = str(markdown or "").replace("\r\n", "\n").strip()
+    if text.startswith("---"):
+        lines = text.split("\n")
+        for index in range(1, len(lines)):
+            if lines[index].strip() == "---":
+                return "\n".join(lines[index + 1:]).strip()
+    return text
+
+
+def _note_frontmatter(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(4000)
+    except OSError:
+        return {}
+    if not head.startswith("---"):
+        return {}
+    end = head.find("\n---", 3)
+    if end < 0:
+        return {}
+    try:
+        metadata = yaml.safe_load(head[3:end]) or {}
+    except yaml.YAMLError:
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _note_frontmatter_source(path: Path) -> str:
+    return str(_note_frontmatter(path).get("source") or "")
+
+
+def _memory_target_state(vault_root: Path | None, day: str) -> tuple[str, bool, bool]:
+    relative = _memory_target_path(day)
+    if vault_root is None:
+        return relative, False, False
+    path = vault_root / relative
+    exists = path.exists()
+    return relative, exists, bool(exists and _note_frontmatter_source(path) == "torch-love")
+
+
+def _memory_draft_json(row: sqlite3.Row, vault_root: Path | None,
+                       *, include_markdown: bool = True) -> dict[str, Any]:
+    try:
+        content = json.loads(row["content_json"] or "{}")
+    except (TypeError, ValueError):
+        content = {}
+    if not isinstance(content, dict):
+        content = {}
+    try:
+        usage = json.loads(row["usage_json"] or "{}")
+    except (TypeError, ValueError):
+        usage = {}
+    if not isinstance(usage, dict):
+        usage = {}
+    target, target_exists, target_ours = _memory_target_state(vault_root, row["day"])
+    data: dict[str, Any] = {
+        "id": row["id"],
+        "project_id": row["project_id"],
+        "date": row["day"],
+        "status": row["status"],
+        "content": content,
+        "usage": usage,
+        "note_path": row["note_path"] or "",
+        "target_path": target,
+        "target_exists": target_exists,
+        "target_is_torch": target_ours,
+        "created_at": _iso(row["created_at"]),
+        "updated_at": _iso(row["updated_at"]),
+    }
+    if include_markdown:
+        data["markdown"] = row["markdown"] or ""
+    return data
+
+
+def _write_memory_note(vault_root: Path, database: Any | None, relative: str,
+                       title: str, markdown: str, metadata: dict[str, Any],
+                       *, overwrite: bool) -> str:
+    from . import vault_layout
+    from .vault import (
+        EXTRACTION_VERSION, MAX_NOTE_BYTES, _memory_from_document, safe_note_path,
+    )
+
+    path = safe_note_path(vault_root, relative)
+    raw = markdown.encode("utf-8")
+    if len(raw) > MAX_NOTE_BYTES:
+        raise ValueError("记忆笔记超过单篇大小限制")
+    if path.exists():
+        if not overwrite:
+            raise FileExistsError("目标文件已存在")
+        existing = _note_frontmatter(path)
+        if str(existing.get("source") or "") != "torch-love":
+            raise FileExistsError("目标文件不是 torch 生成的，请先手动改名")
+        if str(existing.get("project_id") or "") != str(metadata.get("project_id") or ""):
+            raise FileExistsError("目标文件属于另一个聊天项目，请先手动改名")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp.write_bytes(raw)
+        os.replace(temp, path)
+    finally:
+        if temp.exists():
+            try:
+                temp.unlink()
+            except OSError:
+                pass
+    if database is not None:
+        try:
+            body = _memory_body(markdown)
+            digest = hashlib.sha256(raw).hexdigest()
+            document_id, _ = database.upsert_document(relative, title, body, digest, metadata)
+            if vault_layout.index_policy(relative, metadata) == "memory_eligible":
+                database.replace_document_memories(
+                    document_id, _memory_from_document(metadata, body, path)
+                )
+            else:
+                database.replace_document_memories(document_id, [], {
+                    "extraction_version": EXTRACTION_VERSION,
+                    "candidate_count": 0,
+                    "policy": "document_only",
+                    "reason": "每日情感记忆是用户确认后的摘要，按生活运营章节只建索引。",
+                })
+            database.audit("love_memory_written", {"document_id": document_id})
+        except Exception:  # noqa: BLE001 - 文件已写成；索引失败不应让用户丢掉笔记
+            logging.getLogger(__name__).exception("could not index love memory note")
+    return relative
+
+
+
 # ── 路由 ────────────────────────────────────────────────────────────
 
 def create_love_router(store: LoveStore | None = None,
-                       settings: LoveSettings | None = None) -> APIRouter:
-    settings = settings or (store.settings if store else None) or LoveSettings.from_env()
+                       settings: LoveSettings | None = None, *,
+                       vault_dir: Path | str | None = None,
+                       database: Any | None = None,
+                       read_only: bool = False) -> APIRouter:
+    if settings is None and store is not None:
+        settings = store.settings
+    if settings is None:
+        # 独立测试/嵌入调用：从传入 store 的数据库位置推导同目录结构，避免读到真实个人库路径。
+        settings = LoveSettings.from_env(
+            db_path=store.db_path if store else None,
+            key_file=store.key_file if store else None,
+        )
     if store is None:
         store = LoveStore(settings.db_path, key_file=settings.key_file, settings=settings)
     elif store.settings is None:
         store.settings = settings
+    vault_root = Path(vault_dir).resolve() if vault_dir else None
+    vault_database = database
+    # 应用重启时，上一次进程留下的“排队/运行中”同步不可能还在写；标记为中断，
+    # 否则唯一运行索引会让这个项目永远无法再次同步。
+    try:
+        store.ensure_schema()
+        with store.connect() as con:
+            con.execute(
+                "UPDATE weflow_sync_logs SET status='failed', finished_at=?, "
+                "error_message='应用重启，上次同步已中断' "
+                "WHERE status IN ('queued','running')",
+                (_now_text(),),
+            )
+    except Exception:  # noqa: BLE001 - 恢复失败不应阻止恋爱页面启动
+        logging.getLogger(__name__).exception("could not reset interrupted weflow sync logs")
     router = APIRouter(prefix="/api/love", tags=["love"])
 
     def connection():
@@ -1431,6 +2232,20 @@ def create_love_router(store: LoveStore | None = None,
     @router.get("/status")
     def love_status():
         return store.status()
+
+    @router.get("/bazi")
+    def love_bazi():
+        """只读返回本机八字资料（`.torch-os/love/bazi.json`），不做任何推断。"""
+        path = store.db_path.parent / "bazi.json"
+        if not path.is_file():
+            raise HTTPException(404, "还没有八字资料：请把 bazi.json 放进 .torch-os/love/")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise HTTPException(500, f"八字资料读取失败：{exc}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(500, "八字资料格式不正确")
+        return payload
 
     @router.get("/settings")
     def get_settings():
@@ -1965,6 +2780,577 @@ def create_love_router(store: LoveStore | None = None,
     def preview_report(project_id: str):
         result = report_payload(project_id)
         return HTMLResponse(result["html"])
+
+    # ── 微信同步（WeFlow 本地 API）────────────────────────────────────
+
+    @router.get("/weflow/status")
+    def weflow_status():
+        with connection() as con:
+            last = con.execute(
+                "SELECT * FROM project_sources ORDER BY last_sync_at DESC LIMIT 1"
+            ).fetchone()
+        return {
+            "token_configured": _weflow_token_configured(store),
+            "port": _weflow_port(store),
+            "last_sync_at": _iso(last["last_sync_at"]) if last else None,
+        }
+
+    @router.put("/weflow/settings")
+    def weflow_settings(payload: WeFlowSettingsRequest):
+        token = payload.token.strip()
+        port = int(payload.port)
+        verify = token
+        if not verify and _weflow_token_configured(store):
+            verify = _weflow_token(store)
+        if verify:
+            client = WeFlowClient(verify, port)
+            try:
+                client.health()
+            except WeFlowError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            finally:
+                client.close()
+            if token:
+                _save_weflow_token(store, token)
+        # 空 Token 表示“只改端口，保留已加密的 Token”；清除用 DELETE /weflow/token。
+        _save_weflow_port(store, port)
+        return weflow_status()
+
+    @router.delete("/weflow/token")
+    def weflow_token_delete():
+        _save_weflow_token(store, "")
+        return weflow_status()
+
+    @router.get("/weflow/sessions")
+    def weflow_sessions(keyword: str = Query(default="", max_length=100)):
+        client = WeFlowClient(_weflow_token(store), _weflow_port(store))
+        try:
+            sessions = client.sessions(keyword, limit=1000, include_groups=False)
+        except WeFlowError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        finally:
+            client.close()
+        return {"sessions": [
+            {
+                "id": item.id, "name": item.name, "type": item.type,
+                "platform": item.platform, "message_count": item.message_count,
+                "last_message_at": item.last_message_at,
+            }
+            for item in sessions
+        ]}
+
+    @router.get("/weflow/project")
+    def weflow_project(project_id: str = Query(min_length=1, max_length=64)):
+        with connection() as con:
+            _project(con, project_id)
+            source = _source_row(con, project_id)
+        return {"source": _source_json(source) or None}
+
+    @router.post("/weflow/project")
+    def weflow_create_project(payload: WeFlowCreateProjectRequest):
+        me = payload.me_sender.strip() or "我"
+        client = WeFlowClient(_weflow_token(store), _weflow_port(store))
+        try:
+            sessions = client.sessions(limit=1000, include_groups=True)
+            match = next((item for item in sessions if item.id == payload.session_id), None)
+            if match is None:
+                try:
+                    client.pull(payload.session_id, limit=1)
+                except WeFlowError as exc:
+                    raise HTTPException(404, f"WeFlow 里找不到这个会话：{exc}") from exc
+                contact_name = "微信联系人"
+            else:
+                if match.type != "private":
+                    raise HTTPException(422, "只能选择微信单聊，不能选群聊或公众号")
+                contact_name = match.name
+        finally:
+            client.close()
+        contact_name = _limit_text(contact_name, 100) or "微信联系人"
+        if contact_name == me:
+            raise HTTPException(422, "「你」和联系人不能使用同一个名字")
+        with connection() as con:
+            existing = con.execute(
+                "SELECT project_id FROM project_sources WHERE session_id = ?",
+                (payload.session_id,),
+            ).fetchone()
+            if existing is not None:
+                bound = con.execute(
+                    "SELECT name FROM projects WHERE id = ?", (existing["project_id"],)
+                ).fetchone()
+                label = bound["name"] if bound else "现有项目"
+                raise HTTPException(409, f"这个单聊已经绑定在「{label}」")
+            project_id = str(uuid.uuid4())
+            now = _now_text()
+            name = f"{me} & {contact_name} 的聊天"[:MAX_PROJECT_NAME]
+            con.execute(
+                "INSERT INTO projects (id, name, partner_a, partner_b, message_count, "
+                "date_range_start, date_range_end, created_at, updated_at) "
+                "VALUES (?,?,?,?,0,NULL,NULL,?,?)",
+                (project_id, name, me, contact_name, now, now),
+            )
+            con.execute(
+                "INSERT INTO project_sources (project_id, provider, session_id, contact_name, "
+                "me_sender, partner_sender, watermark, last_sync_at, created_at, updated_at) "
+                "VALUES (?, 'weflow', ?, ?, ?, ?, 0, NULL, ?, ?)",
+                (project_id, payload.session_id, contact_name, me, contact_name, now, now),
+            )
+            con.commit()
+            project = _project(con, project_id)
+            source = _source_row(con, project_id)
+        return {
+            "project": _project_json(project),
+            "source": _source_json(source),
+            "created": True,
+        }
+
+    @router.post("/weflow/connect")
+    def weflow_connect(payload: WeFlowConnectRequest):
+        with connection() as con:
+            project = _project(con, payload.project_id)
+        names = [str(project["partner_a"] or "").strip(), str(project["partner_b"] or "").strip()]
+        if len(set(names)) < 2:
+            raise HTTPException(422, "项目里的两个发送者名字不完整，无法映射「我 / 对方」")
+        me = payload.me_sender.strip() or names[0]
+        if me not in names:
+            raise HTTPException(422, "请选择项目里哪个人是你")
+        partner = names[0] if me == names[1] else names[1]
+
+        client = WeFlowClient(_weflow_token(store), _weflow_port(store))
+        try:
+            sessions = client.sessions(limit=1000, include_groups=True)
+            match = next((item for item in sessions if item.id == payload.session_id), None)
+            if match is None:
+                # 联系人可能超过 1000 个；用一次只读 pull 验证 id 至少能用。
+                try:
+                    client.pull(payload.session_id, limit=1)
+                except WeFlowError as exc:
+                    raise HTTPException(404, f"WeFlow 里找不到这个会话：{exc}") from exc
+                contact_name = "微信联系人"
+            else:
+                if match.type != "private":
+                    raise HTTPException(422, "只能选择微信单聊，不能选群聊或公众号")
+                contact_name = match.name
+        finally:
+            client.close()
+
+        swapped = False
+        with connection() as con:
+            _project(con, payload.project_id)
+            if str(project["partner_a"] or "").strip() == partner:
+                # AI prompt 约定 partner_a=你、partner_b=对象；必要时交换。
+                con.execute(
+                    "UPDATE projects SET partner_a=?, partner_b=?, updated_at=? WHERE id=?",
+                    (me, partner, _now_text(), payload.project_id),
+                )
+                swapped = True
+            con.execute(
+                "INSERT INTO project_sources (project_id, provider, session_id, contact_name, "
+                "me_sender, partner_sender, watermark, last_sync_at, created_at, updated_at) "
+                "VALUES (?, 'weflow', ?, ?, ?, ?, 0, NULL, ?, ?) "
+                "ON CONFLICT(project_id) DO UPDATE SET provider=excluded.provider, "
+                "session_id=excluded.session_id, contact_name=excluded.contact_name, "
+                "me_sender=excluded.me_sender, partner_sender=excluded.partner_sender, "
+                "watermark=CASE WHEN project_sources.session_id = excluded.session_id "
+                "THEN project_sources.watermark ELSE 0 END, "
+                "last_sync_at=CASE WHEN project_sources.session_id = excluded.session_id "
+                "THEN project_sources.last_sync_at ELSE NULL END, "
+                "updated_at=excluded.updated_at",
+                (payload.project_id, payload.session_id, contact_name, me, partner,
+                 _now_text(), _now_text()),
+            )
+            con.commit()
+            source = _source_row(con, payload.project_id)
+        return {"source": _source_json(source), "swapped": swapped,
+                "project": {"partner_a": me, "partner_b": partner}}
+
+    @router.delete("/weflow/project")
+    def weflow_project_delete(project_id: str = Query(min_length=1, max_length=64)):
+        with connection() as con:
+            _project(con, project_id)
+            con.execute("DELETE FROM project_sources WHERE project_id = ?", (project_id,))
+        return {"status": "deleted"}
+
+    @router.post("/weflow/sync")
+    def weflow_sync(payload: WeFlowSyncRequest, background: BackgroundTasks):
+        with connection() as con:
+            _project(con, payload.project_id)
+            source = _source_row(con, payload.project_id)
+            if source is None or not source["session_id"]:
+                raise HTTPException(400, "这个项目还没有绑定 WeFlow 会话")
+            cutoff = (datetime.now() - timedelta(minutes=60)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            con.execute(
+                "UPDATE weflow_sync_logs SET status='failed', finished_at=?, "
+                "error_message='上次同步超过 60 分钟没有结束，已标记为中断' "
+                "WHERE project_id = ? AND status IN ('queued','running') "
+                "AND started_at < ?",
+                (_now_text(), payload.project_id, cutoff),
+            )
+            con.commit()
+            running = con.execute(
+                "SELECT id FROM weflow_sync_logs WHERE project_id = ? "
+                "AND status IN ('queued','running') ORDER BY started_at DESC LIMIT 1",
+                (payload.project_id,),
+            ).fetchone()
+            if running is not None:
+                raise HTTPException(409, "这个项目正在同步，请等当前任务结束")
+            # 先确认 Token/端口可用，再落 queued 日志；否则后台任务没启动，
+            # 日志会一直占着“运行中”的唯一索引。
+            token = _weflow_token(store)
+            port = _weflow_port(store)
+            since = int(payload.since) if payload.since is not None else int(source["watermark"] or 0)
+            log_id = str(uuid.uuid4())
+            try:
+                con.execute(
+                    "INSERT INTO weflow_sync_logs (id, project_id, mode, status, started_at) "
+                    "VALUES (?,?,?,?,?)",
+                    (log_id, payload.project_id, payload.mode, "queued", _now_text()),
+                )
+                con.commit()
+            except sqlite3.IntegrityError as exc:
+                con.rollback()
+                raise HTTPException(409, "这个项目正在同步，请等当前任务结束") from exc
+            log_row = con.execute(
+                "SELECT * FROM weflow_sync_logs WHERE id = ?", (log_id,)
+            ).fetchone()
+        background.add_task(
+            _run_weflow_sync, store, log_id, payload.project_id,
+            str(source["session_id"]), str(source["me_sender"] or ""),
+            str(source["partner_sender"] or ""), token, port, payload.mode, since,
+        )
+        return _sync_log_json(log_row)
+
+    @router.get("/weflow/sync/{log_id}")
+    def weflow_sync_status(log_id: str):
+        with connection() as con:
+            row = con.execute(
+                "SELECT * FROM weflow_sync_logs WHERE id = ?", (log_id,)
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404, "同步任务不存在")
+        return _sync_log_json(row)
+
+    # ── 每日聊天记忆 ───────────────────────────────────────────────
+
+    @router.get("/memory/days")
+    def memory_days(project_id: str = Query(min_length=1, max_length=64),
+                    limit: int = Query(default=366, ge=1, le=1000)):
+        with connection() as con:
+            _project(con, project_id)
+            rows = con.execute(
+                "SELECT strftime('%Y-%m-%d', timestamp) AS day, COUNT(*) AS message_count "
+                "FROM messages WHERE project_id = ? AND COALESCE(is_system, 0) = 0 "
+                "GROUP BY day HAVING day IS NOT NULL ORDER BY day DESC LIMIT ?",
+                (project_id, limit),
+            ).fetchall()
+            drafts = {
+                row["day"]: row for row in con.execute(
+                    "SELECT * FROM memory_drafts WHERE project_id = ?", (project_id,)
+                ).fetchall()
+            }
+        days = []
+        for row in rows:
+            draft = drafts.get(row["day"])
+            days.append({
+                "date": row["day"],
+                "message_count": int(row["message_count"] or 0),
+                "draft_id": draft["id"] if draft else "",
+                "status": draft["status"] if draft else "",
+                "note_path": (draft["note_path"] or "") if draft else "",
+            })
+        return {"days": days}
+
+    @router.get("/memory/drafts")
+    def memory_draft_list(project_id: str = Query(default="", max_length=64),
+                          limit: int = Query(default=100, ge=1, le=500)):
+        with connection() as con:
+            if project_id:
+                _project(con, project_id)
+                rows = con.execute(
+                    "SELECT * FROM memory_drafts WHERE project_id = ? "
+                    "ORDER BY day DESC LIMIT ?", (project_id, limit),
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    "SELECT * FROM memory_drafts ORDER BY day DESC LIMIT ?", (limit,)
+                ).fetchall()
+        return {"drafts": [
+            _memory_draft_json(row, vault_root, include_markdown=False) for row in rows
+        ]}
+
+    @router.get("/memory/drafts/{draft_id}")
+    def memory_draft_detail(draft_id: str):
+        with connection() as con:
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404, "记忆草稿不存在")
+        return _memory_draft_json(row, vault_root)
+
+    @router.post("/memory/generate")
+    def generate_memory(payload: MemoryGenerateRequest):
+        _validate_day(payload.date)
+        api_key = _api_key(store)
+        with connection() as con:
+            project = _project(con, payload.project_id)
+            existing = con.execute(
+                "SELECT * FROM memory_drafts WHERE project_id = ? AND day = ?",
+                (payload.project_id, payload.date),
+            ).fetchone()
+            if existing is not None and existing["status"] == "written" and not payload.overwrite:
+                raise HTTPException(
+                    409, "这一天的记忆已经写入四库；如需重新生成，请允许覆盖原笔记"
+                )
+            messages = con.execute(
+                "SELECT timestamp, sender, content FROM messages WHERE project_id = ? "
+                "AND strftime('%Y-%m-%d', timestamp) = ? AND COALESCE(is_system, 0) = 0 "
+                "ORDER BY timestamp ASC",
+                (payload.project_id, payload.date),
+            ).fetchall()
+            traits = _traits(_profile_row(con, project["partner_b"]))
+        if not messages:
+            raise HTTPException(400, f"{payload.date} 没有可整理的聊天记录")
+        prompt = _build_memory_prompt(project, messages, payload.date, traits)
+        try:
+            raw, usage = _call_deepseek(
+                settings, api_key, prompt, max_tokens=1600, temperature=0.4,
+            )
+            content = _memory_payload(raw, payload.date, len(messages))
+        except ValueError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        draft_id = str(existing["id"]) if existing is not None else str(uuid.uuid4())
+        markdown = _memory_markdown(project, payload.date, content, draft_id)
+        now = _now_text()
+        with connection() as con:
+            con.execute(
+                "INSERT INTO memory_drafts (id, project_id, day, status, content_json, "
+                "markdown, usage_json, note_path, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(project_id, day) DO UPDATE SET status='draft', "
+                "content_json=excluded.content_json, markdown=excluded.markdown, "
+                "usage_json=excluded.usage_json, note_path=NULL, updated_at=excluded.updated_at",
+                (draft_id, payload.project_id, payload.date, "draft",
+                 json.dumps(content, ensure_ascii=False), markdown,
+                 json.dumps(usage, ensure_ascii=False), None, now, now),
+            )
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        return _memory_draft_json(row, vault_root)
+
+    @router.put("/memory/drafts/{draft_id}")
+    def update_memory_draft(draft_id: str, payload: MemoryDraftUpdate):
+        if not payload.markdown.strip():
+            raise HTTPException(422, "记忆内容不能为空")
+        with connection() as con:
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, "记忆草稿不存在")
+            con.execute(
+                "UPDATE memory_drafts SET markdown = ?, status = 'draft', updated_at = ? "
+                "WHERE id = ?",
+                (payload.markdown, _now_text(), draft_id),
+            )
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        return _memory_draft_json(row, vault_root)
+
+    @router.post("/memory/drafts/{draft_id}/write")
+    def write_memory_draft(draft_id: str, payload: MemoryWriteRequest):
+        if read_only:
+            raise HTTPException(403, "当前个人数据库是只读模式，不能写入四库")
+        if vault_root is None:
+            raise HTTPException(503, "还没有连接个人数据库，暂时不能写入四库")
+        with connection() as con:
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, "记忆草稿不存在")
+            project = _project(con, row["project_id"])
+        body = _memory_body(row["markdown"] or "")
+        if not body:
+            raise HTTPException(422, "记忆正文不能为空")
+        try:
+            content = json.loads(row["content_json"] or "{}")
+        except (TypeError, ValueError):
+            content = {}
+        if not isinstance(content, dict):
+            content = {}
+        heading = next(
+            (line[2:].strip() for line in body.split("\n") if line.startswith("# ")),
+            "",
+        )
+        title = heading or f"{row['day']} · {_memory_text(content.get('title'), 80) or '恋爱记忆'}"
+        metadata = {
+            "id": f"love-memory-{row['project_id']}-{row['day']}",
+            "type": "memory",
+            "title": title,
+            "date": row["day"],
+            "source": "torch-love",
+            "project": str(project["name"]),
+            "project_id": str(project["id"]),
+            "draft_id": draft_id,
+            "source_kind": "torch-love",
+            "visibility": "private",
+            "tags": ["恋爱记忆"],
+        }
+        final_markdown = (
+            "---\n"
+            + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)
+            + "---\n\n"
+            + body.strip()
+            + "\n"
+        )
+        relative = _memory_target_path(row["day"])
+        try:
+            _write_memory_note(
+                vault_root, vault_database, relative, title, final_markdown,
+                metadata, overwrite=payload.overwrite,
+            )
+        except FileExistsError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        now = _now_text()
+        with connection() as con:
+            con.execute(
+                "UPDATE memory_drafts SET status='written', note_path=?, markdown=?, "
+                "updated_at=? WHERE id=?",
+                (relative, final_markdown, now, draft_id),
+            )
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        return _memory_draft_json(row, vault_root)
+
+    @router.delete("/memory/drafts/{draft_id}")
+    def delete_memory_draft(draft_id: str):
+        with connection() as con:
+            row = con.execute(
+                "SELECT * FROM memory_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, "记忆草稿不存在")
+            if row["status"] == "written":
+                raise HTTPException(
+                    409, "这篇记忆已经写入四库；如需删除，请到 Obsidian 里处理原笔记"
+                )
+            con.execute("DELETE FROM memory_drafts WHERE id = ?", (draft_id,))
+        return {"status": "deleted"}
+
+
+    # ── ChatLab 文件导入（WeFlow API 不可用时的兜底）──────────────────
+
+    @router.post("/weflow/import-preview")
+    async def weflow_import_preview(file: UploadFile = File(...)):
+        raw = await _read_upload(file)
+        try:
+            payload = await run_in_threadpool(load_chatlab_export, raw)
+            meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+            if str(meta.get("type") or "").lower() in {"group", "channel"}:
+                raise HTTPException(422, "只支持微信单聊的 ChatLab 文件")
+            pull = parse_chatlab(payload)
+        except WeFlowError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        counts: dict[str, int] = {}
+        for message in pull.messages:
+            if message.is_system:
+                continue
+            counts[message.sender] = counts.get(message.sender, 0) + 1
+        senders = sorted(counts, key=lambda name: counts[name], reverse=True)
+        if len(senders) < 2:
+            raise HTTPException(400, f"只检测到 {len(senders)} 位对话者，请确认是单聊的 ChatLab 导出")
+        if len(senders) > 2:
+            raise HTTPException(422, "只支持单聊文件；检测到群聊或多个发送者")
+        stamps = [message.timestamp for message in pull.messages]
+        return {
+            "file_name": file.filename or "",
+            "message_count": len(pull.messages),
+            "senders": senders,
+            "sender_counts": counts,
+            "date_range_start": min(stamps).isoformat() if stamps else None,
+            "date_range_end": max(stamps).isoformat() if stamps else None,
+        }
+
+    @router.post("/weflow/import-file")
+    async def weflow_import_file(file: UploadFile = File(...),
+                                 project_id: str = Form(...),
+                                 me_sender: str = Form(default="")):
+        raw = await _read_upload(file)
+        me = me_sender.strip()
+        if not me:
+            raise HTTPException(422, "请选择文件里哪个人是你")
+        try:
+            payload = await run_in_threadpool(load_chatlab_export, raw)
+            meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+            if str(meta.get("type") or "").lower() in {"group", "channel"}:
+                raise HTTPException(422, "只支持微信单聊的 ChatLab 文件")
+            pull = parse_chatlab(payload, me_sender=me)
+        except WeFlowError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        counts: dict[str, int] = {}
+        for message in pull.messages:
+            if message.is_system:
+                continue
+            counts[message.sender] = counts.get(message.sender, 0) + 1
+        senders = sorted(counts, key=lambda name: counts[name], reverse=True)
+        if len(senders) != 2:
+            raise HTTPException(
+                400 if len(senders) < 2 else 422,
+                "只支持两位发送者的单聊 ChatLab 文件",
+            )
+        if me not in counts:
+            shown = "、".join(senders[:5])
+            raise HTTPException(422, f"文件里没有找到「{me}」；检测到：{shown}")
+        partner_file = next(name for name in senders if name != me)
+
+        swapped = False
+        with connection() as con:
+            project = _project(con, project_id)
+            source = _source_row(con, project_id)
+            if source is not None:
+                map_me = str(source["me_sender"] or project["partner_a"] or me)
+                map_partner = str(source["partner_sender"] or project["partner_b"] or partner_file)
+            else:
+                map_me = str(project["partner_a"] or me)
+                map_partner = str(project["partner_b"] or partner_file)
+                if (me == str(project["partner_b"] or "")
+                        and str(project["partner_a"] or "") == partner_file):
+                    map_me, map_partner = me, partner_file
+                    swapped = True
+            # 先备份，再改角色或写消息。
+            _backup_love_db(store, "weflow-file-before-merge")
+            if swapped:
+                con.execute(
+                    "UPDATE projects SET partner_a=?, partner_b=?, updated_at=? WHERE id=?",
+                    (map_me, map_partner, _now_text(), project_id),
+                )
+            state = _WeFlowMergeState(con, project_id, map_me, map_partner)
+            for message in pull.messages:
+                state.ingest(con, message, apply=True)
+            row = con.execute(
+                "SELECT COUNT(*) AS count, MIN(timestamp) AS first, MAX(timestamp) AS last "
+                "FROM messages WHERE project_id = ?", (project_id,)
+            ).fetchone()
+            con.execute(
+                "UPDATE projects SET message_count=?, date_range_start=?, date_range_end=?, "
+                "updated_at=? WHERE id=?",
+                (int(row["count"] or 0), row["first"], row["last"], _now_text(), project_id),
+            )
+        return {
+            "status": "completed",
+            "project_id": project_id,
+            "file_name": file.filename or "",
+            "swapped": swapped,
+            "project_me": map_me,
+            "project_partner": map_partner,
+            **state.stats,
+        }
+
 
     return router
 

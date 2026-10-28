@@ -9,10 +9,20 @@ import {
   timeToMinutes, minutesToLabel, clockLabel, timeLabel, sortDayTasks, layoutBlocks,
   firstBusyHour, listColorMap, taskColor, shiftAnchor, calendarViewLabel, calendarTitle,
   CALENDAR_VIEWS, MULTIDAY_OPTIONS, MULTIWEEK_OPTIONS, defaultCalendarState,
-  defaultTaskDate,
+  defaultTaskDate, HABIT_LIST_NAME, isHabitTask, habitTaskKey,
 } from "../tasks-model.js";
 
 const TODAY = "2026-10-08";
+
+function habitTask(overrides = {}) {
+  return {
+    key: "habit:h1:2026-10-08", kind: "habit", virtual: true,
+    list_name: HABIT_LIST_NAME, title: "每天阅读", done: false,
+    entry_status: "unrecorded", date: TODAY, priority: "medium",
+    tags: [], pinned: false, color: "#3b82f6", habit_id: 1,
+    ...overrides,
+  };
+}
 
 function task(overrides = {}) {
   return {
@@ -378,4 +388,30 @@ test("goal filters, grouping and titles use the goal path and label", () => {
     task({ title: "乙", goal: "goal/b.md" }),
   ], "goal", { goalLabel: () => "同名" });
   assert.equal(sameTitle.length, 2, "同名目标按 path 分开");
+});
+
+test("virtual habit tasks join today and quadrants without polluting lists", () => {
+  const habit = habitTask();
+  const skipped = habitTask({ key: "habit:h2:2026-10-08", title: "休息", done: true, entry_status: "skipped" });
+  const done = habitTask({ key: "habit:h3:2026-10-08", title: "完成", done: true, entry_status: "done" });
+  const rows = [task({ title: "真实任务", date: TODAY }), habit, skipped, done];
+
+  assert.equal(isHabitTask(habit), true);
+  assert.equal(habitTaskKey("h1", TODAY), "habit:h1:2026-10-08");
+  const titles = filterTasks(rows, "today", { today: TODAY, showDone: true }).map((item) => item.title);
+  assert.deepEqual(titles, ["真实任务", "每天阅读", "休息", "完成"]);
+  assert.deepEqual(filterTasks(rows, "today", { today: TODAY, showDone: false }).map((item) => item.title),
+    ["真实任务", "每天阅读"]);
+  // A list filter must not mix virtual habits into a real list with the same name.
+  assert.deepEqual(filterTasks(rows, "today", { today: TODAY, list: HABIT_LIST_NAME }), []);
+  assert.deepEqual(countBy(rows, "list_name"), { 收集箱: 1 });
+  assert.equal(viewCounts(rows, { today: TODAY, showDone: true }).today, 4);
+  const quadrants = quadrantBuckets([habit, skipped, done]);
+  assert.equal(quadrants.find((bucket) => bucket.priority === "medium").total, 1);
+  assert.equal(quadrants.find((bucket) => bucket.priority === "medium").dated[0].title, "每天阅读");
+  assert.equal(taskColor(habit, { 收集箱: "#000000" }), "#3b82f6");
+  // habitDay can differ from the browser's today at midnight.
+  assert.equal(filterTasks([habitTask({ date: "2026-10-09" })], "today", {
+    today: TODAY, habitDay: "2026-10-09", showDone: true,
+  }).length, 1);
 });

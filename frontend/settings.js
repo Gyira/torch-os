@@ -104,6 +104,7 @@ const EVENT_LABELS = {
   study_subject_created: "新建学习科目", study_subject_updated: "更新学习科目",
   study_session_created: "新建学习记录", study_session_updated: "更新学习记录",
   habit_created: "新建习惯", habit_updated: "更新习惯", habit_entry_saved: "保存习惯打卡",
+  habit_deleted: "删除习惯", habit_reordered: "调整习惯顺序",
   fortune_checkin: "运势签到",
   body_entry_saved: "保存身体记录", body_entry_cleared: "清除身体记录", body_exported: "身体记录导出",
   body_summary_exported: "身体记录汇总导出",
@@ -168,7 +169,7 @@ function renderNavOrder(message, tone = "") {
     const label = NAV_LABELS[key] || key;
     return `<li><span>${escapeHtml(label)}</span><div class="nav-order-actions"><button type="button" class="small-button" data-nav-move="-1" data-nav-key="${escapeHtml(key)}" ${index === 0 ? "disabled" : ""} aria-label="上移${escapeHtml(label)}">↑</button><button type="button" class="small-button" data-nav-move="1" data-nav-key="${escapeHtml(key)}" ${index === order.length - 1 ? "disabled" : ""} aria-label="下移${escapeHtml(label)}">↓</button></div></li>`;
   }).join("");
-  setStatus("#nav-order-feedback", navOrderNotice.message || "顺序保存在本机浏览器；可随时恢复默认。", navOrderNotice.tone);
+  setStatus("#nav-order-feedback", navOrderNotice.message || "顺序保存在当前个人数据库的 .torch-os；可随时恢复默认。", navOrderNotice.tone);
   if (activeKey) focusNavMoveButton(activeKey, activeMove);
 }
 

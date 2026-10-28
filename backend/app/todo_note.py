@@ -115,6 +115,8 @@ class DailySync(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     day: str = ""
+    # 页面加载时的自动同步只补缺失项，不新建日记；显式传 true 才允许建。
+    create_note: bool = False
 
 
 class DailyToggle(BaseModel):
@@ -365,116 +367,93 @@ def _rewrite_checkbox(line: str, *, done: bool, day: str | None) -> str:
     return line[: match.start(1)] + state + line[match.end(1): match.start(2)] + content
 
 
-# ── 每日必做：镜像进当天日记 ────────────────────────────────────────────────
+# ── 每日必做：勾选状态只存工作台，不进日记 ────────────────────────────────
 
-def _journal_path(vault_dir: Path | str, day: str) -> Path:
-    from .journal_note import note_abspath
+DAILY_STATE_REL = Path(".torch-os", "todos", "daily.json")
+MAX_DAILY_DAYS = 400
 
-    return note_abspath(vault_dir, day)
+
+def _daily_state_path(vault_dir: Path | str) -> Path:
+    return Path(vault_dir) / DAILY_STATE_REL
+
+
+def _read_daily_marks(vault_dir: Path | str) -> dict[str, dict[str, bool]]:
+    try:
+        raw = json.loads(_daily_state_path(vault_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    marks: dict[str, dict[str, bool]] = {}
+    for day, value in raw.items():
+        if isinstance(value, dict):
+            marks[str(day)] = {str(title): bool(done) for title, done in value.items()}
+    return marks
+
+
+def _write_daily_marks(vault_dir: Path | str, marks: dict[str, dict[str, bool]]) -> None:
+    path = _daily_state_path(vault_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    keep = sorted(marks)[-MAX_DAILY_DAYS:]
+    payload = {day: marks[day] for day in keep if marks[day]}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+                   encoding="utf-8")
+    tmp.replace(path)
 
 
 def read_daily_state(vault_dir: Path | str, day: str) -> dict[str, Any]:
-    """Read today's journal 每日必做 section. Pure read — never writes."""
-    path = _journal_path(vault_dir, day)
-    loaded = _load(path)
-    items = [item for item in _parse_items(loaded) if item["section"] == DAILY_HEADING]
-    section_exists = loaded["exists"] and _heading_line(
-        loaded["lines"], loaded["body_start"], DAILY_HEADING) >= 0
-    return {
-        "note_exists": loaded["exists"],
-        "note_revision": loaded["revision"],
-        "section_exists": section_exists,
-        "items": [
-            {"key": item["key"], "line": item["line"], "title": item["title"],
-             "done": item["checked"]}
-            for item in items
-        ],
-    }
+    """今天的「每日必做」清单与勾选状态。只读，不碰日记文件。"""
+    note = read_todo_note(vault_dir)
+    marks = _read_daily_marks(vault_dir).get(day, {})
+    items: list[dict[str, Any]] = []
+    for index, master in enumerate(note["daily_master"]):
+        title = master["title"]
+        title_key = normalize_title(title)
+        items.append({
+            "key": f"daily:{title_key}",
+            "line": index + 1,
+            "title": title,
+            "done": bool(marks.get(title_key)),
+        })
+    return {"note_exists": True, "note_revision": "", "section_exists": True, "items": items}
 
 
 def ensure_daily_section(vault_dir: Path | str, day: str, master_titles: list[str], *,
-                         read_only: bool = False) -> dict[str, Any]:
-    """Mirror the master list into today's journal note. Never edits existing lines."""
-    from .journal_note import render_skeleton
+                         read_only: bool = False, create: bool = True) -> dict[str, Any]:
+    """保留旧入口：每日必做不再镜像进日记，这里只返回当前状态。
 
+    2026-10-28：勾选状态改存 `.torch-os/todos/daily.json`，日记文件由日记闭环独占，
+    工具不再往里写「## 每日必做」，空模板因此不会以任何形式回来。
+    """
+    del master_titles, create
     try:
         ensure_vault_writable(read_only, "同步每日必做")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    path = _journal_path(vault_dir, day)
-    loaded = _load(path)
-    master = [normalize_title(title) for title in master_titles if normalize_title(title)]
-    result = {"created_note": False, "created_section": False, "added": [], "changed": False}
-
-    if not loaded["exists"]:
-        body = render_skeleton(vault_dir, day).rstrip("\n")
-        items_text = "".join(_format_line(title, checked=False, day=None) for title in master)
-        content = f"{body}\n\n## {DAILY_HEADING}\n\n{items_text}"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(path, "x", encoding="utf-8", newline="\n") as handle:
-                handle.write(content)
-            result.update({"created_note": True, "created_section": True,
-                           "added": list(master), "changed": True})
-            return {**read_daily_state(vault_dir, day), **result}
-        except FileExistsError:
-            loaded = _load(path)  # a parallel writer won; mirror below
-
-    items = [item for item in _parse_items(loaded) if item["section"] == DAILY_HEADING]
-    present = {normalize_title(item["title"]) for item in items}
-    missing = [title for title in master if title not in present]
-
-    heading_index = _heading_line(loaded["lines"], loaded["body_start"], DAILY_HEADING)
-    if heading_index < 0:
-        lines = list(loaded["lines"])
-        while lines and not lines[-1].strip():
-            lines.pop()
-        lines.extend(["", f"## {DAILY_HEADING}", ""])
-        lines.extend(_format_line(title, checked=False, day=None).rstrip("\n") for title in master)
-        raw = _guarded_write(loaded, lines)
-        result.update({"created_section": True, "added": list(master), "changed": True})
-        return {**read_daily_state(vault_dir, day), **result, "revision": _revision(raw)}
-
-    if not missing:
-        return {**read_daily_state(vault_dir, day), **result, "revision": loaded["revision"]}
-
-    lines = list(loaded["lines"])
-    _, insert_at = _section_bounds(lines, loaded["body_start"], heading_index)
-    for offset, title in enumerate(missing):
-        lines.insert(insert_at + offset, _format_line(title, checked=False, day=None).rstrip("\n"))
-    raw = _guarded_write(loaded, lines)
-    result.update({"added": missing, "changed": True})
-    return {**read_daily_state(vault_dir, day), **result, "revision": _revision(raw)}
+    return {**read_daily_state(vault_dir, day),
+            "created_note": False, "created_section": False,
+            "added": [], "changed": False, "skipped": True}
 
 
 def toggle_daily(vault_dir: Path | str, day: str, key: str, title: str, done: bool, *,
                  read_only: bool = False) -> dict[str, Any]:
+    """勾选只写 `.torch-os/todos/daily.json`；日记文件一个字节都不动。"""
+    del key
     try:
         ensure_vault_writable(read_only, "勾选每日必做")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
+    wanted = normalize_title(title)
+    if not wanted:
+        raise HTTPException(409, "缺少每日必做的标题")
     note = read_todo_note(vault_dir)
-    master_titles = [item["title"] for item in note["daily_master"]]
-    ensure_daily_section(vault_dir, day, master_titles, read_only=read_only)
-
-    path = _journal_path(vault_dir, day)
-    loaded = _load(path)
-    items = [item for item in _parse_items(loaded) if item["section"] == DAILY_HEADING]
-    item = None
-    if key:
-        item = next((candidate for candidate in items if candidate["key"] == key), None)
-    if item is None and title:
-        wanted = normalize_title(title)
-        item = next(
-            (candidate for candidate in items if normalize_title(candidate["title"]) == wanted),
-            None)
-    if item is None:
-        raise HTTPException(409, "这条每日必做已不在今天的笔记里，请刷新后重试")
-    _assert_line(loaded, item)
-    lines = list(loaded["lines"])
-    lines[item["line"] - 1] = _rewrite_checkbox(lines[item["line"] - 1], done=done, day=None)
-    raw = _guarded_write(loaded, lines)
-    return {"revision": _revision(raw), "done": done, "day": day}
+    if wanted not in [normalize_title(item["title"]) for item in note["daily_master"]]:
+        raise HTTPException(409, "这条每日必做已不在清单里，请刷新后重试")
+    marks = _read_daily_marks(vault_dir)
+    marks.setdefault(day, {})[wanted] = bool(done)
+    _write_daily_marks(vault_dir, marks)
+    return {"revision": "", "done": bool(done), "day": day}
 
 
 def create_todo_router(vault_dir: Path | str, database: Database, prefix: str = "/api",
@@ -530,7 +509,7 @@ def create_todo_router(vault_dir: Path | str, database: Database, prefix: str = 
         note = read_todo_note(vault_dir)
         result = ensure_daily_section(
             vault_dir, target, [item["title"] for item in note["daily_master"]],
-            read_only=read_only)
+            read_only=read_only, create=payload.create_note)
         if result.get("changed"):
             _audit(database, "daily_synced", {"day": target, "added": len(result.get("added") or [])})
         return {"day": target, **result}

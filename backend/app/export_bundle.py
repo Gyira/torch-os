@@ -49,7 +49,7 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
     generated_at = datetime.now(SHANGHAI).isoformat(timespec="seconds")
     memories = MemoryExportService(database).collect("all")
     planning = PlanningExportService(vault_dir).collect()
-    growth = GrowthExportService(database).collect()
+    growth = GrowthExportService(database, vault_dir).collect()
     conversations = ConversationExportService(database).collect()
     journal = JournalExportService(database).collect()
     body_rows = body_source.all_entries(vault_dir)

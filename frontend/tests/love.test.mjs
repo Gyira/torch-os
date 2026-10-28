@@ -62,11 +62,73 @@ test("恋爱系统只调用本机原生 API", async () => {
     "/journal",
     "/profile",
     "/report",
-    "/lijie/",
+    "/schedule/",
     "/settings/api-key",
   ]) {
     assert.ok(love.includes(endpoint), `缺少接口：${endpoint}`);
   }
-  assert.equal(/https?:\/\//.test(love.replace(/https:\/\/api\.deepseek\.com\/v1/g, "")), false,
-    "恋爱页面不应直接访问外部服务；AI 调用在后端完成");
+  const withoutLocal = love
+    .replace(/https:\/\/api\.deepseek\.com\/v1/g, "")
+    .replace(/http:\/\/127\.0\.0\.1:\$\{[^}]+\}/g, "")
+    .replace(/http:\/\/127\.0\.0\.1:\d+/g, "");
+  assert.equal(/https?:\/\//.test(withoutLocal), false,
+    "恋爱页面不应直接访问外部服务；AI 调用与微信读取都在后端完成");
+});
+
+test("排班页是值班日历，不再包含车次时刻表/沿线天气", async () => {
+  const html = await source("index.html");
+  const js = await source("love.js");
+  assert.match(html, /data-love-page="schedule"><span>10<\/span>值班日历/);
+  assert.match(js, /schedule: "值班日历"/);
+  assert.match(js, /\/api\/love\/schedule\/month/);
+  assert.match(js, /\/api\/love\/schedule\/note/);
+  assert.match(js, /day\.duty/);
+  assert.match(js, /当天值乘/);
+  assert.doesNotMatch(js, /交路|时刻表|沿线天气|查看排班表|schedule_timetable/);
+  assert.doesNotMatch(js, /\/api\/love\/schedule\/(timetable|train)/);
+
+  const start = html.indexOf('id="love-view"');
+  const end = html.indexOf('id="knowledge-view"', start);
+  const loveMarkup = html.slice(start, end);
+  assert.doesNotMatch(loveMarkup, /train-tracker|列车追踪/);
+});
+
+test("微信同步与每日记忆入口和接口齐全", async () => {
+  const html = await source("index.html");
+  const js = await source("love.js");
+  assert.match(html, /data-love-page="wechat"><span>03<\/span>微信同步/);
+  assert.match(html, /data-love-page="memory"><span>08<\/span>每日记忆/);
+  assert.match(js, /wechat: "微信同步"/);
+  assert.match(js, /memory: "每日记忆"/);
+  for (const endpoint of [
+    "/api/love/weflow/status",
+    "/api/love/weflow/settings",
+    "/api/love/weflow/sessions",
+    "/api/love/weflow/connect",
+    "/api/love/weflow/project",
+    "/api/love/weflow/sync",
+    "/api/love/weflow/import-preview",
+    "/api/love/weflow/import-file",
+    "/api/love/memory/days",
+    "/api/love/memory/generate",
+    "/api/love/memory/drafts",
+    "/write",
+  ]) {
+    assert.ok(js.includes(endpoint), `缺少接口：${endpoint}`);
+  }
+  assert.match(js, /02_生活运营\/05_情感与记忆/);
+  // Token 只提交给本机后端，不进入 localStorage / sessionStorage。
+  assert.doesNotMatch(js, /(?:localStorage|sessionStorage)[^\n]{0,80}(?:token|Token)/);
+  assert.doesNotMatch(js, /Access Token[^\n]{0,80}writeStorage/);
+});
+
+test("每日记忆与微信同步有响应式样式", async () => {
+  const css = await source("styles.css");
+  for (const className of [
+    "love-memory-layout", "love-memory-day", "love-memory-textarea",
+    "love-sync-result", "love-divider",
+  ]) {
+    assert.ok(css.includes(className), `缺少样式：${className}`);
+  }
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]{0,400}love-memory-layout/);
 });

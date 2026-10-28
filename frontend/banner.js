@@ -123,6 +123,22 @@ export function quotesHtml(mottos) {
     `<p class="workbench-motto-line${index === 0 ? " primary" : ""}">${esc(line)}</p>`).join("");
 }
 
+/** 编辑器里的座右铭文本：空行分隔多条，同一条内部的换行原样保留。 */
+export function parseMottos(value) {
+  return String(value ?? "")
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** 反向：把 mottos 数组放回编辑器，用空行分隔，避免把单条内部的换行拆成两条。 */
+export function mottoText(mottos) {
+  return (Array.isArray(mottos) ? mottos : [])
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /** 统计模式（照 Apex Dashboard 的 stats banner 1:1）：左列大数字+底部小条 / 中列主位+热力图 / 右列三行进度条。 */
 export function statsHtml(stats, options = {}) {
   const number = (key) => {

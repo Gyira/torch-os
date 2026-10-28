@@ -1,7 +1,7 @@
-// 运势黄历组件（2026-10-27）：右栏卡片 + 详细浮窗 + 每日签到。
+// 运势黄历组件（2026-10-27）：右栏小卡片 + 详细浮窗 + 每日签到。
 // 数据层在 almanac.js（纯函数、node 可测）；这里只做 DOM、事件和签到请求。
-// 关键交互：未签到只显示锁定卡；签到后卡片按图片完整排版；点卡片打开浮窗，
-// 浮窗里可自由切换年/月/日。卡片本身仍可被 widget-drag.js 整卡拖动。
+// 关键交互：未签到只显示签到入口；签到后小卡片只保留干支、农历日期与运势摘要；
+// 点卡片打开浮窗，完整黄历和年/月/日切换都在浮窗里。卡片仍可被 widget-drag.js 整卡拖动。
 import { $, api, openDialog, toast } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
@@ -82,7 +82,7 @@ async function checkIn(button) {
     const checkedDay = String(result?.day || day);
     setCard(checkedDay, { checkedIn: true, checkedAt: result?.checked_at || null });
     toast("签到成功，今日运势已解锁。", "success");
-    $("#workbench-almanac [data-almanac-open]")?.focus({ preventScroll: true });
+    $("#workbench-almanac [data-almanac-unlocked]")?.focus({ preventScroll: true });
   } catch (error) {
     button.disabled = false;
     button.textContent = "签到查看今日运势";

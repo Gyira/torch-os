@@ -8,8 +8,18 @@
 import { shanghaiDay } from "./journal-model.js";
 
 export const INBOX = "收集箱";
+export const HABIT_LIST_NAME = "习惯打卡";
 /** 侧栏与看板上的说明文案：收集箱是临时中转站。 */
 export const INBOX_HINT = "收集箱是临时中转站，临时蹦出的点子、来不及指定清单的任务，可以记录在这里。";
+
+/** 虚拟习惯任务：只来自 /api/time/tasks，不落 Markdown 任务笔记。 */
+export function isHabitTask(task) {
+  return Boolean(task && (task.kind === "habit" || task.virtual === true));
+}
+
+export function habitTaskKey(uid, day) {
+  return `habit:${uid || ""}:${day || ""}`;
+}
 
 /** 优先级四档（顺序 = 从高到低；颜色写在上面的 CSS 类里，不在这里写死颜色）。 */
 export const PRIORITIES = [
@@ -76,19 +86,23 @@ export function relativeDay(day, today) {
  */
 export function filterTasks(tasks, view, options = {}) {
   const today = options.today || shanghaiDay();
+  const habitDay = options.habitDay || today;
   const list = options.list || "";
   const tag = options.tag || "";
   const goal = options.goal || "";
   const showDone = Boolean(options.showDone);
   const all = Array.isArray(tasks) ? tasks : [];
   if (goal) return all.filter((task) => task.goal === goal && (showDone || !task.done));
-  if (list) return all.filter((task) => task.list_name === list);
-  if (tag) return all.filter((task) => (task.tags || []).includes(tag));
+  if (list) return all.filter((task) => !isHabitTask(task) && task.list_name === list);
+  if (tag) return all.filter((task) => !isHabitTask(task) && (task.tags || []).includes(tag));
   if (view === "inbox") {
-    return all.filter((task) => (showDone || !task.done) && task.list_name === INBOX);
+    return all.filter((task) => !isHabitTask(task) && (showDone || !task.done) && task.list_name === INBOX);
   }
   if (view === "done") return all.filter((task) => task.done);
-  return all.filter((task) => (showDone || !task.done) && task.date === today); // today（默认）
+  return all.filter((task) => {
+    if (showDone === false && task.done) return false;
+    return isHabitTask(task) ? task.date === habitDay : task.date === today;
+  }); // today（默认）
 }
 
 /**
@@ -104,10 +118,11 @@ export function defaultTaskDate(selection = {}, today = "") {
 export function viewCounts(tasks, options = {}) {
   const all = Array.isArray(tasks) ? tasks : [];
   const today = options.today || shanghaiDay();
+  const habitDay = options.habitDay || today;
   return {
-    today: filterTasks(all, "today", { today, showDone: options.showDone }).length,
-    inbox: filterTasks(all, "inbox", { today, showDone: options.showDone }).length,
-    done: filterTasks(all, "done", { today }).length,
+    today: filterTasks(all, "today", { today, habitDay, showDone: options.showDone }).length,
+    inbox: filterTasks(all, "inbox", { today, habitDay, showDone: options.showDone }).length,
+    done: filterTasks(all, "done", { today, habitDay }).length,
   };
 }
 
@@ -115,7 +130,7 @@ export function viewCounts(tasks, options = {}) {
 export function countBy(tasks, key) {
   const counts = {};
   for (const task of Array.isArray(tasks) ? tasks : []) {
-    if (task.done) continue;
+    if (task.done || isHabitTask(task)) continue;
     const values = key === "tags" ? (task.tags || []) : [task[key]];
     for (const value of values) {
       if (!value) continue;
@@ -516,6 +531,7 @@ export function listColorMap(lists = []) {
 
 /** 任务条的颜色：优先清单颜色（数据颜色，走内联变量），没有就让 CSS 用兜底色。 */
 export function taskColor(task, colors = {}) {
+  if (isHabitTask(task)) return task?.color || "";
   return colors[task?.list_name] || "";
 }
 

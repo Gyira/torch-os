@@ -29,6 +29,10 @@
     <p id="environment-banner" class="environment-banner" role="status" hidden></p>
     <header class="topbar"><div><span class="eyebrow">PERSONAL MENTOR</span><h1 id="page-title" tabindex="-1">今日</h1></div><div class="topbar-actions"><span id="scan-status" class="status-message" role="status">尚未扫描</span><button id="scan-btn" class="button secondary">扫描 Vault</button></div></header>
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
+      <!-- 待确认中枢：草稿 / 事实 / 分流 三处积压在这里汇总成一个常驻数字（2026-10-27）。 -->
+      <div id="workbench-pending" class="pending-strip" data-pending-strip hidden></div>
+      <!-- 主动提问：一天一个「关于我」的问题，答了直接写进自我档案（2026-10-27）。 -->
+      <div id="workbench-question" class="question-slot" data-question-slot hidden></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
@@ -39,20 +43,45 @@
           <button id="workbench-banner-collapse" class="banner-collapse-btn" type="button" aria-label="收起或展开横幅" aria-expanded="true">▾</button>
         </section>
         <div class="workbench-head-row">
-          <!-- 左侧小组件栏：默认放天气与倒计时；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
+          <!-- 左侧小组件栏：默认放天气、倒计时、纪念日与值班；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
           <aside class="workbench-side workbench-side-left" data-widget-column="left" data-widget-column-label="左侧" aria-label="左侧小组件">
-            <section class="weather-card" data-widget="weather" data-widget-label="天气" aria-label="时钟与五日天气">
+            <section class="weather-card" id="workbench-weather-card" data-widget="weather" data-widget-label="天气" role="button" tabindex="0" aria-label="天气正在读取，点击查看详情">
               <div id="workbench-clock" class="clock"></div>
-              <div class="weather-head"><span class="weather-head-title">5 日天气</span><button id="workbench-weather-today" class="text-button weather-today-btn" type="button" aria-pressed="true">今天</button></div>
-              <div id="workbench-weather" class="weather"><p class="weather-empty field-help">正在读取天气…</p></div>
-              <div class="weather-actions"><span id="workbench-weather-status" class="status-message" role="status"></span><button id="workbench-weather-refresh" class="text-button" type="button">刷新天气</button></div>
+              <div id="workbench-weather" class="weather weather-compact" aria-live="polite"><p class="weather-empty field-help">正在读取天气…</p></div>
+              <span class="weather-open-hint" aria-hidden="true">›</span>
             </section>
             <aside id="workbench-countdown" class="countdown-card" data-widget="countdown" data-widget-label="倒计时" data-theme="sunset" aria-label="倒计时">
               <div class="countdown-inner"><p class="countdown-label">正在读取倒计时…</p></div>
             </aside>
+            <aside id="workbench-anniversary" class="anniversary-card" data-widget="anniversary" data-widget-label="纪念日" role="button" tabindex="0" aria-label="纪念日，点击设置">
+              <div class="anniversary-bg" aria-hidden="true"></div>
+              <div class="anniversary-shade" aria-hidden="true"></div>
+              <span class="anniversary-settings-hint" aria-hidden="true">⚙</span>
+              <div class="anniversary-inner">
+                <p class="anniversary-label">纪念日</p>
+                <p class="anniversary-value">正在读取…</p>
+                <p class="anniversary-date">点击设置日期</p>
+                <p class="anniversary-reminder" hidden></p>
+              </div>
+            </aside>
+            <aside id="workbench-duty" class="duty-card" data-widget="duty" data-widget-label="值班" role="button" tabindex="0" aria-label="值班日历，点击查看">
+              <div class="duty-card-head">
+                <p class="duty-eyebrow">值班 · DUTY</p>
+                <p id="duty-card-date" class="duty-date">正在读取…</p>
+              </div>
+              <p id="duty-card-state" class="duty-state" data-tone="out">—</p>
+              <p id="duty-card-train" class="duty-train">正在读取排班表…</p>
+              <div id="duty-card-strip" class="duty-strip" aria-hidden="true"></div>
+              <p id="duty-card-next" class="duty-next"></p>
+              <span class="duty-open-hint" aria-hidden="true">›</span>
+            </aside>
           </aside>
           <div class="workbench-head-main">
-            <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
+            <div class="workbench-topline">
+              <div class="workbench-greeting"><p id="workbench-hello" class="workbench-hello">你好</p><p id="workbench-date" class="meta" role="status">正在读取今天…</p></div>
+              <!-- 网页书签栏（2026-10-28）：和问候语同一行靠右，点书签用默认浏览器打开，右端齿轮管理。 -->
+              <nav id="workbench-bookmarks" class="bookmark-bar" aria-label="网页书签栏" hidden></nav>
+            </div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
             <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
@@ -102,10 +131,27 @@
               <p id="time-status" class="status-message" role="status" aria-live="polite"></p>
               <div class="time-board" id="time-board"></div>
             </div>
-            <section class="time-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
-              <header class="time-head"><h3>习惯打卡</h3><span id="time-habits-count" class="meta" role="status"></span></header>
-              <p id="time-habits-hint" class="field-help">每日必做在 Obsidian 的 <code>00_人生路/08_任务与待办/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。习惯每天勾一次。</p>
-              <ul id="time-habits-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
+            <section class="time-page habits-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
+              <header class="time-head habit-page-head">
+                <h3>习惯打卡</h3>
+                <span id="habit-page-count" class="meta" role="status"></span>
+                <button type="button" id="habit-add" class="button primary" data-habit-add>＋ 添加习惯</button>
+                <button type="button" id="habit-archived-toggle" class="text-button" aria-pressed="false">已归档</button>
+              </header>
+              <div id="habit-page-status" class="habit-page-status" role="status" aria-live="polite"></div>
+              <div id="habit-week-strip"></div>
+              <div class="habit-page-layout">
+                <div class="habit-card-column">
+                  <section class="habit-daily-block" aria-labelledby="habit-daily-title">
+                    <header class="habit-daily-head"><h4 id="habit-daily-title">每日必做</h4><span id="time-daily-count" class="meta" role="status"></span></header>
+                    <p id="time-daily-hint" class="field-help">每日必做在 Obsidian 的 <code>00_人生路/08_任务与待办/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。</p>
+                    <ul id="time-daily-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
+                  </section>
+                  <label class="habit-group-filter-label">分组<select id="habit-group-filter" aria-label="按分组筛选习惯"></select></label>
+                  <div id="habit-card-list"></div>
+                </div>
+                <aside id="habit-detail" class="habit-detail-column" aria-label="习惯详情"></aside>
+              </div>
             </section>
             <section class="time-page" id="time-calendar-page" role="tabpanel" aria-labelledby="time-tab-calendar" hidden aria-label="日历"></section>
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
@@ -148,11 +194,22 @@
             </div>
           </section>
           </div>
-          <!-- 右侧小组件栏：默认放运势与 DeepSeek 余额；左右两栏都可拖入/拖出。
+          <!-- 右侧小组件栏：默认放运势、列车追踪与 DeepSeek 余额；左右两栏都可拖入/拖出。
                每个直接子元素都带 data-widget（稳定 id）与 data-widget-label；
                新增组件照此补属性并放进某一栏即可自动获得拖拽（widget-drag.js）。 -->
           <aside class="workbench-side workbench-side-right" data-widget-column="right" data-widget-column-label="右侧" aria-label="右侧小组件">
             <aside id="workbench-almanac" class="almanac" data-widget="almanac" data-widget-label="运势" aria-label="今日黄历"></aside>
+            <aside id="workbench-train-tracker" class="train-tracker-card" data-widget="train-tracker" data-widget-label="列车追踪" role="button" tabindex="0" aria-label="列车运行追踪，点击添加或查看车次">
+              <div class="train-tracker-inner">
+                <p class="train-tracker-eyebrow">TRAIN</p>
+                <p id="train-tracker-code" class="train-tracker-code">添加车次</p>
+                <p id="train-tracker-status" class="train-tracker-status">追踪你关心的列车</p>
+                <p id="train-tracker-route" class="train-tracker-route"></p>
+                <div id="train-tracker-progress" class="train-tracker-progress" role="progressbar" aria-label="列车区间进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="train-tracker-progress-fill"></i></div>
+                <p id="train-tracker-meta" class="train-tracker-meta">点击添加车次</p>
+              </div>
+              <span class="train-tracker-open-hint" aria-hidden="true">›</span>
+            </aside>
             <aside id="workbench-deepseek" class="deepseek-card" data-widget="deepseek" data-widget-label="DeepSeek 余额" aria-label="DeepSeek API 余额" aria-busy="true">
               <p class="deepseek-state-text">正在读取余额…</p>
             </aside>
@@ -176,13 +233,16 @@
           <nav class="love-nav" id="love-nav" aria-label="恋爱系统页面">
             <button type="button" class="love-nav-item active" data-love-page="dashboard" aria-current="page"><span>01</span>总览</button>
             <button type="button" class="love-nav-item" data-love-page="import"><span>02</span>导入聊天</button>
-            <button type="button" class="love-nav-item" data-love-page="stats"><span>03</span>统计分析</button>
-            <button type="button" class="love-nav-item" data-love-page="analysis"><span>04</span>AI 深度分析</button>
-            <button type="button" class="love-nav-item" data-love-page="profile"><span>05</span>画像</button>
-            <button type="button" class="love-nav-item" data-love-page="journal"><span>06</span>恋爱日志</button>
-            <button type="button" class="love-nav-item" data-love-page="report"><span>07</span>报告</button>
-            <button type="button" class="love-nav-item" data-love-page="lijie"><span>08</span>丽洁追踪</button>
-            <button type="button" class="love-nav-item" data-love-page="settings"><span>09</span>设置</button>
+            <button type="button" class="love-nav-item" data-love-page="wechat"><span>03</span>微信同步</button>
+            <button type="button" class="love-nav-item" data-love-page="stats"><span>04</span>统计分析</button>
+            <button type="button" class="love-nav-item" data-love-page="analysis"><span>05</span>AI 深度分析</button>
+            <button type="button" class="love-nav-item" data-love-page="profile"><span>06</span>画像</button>
+            <button type="button" class="love-nav-item" data-love-page="journal"><span>07</span>恋爱日志</button>
+            <button type="button" class="love-nav-item" data-love-page="memory"><span>08</span>每日记忆</button>
+            <button type="button" class="love-nav-item" data-love-page="report"><span>09</span>报告</button>
+            <button type="button" class="love-nav-item" data-love-page="schedule"><span>10</span>值班日历</button>
+            <button type="button" class="love-nav-item" data-love-page="bazi"><span>11</span>八字合婚</button>
+            <button type="button" class="love-nav-item" data-love-page="settings"><span>12</span>设置</button>
           </nav>
           <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>
         </aside>
@@ -202,7 +262,7 @@
             <div class="love-consent-card">
               <span class="eyebrow">PRIVACY</span>
               <h3>先把数据边界说清楚</h3>
-              <p>聊天记录、画像和日志只保存在这台电脑上的原「恋爱分析助手」数据库里，不进入 Obsidian 库，也不上传到任何服务器。</p>
+              <p>聊天记录、画像和日志只保存在当前个人数据库的 <code>.torch-os/love/</code> 里；它们不参与普通扫描和备份快照，拷贝整个个人数据库可一起带走，也不上传到任何服务器。</p>
               <ul>
                 <li>只有点击「开始分析」或「AI 生成日记」时，脱敏后的聊天内容才会发送给你配置的 DeepSeek 接口。</li>
                 <li>发送前会隐藏姓名、电话、证件号、邮箱、链接和银行卡号；原始记录不会发送。</li>
@@ -426,9 +486,19 @@
   <form id="banner-form">
     <h2 id="banner-dialog-title">编辑横幅</h2>
     <div id="banner-preview" class="banner-preview" aria-hidden="true"><div class="banner-overlay"></div><span class="banner-preview-label">预览</span></div>
-    <div class="field"><label for="banner-mottos">座右铭（一行一句，第一句最大）</label><textarea id="banner-mottos" rows="3" maxlength="2400"></textarea></div>
+    <div class="field"><label for="banner-mottos">座右铭（空行分隔多句；同一句内换行会保留，第一句最大）</label><textarea id="banner-mottos" rows="4" maxlength="2400"></textarea></div>
     <div class="field"><label for="banner-font">横幅字体（座右铭与统计文字共用）</label><select id="banner-font"></select></div>
-    <div class="field"><label for="banner-heroes">横幅图片（一行一张：库内相对路径或 https 链接；多张每半小时轮换）</label><textarea id="banner-heroes" rows="3" maxlength="3000" placeholder="image/image_HpP-ZNfhYO.png"></textarea></div>
+    <div class="field">
+      <span class="field-label">横幅图片（多张每半小时轮换）</span>
+      <div id="banner-hero-list" class="banner-hero-list" aria-live="polite"></div>
+      <div class="banner-hero-actions">
+        <input id="banner-hero-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择横幅图片文件" />
+        <button id="banner-hero-choose" type="button" class="small-button">选择本机图片</button>
+        <input id="banner-hero-url" type="url" maxlength="500" placeholder="或粘贴 https 图片链接" aria-label="网络横幅图片链接" />
+        <button id="banner-hero-add-url" type="button" class="small-button">添加链接</button>
+      </div>
+      <span class="field-help">本机图片会复制到当前个人数据库的 <code>.torch-os/横幅背景</code>，不留在浏览器缓存里。</span>
+    </div>
     <div class="form-grid">
       <div class="field"><label for="banner-overlay">遮罩深浅</label><input id="banner-overlay" type="range" min="0" max="0.9" step="0.05" value="0.45" /></div>
       <div class="field"><label for="banner-focal-x">焦点横向 %</label><input id="banner-focal-x" type="range" min="0" max="100" step="1" value="50" /></div>

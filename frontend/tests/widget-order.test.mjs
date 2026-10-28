@@ -69,10 +69,11 @@ function transfer({ types = [], data = new Map(), failSet = false } = {}) {
 test("the default layout is balanced and legacy order helpers still work", async () => {
   const { order: mod } = await loadModule();
   assert.deepEqual(plain(mod.WIDGET_LAYOUT_DEFAULT), {
-    left: ["weather", "countdown"], right: ["almanac", "deepseek"],
+    left: ["weather", "countdown", "anniversary", "duty"], right: ["almanac", "train-tracker", "deepseek"],
   });
   assert.deepEqual(plain(mod.WIDGET_COLUMN_DEFAULT), {
-    weather: "left", countdown: "left", almanac: "right", deepseek: "right",
+    weather: "left", countdown: "left", anniversary: "left", duty: "left",
+    almanac: "right", "train-tracker": "right", deepseek: "right",
   });
 
   assert.deepEqual(plain(mod.resolveWidgetOrder(null, ["weather", "countdown", "almanac", "deepseek"])),
@@ -224,12 +225,12 @@ test("the workbench has two widget columns and wires drag sorting", async () => 
   assert.ok(headStart > 0 && leftStart > headStart && mainStart > leftStart
     && rightStart > mainStart && lifeStart > rightStart, "找不到左右两栏工作台结构");
 
-  for (const [key, label] of [["weather", "天气"], ["countdown", "倒计时"]]) {
+  for (const [key, label] of [["weather", "天气"], ["countdown", "倒计时"], ["anniversary", "纪念日"], ["duty", "值班"]]) {
     const at = html.indexOf(`data-widget="${key}"`, leftStart);
     assert.ok(at > leftStart && at < mainStart, `${key} 小组件必须在左栏`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));
   }
-  for (const [key, label] of [["almanac", "运势"], ["deepseek", "DeepSeek 余额"]]) {
+  for (const [key, label] of [["almanac", "运势"], ["train-tracker", "列车追踪"], ["deepseek", "DeepSeek 余额"]]) {
     const at = html.indexOf(`data-widget="${key}"`, rightStart);
     assert.ok(at > rightStart && at < lifeStart, `${key} 小组件必须在右栏`);
     assert.match(html.slice(at, at + 160), new RegExp(`data-widget-label="${label}"`));
@@ -238,6 +239,9 @@ test("the workbench has two widget columns and wires drag sorting", async () => 
   const workbench = await readFile(path.join(frontend, "workbench.js"), "utf8");
   assert.match(workbench, /initWidgetDrag/);
   assert.match(workbench, /refreshWorkbenchWidgets/);
+  assert.match(workbench, /initAnniversaryWidget/);
+  assert.match(workbench, /initTrainTrackerWidget/);
+  assert.match(workbench, /loadTrainTrackerWidget/);
 
   const drag = await readFile(path.join(frontend, "widget-drag.js"), "utf8");
   for (const marker of [

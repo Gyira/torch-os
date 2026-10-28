@@ -1,4 +1,4 @@
-"""原生恋爱系统：数据库复用、导入、统计、画像、日志、AI 编排与丽洁追踪。"""
+"""原生恋爱系统：数据库复用、导入、统计、画像、日志、AI 编排与值班日历。"""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app import love as love_module
-from backend.app import love_lijie
+from backend.app import love_schedule
 from backend.app.love import ChatParser, LoveStore, create_love_router
 
 SAMPLE = """2026-05-20 10:00:00 我: 你好，我的电话是13800138000
-2026-05-20 10:01:00 胡丽洁: 嗯嗯，今天做什么
+2026-05-20 10:01:00 小林: 嗯嗯，今天做什么
 2026-05-20 10:02:00 我: 明天见面吧
-2026-05-21 09:00:00 胡丽洁: 好呀
+2026-05-21 09:00:00 小林: 好呀
 2026-05-21 09:01:00 我: 那说定了
 """
 
@@ -60,17 +60,17 @@ def test_parser_handles_gbk_and_multiline() -> None:
     raw = (
         "2026-05-20 22:19:08 '我'\n"
         "你已添加了🦋，以上是打招呼的消息。\n"
-        "2026-05-20 22:20:00 '胡丽洁'\n"
+        "2026-05-20 22:20:00 '小林'\n"
         "嗨\n"
     ).encode("gb18030")
     parsed = parser.decode_and_parse(raw)
     assert len(parsed.messages) == 2
-    assert parsed.senders == ["我", "胡丽洁"]
+    assert parsed.senders == ["我", "小林"]
     assert parsed.messages[0].is_system is False or parsed.messages[0].sender == "我"
     # 单行与多行混排也要能解析。
     mixed = parser.parse(
         "2026-05-21 10:00:00 我: 早上好\n"
-        "2026-05-21 10:01:00 '胡丽洁'\n"
+        "2026-05-21 10:01:00 '小林'\n"
         "早呀\n"
     )
     assert [message.content for message in mixed.messages] == ["早上好", "早呀"]
@@ -87,7 +87,7 @@ def test_import_stats_journal_profile_and_report(tmp_path: Path) -> None:
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()["message_count"] == 5
-    assert preview.json()["senders"] == ["胡丽洁", "我"] or set(preview.json()["senders"]) == {"胡丽洁", "我"}
+    assert preview.json()["senders"] == ["小林", "我"] or set(preview.json()["senders"]) == {"小林", "我"}
     uploaded = client.post(
         "/api/love/import",
         files={"file": ("sample.txt", SAMPLE.encode("gb18030"), "text/plain")},
@@ -221,7 +221,7 @@ def test_api_key_is_encrypted_and_analysis_runs_offline(
 
     prompt = seen[0][1]["content"]
     assert "13800138000" not in prompt
-    assert "胡丽洁" not in prompt
+    assert "小林" not in prompt
     assert "用户B" in prompt
     profile = client.get(f"/api/love/projects/{project_id}/profile").json()
     assert any(item["trait"] == "沟通风格" for item in profile["traits"])
@@ -235,7 +235,7 @@ def _excel_serial(day: date) -> int:
     return (day - date(1899, 12, 30)).days
 
 
-def _make_lijie_fixture(tmp_path: Path) -> tuple[Path, Path]:
+def _make_schedule_fixture(tmp_path: Path) -> Path:
     import openpyxl
 
     excel_dir = tmp_path / "xlsx"
@@ -243,80 +243,153 @@ def _make_lijie_fixture(tmp_path: Path) -> tuple[Path, Path]:
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "高1-14组"
-    sheet.cell(row=3, column=5, value="2026年5月份交路表")
+    sheet.cell(row=3, column=5, value="2026年5月份排班表")
     days = [date(2026, 5, 20), date(2026, 5, 21), date(2026, 5, 22),
             date(2026, 6, 20), date(2026, 6, 21), date(2026, 6, 22)]
-    trains = ["G1", "休", "G2", "G3", "G4", "G5"]
-    for index, (day, train) in enumerate(zip(days, trains)):
+    cells = ["G1", "休", "G2", "G3", "G4", "G5"]
+    for index, (day, value) in enumerate(zip(days, cells)):
         column = 10 + index
         sheet.cell(row=7, column=column, value=day.day)
         sheet.cell(row=8, column=column, value=_excel_serial(day))
-        sheet.cell(row=10, column=column, value=train)
+        sheet.cell(row=10, column=column, value=value)
     sheet.cell(row=9, column=3, value="高1组")
-    sheet.cell(row=10, column=5, value="胡丽洁")
-    excel_path = excel_dir / "5月份交路.xlsx"
+    sheet.cell(row=10, column=5, value="小林")
+    excel_path = excel_dir / "5月份排班.xlsx"
     workbook.save(excel_path)
-
-    timetable_path = tmp_path / "train_timetable.json"
-    timetable = {}
-    for code in ("G1", "G2", "G3", "G4", "G5"):
-        timetable[code] = {
-            "train_code": code, "from_station": "南昌西", "to_station": "北京西",
-            "depart_time": "10:00", "arrive_time": "11:00", "duration_minutes": 60,
-            "stops": [
-                {"station": "南昌西", "arrive": None, "depart": "10:00"},
-                {"station": "武汉", "arrive": "10:30", "depart": "10:32"},
-                {"station": "北京西", "arrive": "11:00", "depart": None},
-            ],
-        }
-    timetable_path.write_text(json.dumps(timetable, ensure_ascii=False), encoding="utf-8")
-    return excel_dir, timetable_path
+    return excel_dir
 
 
-def test_lijie_schedule_fallback_and_realtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    excel_dir, timetable_path = _make_lijie_fixture(tmp_path)
-    monkeypatch.setattr(love_lijie, "_weather", lambda cities: {})
-
+def _schedule_client(excel_dir: Path, notes_path: Path, target_name: str = "小林"):
     app = FastAPI()
-    app.include_router(love_lijie.create_lijie_router(excel_dir, timetable_path))
-    client = TestClient(app)
+    app.include_router(love_schedule.create_schedule_router(
+        excel_dir, notes_path, target_name=target_name))
+    return TestClient(app)
 
-    exact = client.get("/api/love/lijie/day?date=2026-05-20").json()
-    assert exact["found"] is True
-    assert exact["is_rest"] is False
-    assert [train["train_code"] for train in exact["trains"]] == ["G1"]
-    assert exact["group"] == "高1组"
 
-    rest = client.get("/api/love/lijie/day?date=2026-05-21").json()
-    assert rest["found"] is True and rest["is_rest"] is True
+def test_schedule_duty_text_only_returns_train_cells() -> None:
+    assert love_schedule._duty_text("G336/G1571") == "G336/G1571"
+    assert love_schedule._duty_text("G334-C2735-C2736-G337") == "G334-C2735-C2736-G337"
+    for value in ("休", "公休", "段抽", "育儿假", "疗养", "热备", "", None):
+        assert love_schedule._duty_text(value) == ""
 
-    fallback = client.get("/api/love/lijie/day?date=2026-07-20").json()
-    assert fallback["found"] is True
-    assert "06月" in fallback["fallback_note"]
-    assert [train["train_code"] for train in fallback["trains"]] == ["G3"]
 
-    # 运行中：10:33 已离开武汉，正在前往北京西。
-    monkeypatch.setattr(love_lijie, "_now_minutes", lambda: 10 * 60 + 33)
-    realtime = love_lijie._realtime(exact["trains"])
-    assert realtime["status"] == "running"
-    assert realtime["current_station"] == "武汉"
-    assert realtime["next_station"] == "北京西"
+def test_schedule_month_calendar_and_notes(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    notes_path = tmp_path / "schedule-notes.json"
+    client = _schedule_client(excel_dir, notes_path)
 
-    # 有车次但时刻表缺这趟车：不能误报“今日休息”。
-    missing = love_lijie._realtime([{
-        "train_code": "G999", "from_station": "未知", "to_station": "未知",
-        "depart_time": "未知", "arrive_time": "未知",
-        "duration_minutes": 0, "stops": [],
-    }])
-    assert missing["status"] == "unknown"
-    assert "时刻表" in missing["message"]
+    payload = client.get("/api/love/schedule/month?month=2026-05").json()
+    assert payload["found"] is True
+    days = {item["date"]: item for item in payload["days"]}
+    assert days["2026-05-20"]["in_range"] is True
+    assert days["2026-05-20"]["work"] is True and days["2026-05-20"]["rest"] is False
+    assert days["2026-05-20"]["duty"] == "G1"
+    assert days["2026-05-21"]["work"] is False and days["2026-05-21"]["rest"] is True
+    assert days["2026-05-21"]["duty"] == ""
+    assert days["2026-05-22"]["duty"] == "G2"
+    assert days["2026-05-19"]["in_range"] is False
+    assert days["2026-05-19"]["duty"] == ""
+    assert "trains" not in payload and "weather" not in payload
+    assert payload["range"] == {"start": "2026-05-20", "end": "2026-06-22"}
 
-    # 时刻表导入接口：只接受结构正确的 UTF-8 JSON。
+    # 备注是可写的自由文本，写车次也行；空备注删除。
+    saved = client.put("/api/love/schedule/note", json={"date": "2026-05-20", "note": "G1 / G2"})
+    assert saved.status_code == 200, saved.text
+    refreshed = client.get("/api/love/schedule/month?month=2026-05").json()
+    assert {item["date"]: item for item in refreshed["days"]}["2026-05-20"]["note"] == "G1 / G2"
+    cleared = client.put("/api/love/schedule/note", json={"date": "2026-05-20", "note": ""})
+    assert cleared.status_code == 200
+    assert notes_path.read_text(encoding="utf-8").strip() in ("{}", "")
+
+    status = client.get("/api/love/schedule/status").json()
+    assert status["target_configured"] is True
+    assert "target_name" not in status
+    assert "timetable" not in status
+    assert status["date_range"] == {"start": "2026-05-20", "end": "2026-06-22"}
+
+
+def test_schedule_day_endpoint_reports_work_and_rest(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json")
+
+    work = client.get("/api/love/schedule/day?date=2026-05-20").json()
+    assert work["found"] is True and work["work"] is True and work["weekday"] == "周三"
+    assert work["duty"] == "G1"
+    rest = client.get("/api/love/schedule/day?date=2026-05-21").json()
+    assert rest["found"] is True and rest["rest"] is True and rest["duty"] == ""
+    out = client.get("/api/love/schedule/day?date=2026-05-19").json()
+    assert out["found"] is True and out["in_range"] is False and out["duty"] == ""
+
+
+def test_schedule_upcoming_days_for_workbench_widget(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json")
+    payload = client.get(
+        "/api/love/schedule/upcoming?start=2026-05-20&days=3"
+    ).json()
+    assert payload["found"] is True
+    assert payload["start"] == "2026-05-20"
+    assert [item["date"] for item in payload["days"]] == [
+        "2026-05-20", "2026-05-21", "2026-05-22",
+    ]
+    assert [item["duty"] for item in payload["days"]] == ["G1", "", "G2"]
+    assert payload["days"][0]["weekday"] == "周三"
+    assert payload["days"][1]["rest"] is True
+    assert "target_name" not in payload
+
+    outside = client.get(
+        "/api/love/schedule/upcoming?start=2026-05-18&days=1"
+    ).json()
+    assert outside["found"] is True
+    assert outside["days"][0]["in_range"] is False
+    assert outside["days"][0]["duty"] == ""
+
+
+def test_schedule_auto_detects_single_person_without_configured_name(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json", target_name="")
+    payload = client.get("/api/love/schedule/month?month=2026-05").json()
+    assert payload["found"] is True
+    days = {item["date"]: item for item in payload["days"]}
+    assert days["2026-05-20"]["work"] is True
+
+
+def test_schedule_asks_for_name_instead_of_guessing_between_people(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    import openpyxl
+
+    path = excel_dir / "5月份排班.xlsx"
+    workbook = openpyxl.load_workbook(path)
+    workbook.active.cell(row=11, column=5, value="另一个姓名")
+    workbook.save(path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json", target_name="")
+
+    payload = client.get("/api/love/schedule/month?month=2026-05").json()
+    assert payload["found"] is False
+    assert "LOVE_TARGET_NAME" in payload["error"]
+    # 错误信息只提示配置，不把排班表里的真实姓名回给界面。
+    assert "小林" not in payload["error"]
+    assert "另一个姓名" not in payload["error"]
+
+
+def test_schedule_excel_upload_validates_the_workbook(tmp_path: Path) -> None:
+    excel_dir = _make_schedule_fixture(tmp_path)
+    client = _schedule_client(excel_dir, tmp_path / "notes.json")
+    payload = (excel_dir / "5月份排班.xlsx").read_bytes()
     response = client.post(
-        "/api/love/lijie/timetable",
-        files={"file": ("timetable.json", timetable_path.read_bytes(), "application/json")},
+        "/api/love/schedule/excel",
+        files={"file": ("新排班.xlsx", payload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["trains"] == 5
+    assert response.json()["message"] == "排班表已更新。"
+
+    import openpyxl
+    bad_path = tmp_path / "bad.xlsx"
+    workbook = openpyxl.Workbook()
+    workbook.active.cell(row=1, column=1, value="not a schedule")
+    workbook.save(bad_path)
+    bad = client.post(
+        "/api/love/schedule/excel",
+        files={"file": ("bad.xlsx", bad_path.read_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert bad.status_code == 422

@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .db import utc_now
@@ -43,6 +44,8 @@ def _identity_path(vault_dir: Path | str) -> Path:
             return candidate
     return current
 TEXT_FIELDS = ("name", "motto", "worldview", "lifeview", "values", "notes")
+FIELD_LABELS = {"name": "称呼", "motto": "座右铭", "worldview": "世界观",
+                "lifeview": "人生观", "values": "价值观", "notes": "自己写的"}
 MAX_FIELD = 4_000
 
 
@@ -211,6 +214,52 @@ def write_identity(vault_dir: Path | str, payload: IdentityWrite, *, read_only: 
 
 HERO_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
+# 顶层数据规则（2026-10-27）：个人数据库里，Markdown 正文属于四库；
+# 系统配置、小组件个性化数据和非 Markdown 资源统一放在库内 `.torch-os/`。
+# 横幅图片的落点写死在这里——前端只负责选文件，不允许自己决定存哪。
+TORCH_DATA_DIR = ".torch-os"
+BANNER_IMAGE_DIR = "横幅背景"
+MAX_BANNER_IMAGE_BYTES = 10 * 1024 * 1024
+_BANNER_IMAGE_SUFFIXES = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+)
+
+
+def _image_suffix(raw: bytes) -> str:
+    """按文件头判定图片类型，不信任浏览器报的 MIME/扩展名。"""
+    for signature, suffix in _BANNER_IMAGE_SUFFIXES:
+        if raw.startswith(signature):
+            return suffix
+    if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+def _banner_filename(original: str | None, suffix: str) -> str:
+    stem = Path(original or "").stem.strip()
+    stem = re.sub(r"[^0-9A-Za-z一-鿿._-]+", "_", stem).strip("._-")
+    return f"{(stem or 'banner')[:60]}-{uuid.uuid4().hex[:8]}{suffix}"
+
+
+def _hero_image_path(vault_dir: Path | str, relative: str) -> Path:
+    """横幅图片路径：新数据是库内相对路径；旧数据可能写成 Vault 内的绝对路径，仍允许读取。"""
+    root = Path(vault_dir).resolve()
+    candidate = Path(relative)
+    if not candidate.is_absolute():
+        return safe_note_path(root, relative)
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError("横幅图片路径不在个人数据库内")
+    for part in [resolved, *resolved.parents]:
+        if part == root:
+            break
+        if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
+            raise ValueError("不读取链接目录或符号链接")
+    return resolved
+
 
 class BannerWrite(BaseModel):
     """工作台横幅（2026-10-05）：座右铭、图片列表、遮罩深浅、焦点、模式与字体——都写回 身份（identity）.md。"""
@@ -320,6 +369,38 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
     def identity_write(payload: IdentityWrite):
         return write_identity(vault_dir, payload, read_only=read_only)
 
+    # 「身份待确认」：dsh 从对话里提炼的候选先落队列，采纳才写进自我档案。
+    # 逻辑在 identity_inbox，这里只做 HTTP 包装；函数内导入避免模块循环。
+    @router.get("/identity/drafts")
+    def identity_drafts():
+        from .identity_inbox import list_drafts
+
+        return {"items": list_drafts(vault_dir)}
+
+    @router.post("/identity/drafts/{name}/accept")
+    def identity_draft_accept(name: str):
+        from .identity_inbox import accept_draft
+
+        try:
+            return accept_draft(vault_dir, name, read_only=read_only)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
+        except VaultReadOnlyError as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @router.post("/identity/drafts/{name}/reject")
+    def identity_draft_reject(name: str):
+        from .identity_inbox import reject_draft
+
+        try:
+            return reject_draft(vault_dir, name)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
     @router.get("/identity/hero")
     def identity_hero(i: int = Query(default=0, ge=0, le=11)):
         """工作台横幅图片：只服务 身份（identity）.md 里配置的那些，路径受保险库沙箱约束。"""
@@ -332,7 +413,7 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
         if relative.lower().startswith(("http://", "https://")):
             raise HTTPException(404, "网络图片请直接使用链接")
         try:
-            path = safe_note_path(Path(vault_dir), relative)
+            path = _hero_image_path(vault_dir, relative)
         except ValueError as error:
             raise HTTPException(404, "图片路径不在保险库内") from error
         if path.suffix.lower() not in HERO_SUFFIXES or not path.is_file():
@@ -342,6 +423,42 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
     @router.put("/identity/banner")
     def identity_banner(payload: BannerWrite):
         return write_banner(vault_dir, payload, read_only=read_only)
+
+    @router.post("/identity/banner/image")
+    async def identity_banner_image(file: UploadFile = File(...)):
+        """把用户选择的横幅图片复制到 `<个人数据库>/.torch-os/横幅背景/`。
+
+        落点写死在后端：前端只传文件字节，返回可写进 身份（identity）.md 的库内相对路径。
+        """
+        try:
+            ensure_vault_writable(read_only, "上传横幅图片")
+        except VaultReadOnlyError as error:
+            raise HTTPException(409, str(error)) from error
+        raw = await file.read(MAX_BANNER_IMAGE_BYTES + 1)
+        if not raw:
+            raise HTTPException(400, "图片内容为空")
+        if len(raw) > MAX_BANNER_IMAGE_BYTES:
+            raise HTTPException(413, "横幅图片超过 10MB 上限")
+        suffix = _image_suffix(raw)
+        if not suffix:
+            raise HTTPException(422, "仅支持 PNG / JPG / WebP / GIF 图片")
+        relative_dir = f"{TORCH_DATA_DIR}/{BANNER_IMAGE_DIR}"
+        try:
+            destination = safe_note_path(
+                Path(vault_dir), f"{relative_dir}/{_banner_filename(file.filename, suffix)}")
+        except ValueError as error:
+            raise HTTPException(400, "横幅图片目录不在个人数据库内") from error
+        temporary = destination.with_name(destination.name + ".uploading")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_bytes(raw)
+            os.replace(temporary, destination)
+        except OSError as error:
+            raise HTTPException(500, f"保存横幅图片失败：{error}") from error
+        finally:
+            temporary.unlink(missing_ok=True)
+        relative = destination.relative_to(Path(vault_dir).resolve()).as_posix()
+        return {"path": relative, "name": destination.name, "size": len(raw)}
 
     return router
 

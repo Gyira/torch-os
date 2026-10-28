@@ -28,7 +28,6 @@ from .habits import HabitService
 from .identity import greeting_for, read_identity
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-DONE_HABIT_STATES = ("done", "skipped")
 SESSION_PREFIX = "dsh-session-"
 MAX_SESSION_NOTES = 3
 MAX_SESSION_CHARS = 700
@@ -56,24 +55,8 @@ def _error_text(exc: Exception) -> str:
     return str(detail) if detail else str(exc)
 
 
-def _entries_state(habit_service: HabitService, habit_id: int, day: str) -> tuple[str, int]:
-    """今天这条习惯的状态与**条目**版本号（没有记录时是 0）。
-
-    打卡 PUT 做冲突校验用的是条目 revision，不是习惯定义的 revision——
-    把定义版本号当条目版本号发出去，第一次勾选就会 409“当天记录已发生变化”（2026-10-05 修复）。
-    """
-    rows = habit_service.entries(habit_id, day, day)
-    if not rows:
-        return "unrecorded", 0
-    state = str(rows[0].get("status") or "unrecorded")
-    if state not in ("done", "skipped", "unrecorded"):
-        state = "unrecorded"
-    return state, int(rows[0].get("revision") or 0)
-
-
 def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str, Any]:
     """Everything the workbench shows for one day. Read-only, no model call."""
-    habit_service = HabitService(database, vault_dir)
     identity = read_identity(vault_dir)
 
     todos_error = None
@@ -114,24 +97,12 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
                           "done": bool(entry["done"]), "in_master": False})
     daily_missing = sum(1 for item in daily if item["in_master"] and item["key"] is None)
 
-    weekday = date.fromisoformat(day).weekday()
+    habits_error = None
     habits: list[dict[str, Any]] = []
-    for habit in habit_service.list(status="active"):
-        if day < str(habit.get("start_date") or day):
-            continue
-        planned = weekday in (habit.get("weekdays") or [])
-        state, entry_revision = _entries_state(habit_service, habit["id"], day)
-        if not planned and state == "unrecorded":
-            continue
-        habits.append({
-            "id": habit["id"],
-            "title": habit["title"],
-            "minimum_action": habit.get("minimum_action") or "",
-            "revision": entry_revision,
-            "planned": planned,
-            "state": state,
-            "done": state in DONE_HABIT_STATES,
-        })
+    try:
+        habits = HabitService(database, vault_dir).day_rows(day)
+    except (HTTPException, OSError, ValueError) as exc:
+        habits_error = _error_text(exc)
 
     # 进度里的"日记"以**文件**为准（md-first）：今天的日记存在就算写了。
     journal = journal_note.read_note(vault_dir, day)
@@ -174,6 +145,7 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "daily_missing": daily_missing,
         "daily_error": daily_error,
         "habits": habits,
+        "habits_error": habits_error,
         "journal": {
             "recorded": journal_written,
             "updated_at": journal.get("updated_at"),

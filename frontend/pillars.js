@@ -1,4 +1,4 @@
-// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
+﻿// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
 // 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
 // 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
 import { $, api, escapeHtml, formatRelativeDate, state as appState, toast } from "./core.js";
@@ -6,7 +6,10 @@ import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { openSteward } from "./pillar-steward.js";
+import { identityInboxMarkup } from "./identity-inbox.js";
+import { archiveMarkup } from "./archive-markup.js";
 import { shanghaiDay } from "./journal-model.js";
+import { openJournalReview } from "./journal-ritual.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
 } from "./task-open.js";
@@ -370,6 +373,8 @@ function renderShell(view) {
       </div>
     </header>`;
   const reading = state.reading[view];
+  // 阅读视图单独放宽容器：列表/总览 1680，文章阅读用更宽的 1840。
+  root.classList.toggle("is-reading", Boolean(reading));
   if (reading) {
     root.innerHTML = `${headHtml}${readerMarkup(view, reading, railItems)}`;
     if (reading.focusPending) {
@@ -379,6 +384,11 @@ function renderShell(view) {
     }
     return root;
   }
+  // 自我档案总览不是「一堆笔记的最近列表」，而是一份档案：封面 / 目录 / 时间线。
+  const archiveView = view === "self" && !chapter && !searching;
+  const hideList = (view === "ops" && !chapter && !notes.length && !searching)
+    || (view === "ops" && (chapter === "health" || chapter === "finance") && !notes.length && !searching)
+    || (view === "life" && chapter === "habit" && !notes.length && !searching);
   root.innerHTML = `${headHtml}
     <div class="pillar-layout">
       <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
@@ -389,8 +399,8 @@ function renderShell(view) {
       <section class="pillar-content" aria-live="polite">
         <div class="pillar-content-head">
           <div>
-            <p class="eyebrow">${escapeHtml(chapter ? chapterTitle(view, chapter) : "最近")}</p>
-            <h3>${escapeHtml(searching ? `搜索「${state.search[view]}」` : chapter ? chapterTitle(view, chapter) : "最近记录")}</h3>
+            <p class="eyebrow">${escapeHtml(chapter ? chapterTitle(view, chapter) : archiveView ? "档案" : "最近")}</p>
+            <h3>${escapeHtml(searching ? `搜索「${state.search[view]}」` : chapter ? chapterTitle(view, chapter) : archiveView ? "档案总览" : "最近记录")}</h3>
           </div>
           ${chapter ? `<button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="">返回总览</button>` : ""}
         </div>
@@ -399,16 +409,18 @@ function renderShell(view) {
           : `<div class="pillar-ops-slot" data-ops-dashboard></div>`) : ""}
         ${view === "knowledge" && chapter === "inbox" ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
         ${view === "life" && chapter === "habit" ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
-        ${(view === "ops" && !chapter && !notes.length && !searching)
-          || (view === "ops" && (chapter === "health" || chapter === "finance") && !notes.length && !searching)
-          || (view === "life" && chapter === "habit" && !notes.length && !searching)
-          ? "" : `<div class="pillar-list">
+        ${archiveView ? archiveMarkup({
+          identity: overview?.identity || {},
+          chapters: overview?.chapters || [],
+          timeline: overview?.timeline || [],
+          noteCount: overview?.count || 0,
+        }) : (hideList ? "" : `<div class="pillar-list">
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
             <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
             <button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter)}">＋ 在 Obsidian 新建</button>
           </div>`}
-        </div>`}
+        </div>`)}
       </section>
       <aside class="pillar-aside">
         <section class="pillar-card">
@@ -420,18 +432,20 @@ function renderShell(view) {
           </div>
           <p class="field-help">这里只读；点按钮会在 Obsidian 里新建/打开对应笔记。</p>
         </section>
-        ${view === "self" && overview?.identity ? `<section class="pillar-card pillar-identity-card">
+        ${view === "self" && overview?.identity && !archiveView ? `<section class="pillar-card pillar-identity-card">
           <p class="eyebrow">身份卡</p>
           <p class="pillar-stat">${escapeHtml(overview.identity.name || "还没有填写姓名")}</p>
           <p class="pillar-subtitle">${escapeHtml(overview.identity.motto || "还没有座右铭")}</p>
           ${overview.identity.worldview ? `<p class="field-help">三观：${escapeHtml(overview.identity.worldview.slice(0, 90))}</p>` : ""}
           <button type="button" class="text-button" data-open-identity="${escapeHtml(overview.identity.path || "")}">${overview.identity.exists ? "在 Obsidian 打开身份卡" : "去写身份卡"}</button>
         </section>` : ""}
+        ${view === "self" ? identityInboxMarkup(overview?.drafts || []) : ""}
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
           <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
+            <button type="button" class="pillar-quick-button" data-journal-review>今晚复盘（8 分钟）</button>
             <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">打开本月复盘</button>
           </div>
@@ -650,12 +664,55 @@ function bindPillarEvents() {
     }
     const review = event.target.closest?.("[data-review]");
     if (review) {
-      openReview(review.dataset.review);
+      review.disabled = true;
+      try {
+        await openReview(review.dataset.review);
+      } finally {
+        review.disabled = false;
+      }
+      return;
+    }
+    const draftAccept = event.target.closest?.("[data-identity-draft-accept]");
+    if (draftAccept) {
+      const name = draftAccept.dataset.identityDraftAccept;
+      draftAccept.disabled = true;
+      try {
+        const result = await api(`/api/identity/drafts/${encodeURIComponent(name)}/accept`, { method: "POST" });
+        toast(result.target === "identity" ? `已写进身份卡：${result.field_label || ""}` : "已写进 02_记忆与自传。", "success");
+        await loadPillarModule("self");
+      } catch (error) {
+        toast(error.message, "error");
+        draftAccept.disabled = false;
+      }
+      return;
+    }
+    const draftReject = event.target.closest?.("[data-identity-draft-reject]");
+    if (draftReject) {
+      const name = draftReject.dataset.identityDraftReject;
+      draftReject.disabled = true;
+      try {
+        await api(`/api/identity/drafts/${encodeURIComponent(name)}/reject`, { method: "POST" });
+        toast("已丢弃；四库没有改动。", "info");
+        await loadPillarModule("self");
+      } catch (error) {
+        toast(error.message, "error");
+        draftReject.disabled = false;
+      }
       return;
     }
     const identity = event.target.closest?.("[data-open-identity]");
     if (identity) {
       openIdentityCard();
+      return;
+    }
+    const reviewButton = event.target.closest?.("[data-journal-review]");
+    if (reviewButton) {
+      reviewButton.disabled = true;
+      try {
+        await openJournalReview();
+      } finally {
+        reviewButton.disabled = false;
+      }
       return;
     }
     const journalDay = event.target.closest?.("[data-journal-day]");
@@ -897,7 +954,7 @@ function isoWeek(date) {
 }
 
 /** 周/月复盘：打开已有那篇；没有就让 Obsidian 新建一个同名骨架。 */
-function openReview(kind) {
+async function openReview(kind) {
   const entry = chapterEntry("life", kind === "monthly" ? "review_month" : "review_week");
   if (!entry) return;
   const today = new Date(`${shanghaiDay()}T00:00:00Z`);
@@ -906,7 +963,15 @@ function openReview(kind) {
     ? `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")} 月复盘`
     : (() => { const { year, week } = isoWeek(today); return `${year}-W${String(week).padStart(2, "0")} 周复盘`; })();
   const type = monthly ? "monthly_review" : "weekly_review";
-  if (!createObsidianNote(`${entry.path}/${label}.md`, vaultNameFor("life"), noteTemplate(type))) {
+  let content = noteTemplate(type);
+  if (!monthly) {
+    // 周复盘不再是一张白纸：把最近 7 天日记的摘要和三个问题先摆好。
+    try {
+      const payload = await api(`/api/journal/weekly?day=${shanghaiDay()}`);
+      if (payload?.markdown) content = payload.markdown;
+    } catch { /* 拉不到就退回空骨架 */ }
+  }
+  if (!createObsidianNote(`${entry.path}/${label}.md`, vaultNameFor("life"), content)) {
     toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建复盘。", "warning");
   }
 }
@@ -952,7 +1017,10 @@ export async function loadPillarModule(view) {
     await loadPillar(view);
   } catch (error) {
     const root = $(`#${view}-view .pillar-shell`);
-    if (root) root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
+    if (root) {
+      root.classList.remove("is-reading");
+      root.innerHTML = `<div class="pillar-empty"><p>加载失败：${escapeHtml(error.message)}</p><button type="button" class="button secondary" data-pillar-retry="${escapeHtml(view)}">重试</button></div>`;
+    }
   }
 }
 

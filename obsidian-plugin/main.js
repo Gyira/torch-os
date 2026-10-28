@@ -1,4 +1,4 @@
-/* 薪火OS · Obsidian 插件（0.99.2，免构建的 CommonJS 单文件）。
+/* 薪火OS · Obsidian 插件（0.99.3，免构建的 CommonJS 单文件）。
  *
  * 把整个工作台以 iframe 的方式住进 Obsidian（`?embed=1&panel=1&host=obsidian`）。
  *
@@ -173,6 +173,7 @@ class WorkbenchView extends ItemView {
       if (data?.type === 'torch:theme-request') { this.plugin.pushTheme(this.frame); return; }
       if (data?.type === 'torch:open-note') { this.plugin.openNote(data.path, event.origin); }
       if (data?.type === 'torch:new-note') { this.plugin.createNote(data.path, data.content, event.origin); }
+      if (data?.type === 'torch:open-url') { this.plugin.openExternalUrl(data.url, event.origin); }
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
@@ -488,6 +489,30 @@ module.exports = class TorchPlugin extends Plugin {
     } catch (error) {
       new Notice(`新建笔记失败：${String(error?.message || error)}`);
     }
+  }
+
+  /**
+   * 书签栏点击（2026-10-28）：只放行 http(s)，交给系统默认浏览器打开。
+   * 在 Obsidian 里塞一个内嵌网页会丢掉 Edge 的登录态，也会被 DeepSeek 的
+   * 防 iframe 规则挡住，所以这里只做“把地址递给浏览器”这一件事。
+   */
+  openExternalUrl(value, origin) {
+    if (!this.instanceUrl || !this.frameOriginMatches(origin)) return;
+    let url;
+    try {
+      url = new URL(String(value || ''));
+    } catch {
+      return;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    const target = url.toString();
+    try {
+      require('electron').shell.openExternal(target);
+      return;
+    } catch {
+      // 拿不到 electron 时退回 window.open（Obsidian 自己的外链处理会转给系统浏览器）
+    }
+    try { window.open(target, '_blank', 'noopener'); } catch { /* 什么也做不了 */ }
   }
 
   frameOriginMatches(origin) {

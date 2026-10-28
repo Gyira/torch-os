@@ -19,7 +19,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 import websockets
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from .dsh_web import DshError, DshLaunch, DshWebRuntime
@@ -335,7 +335,10 @@ def create_dsh_router(runtime: DshWebRuntime, proxy: DshProxy) -> APIRouter:
     @router.post("/api/dsh/restart")
     async def dsh_restart():
         proxy.invalidate()
-        runtime.request_restart()
+        try:
+            runtime.request_restart()
+        except DshError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return runtime.status()
 
     @router.get("/harness")

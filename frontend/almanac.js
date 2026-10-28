@@ -149,6 +149,10 @@ export function lunarAlmanac(day) {
       monthDayLabel: `${solar.getMonth()}月${solar.getDay()}日`,
     },
     lunar: {
+      yearGanZhi: lunar.getYearInGanZhi(),
+      zodiac: lunar.getYearShengXiao(),
+      monthGanZhi: lunar.getMonthInGanZhi(),
+      dayGanZhi: lunar.getDayInGanZhi(),
       yearLabel: `${lunar.getYearInGanZhi()}${lunar.getYearShengXiao()}年`,
       monthLabel: `${lunar.getMonthInGanZhi()}月`,
       dayLabel: `${lunar.getDayInGanZhi()}日`,
@@ -277,25 +281,67 @@ export function almanacSheetHtml(data, { name = "", progress = null, detailed = 
   </div>`;
 }
 
+function compactGzLine(data) {
+  return [
+    `${esc(data.lunar.yearGanZhi)}年`,
+    esc(data.lunar.zodiac),
+    `${esc(data.lunar.monthGanZhi)}月`,
+    `${esc(data.lunar.dayGanZhi)}日`,
+  ].join(" ");
+}
+
+function compactLunarLabel(data) {
+  return `${data.lunar.monthChinese}月${data.lunar.dayChinese}`;
+}
+
+/** 简要运势：取个人宜/忌各第一条，完整列表留在详情浮窗。 */
+function compactPersonalLine(personal) {
+  const good = personal?.auspicious?.[0]?.[0] || "";
+  const bad = personal?.inauspicious?.[0]?.[0] || "";
+  return [
+    good ? `宜 ${esc(good)}` : "",
+    bad ? `忌 ${esc(bad)}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function compactTop(data, hint = "") {
+  return `<div class="almanac-compact-top">
+    <svg class="almanac-lantern" viewBox="0 0 20 28" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true" focusable="false">
+      <path d="M10 1.5v3M7.5 5h5" />
+      <path d="M6 7c0-2 1.8-3 4-3s4 1 4 3v10c0 2-1.8 3-4 3s-4-1-4-3z" />
+      <path d="M6.5 11h7M6.5 15h7" />
+      <path d="M10 20v4M8.5 25h3" />
+    </svg>
+    <span class="almanac-gzline">${compactGzLine(data)}</span>
+    ${hint}
+  </div>`;
+}
+
 function lockedHtml(data) {
-  return `<div class="almanac-card almanac-locked">
-    <p class="almanac-locked-date">${esc(data.solar.year)}年${esc(data.solar.monthDayLabel)} · ${esc(data.solar.weekdayLabel)}</p>
-    <span class="almanac-locked-seal" aria-hidden="true">签</span>
-    <p class="almanac-locked-title">今日运势已封存</p>
-    <p class="almanac-locked-hint">先签到，再看今天的黄历与个人运势。</p>
+  return `<div class="almanac-card almanac-locked almanac-compact">
+    ${compactTop(data)}
+    <p class="almanac-compact-lunar">${esc(compactLunarLabel(data))}</p>
+    <p class="almanac-locked-hint">今日运势已封存 · 签到后查看</p>
     <button type="button" class="button primary almanac-checkin" data-almanac-checkin>签到查看今日运势</button>
   </div>`;
 }
 
-/** 右栏组件：未签到只给签到入口；签到后是完整图片版式。 */
-export function almanacCardHtml(data, { checkedIn = false, name = "", progress = null } = {}) {
+/** 右栏小组件（2026-10-27 小尺寸重做）：与天气/倒计时同高，只保留干支、农历日期与运势摘要；
+ *  未签到只给签到入口；完整黄历、宜忌、吉神凶神、个人运势说明和月历都在点击后的详情浮窗里。 */
+export function almanacCardHtml(data, { checkedIn = false } = {}) {
   if (!checkedIn) return lockedHtml(data);
-  return `<div class="almanac-card almanac-unlocked" data-almanac-unlocked="1" tabindex="0" role="group" aria-label="今日黄历，按回车查看详情">
-    ${almanacSheetHtml(data, { name, progress })}
-    <div class="almanac-card-foot">
-      <span class="almanac-checked-badge">✓ 今日已签到</span>
-      <button type="button" class="text-button almanac-detail-button" data-almanac-open>查看详情 →</button>
+  const yiji = compactPersonalLine(data.personal);
+  const lunarLabel = compactLunarLabel(data);
+  const aria = `今日黄历 ${lunarLabel}，今日运势 ${data.personal.fortune}，已签到，点击查看详情`;
+  return `<div class="almanac-card almanac-unlocked almanac-compact" data-almanac-unlocked="1" tabindex="0" role="button" aria-label="${esc(aria)}">
+    ${compactTop(data, '<span class="almanac-open-hint" aria-hidden="true">›</span>')}
+    <p class="almanac-compact-lunar">${esc(lunarLabel)}</p>
+    <div class="almanac-compact-fortune">
+      <span class="almanac-fortune-label">今日运势</span>
+      <span class="almanac-fortune">${esc(data.personal.fortune)}</span>
+      <span class="almanac-checked-badge">✓ 已签到</span>
     </div>
+    ${yiji ? `<p class="almanac-compact-yiji">${yiji}</p>` : ""}
   </div>`;
 }
 

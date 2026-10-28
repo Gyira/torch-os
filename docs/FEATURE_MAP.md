@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_lijie`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`workbench`、`workspaces`
 
 ## 一级导航
 
@@ -12,8 +12,8 @@
 |---|---|---|
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 日记、任务与待办、反思复盘、心得体会、目标、项目、习惯追踪、工作复盘；章节轨按分组折叠、最近 7 天日记圆点 |
-| 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作 |
-| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务；二级分区「恋爱系统」（聊天分析、画像、日志、报告、丽洁追踪） |
+| 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作、我的八字参考 |
+| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务、情感与记忆；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚） |
 | 知识库 | `#knowledge` | 收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -23,32 +23,97 @@
 
 ## 工作台
 
-- 问候语、横幅（座右铭/统计、背景、字体）、时钟、5 日天气、黄历。
+- **主动提问（2026-10-27）**：顶部一天一个问题，答了**直接**写进自我档案（身份字段，
+  或对应章节的一篇笔记）；「跳过」冷却 7 天，「别再问这个」永久生效；当天答过一个就不再自动出现，
+  但卡片留一个「再问一个」（`GET /api/questions/next?force=1`，绕过一天一个的上限）。
+  问题有两个来源，同一张卡片消费：
+  - **dsh 投的提问队列**（`<个人数据库>/.torch-os/提问队列/`）：大模型读过四库后，把
+    「这里该有我、现在空着」变成一个问题，`scripts/question_draft.py` 落成一张卡，**必须带
+    `--why`（引用具体笔记）**；torch 只负责什么时候问、答案写哪，答完/跳过自动挪进 `已用/`；
+  - **固定题库兜底**：队列空时问「署名 / 三观 / 哪段经历最塑造你」这类地基问题，
+    所以离线也有得问、也测得住。
+  torch 不调模型——「问什么最有价值」由读过内容的一方决定，「什么时候问」属于界面节奏。
+  状态在 `.torch-os/questions.json`，队列超过 14 天自动失效。
+  接口：`GET /api/questions/next`、`POST /api/questions/answer`、`POST /api/questions/skip`。
+- **待确认中枢（2026-10-27）**：工作台顶部一行常驻数字，点开是带四个 tab 的弹层，
+  把四处各自为政的积压收成一个入口：
+  - **草稿** `inbox_items`（早报/晚报/周报）：2026-10-05 删掉「提醒与草稿」列表后一直没人看得见，
+    现在可以读摘要、标记已读、丢弃（只标记，不删数据）；
+  - **事实**：`memories.status='candidate'` + `.torch-os/身份待确认/`，采纳才写进身份卡或
+    `01_自我档案/02_记忆与自传`，拒绝不动四库；
+  - **收件箱**：`03_知识库/00_收件箱` 带 `steward_policy` 给的章节建议，选好章节一键真的搬过去
+    （重名自动 `-2`，不覆盖；任务/日记/习惯不由这里搬）；原入口保持不变；
+  - **恋爱记忆**：恋爱系统 `memory_drafts` 里还没写入的每日记忆草稿，写入四库或丢弃；
+    动作仍由恋爱系统自己的接口执行，中枢只做汇总。
+  接口：`GET /api/pending/summary`、`GET /api/pending/items?kind=`、
+  `POST /api/pending/drafts`、`POST /api/pending/facts`、`POST /api/pending/triage`；
+  统一结构 `{kind,id,title,preview,lines,source,created,actions}` 由 `backend/app/pending.py` 适配，
+  前端不为每种类型写一套渲染。
+- 问候语、横幅（座右铭/统计、背景、字体）、时钟、紧凑天气卡、黄历。
+- 横幅编辑器（2026-10-27）：座右铭用空行分隔多句，同一条内部的换行原样显示（CSS `pre-line`），
+  第一句仍是主字号；图片改成文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB），
+  选中的图片由 `POST /api/identity/banner/image` 复制到当前个人数据库的 `.torch-os/横幅背景/`，
+  返回库内相对路径写回 `身份（identity）.md` 的 `heroes`；仍支持追加 https 链接、列表移除与
+  每半小时轮换。
+- 天气卡与倒计时/DeepSeek 卡同高，只显示时钟、年月日/星期、城市与今日天气（含高低温）；
+  每次打开系统自动刷新。点卡片打开详情浮窗：5 日预报、体感/湿度/降水/风向/风速/气压/日出/日落，
+  以及常用城市的搜索添加、切换与删除（城市列表存 `.torch-os/personal-data.json`；
+  普通取天气走 Open-Meteo 白名单）。
 - 任务：一任务一笔记（`00_人生路/08_任务与待办/任务/**`），看板/清单/标签、日期时间优先级、
   多选批量、右键菜单、手动排序、拖拽换清单、四象限换格、回收站、滴答双向同步。
 - 日历：年/月/周/日/日程/多日/多周视图；任务按清单颜色着色，时间任务上时刻轴。
-- 习惯打卡：每日必做来自 `00_人生路/08_任务与待办/_系统/待办（todos）.md`，勾选写入当天日记；
-  四库「人生路 → 习惯」提供同一份 Markdown 习惯数据的面板。
+- 习惯打卡：工作台「✅ 习惯打卡」页有周条、习惯卡、月打卡/总打卡/月完成率/当前连续、
+  月历热力图和月度打卡日志；支持每天/每周/每月/每隔 N 天、图标/颜色/分组/提醒/坚持天数/
+  自动弹出打卡日志。习惯定义在 `00_人生路/06_目标与计划/04_习惯追踪/习惯/<名称>.md`，
+  打卡在 `打卡/YYYY-MM.md`，`习惯定义.md` 是自动生成的只读索引；Markdown 是权威源，
+  SQLite 只是统计缓存，Obsidian 里的修改会被读回。
+  每日当期的习惯会作为虚拟任务进入「今日任务」和「四象限」；任务行勾选/拖优先级/双击改名
+  与习惯页双向同步，虚拟习惯不会落成任务笔记，也不会进入滴答同步。
+- 每日必做仍来自 `00_人生路/08_任务与待办/_系统/待办（todos）.md`，勾选写入当天日记；
+  习惯页底部保留每日必做清单。
 - 旧式 `任务（tasks）.md` 复选框任务只读保留。
 - 资料里的 Markdown 复选框可预览后复制为独立任务笔记；每篇笔记带稳定 `导入键`，
   重名/移动后重复导入仍返回原任务；可选关联人生路目标笔记（写入 frontmatter `目标`）。
 - 任务与目标联动：任务行显示目标 chip，点击只看该目标；分组菜单新增「目标」；
   目标笔记详情列出关联任务并可打开任务文档。
 - 右侧倒计时卡（仿 Apex Dashboard）：目标日期时间、天/小时/分钟、提前提醒、标签与背景；
-  齿轮打开设置，默认指向下一个元旦。配置保存在浏览器 LocalStorage（不写 Markdown、不上传），
+  齿轮打开设置，默认指向下一个元旦。配置写入 `.torch-os/personal-data.json`（不写 Markdown、不上传），
   本地图片背景也只在浏览器里读取。
+- 纪念日卡（仿 Apex Dashboard，默认左栏）：从历史日期起已过去多久（年 月 日 / 总天数 / 天 + 小时），
+  支持阳历/农历、每年同日提醒、本机图片或 https 图片 URL 背景；点卡片打开紧凑设置弹窗。
+  配置写入 `.torch-os/personal-data.json`，不写 Markdown、不上传。
+- 列车追踪小组件（2026-10-27，默认右栏，独立于恋爱系统）：用户自己添加/删除关注车次；
+  卡片显示待发车/运行中/停站中/已到达、当前站→下一站、区间进度和倒计时，点开看全部经停站。
+  `GET /api/train-tracker/status`、`GET /train?code=`、`POST /timetable`（导入 JSON）、
+  `POST /sync`（用户点击时从 12306 官方接口取一次经停站，失败保留本地数据）；时刻表在
+  `<个人数据库>/.torch-os/train-tracker/timetable.json`，与 `.torch-os/love/` 完全分开。
 - DeepSeek 余额卡（默认右栏）：本地后端代理官方 `GET /api/deepseek/balance`（上游
   `https://api.deepseek.com/user/balance`），显示总余额、充值余额与赠金，支持本机预警线、
   「去充值」跳转和 60 秒自动刷新；Key 优先用本机保存的（AES-GCM 加密在数据目录，不进
   Markdown/备份/导出），否则用 `DEEPSEEK_API_KEY` 环境变量或 DSH 凭据；只发往官方余额接口，
   不写日志、不返回浏览器。QA 模式不联网。
-- 运势黄历卡（默认右栏）：真实黄历（农历/干支/五行/冲煞/彭祖/喜福财神/宜忌/吉神凶神，来自本地
-  lunar 库）叠加原来的个人运势与生活宜忌；未签到只显示签到入口，签到后显示图片式完整版式。
-  点卡片打开宽版浮窗，可自由切换年/月/日；签到记录存本地 SQLite（`fortune_checkins`）。
-- 左右两侧小组件栏（天气、运势、倒计时、DeepSeek 余额）默认天气+倒计时在左、运势+DeepSeek
-  在右；卡片可拖拽互换位置与顺序，也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。
-  布局只保存在当前浏览器。新增组件时，给 `.workbench-side-left` 或 `.workbench-side-right`
-  的直接子元素补 `data-widget`（可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
+- 运势黄历卡（默认右栏）：与其它小组件同高的小卡片，只保留干支、大号农历日期、个人运势等级与
+  简要宜忌；未签到只显示签到入口。真实黄历（农历/干支/五行/冲煞/彭祖/喜福财神/宜忌/吉神凶神，
+  来自本地 lunar 库）与个人运势说明都在点击后的宽版浮窗里，可自由切换年/月/日；
+  签到记录存本地 SQLite（`fortune_checkins`）。
+- 左右两侧小组件栏（天气、倒计时、纪念日、值班、运势、列车追踪、DeepSeek 余额）默认
+  天气+倒计时+纪念日+值班在左、运势+列车追踪+DeepSeek 在右；卡片可拖拽互换位置与顺序，
+  也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。值班卡显示今天与未来 6 天的
+  上班/休息和当天值乘车次，点开看未来 31 天；只读，备注仍去恋爱系统的值班日历里改。
+  布局写入 `.torch-os/personal-data.json`（localStorage 只是缓存）。新增组件时，给
+  `.workbench-side-left` 或 `.workbench-side-right` 的直接子元素补 `data-widget`
+  （可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
+- 网页书签栏（2026-10-28）：问候语右侧一条 Edge 风格书签条，点书签用系统默认浏览器打开
+  （Obsidian 里经插件 `torch:open-url` → `shell.openExternal`，只放行 http/https；浏览器直开时
+  走 `window.open`），右端齿轮管理：加、改名、改网址、删除、↑↓ 排序，最多 24 个、按网址去重。
+  数据键 `torch-os:bookmark-bar`，跟着当前库的 `.torch-os/personal-data.json` 走；首次打开预置
+  `https://chat.deepseek.com/`。用途是把「网页版问完 → 复制分享链接/正文回四库」这一步缩短。
+- 个性化数据（2026-10-27）：`backend/app/personal_data.py` 提供 `GET/PUT /api/personal-data`，
+  文件固定为 `<个人数据库>/.torch-os/personal-data.json`；只接受 `torch-os:` / `torch:` / `torch.`
+  键，值 ≤2MB、合计 ≤8MB，单键传 `null` 删除。前端 `frontend/personal-data.js` 启动时把后端值
+  灌回 localStorage（按 `vault_id` 校验 `__torch_personal_owner`，换库先清缓存），之后
+  `setItem/removeItem` 防抖镜像；天气 30 分钟缓存不写回。
+  这是顶层数据规则：系统与小组件个性化数据都放 `.torch-os`，四库只放 Markdown 正文。
 
 ## 四库
 
@@ -65,16 +130,26 @@
   `00_人生路/05_项目/01_项目计划`、`02_项目复盘`；日记、任务、习惯、会议/踩坑路径不变。
 - 侧边栏按布局 v2 分组：心得体会、反思复盘、目标、项目四个一级分组（`chapter_manifest()` 的
   `groups`，只有人生路非空）。分组行出现在该组首个章节的位置，点标题折叠/展开
-  （`aria-expanded`，状态存 `localStorage` 的 `torch:rail-groups:life`）；子章节缩进，当前
+  （`aria-expanded`，状态存 `torch:rail-groups:life` 并同步到 `.torch-os/personal-data.json`）；子章节缩进，当前
   章节自动展开所属分组，方向键跳过折叠里的章节，未分组章节保持顶层。
 - 「打开本周复盘 / 打开本月复盘」只跳转 Obsidian，不生成骨架内容。
 - 年度/季度/月度目标笔记是目标选择器与目标导出/只读工具的唯一来源。
 - 最近 7 天日记圆点；旧目录日记会提示先在「库结构与迁移」里迁移。
-- 习惯定义与打卡镜像在 `00_人生路/06_目标与计划/04_习惯追踪/`（v2 不变）。
+- 习惯定义与打卡在 `00_人生路/06_目标与计划/04_习惯追踪/`（`习惯/` 单篇笔记 + `打卡/`
+  月度表 + 自动索引；v2 路径不变）。
 
 ### 自我档案
 
+- **档案总览（2026-10-27）**：进入自我档案不再是「最近笔记列表」，而是一份档案——
+  封面（署名 / 座右铭逐行 / 世界观·人生观·价值观·自述 / 完整度条 + 「下一步补什么」）、
+  目录（七个分区带编号、一句话说明与条数，点进章节）、自传时间线（`02_记忆与自传` 按日期倒序，
+  带一句摘要）。字段没填就写「还没写」，不假装认识你；数据来自
+  `GET /api/pillars/self/overview` 的 `identity`（含横幅用的 `mottos`）与 `timeline`。
 - 身份/三观（`01_自我档案/01_内核与三观/身份（identity）.md`，与工作台横幅共用）。
+- 身份待确认（2026-10-27）：「与神对话」从对话里提炼的「关于我」先投到
+  `.torch-os/身份待确认/`，右栏校验块逐条「采纳 / 丢弃」。采纳才写入身份字段
+  (`POST /api/identity/drafts/{name}/accept`) 或 `01_自我档案/02_记忆与自传` 的一篇笔记；
+  身份字段已有内容时不覆盖，丢弃只把卡片挪进 `已丢弃/`，四库一个字不动。
 - 记忆与自传、想法与灵感、情感与关系、意义与目标、沉淀与创作。
 - 管家会提示可从反思/心得提炼原则；原则草稿的新建与双链回原文在 Obsidian 里做。
 
@@ -85,17 +160,35 @@
 - 月度表只读展示趋势 sparkline 与分类占比；「在 Obsidian 打开月度表」跳到原文，
   新增/修改/删除行都在 Obsidian 里做。
 
-### 恋爱系统（生活运营的二级分区，2026-10-26）
+### 恋爱系统（生活运营的二级分区，2026-10-27）
 
 - 位于「生活运营」模块的二级菜单（顶部「生活运营 / 恋爱系统」标签），不是新的顶层模块；不再启动原「恋爱分析助手」的 Electron/FastAPI 服务。
-- 直接读写本机原 SQLite（`LOVE_DB_PATH`，默认 `%LOCALAPPDATA%\love-analysis-assistant\love_analysis.db`），
-  已有项目、消息、画像、分析记录和日志继续可用；导入的新项目写同一份数据库。
-- 原生页面：总览、导入聊天（TXT/编码识别）、统计（趋势/回复间隔/媒体/高频词）、AI 深度分析、
-  画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、HTML 报告（独立文档预览与打印）、
-  丽洁追踪（交路表 Excel、车次时刻表、实时位置、沿线天气）、设置（DeepSeek Key）。
+- 数据统一放在当前个人数据库的 `.torch-os/love/`：`love_analysis.db`、AES 加密 Key、
+  排班表 `xlsx/`、`schedule-notes.json` 值班备注和停用词。首次启动会把旧版
+  `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的数据复制过来，
+  原文件保留；已有项目、消息、画像、分析记录和日志继续可用。车次时刻表不在这里，
+  已独立到 `.torch-os/train-tracker/`。
+- 原生页面：总览、导入聊天（TXT/编码识别）、**微信同步**、统计（趋势/回复间隔/媒体/高频词）、
+  AI 深度分析、画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、**每日记忆**、
+  HTML 报告（独立文档预览与打印）、**值班日历**（月历显示上班/休息，并从排班表单元格
+  自动带出当天值乘车次；点日期弹窗可追加交接备注）、**八字合婚**（只读渲染
+  `.torch-os/love/bazi.json`：双人命盘、三条依据、口径说明、关键年份与相处建议）、
+  设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
+- **微信同步（WeFlow 本地 API，2026-10-27）**：WeFlow 负责读取本机已登录微信，
+  torch 只访问 `http://127.0.0.1:<端口>`（默认 5031）并只拉取用户选中的一个单聊。
+  Token 用 AES-256-GCM 加密存在 `.torch-os/love/`，不回显、不写日志；群聊、公众号和
+  其他聊天不会被读取。首次使用可在「微信同步」里用单聊直接新建聊天项目，已有项目则
+  先预览、再合并；按平台消息 ID、内容哈希和 ±2 分钟模糊匹配去重，写入前自动备份
+  `.torch-os/love/backups/`。API 暂时不可用时，可在同一页导入 WeFlow 导出的 ChatLab
+  JSON/JSONL 单聊文件作为兜底（同样只合并，不写四库）。原文只进恋爱数据库，不写四库。
+- **每日记忆**：按天用原生 DeepSeek 生成结构化草稿（标题、摘要、小事、计划、心情、关键词），
+  用户在页面里修改并确认后，才写入 `02_生活运营/05_情感与记忆` 的普通 Markdown。
+  DSH 直接读这些 Markdown 继续对话；批量/每日摘要仍走原生 DeepSeek，因为 DSH 没有
+  稳定的批处理接口。未确认的草稿只存在恋爱数据库。
 - AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
-  Key 使用 AES-256-GCM 加密保存在原数据库同目录，不进入 Obsidian 库、普通备份或导出。
-- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库。
+  Key 使用 AES-256-GCM 加密保存在同一目录，不上传；`.torch-os` 不参与普通 Vault 扫描和
+  工作台备份快照，拷贝整个个人数据库文件夹时会一起带走。
+- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库；微信同步与每日记忆只在个人模式出现。
 
 ### 知识库
 

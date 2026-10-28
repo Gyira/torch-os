@@ -31,6 +31,7 @@ COUNT_TABLES = (
     ("goals", "goals", "SELECT COUNT(*) FROM goals"),
     ("tasks", "tasks", "SELECT COUNT(*) FROM tasks"),
     ("journal_entries", "journal_entries", "SELECT COUNT(*) FROM journal_entries"),
+    ("habit_definitions", "habit_definitions", "SELECT COUNT(*) FROM habit_definitions"),
     ("habit_entries", "habit_entries", "SELECT COUNT(*) FROM habit_entries"),
     ("study_sessions", "study_sessions", "SELECT COUNT(*) FROM study_sessions"),
     ("body_entries", "body_entries", "SELECT COUNT(*) FROM body_entries"),
