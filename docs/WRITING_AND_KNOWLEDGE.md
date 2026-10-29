@@ -8,7 +8,7 @@
 | 区域 | 应用内可写 | 写入入口 |
 |---|---|---|
 | 人生路：反思/心得/随笔/复盘/目标计划/项目/工作复盘 | 是 | `/api/writing/notes*` |
-| 人生路：日记 | 否 | `/api/journal/*`（日记闭环） |
+| 人生路：日记（仅今天） | 是 | `/api/journal/write`（sha 冲突校验；过去只读） |
 | 人生路：任务/习惯 | 否 | 工作台任务/习惯专用接口 |
 | 知识库：收件箱/主题/读书/课程/概念/方法/输出 | 是 | `/api/writing/notes*` |
 | 自我档案 | 否 | 身份候选/忆灵审核（P3） |
@@ -23,18 +23,23 @@
 
 ## 2. 编辑器
 
-前端 `frontend/note-editor.js` + `editor-model.js` + `editor.css`：
+前端 `frontend/note-editor.js` + `editor-model.js` + `editor.css` + `editor-room.css`：
 
-- Markdown 工具栏：H2/加粗/斜体/删除线/列表/待办/引用/行内代码/链接/分割线；
-- 左侧源文、右侧实时预览；预览复用 `pillar-markdown.js`（与阅读器同一套渲染）；
-- 字数统计、脏状态、Ctrl/⌘+S 保存；关闭前未保存会二次确认；
+- **全屏写作空间**：打开后是整页纸张，大标题 + 大正文（17px/1.95），不再挤在弹窗里；
+- Markdown 工具栏：H1/H2/H3、加粗/斜体/删除线/行内代码、无序/有序/待办、引用、链接、表格、分割线；
+- 默认写作模式；「预览」切换为渲染后的 Markdown（复用 `pillar-markdown.js`），「专注」收起工具栏与页脚；
+- 字数与预计阅读时间、脏状态、Ctrl/⌘+S 保存、Ctrl/⌘+B/I/K 快捷格式；关闭前未保存会二次确认；
 - 章节选择来自 `GET /api/writing/chapters`；AI 建议章节只改选择，不落盘；
+- **今天的日记**：`chapter=journal` 时读取 `/api/journal/note`，只显示正文，保留原 front matter；
+  保存走 `/api/journal/write`，带 `expected_sha`；只允许写今天，过去日记保持只读；
 - AI 润色先展示预览，用户点“应用到正文”才替换；AI 不可用时正文不变；
 - “在 Obsidian 打开”复用 `task-open.js` 的宿主桥/`obsidian://`；
-- “和写作伙伴聊聊”打开角色抽屉（`journal_companion/discuss`），保存后才把当前笔记作为上下文。
+- “和写作伙伴聊聊”打开角色抽屉（`journal_companion/discuss`），保存后才把当前笔记/日记作为上下文。
 
 ## 3. 知识库问答
 
+- 知识库首页第一屏就是「今天想弄明白什么？」：主按钮打开 DeepSeek，下面直接粘贴公开分享链接取回；
+  收件箱/主题/读书/课程/概念/方法/输出作为本子放在下方，不再把「问答」藏在侧栏；
 - 不做 `chat.deepseek.com` iframe、不读取/保存网页 Cookie、不代理登录态；
 - 应用内只提供“打开 DeepSeek 问答”外链（Obsidian 内经 `torch:open-url`）；
 - 用户把公开分享链接贴回来：`POST /api/knowledge/share/preview` 取回问答；
@@ -54,6 +59,8 @@
 | POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision） |
 | POST | `/api/writing/classify` | AI 判类，回退规则；只返回卡片 |
 | POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
+| GET | `/api/journal/note?day=` | 读取当天日记，返回 `content` 与原始字节 `sha256` |
+| POST | `/api/journal/write` | 写今天日记（day/content/expected_sha/confirm） |
 | POST | `/api/knowledge/share/preview` | 取回分享并预览 |
 | POST | `/api/knowledge/share/archive` | 确认后归档（不调用 AI） |
 | POST | `/api/knowledge/share/digest` | 学术导师整理成 new_note 提案 |

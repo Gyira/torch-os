@@ -1,5 +1,6 @@
 """今天的笔记（2026-10-26 起四库只读）：只读取当天的日记文件，生成/追加在 Obsidian。"""
 
+import hashlib
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -32,14 +33,16 @@ def test_read_returns_state_and_rejects_invalid_days(tmp_path):
     client = make_client(tmp_path)
     missing = client.get("/api/journal/note", params={"day": TODAY}).json()
     assert missing["exists"] is False and missing["content"] == ""
+    assert missing["sha256"] == ""
     assert missing["relpath"] == f"00_人生路/01_日记/{TODAY}.md"
 
     path = note_file(tmp_path)
     path.parent.mkdir(parents=True)
-    path.write_text(
-        f"---\ntype: journal\ndate: {TODAY}\n---\n\n今天写下的正文。\n", encoding="utf-8")
+    raw = f"---\ntype: journal\ndate: {TODAY}\n---\n\n今天写下的正文。\n".encode("utf-8")
+    path.write_bytes(raw)
     present = client.get("/api/journal/note", params={"day": TODAY}).json()
     assert present["exists"] is True and "今天写下的正文。" in present["content"]
+    assert present["sha256"] == hashlib.sha256(raw).hexdigest()
     assert present["updated_at"]
 
     assert client.get("/api/journal/note", params={"day": "2099-01-01"}).status_code == 422

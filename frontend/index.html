@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -546,46 +546,61 @@
 </aside>
 <div id="role-drawer-backdrop" class="role-drawer-backdrop" hidden></div>
 <dialog id="note-editor-dialog" class="note-editor-dialog" aria-labelledby="note-editor-heading">
-  <div class="note-editor-head">
-    <div><p class="eyebrow" id="note-editor-eyebrow">写作</p><h2 id="note-editor-heading">写一条</h2><p id="note-editor-status" class="status-message" role="status"></p></div>
-    <button id="note-editor-close" class="small-button" type="button">关闭</button>
-  </div>
-  <div class="note-editor-meta">
-    <label>标题<input id="note-editor-title" type="text" maxlength="200" autocomplete="off" /></label>
-    <label>章节<select id="note-editor-chapter"></select></label>
-    <label>标签<input id="note-editor-tags" type="text" maxlength="200" placeholder="用、或逗号分隔" /></label>
-  </div>
-  <div id="note-editor-toolbar" class="note-editor-toolbar" role="toolbar" aria-label="Markdown 工具栏">
-    <button type="button" data-editor-action="h2" title="标题（##）">H2</button>
-    <button type="button" data-editor-action="bold" title="加粗（**）"><strong>B</strong></button>
-    <button type="button" data-editor-action="italic" title="斜体（*）"><em>I</em></button>
-    <button type="button" data-editor-action="strike" title="删除线（~~）"><s>S</s></button>
-    <button type="button" data-editor-action="bullet" title="无序列表">•</button>
-    <button type="button" data-editor-action="task" title="待办清单">☑</button>
-    <button type="button" data-editor-action="quote" title="引用">❝</button>
-    <button type="button" data-editor-action="code" title="行内代码">&lt;/&gt;</button>
-    <button type="button" data-editor-action="link" title="链接">🔗</button>
-    <button type="button" data-editor-action="divider" title="分割线">—</button>
-  </div>
-  <div class="note-editor-body">
-    <label class="visually-hidden" for="note-editor-text">正文 Markdown</label>
-    <textarea id="note-editor-text" spellcheck="false" placeholder="写点什么……"></textarea>
-    <div id="note-editor-preview" class="md-body note-editor-preview" aria-live="polite"></div>
-  </div>
-  <section id="note-editor-polish" class="note-editor-polish" hidden aria-label="AI 润色预览">
-    <div class="note-editor-polish-head"><p class="eyebrow">AI 润色预览</p><p id="note-editor-polish-changes" class="field-help"></p></div>
-    <div id="note-editor-polish-text" class="md-body note-editor-polish-text"></div>
-    <div class="form-actions"><button id="note-editor-polish-apply" type="button" class="button primary">应用到正文</button><button id="note-editor-polish-cancel" type="button" class="text-button">取消</button></div>
-  </section>
-  <div class="note-editor-actions">
-    <span id="note-editor-count" class="meta"></span>
-    <button id="note-editor-classify" type="button" class="text-button">AI 建议章节</button>
-    <button id="note-editor-role" type="button" class="text-button">和写作伙伴聊聊</button>
-    <button id="note-editor-obsidian" type="button" class="text-button">在 Obsidian 打开</button>
-    <button id="note-editor-reload" type="button" class="text-button">重新载入</button>
-    <button id="note-editor-polish-btn" type="button" class="button secondary">AI 润色</button>
-    <button id="note-editor-cancel" type="button" class="button secondary">取消</button>
-    <button id="note-editor-save" type="button" class="button primary">保存</button>
+  <div class="editor-shell">
+    <header class="editor-topbar">
+      <div class="editor-topbar-main">
+        <button id="note-editor-close" class="editor-back" type="button">← 返回</button>
+        <div class="editor-heading">
+          <p class="eyebrow" id="note-editor-eyebrow">写作</p>
+          <h2 id="note-editor-heading">写一条</h2>
+        </div>
+      </div>
+      <div class="editor-topbar-actions">
+        <p id="note-editor-status" class="status-message" role="status"></p>
+        <button id="note-editor-cancel" class="text-button" type="button">取消</button>
+        <button id="note-editor-save" type="button" class="button primary">保存</button>
+      </div>
+    </header>
+    <div class="editor-stage">
+      <div class="editor-paper" id="note-editor-paper">
+        <div class="editor-paper-head">
+          <input id="note-editor-title" class="editor-title-input" type="text" maxlength="200" autocomplete="off" placeholder="标题" aria-label="笔记标题" />
+          <div class="editor-meta-row">
+            <label class="editor-meta-field">本子<select id="note-editor-chapter"></select></label>
+            <label class="editor-meta-field">标签<input id="note-editor-tags" type="text" maxlength="200" placeholder="用、或逗号分隔" /></label>
+          </div>
+        </div>
+        <div class="editor-commandbar">
+          <div id="note-editor-toolbar" class="note-editor-toolbar" role="toolbar" aria-label="Markdown 工具栏"></div>
+          <div class="editor-view-actions">
+            <button id="note-editor-preview-toggle" type="button" class="small-button" aria-pressed="false">预览</button>
+            <button id="note-editor-focus-toggle" type="button" class="small-button" aria-pressed="false">专注</button>
+          </div>
+        </div>
+        <div class="editor-writing" id="note-editor-writing">
+          <label class="visually-hidden" for="note-editor-text">正文 Markdown</label>
+          <textarea id="note-editor-text" spellcheck="false" placeholder="写点什么……"></textarea>
+          <div id="note-editor-preview" class="md-body note-editor-preview" aria-live="polite" hidden></div>
+        </div>
+        <section id="note-editor-polish" class="note-editor-polish" hidden aria-label="AI 润色预览">
+          <div class="note-editor-polish-head"><p class="eyebrow">AI 润色预览</p><p id="note-editor-polish-changes" class="field-help"></p></div>
+          <div id="note-editor-polish-text" class="md-body note-editor-polish-text"></div>
+          <div class="form-actions"><button id="note-editor-polish-apply" type="button" class="button primary">应用到正文</button><button id="note-editor-polish-cancel" type="button" class="text-button">取消</button></div>
+        </section>
+        <footer class="editor-footer">
+          <span id="note-editor-count" class="meta"></span>
+          <div class="editor-ai-actions">
+            <button id="note-editor-classify" type="button" class="text-button">AI 建议章节</button>
+            <button id="note-editor-polish-btn" type="button" class="button secondary">AI 润色</button>
+            <button id="note-editor-role" type="button" class="text-button">和写作伙伴聊聊</button>
+          </div>
+          <div class="editor-file-actions">
+            <button id="note-editor-obsidian" type="button" class="text-button">在 Obsidian 打开</button>
+            <button id="note-editor-reload" type="button" class="text-button">重新载入</button>
+          </div>
+        </footer>
+      </div>
+    </div>
   </div>
 </dialog>
 <dialog id="memory-event-dialog" class="note-editor-dialog memory-event-dialog" aria-labelledby="memory-event-heading">

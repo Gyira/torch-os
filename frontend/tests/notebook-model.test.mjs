@@ -1,0 +1,101 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS, buildNotebookCards, greetingForHour,
+  journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency,
+  noteCards, notebookForChapter, notebooksFor, subchaptersFor,
+} from "../notebook-model.js";
+
+const LIFE_ROWS = [
+  { key: "journal", title: "日记", count: 3, latest: { title: "2026-10-30", chapter: "journal", date: "2026-10-30", path: "日记/2026-10-30.md" } },
+  { key: "reflection", title: "反思", count: 2, latest: { title: "反思 A", chapter: "reflection", date: "2026-10-29", path: "反思/A.md" } },
+  { key: "review_week", title: "周复盘", count: 1, latest: { title: "周复盘 A", chapter: "review_week", date: "2026-10-26", path: "反思/W.md" } },
+  { key: "review_month", title: "月复盘", count: 0, latest: null },
+  { key: "insight_life", title: "生活心得", count: 1, latest: { title: "心得 A", chapter: "insight_life", date: "2026-10-20", path: "心得/A.md" } },
+  { key: "essay", title: "随笔", count: 4, latest: { title: "随笔 A", chapter: "essay", date: "2026-10-28", path: "随笔/A.md" } },
+  { key: "unknown_new", title: "未登记", count: 1, latest: { title: "新章节", chapter: "unknown_new", date: "2026-10-27", path: "其他/N.md" } },
+];
+
+test("life notebooks aggregate counts and keep the newest note", () => {
+  const cards = buildNotebookCards("life", LIFE_ROWS);
+  const byKey = new Map(cards.map((card) => [card.key, card]));
+  assert.equal(byKey.get("journal").count, 3);
+  assert.equal(byKey.get("reflection").count, 3);
+  assert.equal(byKey.get("reflection").latest.title, "反思 A");
+  assert.equal(byKey.get("essay").count, 4);
+  // 未登记的章节不能被静默藏掉。
+  assert.equal(byKey.get("other").count, 1);
+  assert.ok(byKey.has("project"));
+  assert.equal(byKey.get("project").empty, true);
+});
+
+test("notebook lookup maps every declared chapter and ignores unknown ones", () => {
+  assert.equal(notebookForChapter("life", "review_week").key, "reflection");
+  assert.equal(notebookForChapter("life", "essay").key, "essay");
+  assert.equal(notebookForChapter("knowledge", "method_general").key, "method");
+  assert.equal(notebookForChapter("knowledge", "not-a-chapter"), null);
+});
+
+test("subchapters only include the notebook's own chapters with counts", () => {
+  const rows = subchaptersFor("life", "reflection", LIFE_ROWS);
+  assert.deepEqual(rows.map((row) => [row.key, row.count]), [
+    ["reflection", 2], ["review_week", 1], ["review_month", 0],
+  ]);
+});
+
+test("life hero says what to do today and counts the streak", () => {
+  const week = [
+    { date: "2026-10-27", exists: false },
+    { date: "2026-10-28", exists: true },
+    { date: "2026-10-29", exists: true },
+    { date: "2026-10-30", exists: true },
+  ];
+  const state = lifeHeroState({
+    today: { date: "2026-10-30", journal_written: true, journal_updated_at: "2026-10-30T09:00:00+08:00", week },
+  }, "2026-10-30");
+  assert.equal(state.written, true);
+  assert.equal(state.streak, 3);
+  assert.equal(state.weekDone, 3);
+  assert.match(state.headline, /留下一页/);
+
+  const empty = lifeHeroState({ today: { date: "2026-10-30", journal_written: false, week } }, "2026-10-30");
+  assert.equal(empty.streak, 0);
+  assert.match(empty.headline, /写点什么/);
+});
+
+test("knowledge hero surfaces the inbox backlog", () => {
+  assert.equal(knowledgeHeroState({ inbox_count: 4 }).inboxCount, 4);
+  assert.match(knowledgeHeroState({ inbox_count: 4 }).copy, /4 条/);
+  assert.match(knowledgeHeroState({}).copy, /DeepSeek/);
+});
+
+test("journal cards read like a date, not a filename", () => {
+  const [card] = noteCards([{
+    path: "00_人生路/01_日记/2026-10-30.md", chapter: "journal", date: "2026-10-30",
+    title: "2026-10-30", excerpt: "今天把项目收尾了。",
+  }]);
+  assert.equal(card.title, "日记 · 10月30日 周五");
+  assert.equal(card.excerpt, "今天把项目收尾了。");
+});
+
+test("journal heading uses the ISO week and weekday", () => {
+  assert.equal(journalHeading("2026-10-30"), "# 2026-10-30（第44周，周五）");
+});
+
+test("recent notes merge by date without duplicates", () => {
+  const merged = mergeNotesByRecency([
+    [{ path: "a.md", date: "2026-10-28" }, { path: "b.md", date: "2026-10-30" }],
+    [{ path: "a.md", date: "2026-10-28" }, { path: "c.md", date: "2026-10-29" }],
+  ]);
+  assert.deepEqual(merged.map((note) => note.path), ["b.md", "c.md", "a.md"]);
+});
+
+test("definitions stay readable and cover the expected notebooks", () => {
+  assert.ok(LIFE_NOTEBOOKS.some((item) => item.daily));
+  assert.ok(KNOWLEDGE_NOTEBOOKS.some((item) => item.primary));
+  assert.equal(notebooksFor("life").length, LIFE_NOTEBOOKS.length);
+  assert.equal(notebooksFor("unknown").length, 0);
+  assert.equal(greetingForHour(9), "早上好");
+  assert.equal(greetingForHour(21), "晚上好");
+});

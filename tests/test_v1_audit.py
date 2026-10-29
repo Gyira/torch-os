@@ -16,6 +16,7 @@ from backend.app.ai_gateway import HeadlessResult
 from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.identity import IdentityWrite, write_identity
+from backend.app.journal_review import shanghai_today
 
 WRITE_BODY = "正文-MARKER-WRITE 今天在会议上太急了。"
 WRITE_BODY_2 = "正文-MARKER-WRITE-2 下次先停三秒。"
@@ -102,6 +103,14 @@ def test_v1_writes_are_audited_without_bodies_or_secrets(tmp_path):
     })
     assert moved.status_code == 200, moved.text
 
+    journal_day = shanghai_today().isoformat()
+    journal = client.post("/api/journal/write", json={
+        "day": journal_day,
+        "content": f"---\ntype: journal\ndate: {journal_day}\n---\n\n# 今天\n日记-MARKER-BODY 今天写下的一句。\n",
+        "confirm": True,
+    })
+    assert journal.status_code == 200, journal.text
+
     chat = client.post("/api/ai/chat", json={
         "role_id": "journal_companion", "mode": "discuss", "message": CHAT_INPUT,
     })
@@ -132,7 +141,7 @@ def test_v1_writes_are_audited_without_bodies_or_secrets(tmp_path):
             "SELECT event_type, detail_json FROM audit_events ORDER BY id")]
     details = {row["event_type"]: json.loads(row["detail_json"]) for row in rows}
     assert set(details) >= {
-        "note_created", "note_updated", "note_moved",
+        "note_created", "note_updated", "note_moved", "journal_saved",
         "ai_turn_completed", "ai_run_completed",
         "ops_ai_report", "proposal_created", "proposal_applied",
         "memory_hub_synthesized", "identity_patch_applied",
@@ -141,13 +150,15 @@ def test_v1_writes_are_audited_without_bodies_or_secrets(tmp_path):
     # 审计只留元数据：正文、回复、画像、身份值、提案标题与 Key 都不能出现。
     dumped = "\n".join(row["detail_json"] for row in rows)
     for marker in (WRITE_BODY, WRITE_BODY_2, CHAT_REPLY, CHAT_INPUT, RUN_REPLY,
-                   REPORT_BODY, PORTRAIT, IDENTITY_VALUE, "审计任务-MARKER-PROPOSAL"):
+                   REPORT_BODY, PORTRAIT, IDENTITY_VALUE, "审计任务-MARKER-PROPOSAL",
+                   "日记-MARKER-BODY"):
         assert marker not in dumped, marker
     assert "sk-" not in dumped
 
     assert set(details["note_created"]) == {"path", "chapter"}
     assert set(details["note_updated"]) == {"path", "chapter"}
     assert set(details["note_moved"]) == {"path", "from", "to"}
+    assert set(details["journal_saved"]) == {"day", "bytes", "created"}
     assert set(details["ai_turn_completed"]) == {
         "role", "mode", "thread_id", "chars", "seconds", "proposals", "events", "structured",
     }

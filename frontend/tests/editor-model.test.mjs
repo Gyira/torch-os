@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  applyEditorAction, isDirty, normalizeBody, prefixLines, tagsFromInput, tagsToInput,
-  wordCount, wrapSelection,
+  applyEditorAction, ensureJournalFrontMatter, isDirty, joinFrontMatter, normalizeBody,
+  prefixLines, splitFrontMatter, tagsFromInput, tagsToInput, wordCount, wrapSelection,
 } from "../editor-model.js";
 
 test("bold wraps the selection and selects the inner text", () => {
@@ -35,6 +35,23 @@ test("link wraps selection with markdown link syntax", () => {
 test("divider inserts a block without losing the surrounding text", () => {
   const result = applyEditorAction("前文", 2, 2, "divider");
   assert.ok(result.text.includes("前文\n\n---\n\n"));
+});
+
+test("numbered list and table are available from the expanded toolbar", () => {
+  const list = applyEditorAction("一\n二", 0, 3, "numbered");
+  assert.equal(list.text, "1. 一\n1. 二");
+  const table = applyEditorAction("", 0, 0, "table");
+  assert.match(table.text, /\| 列 1 \| 列 2 \|/);
+});
+
+test("journal front matter is split, preserved and rejoined", () => {
+  const raw = "---\ntype: journal\ndate: 2026-10-30\nmood: 清醒\n---\n\n# 今天\n正文\n";
+  const parts = splitFrontMatter(raw);
+  assert.match(parts.frontmatter, /type: journal/);
+  assert.equal(parts.body, "# 今天\n正文\n");
+  assert.equal(joinFrontMatter(parts.frontmatter, parts.body), raw);
+  assert.match(ensureJournalFrontMatter("2026-10-30", ""), /type: journal/);
+  assert.match(ensureJournalFrontMatter("2026-10-30", "---\ntype: note\n---"), /date: 2026-10-30/);
 });
 
 test("word count mixes Chinese characters and English words", () => {

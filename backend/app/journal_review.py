@@ -796,8 +796,13 @@ def create_journal_review_router(database: Any, vault_dir: Path | str, prefix: s
     @router.post("/journal/write")
     def journal_write(payload: WriteRequest):
         target = _clean_day(payload.day)
-        return write_note(vault_dir, target, payload.content,
-                          expected_sha=payload.expected_sha,
-                          read_only=read_only, confirm=payload.confirm)
+        result = write_note(vault_dir, target, payload.content,
+                            expected_sha=payload.expected_sha,
+                            read_only=read_only, confirm=payload.confirm)
+        # 审计只记日期/字节数与是否新建，不记日记正文。
+        database.audit("journal_saved", {
+            "day": target, "bytes": result["bytes"], "created": result["created"],
+        })
+        return result
 
     return router

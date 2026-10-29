@@ -1,0 +1,377 @@
+/* 2026-10-30 全屏写作空间。
+   用户反馈：弹窗里的编辑区太小、功能少、没有写作的沉浸感。
+   这里把 #note-editor-dialog 单独改成整页写作空间；memory-event /
+   share-link 仍沿用 editor.css 里的通用 .note-editor-dialog 样式。 */
+
+#note-editor-dialog {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+#note-editor-dialog[open] {
+  display: block;
+  animation: editor-room-in .24s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+#note-editor-dialog::backdrop {
+  background: rgb(16 27 43 / 52%);
+  backdrop-filter: blur(3px);
+}
+
+@keyframes editor-room-in {
+  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+
+.editor-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  background: var(--p-bg);
+}
+
+.editor-topbar {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px clamp(16px, 3.4vw, 44px);
+  border-bottom: 1px solid var(--p-line);
+  background: var(--p-surface);
+}
+
+.editor-topbar-main,
+.editor-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.editor-topbar-actions {
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+
+.editor-back {
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--p-ink-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
+}
+
+.editor-back:hover {
+  border-color: var(--p-line);
+  background: var(--p-hover);
+  color: var(--p-ink-strong);
+}
+
+.editor-heading { min-width: 0; }
+
+.editor-heading h2 {
+  margin: 1px 0 0;
+  overflow: hidden;
+  color: var(--p-ink-strong);
+  font-family: var(--p-font-display);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#note-editor-dialog #note-editor-status {
+  min-height: 0;
+  margin: 0;
+  max-width: min(46vw, 560px);
+  line-height: 1.45;
+  text-align: right;
+}
+
+#note-editor-dialog #note-editor-status.success { animation: editor-save-pulse .45s ease; }
+
+@keyframes editor-save-pulse {
+  0% { transform: translateY(2px); opacity: .4; }
+  100% { transform: none; opacity: 1; }
+}
+
+.editor-stage {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: clamp(18px, 4vh, 46px) clamp(14px, 4vw, 40px) 80px;
+  scroll-behavior: smooth;
+}
+
+.editor-paper {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  min-height: calc(100vh - 150px);
+  margin: 0 auto;
+  padding: clamp(24px, 4.2vw, 58px) clamp(20px, 5.2vw, 76px) 30px;
+  border: 1px solid var(--p-line);
+  border-radius: 22px;
+  background: var(--p-surface);
+  box-shadow: 0 30px 80px -48px var(--p-shadow);
+  transition: width .22s ease, box-shadow .22s ease, border-color .22s ease, padding .22s ease;
+}
+
+.editor-paper.is-focus {
+  width: min(980px, 100%);
+  border-color: transparent;
+  box-shadow: none;
+  padding-top: clamp(30px, 6vh, 80px);
+}
+
+.editor-paper-head { display: flex; flex-direction: column; gap: 14px; }
+
+.editor-title-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-strong);
+  font-family: var(--p-font-display);
+  font-size: clamp(30px, 4.4vw, 46px);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: .005em;
+}
+
+.editor-title-input::placeholder { color: var(--p-ink-faint); }
+.editor-title-input:focus { outline: 0; }
+.editor-title-input[readonly] { cursor: default; color: var(--p-ink-2); }
+
+.editor-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding-bottom: 4px;
+}
+
+.editor-meta-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--p-ink-4);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.editor-meta-field select,
+.editor-meta-field input {
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--p-line);
+  border-radius: 8px;
+  background: var(--p-surface-2);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.editor-meta-field input { width: min(240px, 44vw); }
+
+.editor-meta-field select:focus,
+.editor-meta-field input:focus {
+  border-color: var(--p-accent);
+  outline: 2px solid var(--p-accent-soft);
+  outline-offset: 1px;
+}
+
+.editor-commandbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--p-line-faint);
+  border-bottom: 1px solid var(--p-line-faint);
+  background: var(--p-surface);
+}
+
+#note-editor-dialog .note-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+}
+
+#note-editor-dialog .note-editor-toolbar button {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--p-ink-3);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease, transform .08s ease;
+}
+
+#note-editor-dialog .note-editor-toolbar button:hover {
+  border-color: var(--p-line);
+  background: var(--p-hover);
+  color: var(--p-ink-strong);
+  transform: translateY(-1px);
+}
+
+#note-editor-dialog .note-editor-toolbar button:active { transform: none; }
+
+.editor-tool-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--p-line);
+}
+
+.editor-view-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.editor-view-actions .small-button[aria-pressed="true"] {
+  border-color: var(--p-accent);
+  background: var(--p-accent-soft);
+  color: var(--p-accent);
+}
+
+.editor-writing {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: min(46vh, 540px);
+  padding-top: 6px;
+}
+
+#note-editor-dialog #note-editor-text {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: min(46vh, 540px);
+  resize: none;
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--p-ink);
+  font: 17px/1.95 "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  caret-color: var(--p-accent);
+}
+
+#note-editor-dialog #note-editor-text:focus { outline: 0; }
+#note-editor-dialog #note-editor-text::placeholder { color: var(--p-ink-faint); }
+
+#note-editor-dialog #note-editor-preview {
+  width: 100%;
+  max-width: none;
+  padding: 4px 0 30px;
+  background: transparent;
+  color: var(--p-ink-2);
+  font-size: 16.5px;
+  line-height: 1.95;
+}
+
+#note-editor-dialog #note-editor-preview h1,
+#note-editor-dialog #note-editor-preview h2,
+#note-editor-dialog #note-editor-preview h3 {
+  color: var(--p-ink-strong);
+  font-family: var(--p-font-display);
+}
+
+#note-editor-dialog .note-editor-polish {
+  margin: 14px 0 4px;
+  border-radius: 14px;
+}
+
+#note-editor-dialog .note-editor-polish-text { max-height: 260px; }
+
+.editor-footer {
+  position: sticky;
+  bottom: -1px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 18px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--p-line);
+  background: var(--p-surface);
+}
+
+.editor-footer #note-editor-count {
+  flex: 1 1 auto;
+  color: var(--p-ink-4);
+  font-size: 12px;
+}
+
+.editor-ai-actions,
+.editor-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-ai-actions .text-button,
+.editor-file-actions .text-button { color: var(--p-ink-3); }
+
+/* 今日日记：标题是日期，不需要“本子/标签”；正文更像一张纸。 */
+#note-editor-dialog.is-journal .editor-title-input {
+  color: var(--p-ink-strong);
+  font-size: clamp(26px, 3.2vw, 36px);
+}
+
+/* 专注模式：只留下纸和正文，顶部仍保留返回与保存。 */
+#note-editor-dialog.is-focus-editor .editor-heading,
+#note-editor-dialog.is-focus-editor .editor-meta-row,
+#note-editor-dialog.is-focus-editor .note-editor-toolbar,
+#note-editor-dialog.is-focus-editor .editor-footer .editor-ai-actions,
+#note-editor-dialog.is-focus-editor .editor-footer .editor-file-actions {
+  display: none;
+}
+
+#note-editor-dialog.is-focus-editor .editor-topbar {
+  border-bottom-color: transparent;
+  background: var(--p-bg);
+}
+
+#note-editor-dialog.is-focus-editor .editor-stage { padding-top: 8px; }
+
+@media (max-width: 760px) {
+  .editor-topbar { flex-wrap: wrap; }
+  .editor-topbar-actions { flex: 1 1 100%; justify-content: space-between; }
+  #note-editor-dialog #note-editor-status { max-width: 52vw; }
+  .editor-paper { padding: 22px 18px 24px; border-radius: 16px; }
+  .editor-title-input { font-size: 28px; }
+  .editor-commandbar { align-items: flex-start; flex-direction: column; }
+  #note-editor-dialog .note-editor-toolbar { overflow-x: auto; flex-wrap: nowrap; width: 100%; padding-bottom: 2px; }
+  .editor-view-actions { width: 100%; justify-content: flex-end; }
+  .editor-footer { align-items: flex-start; flex-direction: column; }
+  .editor-ai-actions, .editor-file-actions { width: 100%; }
+}

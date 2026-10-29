@@ -44,21 +44,35 @@ export function initShareLink() {
   });
 }
 
-export function openShareLinkDialog() {
+/** 知识库首页的大按钮：直接打开 DeepSeek 网页版，不消耗 torch 的 Key。 */
+export function openDeepSeekAsk() {
+  openDeepSeek();
+}
+
+/**
+ * options 可传字符串或 { url, preview }：
+ * 知识库首页的“粘贴分享链接”会把 URL 预填进来；preview=true 时打开后直接取回。
+ */
+export function openShareLinkDialog(options = {}) {
   initShareLink();
+  const config = typeof options === "string" ? { url: options } : (options || {});
   state.preview = null;
   state.busy = false;
   setStatus("");
   const result = el("share-link-result");
   if (result) result.innerHTML = `<p class="field-help">贴一个 chat.deepseek.com 的公开分享链接，先取回、再决定归档或让 AI 导师整理。</p>`;
-  el("share-link-url").value = "";
+  el("share-link-url").value = String(config.url || "");
   el("share-link-rounds").value = "";
   const dialog = el("share-link-dialog");
   if (dialog && !dialog.open) {
     try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
   }
   state.open = true;
-  window.setTimeout(() => el("share-link-url")?.focus?.(), 30);
+  if (config.url && config.preview) {
+    window.setTimeout(() => { previewShare().catch(() => {}); }, 80);
+  } else {
+    window.setTimeout(() => el("share-link-url")?.focus?.(), 30);
+  }
 }
 
 function closeShareLink() {

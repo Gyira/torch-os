@@ -3,16 +3,20 @@
 // 编辑器只写 Markdown 源，预览由 pillar-markdown.js 负责，保持与 Obsidian 兼容。
 
 export const TOOLBAR_ACTIONS = Object.freeze([
-  { id: "h2", label: "H2", title: "标题（##）" },
-  { id: "bold", label: "B", title: "加粗（**）" },
-  { id: "italic", label: "I", title: "斜体（*）" },
-  { id: "strike", label: "S", title: "删除线（~~）" },
-  { id: "bullet", label: "•", title: "无序列表" },
-  { id: "task", label: "☑", title: "待办清单" },
-  { id: "quote", label: "❝", title: "引用" },
-  { id: "code", label: "</>", title: "行内代码" },
-  { id: "link", label: "🔗", title: "链接" },
-  { id: "divider", label: "—", title: "分割线" },
+  { id: "h1", label: "H1", title: "大标题（#）", group: "heading" },
+  { id: "h2", label: "H2", title: "标题（##）", group: "heading" },
+  { id: "h3", label: "H3", title: "小标题（###）", group: "heading" },
+  { id: "bold", label: "B", title: "加粗（Ctrl/⌘ B）", group: "format" },
+  { id: "italic", label: "I", title: "斜体（Ctrl/⌘ I）", group: "format" },
+  { id: "strike", label: "S", title: "删除线", group: "format" },
+  { id: "code", label: "</>", title: "行内代码", group: "format" },
+  { id: "bullet", label: "•", title: "无序列表", group: "list" },
+  { id: "numbered", label: "1.", title: "有序列表", group: "list" },
+  { id: "task", label: "☑", title: "待办清单", group: "list" },
+  { id: "quote", label: "❝", title: "引用", group: "block" },
+  { id: "link", label: "🔗", title: "链接（Ctrl/⌘ K）", group: "block" },
+  { id: "table", label: "▦", title: "插入表格", group: "block" },
+  { id: "divider", label: "—", title: "分割线", group: "block" },
 ]);
 
 export function wrapSelection(text, start, end, before, after = before, placeholder = "") {
@@ -69,6 +73,7 @@ export function insertSnippet(text, start, end, snippet) {
 
 export function applyEditorAction(text, start, end, actionId) {
   switch (String(actionId || "")) {
+    case "h1": return prefixLines(text, start, end, "# ");
     case "h2": return prefixLines(text, start, end, "## ");
     case "h3": return prefixLines(text, start, end, "### ");
     case "bold": return wrapSelection(text, start, end, "**", "**", "加粗文字");
@@ -77,11 +82,38 @@ export function applyEditorAction(text, start, end, actionId) {
     case "code": return wrapSelection(text, start, end, "`", "`", "代码");
     case "link": return wrapSelection(text, start, end, "[", "](https://)", "链接文字");
     case "bullet": return prefixLines(text, start, end, "- ");
+    case "numbered": return prefixLines(text, start, end, "1. ");
     case "task": return prefixLines(text, start, end, "- [ ] ");
     case "quote": return prefixLines(text, start, end, "> ");
+    case "table": return insertSnippet(text, start, end, "\n\n| 列 1 | 列 2 |\n| --- | --- |\n|  |  |\n\n");
     case "divider": return insertSnippet(text, start, end, "\n\n---\n\n");
     default: return { text: String(text || ""), selectionStart: start, selectionEnd: end };
   }
+}
+
+/** 日记文件包含 front matter；编辑器只改正文，保存时把原 front matter 原样接回去。 */
+export function splitFrontMatter(text) {
+  const value = String(text || "").replace(/\r\n?/g, "\n");
+  if (!value.startsWith("---\n")) return { frontmatter: "", body: value };
+  const end = value.indexOf("\n---", 4);
+  if (end < 0) return { frontmatter: "", body: value };
+  const bodyStart = value.indexOf("\n", end + 4);
+  return {
+    frontmatter: value.slice(0, end + 4),
+    body: (bodyStart < 0 ? "" : value.slice(bodyStart + 1)).replace(/^\n+/, ""),
+  };
+}
+
+export function joinFrontMatter(frontmatter, body) {
+  const head = String(frontmatter || "").trim();
+  const text = String(body || "").replace(/^\n+/, "");
+  return head ? `${head}\n\n${text}` : text;
+}
+
+export function ensureJournalFrontMatter(day, frontmatter = "") {
+  const head = String(frontmatter || "").trim();
+  if (/^---\n[\s\S]*\btype:\s*journal\b[\s\S]*\n---$/.test(head)) return head;
+  return `---\ntype: journal\ndate: ${String(day || "").slice(0, 10)}\n---`;
 }
 
 /** 汉字算 1 字，英文/数字按单词计（和项目其它字数提示一致）。 */

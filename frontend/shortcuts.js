@@ -12,6 +12,7 @@ const ARROW_SCOPES = [
   { selector: "#module-nav", item: "[data-pane]", activate: false },
   { selector: ".settings-nav", item: "[data-settings-nav]", activate: false },
   { selector: ".pillar-rail", item: "[data-pillar-chapter]", activate: false },
+  { selector: ".notebook-chips", item: "[data-pillar-chapter]", activate: false },
   { selector: ".pillar-week", item: "[data-journal-day]", activate: false },
   { selector: ".time-rail", item: "[data-time-page]", activate: true },
 ];

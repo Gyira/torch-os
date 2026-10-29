@@ -84,10 +84,37 @@ async def run(base_url: str, port: int = 9334) -> dict:
             await cdp.wait_for("document.querySelector('[data-widget=\"weather\"]')?.hidden === true", timeout=20)
             report["checks"]["widget_hidden"] = True
 
-            # 人生路：应用内写作保存。
+            # 人生路：首页主行动 + 本子网格；今日日记能直接打开全屏编辑器。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"life\"]').click()")
             await cdp.wait_for("location.hash === '#life'", timeout=10)
             await cdp.wait_for("document.querySelector('#life-view .pillar-head')", timeout=30)
+            await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=30)
+            life_home = await cdp.evaluate("""(() => ({
+                hero: Boolean(document.querySelector('#life-view .life-hero')),
+                notebooks: document.querySelectorAll('#life-view .notebook-card').length,
+                today_action: Boolean(document.querySelector('#life-view [data-editor-new="life"][data-new-chapter="journal"]')),
+            }))()""")
+            report["checks"]["life_home"] = life_home
+            if not life_home.get("hero") or life_home.get("notebooks", 0) < 7 or not life_home.get("today_action"):
+                report["errors"].append("人生路首页主行动/本子网格不符合预期")
+            await cdp.evaluate("document.querySelector('#life-view [data-editor-new=\"life\"][data-new-chapter=\"journal\"]').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
+            report["checks"]["journal_editor"] = await cdp.evaluate("""(() => ({
+                journal: document.querySelector('#note-editor-dialog')?.classList.contains('is-journal'),
+                heading: (document.querySelector('#note-editor-text')?.value || '').includes('第'),
+                title: document.querySelector('#note-editor-title')?.value || '',
+            }))()""")
+            await cdp.evaluate("document.querySelector('#note-editor-close').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open !== true", timeout=10)
+            await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
+            await cdp.evaluate("document.querySelector('#life-view [data-notebook=\"reflection\"]').click()")
+            await cdp.wait_for("document.querySelector('#life-view .notebook-page')", timeout=30)
+            report["checks"]["notebook_page"] = bool(await cdp.evaluate(
+                "document.querySelector('#life-view .notebook-page-heading h3')?.textContent === '反思复盘'"))
+            await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]').click()")
+            await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
+
+            # 人生路：应用内写作保存。
             await cdp.evaluate("document.querySelector('#life-view [data-editor-new=\"life\"]').click()")
             await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
             await cdp.evaluate("""(() => {
@@ -107,6 +134,15 @@ async def run(base_url: str, port: int = 9334) -> dict:
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge'", timeout=10)
             await cdp.wait_for("document.querySelector('#knowledge-view .pillar-head')", timeout=30)
+            await cdp.wait_for("document.querySelector('#knowledge-view .knowledge-hero')", timeout=30)
+            knowledge_home = await cdp.evaluate("""(() => ({
+                ask: Boolean(document.querySelector('#knowledge-view [data-ask-deepseek]')),
+                form: Boolean(document.querySelector('#knowledge-view [data-share-quick-form]')),
+                notebooks: document.querySelectorAll('#knowledge-view .notebook-card').length,
+            }))()""")
+            report["checks"]["knowledge_home"] = knowledge_home
+            if not knowledge_home.get("ask") or not knowledge_home.get("form") or knowledge_home.get("notebooks", 0) < 7:
+                report["errors"].append("知识库首页提问入口不突出")
             await cdp.evaluate("document.querySelector('#knowledge-view [data-share-link]').click()")
             await cdp.wait_for("document.querySelector('#share-link-dialog')?.open === true", timeout=20)
             report["checks"]["share_dialog"] = bool(await cdp.evaluate("Boolean(document.querySelector('#share-link-url'))"))
@@ -130,7 +166,13 @@ async def run(base_url: str, port: int = 9334) -> dict:
                 report["checks"].get("workbench_detail", {}).get("memory")
                 and not report["checks"].get("workbench_detail", {}).get("old_question")
                 and report["checks"].get("widget_hidden")
+                and report["checks"].get("life_home", {}).get("hero")
+                and report["checks"].get("life_home", {}).get("notebooks", 0) >= 7
+                and report["checks"].get("journal_editor", {}).get("journal")
+                and report["checks"].get("notebook_page")
                 and report["checks"].get("editor_saved")
+                and report["checks"].get("knowledge_home", {}).get("ask")
+                and report["checks"].get("knowledge_home", {}).get("form")
                 and report["checks"].get("share_dialog")
                 and report["checks"].get("memory_hub")
                 and report["checks"].get("ops_ai_buttons") == 4

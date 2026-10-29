@@ -48,7 +48,13 @@ const IMPORTS = {
   "./journal-model.js": ["shanghaiDay"],
   "./journal-ritual.js": ["openJournalReview"],
   "./note-editor.js": ["initNoteEditor", "openNoteEditor"],
-  "./share-link.js": ["initShareLink", "openShareLinkDialog"],
+  "./share-link.js": ["initShareLink", "openDeepSeekAsk", "openShareLinkDialog"],
+  "./roles.js": ["openRoleDrawer"],
+  "./notebook-model.js": [
+    "buildNotebookCards", "greetingForHour", "journalHeading", "knowledgeHeroState",
+    "lifeHeroState", "mergeNotesByRecency", "noteCard", "noteCards", "notebookById",
+    "notebookForChapter", "notebookTotal", "subchaptersFor",
+  ],
   "./ops-ai.js": ["initOpsAI", "loadOpsAI"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],
 };

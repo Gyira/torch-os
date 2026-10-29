@@ -11,7 +11,13 @@ import { archiveMarkup } from "./archive-markup.js";
 import { shanghaiDay } from "./journal-model.js";
 import { openJournalReview } from "./journal-ritual.js";
 import { initNoteEditor, openNoteEditor } from "./note-editor.js";
-import { initShareLink, openShareLinkDialog } from "./share-link.js";
+import { initShareLink, openDeepSeekAsk, openShareLinkDialog } from "./share-link.js";
+import { openRoleDrawer } from "./roles.js";
+import {
+  buildNotebookCards, greetingForHour, journalHeading, knowledgeHeroState,
+  lifeHeroState, mergeNotesByRecency, noteCard, noteCards, notebookById,
+  notebookForChapter, notebookTotal, subchaptersFor,
+} from "./notebook-model.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
 } from "./task-open.js";
@@ -35,6 +41,12 @@ function canWriteChapter(view, chapter) {
   if (view === "life") return WRITABLE_LIFE_CHAPTERS.has(chapter);
   if (view === "knowledge") return WRITABLE_KNOWLEDGE_CHAPTERS.has(chapter);
   return false;
+}
+
+/** 日记仍然只能改“今天”这一篇；过去的日记保持只读，回 Obsidian 改。 */
+function isTodayJournal(note) {
+  const day = String(note?.date || note?.path?.match(/(\d{4}-\d{2}-\d{2})\.md$/)?.[1] || "");
+  return note?.chapter === "journal" && day === shanghaiDay();
 }
 
 const PILLAR_META = {
@@ -92,6 +104,7 @@ const state = {
   manifest: null,
   overviews: {},
   chapter: {},
+  notebook: {},
   notes: {},
   search: {},
   searchSeq: {},
@@ -292,7 +305,7 @@ function readerMarkup(view, reading, railItems) {
   const backlinks = Array.isArray(reading.backlinks) ? reading.backlinks : [];
   const linkedTasks = Array.isArray(reading.linkedTasks) ? reading.linkedTasks : [];
   const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
-  const canWrite = canWriteChapter(view, note.chapter);
+  const canWrite = canWriteChapter(view, note.chapter) || isTodayJournal(note);
   const date = !journalLabel && note.date
     ? ` · ${escapeHtml(formatRelativeDate(note.date))}`
     : "";
@@ -356,6 +369,290 @@ function readerMarkup(view, reading, railItems) {
     </div>`;
 }
 
+function weekMarkup(week, today) {
+  const days = Array.isArray(week) ? week : [];
+  if (!days.length) return "";
+  return `<div class="pillar-week life-week" role="group" aria-label="最近 7 天日记">
+    ${days.map((day) => `<button type="button" class="pillar-week-day${day.exists ? " is-done" : ""}${day.date === today ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${day.exists ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${day.exists ? "已写日记" : "未写日记"}`)}">
+      <span>${escapeHtml(String(day.weekday || "").replace("周", ""))}</span><i aria-hidden="true"></i>
+    </button>`).join("")}
+  </div>`;
+}
+
+function noteCardMarkup(view, note) {
+  const card = noteCard(note, {
+    pillar: view,
+    chapterTitle: chapterTitle(view, note.chapter),
+  });
+  const tags = card.tags.map((tag) => `<span class="note-card-tag">#${escapeHtml(tag)}</span>`).join("");
+  return `<button type="button" class="note-card${card.journal ? " is-journal" : ""}" data-note-path="${escapeHtml(card.path)}">
+    <span class="note-card-top">
+      <span class="note-card-date">${escapeHtml(card.dateLabel || "未标日期")}</span>
+      ${tags ? `<span class="note-card-tags">${tags}</span>` : ""}
+    </span>
+    <span class="note-card-title">${escapeHtml(card.title)}</span>
+    <span class="note-card-excerpt">${escapeHtml(card.excerpt || "还没有正文，点开继续写。")}</span>
+    <span class="note-card-foot">
+      <span>${escapeHtml(card.chapterTitle || "")}</span>
+      <span class="note-card-open">打开 <i aria-hidden="true">→</i></span>
+    </span>
+  </button>`;
+}
+
+function notebookCardMarkup(view, notebook) {
+  const latest = notebook.latest ? noteCard(notebook.latest, {
+    pillar: view,
+    chapterTitle: chapterTitle(view, notebook.latest.chapter),
+  }) : null;
+  return `<button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}${notebook.empty ? " is-empty" : ""}" data-notebook="${escapeHtml(notebook.key)}" data-notebook-view="${escapeHtml(view)}">
+    <span class="notebook-card-top">
+      <span class="notebook-icon" aria-hidden="true">${escapeHtml(notebook.icon || "本")}</span>
+      <span class="notebook-count">${Number(notebook.count) || 0} 篇</span>
+    </span>
+    <span class="notebook-title">${escapeHtml(notebook.title)}</span>
+    <span class="notebook-desc">${escapeHtml(notebook.description || "")}</span>
+    <span class="notebook-latest">${latest ? `最近：${escapeHtml(latest.title)}` : "还没有记录，打开写下第一篇"}</span>
+    <span class="notebook-open">打开本子 <i aria-hidden="true">→</i></span>
+  </button>`;
+}
+
+function companionCardMarkup(view) {
+  const knowledge = view === "knowledge";
+  const roleId = knowledge ? "academic_mentor" : "journal_companion";
+  const mode = knowledge ? "tutor" : "discuss";
+  const entry = knowledge ? "knowledge.editor" : "life.editor";
+  const title = knowledge ? "学术导师" : "写作伙伴";
+  const copy = knowledge
+    ? "把一篇回答拆成能学的路径，或者指出你还没想清楚的地方。"
+    : "写不出来时，先聊两句。它读得到你最近写的东西。";
+  return `<section class="pillar-card home-companion">
+    <p class="eyebrow">AI · ${escapeHtml(title)}</p>
+    <p class="home-card-title">${knowledge ? "让回答变成能用的笔记。" : "先聊两句，再动笔。"}</p>
+    <p class="field-help">${escapeHtml(copy)}</p>
+    <button type="button" class="pillar-quick-button" data-role-open="${escapeHtml(roleId)}" data-role-mode="${escapeHtml(mode)}" data-role-entry="${escapeHtml(entry)}" data-role-title="${escapeHtml(title)}">打开${escapeHtml(title)}</button>
+  </section>`;
+}
+
+function lifeToolsCard(hero) {
+  return `<section class="pillar-card home-tools">
+    <p class="eyebrow">今天也可以</p>
+    <div class="pillar-quick">
+      <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="task">任务与待办</button>
+      <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="habit">习惯追踪</button>
+      <button type="button" class="pillar-quick-button" data-journal-review>今晚复盘 · 8 分钟</button>
+    </div>
+    <p class="field-help">${hero.written ? "今天已经写过一页，剩下的交给时间。" : "先写一句，今天就有了落点。"}</p>
+  </section>`;
+}
+
+function lifeHomeMarkup() {
+  const overview = state.overviews.life || {};
+  const hero = lifeHeroState(overview, shanghaiDay());
+  const cards = buildNotebookCards("life", overview.chapters || []);
+  const recent = (overview.recent || [])
+    .filter((note) => !["task", "habit"].includes(note.chapter))
+    .slice(0, 6);
+  const greeting = greetingForHour(new Date().getHours());
+  return `<div class="pillar-home life-home">
+    <section class="life-hero" aria-labelledby="life-hero-title">
+      <div class="life-hero-main">
+        <p class="eyebrow">${escapeHtml(greeting)} · ${escapeHtml(hero.dayLabel)}</p>
+        <h3 id="life-hero-title">${escapeHtml(hero.headline)}</h3>
+        <p class="life-hero-copy">${escapeHtml(hero.copy)}</p>
+        <div class="life-hero-actions">
+          <button type="button" class="button primary hero-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "✍ 写今天的日记"}</button>
+          <button type="button" class="button secondary" data-editor-new="life" data-new-chapter="reflection">记一条反思</button>
+          <button type="button" class="text-button" data-journal-review>今晚复盘</button>
+        </div>
+        <p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>
+      </div>
+      <div class="life-today-card">
+        <div class="life-today-head">
+          <div><p class="eyebrow">今日日记</p><p class="life-today-state">${hero.written ? "已写" : "还没写"}</p></div>
+          <span class="life-today-dot${hero.written ? " is-done" : ""}" aria-hidden="true"></span>
+        </div>
+        <p class="field-help">${hero.written ? `最近更新 ${escapeHtml(formatRelativeDate(hero.updatedAt))}` : "写一句今天的天气、心情，或者一件小事。"}</p>
+        ${weekMarkup(hero.week, hero.day)}
+        ${hero.todayPath
+          ? `<button type="button" class="pillar-quick-button" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
+          : `<button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
+      </div>
+    </section>
+    <div class="pillar-home-body">
+      <main class="pillar-home-main">
+        <section class="notebook-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">NOTEBOOKS</p><h3>我的本子</h3></div>
+            <span class="meta">${notebookTotal(cards)} 篇记录</span>
+          </div>
+          <div class="notebook-grid">${cards.map((card) => notebookCardMarkup("life", card)).join("")}</div>
+        </section>
+        <section class="recent-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">RECENT</p><h3>最近写过</h3></div>
+          </div>
+          ${recent.length
+            ? `<div class="note-card-grid">${recent.map((note) => noteCardMarkup("life", note)).join("")}</div>`
+            : `<div class="pillar-home-empty"><p>还没有记录。</p><p class="field-help">从今天的一句日记开始，本子会慢慢长出来。</p><button type="button" class="button primary" data-editor-new="life" data-new-chapter="journal">写第一篇</button></div>`}
+        </section>
+      </main>
+      <aside class="pillar-home-aside">
+        ${companionCardMarkup("life")}
+        ${lifeToolsCard(hero)}
+      </aside>
+    </div>
+  </div>`;
+}
+
+function knowledgeHomeMarkup() {
+  const overview = state.overviews.knowledge || {};
+  const hero = knowledgeHeroState(overview);
+  const cards = buildNotebookCards("knowledge", overview.chapters || []);
+  const recent = (overview.recent || []).slice(0, 6);
+  return `<div class="pillar-home knowledge-home">
+    <section class="knowledge-hero" aria-labelledby="knowledge-hero-title">
+      <div class="knowledge-hero-main">
+        <p class="eyebrow">ASK · 问答</p>
+        <h3 id="knowledge-hero-title">今天想弄明白什么？</h3>
+        <p class="knowledge-hero-copy">先打开 DeepSeek 提问；把值得留下的回答，用公开分享链接带回来。</p>
+        <div class="knowledge-hero-actions">
+          <button type="button" class="button primary hero-button" data-ask-deepseek>打开 DeepSeek 提问 ↗</button>
+          <button type="button" class="button secondary" data-share-link>粘贴分享链接</button>
+        </div>
+        <form class="ask-inline-form" data-share-quick-form>
+          <label class="sr-only" for="knowledge-share-url">DeepSeek 分享链接</label>
+          <input id="knowledge-share-url" data-share-quick-url type="url" maxlength="2048" autocomplete="off" placeholder="https://chat.deepseek.com/share/...">
+          <button type="submit" class="button secondary">取回并归档</button>
+        </form>
+        <p class="field-help">${escapeHtml(hero.copy)}</p>
+      </div>
+      <div class="knowledge-steps">
+        <p class="eyebrow">HOW IT WORKS</p>
+        <ol>
+          <li><span>1</span>在 DeepSeek 网页版问清楚</li>
+          <li><span>2</span>复制这条回答的公开分享链接</li>
+          <li><span>3</span>粘贴回来，预览后归档或让导师整理</li>
+        </ol>
+      </div>
+    </section>
+    <div class="pillar-home-body">
+      <main class="pillar-home-main">
+        <section class="notebook-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">NOTEBOOKS</p><h3>知识本子</h3></div>
+            <span class="meta">${notebookTotal(cards)} 篇记录</span>
+          </div>
+          <div class="notebook-grid">${cards.map((card) => notebookCardMarkup("knowledge", card)).join("")}</div>
+        </section>
+        <section class="recent-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">RECENT</p><h3>最近入库</h3></div>
+          </div>
+          ${recent.length
+            ? `<div class="note-card-grid">${recent.map((note) => noteCardMarkup("knowledge", note)).join("")}</div>`
+            : `<div class="pillar-home-empty"><p>还没有知识笔记。</p><p class="field-help">先在 DeepSeek 问一个真问题，再把回答带回来。</p><button type="button" class="button primary" data-ask-deepseek>去提问</button></div>`}
+        </section>
+      </main>
+      <aside class="pillar-home-aside">
+        ${companionCardMarkup("knowledge")}
+        <section class="pillar-card home-inbox">
+          <p class="eyebrow">收件箱</p>
+          <p class="home-card-stat">${Number(overview.inbox_count) || 0}<small> 条待分流</small></p>
+          <p class="field-help">先接住，再决定它属于哪个本子。</p>
+          <button type="button" class="pillar-quick-button" data-notebook="inbox">打开收件箱</button>
+        </section>
+      </aside>
+    </div>
+  </div>`;
+}
+
+function notebookPageMarkup(view) {
+  const overview = state.overviews[view] || {};
+  const chapter = state.chapter[view] || "";
+  const notebook = notebookById(view, state.notebook[view] || "");
+  const notebookCard = notebook
+    ? buildNotebookCards(view, overview.chapters || []).find((card) => card.key === notebook.key)
+    : null;
+  const searching = Boolean(state.search[view]?.trim());
+  const notes = state.notes[view] || [];
+  const title = searching
+    ? `搜索「${state.search[view].trim()}」`
+    : (notebook?.title || (chapter ? chapterTitle(view, chapter) : "全部笔记"));
+  const eyebrow = searching ? "SEARCH" : (notebook?.eyebrow || "CHAPTER");
+  const icon = notebook?.icon || "·";
+  const tone = notebook?.tone || "slate";
+  const description = searching
+    ? "在本库所有本子里查找标题、正文和标签。"
+    : (notebook?.description || "这个章节里的全部记录。");
+  const chapters = notebook ? subchaptersFor(view, notebook.key, overview.chapters || []) : [];
+  const total = notebookCard?.count ?? notes.length;
+  const newChapter = chapter || notebook?.chapters[0]?.key
+    || (view === "life" ? "reflection" : "topic");
+  const unit = view === "life" ? "人生路" : "知识库";
+  const direct = !notebook && Boolean(chapter);
+  const isHabit = view === "life" && chapter === "habit";
+  const isTask = view === "life" && chapter === "task";
+  const isUtility = isHabit || isTask;
+  const isInbox = view === "knowledge" && (chapter === "inbox" || notebook?.key === "inbox");
+  const isJournal = notebook?.key === "journal";
+  const hero = view === "life" ? lifeHeroState(overview, shanghaiDay()) : null;
+  return `<div class="pillar-home notebook-page">
+    <div class="pillar-home-body">
+      <main class="pillar-home-main notebook-main">
+        <header class="notebook-page-head">
+          <div class="notebook-page-title">
+            <button type="button" class="pillar-reader-back" data-notebook-back="${escapeHtml(view)}"><span aria-hidden="true">←</span> 全部本子</button>
+            <span class="notebook-page-icon tone-${escapeHtml(tone)}" aria-hidden="true">${escapeHtml(icon)}</span>
+            <div class="notebook-page-heading">
+              <p class="eyebrow">${escapeHtml(unit)} · ${escapeHtml(eyebrow)}</p>
+              <h3 tabindex="-1">${escapeHtml(title)}</h3>
+              <p class="field-help">${escapeHtml(description)}${searching || isHabit ? "" : ` · ${total} 篇`}</p>
+            </div>
+          </div>
+          <div class="notebook-page-actions">
+            ${isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
+            <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>`}
+          </div>
+        </header>
+        ${chapters.length > 1 && !searching ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
+          <button type="button" class="notebook-chip${chapter ? "" : " is-active"}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="">全部 <span>${Number(total) || 0}</span></button>
+          ${chapters.map((item) => `<button type="button" class="notebook-chip${item.key === chapter ? " is-active" : ""}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="${escapeHtml(item.key)}">${escapeHtml(item.title)} <span>${item.count}</span></button>`).join("")}
+        </div>` : ""}
+        ${isJournal && !searching ? `<section class="journal-notebook-banner">
+          <div><p class="eyebrow">TODAY</p><h3>${escapeHtml(journalHeading(shanghaiDay()))}</h3><p class="field-help">${hero.written ? "今天已经写过一页，可以继续补充。" : "今天还没写。先写一句，今天就有了落点。"}</p></div>
+          <button type="button" class="button primary" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "写今天的日记"}</button>
+        </section>` : ""}
+        ${direct && chapter === "task" ? `<p class="notebook-hint">任务由工作台管理；这里浏览任务笔记，编辑请回工作台或 Obsidian。</p>` : ""}
+        ${isInbox ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
+        ${isHabit ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
+        ${isHabit ? "" : (notes.length
+          ? `<div class="note-card-grid notebook-note-grid">${notes.map((note) => noteCardMarkup(view, note)).join("")}</div>`
+          : `<div class="pillar-home-empty notebook-empty"><p>${searching ? "没有匹配的记录。" : isTask ? "任务由工作台管理。" : "这个本子还没有记录。"}</p><p class="field-help">${searching ? "换个关键词，或清空搜索看看全部。" : isTask ? "这里浏览任务笔记；新建和编辑请到工作台或 Obsidian。" : "写下第一篇，本子就开始有自己的样子。"}</p>${searching || isTask ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">写第一篇</button>`}</div>`)}
+      </main>
+      <aside class="pillar-home-aside">
+        ${companionCardMarkup(view)}
+        ${view === "life" ? lifeToolsCard(hero) : ""}
+        <section class="pillar-card home-stats">
+          <p class="eyebrow">本子</p>
+          <p class="home-card-stat">${Number(total) || 0}<small> 篇</small></p>
+          <p class="field-help">${notebook ? escapeHtml(notebook.description || "") : "当前章节的笔记。"}</p>
+          ${chapters.length > 1 ? `<div class="home-chip-list">${chapters.map((item) => `<span>${escapeHtml(item.title)} ${item.count}</span>`).join("")}</div>` : ""}
+        </section>
+        ${view === "life" && (isJournal || notebook?.key === "reflection") ? `<section class="pillar-card home-week-card">
+          <p class="eyebrow">最近 7 天</p>
+          ${weekMarkup(hero.week, hero.day)}
+          <p class="field-help">近 7 天写了 ${hero.weekDone} 天${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}。</p>
+        </section>` : ""}
+        ${view === "knowledge" ? `<section class="pillar-card home-inbox">
+          <p class="eyebrow">收件箱</p>
+          <p class="home-card-stat">${Number(overview.inbox_count) || 0}<small> 条待分流</small></p>
+          <button type="button" class="pillar-quick-button" data-notebook="inbox">打开收件箱</button>
+        </section>` : ""}
+      </aside>
+    </div>
+  </div>`;
+}
+
 function renderShell(view) {
   const root = $(`#${view}-view .pillar-shell`);
   if (!root) return null;
@@ -378,6 +675,10 @@ function renderShell(view) {
   const railItems = rail.items.map((item) => (item.type === "group"
     ? railGroupMarkup(view, item, collapsedGroups, chapter, countFor)
     : railChapterMarkup(view, item, chapter, countFor(item.key)))).join("");
+  const activeNotebook = notebookById(view, state.notebook[view] || "");
+  const headNewChapter = chapter || activeNotebook?.chapters[0]?.key
+    || (view === "life" ? "reflection" : "topic");
+  const headUtility = view === "life" && ["task", "habit"].includes(chapter);
   const headHtml = `
     <header class="pillar-head">
       <div class="pillar-head-main">
@@ -395,8 +696,8 @@ function renderShell(view) {
         ${view === "knowledge" ? `<button type="button" class="button secondary" data-share-link title="DeepSeek 问答：外链打开，分享链接取回归档">问答</button>` : ""}
         <button type="button" class="button secondary" data-steward-open="${view}" title="提案与健康检查（只读）">管家</button>
         ${view === "life" || view === "knowledge"
-          ? `<button type="button" class="button primary" data-editor-new="${view}" title="应用内写一条（Markdown 工具栏+预览）" aria-keyshortcuts="N">＋ 写一条</button>
-             <button type="button" class="text-button" data-pillar-new="${view}" title="在 Obsidian 新建笔记">Obsidian</button>`
+          ? (headUtility ? "" : `<button type="button" class="button primary" data-editor-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="应用内写一条（Markdown 工具栏+预览）" aria-keyshortcuts="N">＋ 写一条</button>
+             <button type="button" class="text-button" data-pillar-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="在 Obsidian 新建笔记">Obsidian</button>`)
           : `<button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>`}
       </div>
     </header>`;
@@ -412,6 +713,19 @@ function renderShell(view) {
       reading.focusPending = false;
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       root.querySelector(".pillar-reader-head h1")?.focus?.({ preventScroll: true });
+    }
+    return root;
+  }
+  if (view === "life" || view === "knowledge") {
+    const home = !activeNotebook && !chapter && !searching;
+    root.innerHTML = `${headHtml}${home
+      ? (view === "life" ? lifeHomeMarkup() : knowledgeHomeMarkup())
+      : notebookPageMarkup(view)}`;
+    if (view === "knowledge" && (chapter === "inbox" || activeNotebook?.key === "inbox")) {
+      mountInboxSuggestions().catch((error) => toast(error.message, "error"));
+    }
+    if (view === "life" && chapter === "habit") {
+      mountHabits().catch((error) => toast(error.message, "error"));
     }
     return root;
   }
@@ -565,7 +879,7 @@ async function mountInboxSuggestions() {
   </section>`;
   // 已进入建议卡的条目不再在下方列表重复出现；想读原文用「打开」。
   const suggestedPaths = new Set(items.map((item) => item.path));
-  document.querySelectorAll("#knowledge-view .pillar-note-row[data-note-path]").forEach((row) => {
+  document.querySelectorAll("#knowledge-view .pillar-note-row[data-note-path], #knowledge-view .note-card[data-note-path]").forEach((row) => {
     if (suggestedPaths.has(row.dataset.notePath)) row.hidden = true;
   });
 }
@@ -576,12 +890,23 @@ async function loadPillar(view, { keepChapter = false } = {}) {
     // 模块切换时保留用户上次看的章节；首次进入看总览。
     if (!(view in state.chapter)) state.chapter[view] = "";
   }
+  if (!(view in state.notebook)) state.notebook[view] = "";
   const overview = await api(`/api/pillars/${view}/overview`);
   state.overviews[view] = overview;
-  if (state.chapter[view]) {
-    state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
-  } else if (state.search[view]) {
+  const notebook = notebookById(view, state.notebook[view] || "");
+  if (!notebook) state.notebook[view] = "";
+  if (state.search[view]) {
     state.notes[view] = (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`)).items;
+  } else if (notebook && state.chapter[view]) {
+    state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
+  } else if (notebook) {
+    // 一个本子可能由多个章节组成（反思/周复盘/月复盘）。分别读取后按日期合并，
+    // 用户看到的是“一个本子”，而不是三个孤立章节。
+    const groups = await Promise.all(notebook.chapters.map((key) => api(
+      `/api/pillars/${view}/notes?chapter=${encodeURIComponent(key)}`).then((payload) => payload.items)));
+    state.notes[view] = mergeNotesByRecency(groups);
+  } else if (state.chapter[view]) {
+    state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
   } else {
     state.notes[view] = overview.recent || [];
   }
@@ -666,11 +991,66 @@ function bindPillarEvents() {
       openOpsTable(opsQuick.dataset.opsOpen);
       return;
     }
+    const notebookButton = event.target.closest?.("[data-notebook]");
+    if (notebookButton) {
+      const view = notebookButton.dataset.notebookView || appState.view;
+      state.reading[view] = null;
+      state.notebook[view] = notebookButton.dataset.notebook || "";
+      state.chapter[view] = "";
+      state.search[view] = "";
+      state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
+      try {
+        await loadPillar(view);
+        document.querySelector(`#${view}-view .notebook-page h3`)?.focus?.({ preventScroll: true });
+      } catch (error) {
+        toast(error.message, "error");
+      }
+      return;
+    }
+    const notebookBack = event.target.closest?.("[data-notebook-back]");
+    if (notebookBack) {
+      const view = notebookBack.dataset.notebookBack || appState.view;
+      state.reading[view] = null;
+      state.notebook[view] = "";
+      state.chapter[view] = "";
+      state.search[view] = "";
+      state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
+      try {
+        await loadPillar(view);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+      return;
+    }
+    const askDeepSeek = event.target.closest?.("[data-ask-deepseek]");
+    if (askDeepSeek) {
+      openDeepSeekAsk();
+      return;
+    }
+    const roleButton = event.target.closest?.("[data-role-open]");
+    if (roleButton) {
+      const knowledge = roleButton.dataset.roleOpen === "academic_mentor";
+      openRoleDrawer({
+        roleId: roleButton.dataset.roleOpen,
+        mode: roleButton.dataset.roleMode || undefined,
+        entry: roleButton.dataset.roleEntry || undefined,
+        title: roleButton.dataset.roleTitle || undefined,
+        selectors: knowledge ? [] : [{ entry: "journal" }],
+        prompt: knowledge
+          ? "帮我看看这篇回答可以怎么学，先问我一个关键问题。"
+          : "看看我最近写的东西，问我一个我没写出来的问题。",
+      });
+      return;
+    }
     const editorNew = event.target.closest?.("[data-editor-new]");
     if (editorNew) {
+      const view = editorNew.dataset.editorNew || appState.view;
+      const notebook = notebookById(view, state.notebook[view] || "");
+      const chapter = editorNew.dataset.newChapter || state.chapter[view]
+        || notebook?.chapters[0]?.key || (view === "life" ? "reflection" : "topic");
       openNoteEditor({
-        context: editorNew.dataset.editorNew || appState.view,
-        chapter: editorNew.dataset.newChapter || "",
+        context: view,
+        chapter,
         title: "",
         body: "",
       }).catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
@@ -711,22 +1091,18 @@ function bindPillarEvents() {
     const chapter = event.target.closest?.("[data-pillar-chapter]");
     if (chapter) {
       const view = chapter.dataset.pillarChapter;
-      const fromRail = chapter.classList?.contains("pillar-rail-item");
+      const focusCurrent = chapter.classList?.contains("pillar-rail-item")
+        || chapter.classList?.contains("notebook-chip");
       state.reading[view] = null;
       state.chapter[view] = chapter.dataset.chapter || "";
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
       try {
-        if (state.chapter[view]) {
-          state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
-        } else {
-          state.notes[view] = state.overviews[view]?.recent || [];
-        }
-        renderShell(view);
-        // 章节轨会被整块重绘：从键盘切章节后把焦点放回新的当前项，
-        // 否则用户下一次按 Tab 会从页面开头重新开始。
-        if (fromRail) {
-          document.querySelector(`#${view}-view .pillar-rail-item.is-active`)?.focus?.({ preventScroll: true });
+        await loadPillar(view, { keepChapter: true });
+        // 重绘后把焦点放回当前项，键盘用户不会回到页面开头。
+        if (focusCurrent) {
+          document.querySelector(`#${view}-view .pillar-rail-item.is-active, #${view}-view .notebook-chip.is-active`)
+            ?.focus?.({ preventScroll: true });
         }
       } catch (error) {
         toast(error.message, "error");
@@ -789,6 +1165,7 @@ function bindPillarEvents() {
       try {
         state.reading[view] = null;
         state.chapter[view] = "";
+        state.notebook[view] = "";
         const query = state.search[view];
         const items = query.trim()
           ? (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(query)}`)).items
@@ -803,6 +1180,19 @@ function bindPillarEvents() {
         if (state.searchSeq[view] === seq) toast(error.message, "error");
       }
     }, 220);
+  });
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest?.("[data-share-quick-form]");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector("[data-share-quick-url]");
+    const url = String(input?.value || "").trim();
+    if (!url) {
+      toast("先粘贴 DeepSeek 的公开分享链接。", "warning");
+      input?.focus?.();
+      return;
+    }
+    openShareLinkDialog({ url, preview: true });
   });
   // Esc 退出页内阅读；有弹窗时让弹窗先处理。
   document.addEventListener("keydown", (event) => {
@@ -886,7 +1276,8 @@ function closeReader(view) {
   const targetPath = reading.note.path;
   state.reading[view] = null;
   renderShell(view);
-  const row = Array.from(document.querySelectorAll(`#${view}-view .pillar-note-row[data-note-path]`))
+  const row = Array.from(document.querySelectorAll(
+    `#${view}-view .pillar-note-row[data-note-path], #${view}-view .note-card[data-note-path]`))
     .find((node) => node.dataset.notePath === targetPath);
   row?.focus?.({ preventScroll: true });
   if (typeof window.scrollTo === "function") {

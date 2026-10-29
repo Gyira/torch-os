@@ -1,15 +1,16 @@
 """今天的笔记：日记文件化（Vault 的 `00_人生路/01_日记/YYYY-MM-DD.md`，文件为准）。
 
-设计见 `docs/薪火OS-重设计方案-v2.0.md`（用户定案：不做内置编辑器，Obsidian 就是编辑器）：
-
 - 目录按四库约定：日记在 `00_人生路/01_日记/`，模板在 `00_人生路/01_日记/_模板/`；
-- 四库从 2026-10-26 起只读：本模块只读取当天笔记，新建/追加都在 Obsidian 里完成；
+- 2026-10-30 起，**今天**这一篇可以在应用内全屏编辑器里直接写（走 `/api/journal/write`）；
+  过去的日记保持只读，回 Obsidian 改；
+- `read_note` 同时返回原始字节的 `sha256`，供编辑器保存前做冲突校验；
 - 2026-10-28 起日记正文由 `journal_review.compose()` 生成；`render_skeleton` 只作兜底薄骨架，
   `note_abspath` 仍供读取、盘点与横幅统计复用。
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -62,13 +63,20 @@ def read_note(vault_dir: Path | str, day: str) -> dict[str, Any]:
         "vault_name": Path(vault_dir).name,
     }
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")
+        raw = path.read_bytes()
+        # 保持旧 read_text() 的通用换行行为，API 仍返回 \n；sha 用原始字节，供保存冲突校验。
+        content = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     except FileNotFoundError:
-        return {**meta, "exists": False, "content": "", "updated_at": None}
+        return {**meta, "exists": False, "content": "", "sha256": "", "updated_at": None}
     except OSError as exc:
         raise HTTPException(500, f"无法读取今天的笔记：{exc}") from exc
     updated = datetime.fromtimestamp(path.stat().st_mtime, SHANGHAI).isoformat(timespec="seconds")
-    return {**meta, "exists": True, "content": content, "updated_at": updated}
+    return {
+        **meta, "exists": True, "content": content,
+        # 应用内日记编辑器用它做保存前冲突校验；与 /api/journal/write 返回的 sha 同协议。
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "updated_at": updated,
+    }
 
 
 def next_action_text(content: str) -> str:

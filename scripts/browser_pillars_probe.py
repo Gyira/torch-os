@@ -493,8 +493,8 @@ async def run(base_url: str, output: Path, port: int,
                 await asyncio.sleep(0.4)
                 report["views"][view] = await cdp.evaluate(f"""(() => ({{
                     title: document.querySelector('#{view}-view .pillar-head h2')?.textContent || '',
-                    chapters: document.querySelectorAll('#{view}-view .pillar-rail-item').length,
-                    rows: document.querySelectorAll('#{view}-view .pillar-note-row').length,
+                    chapters: document.querySelectorAll('#{view}-view .pillar-rail-item, #{view}-view .notebook-card').length,
+                    rows: document.querySelectorAll('#{view}-view .pillar-note-row, #{view}-view .note-card').length,
                     empty: document.querySelectorAll('#{view}-view .pillar-empty').length,
                     aside: document.querySelectorAll('#{view}-view .pillar-card').length,
                     hint: (document.querySelector('#{view}-view .pillar-card-quiet .field-help')?.textContent || '').slice(0, 40),
@@ -503,7 +503,7 @@ async def run(base_url: str, output: Path, port: int,
                 await shot(cdp, output, report, f"{view}.png")
                 if view == "knowledge":
                     # 收件箱建议卡：只读提示，没有勾选/整理，每行都能在 Obsidian 打开。
-                    await cdp.evaluate("document.querySelector('#knowledge-view [data-pillar-chapter=\"knowledge\"][data-chapter=\"inbox\"]')?.click()")
+                    await cdp.evaluate("document.querySelector('#knowledge-view [data-notebook=\"inbox\"]')?.click()")
                     await cdp.wait_for("document.querySelector('#knowledge-view .pillar-suggestion-card')", timeout=30)
                     await asyncio.sleep(0.4)
                     await shot(cdp, output, report, "knowledge-inbox.png")
@@ -535,16 +535,16 @@ async def run(base_url: str, output: Path, port: int,
                     task_chapter = await cdp.evaluate("Boolean(document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"task\"]'))")
                     report["task_chapter"] = task_chapter
                     if task_chapter:
-                        await cdp.evaluate("document.querySelector('#life-view .pillar-rail-item[data-pillar-chapter=\"life\"][data-chapter=\"task\"]').click()")
+                        await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"task\"]').click()")
                         await cdp.wait_for(
-                            "document.querySelector('#life-view .pillar-content-head h3')?.textContent === '任务与待办'",
+                            "document.querySelector('#life-view .notebook-page-heading h3')?.textContent === '任务与待办'",
                             timeout=20)
                         await asyncio.sleep(0.4)
                         await shot(cdp, output, report, "task-chapter.png")
                     report["task_chapter_rows"] = await cdp.evaluate(
-                        "document.querySelectorAll('#life-view .pillar-note-row[data-note-path]').length")
+                        "document.querySelectorAll('#life-view .pillar-note-row[data-note-path], #life-view .note-card[data-note-path]').length")
                     if report["task_chapter_rows"]:
-                        await cdp.evaluate("document.querySelector('#life-view .pillar-note-row[data-note-path]').click()")
+                        await cdp.evaluate("document.querySelector('#life-view .note-card[data-note-path], #life-view .pillar-note-row[data-note-path]').click()")
                         await cdp.wait_for("document.querySelector('.pillar-reader')", timeout=20)
                         report["note_dialog"] = await cdp.evaluate(READ_NOTE_DIALOG)
                         await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-back]')?.click()")
@@ -607,16 +607,16 @@ async def run(base_url: str, output: Path, port: int,
             # 头部「＋ 在 Obsidian 新建」：只发出 obsidian://new，绝不弹捕获框。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"knowledge\"]').click()")
             await cdp.wait_for("location.hash === '#knowledge' && document.querySelector('#knowledge-view .pillar-head-actions [data-pillar-new]')")
-            # 回到总览再截图：收件箱建议卡是异步渲染的，不参与这条断言的时序。
-            await cdp.evaluate("document.querySelector('#knowledge-view .pillar-rail-item[data-pillar-chapter=\"knowledge\"][data-chapter=\"\"]')?.click()")
-            await cdp.wait_for("document.querySelectorAll('#knowledge-view .pillar-note-row[data-note-path]').length > 0", timeout=20)
+            # 回到知识库总览再截图：收件箱建议卡是异步渲染的，不参与这条断言的时序。
+            await cdp.evaluate("document.querySelector('#knowledge-view [data-notebook-back]')?.click()")
+            await cdp.wait_for("document.querySelector('#knowledge-view .knowledge-hero')", timeout=20)
             report["pillar_new"] = await cdp.evaluate("""(() => {
                 const head = document.querySelector('#knowledge-view .pillar-head-actions [data-pillar-new]');
                 return {
                     present: Boolean(head),
                     label: head ? head.textContent.trim() : '',
                     count: document.querySelectorAll('#knowledge-view [data-pillar-new]').length,
-                    rows: document.querySelectorAll('#knowledge-view .pillar-note-row[data-note-path]').length,
+                    rows: document.querySelectorAll('#knowledge-view .pillar-note-row[data-note-path], #knowledge-view .note-card[data-note-path]').length,
                 };
             })()""")
             await cdp.evaluate(RESET_OPENED)
@@ -716,9 +716,10 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.wait_for("location.hash === '#life'")
             report["chord_nav"] = await cdp.evaluate("location.hash")
             # n 快捷键：1.0 起人生路/知识库打开应用内「写一条」编辑器，不再跳 Obsidian。
+            await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]')?.click()")
+            await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
             await cdp.wait_for("document.querySelector('#life-view .pillar-head-actions [data-pillar-new]')")
-            await cdp.evaluate("document.querySelector('#life-view .pillar-rail-item[data-pillar-chapter=\"life\"][data-chapter=\"\"]')?.click()")
-            await cdp.wait_for("document.querySelectorAll('#life-view .pillar-note-row[data-note-path]').length > 0", timeout=20)
+            await cdp.wait_for("document.querySelectorAll('#life-view .note-card[data-note-path]').length > 0", timeout=20)
             await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))")
             await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
             report["shortcut_editor"] = await cdp.evaluate("""(() => ({
