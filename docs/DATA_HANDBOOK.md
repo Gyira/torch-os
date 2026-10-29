@@ -14,8 +14,10 @@
 
 | 路径 | 内容 |
 |---|---|
-| `.torch-os/torch_os.sqlite3` | 索引、记忆、审计、签到、调度设置等 |
+| `.torch-os/torch_os.sqlite3` | 索引、记忆、审计、签到、调度设置；v1.0 角色会话/轮次/提案与忆灵运行记录 |
 | `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
+| `.torch-os/忆灵/` | 忆灵画像、画像历史、复盘卡、事件状态与身份补丁写前备份 |
+| `.torch-os/ai-runtime/` | 角色子进程的空工作区与临时文件；不是 Vault，不承载用户资料 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
 | `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
 | `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词、`bazi.json`（八字合婚页只读数据） |
@@ -34,8 +36,11 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 库里缺的键再补进来；之后以库为准。多库用户建议先打开主库，之后每个库各自维护缓存。
 天气的 30 分钟缓存（`torch-os:weather`）不写回。
 
-`.torch-os` 不参与普通 Vault 扫描、全文索引、Markdown 导出和普通备份快照；但复制整个个人
-数据库文件夹时会一起带走，所以换机仍能保留个性化数据。迁移旧数据时只复制、不删除原文件。
+`.torch-os` 不参与普通 Vault 扫描、全文索引和 Markdown 导出；ZIP 备份快照包含其中的
+SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一起备份），
+但不包含其余 `.torch-os` 文件（忆灵画像 JSON、身份备份、小组件偏好、恋爱库/Key）。
+复制整个个人数据库文件夹时会一起带走，所以换机仍能保留这些数据。迁移旧数据时只复制、
+不删除原文件。
 
 例外：`.env` 只放启动引导与密钥（`DATA_DIR`/`VAULT_DIR`/端口/运行开关，以及历史遗留的
 `LOVE_TARGET_NAME` 这类启动配置）；`.obsidian/` 是 Obsidian 自己要求的插件/主题/工作区配置
@@ -132,8 +137,9 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 
 ## 导出
 
-设置页的一键导出 ZIP 包含可读文件：记忆、目标与任务、习惯与打卡、对话、每日记录、
-身体记录。它是阅读/迁移用的导出包，不是恢复包；恢复请使用备份与恢复演练。
+设置页的一键导出 ZIP 包含可读文件：记忆、目标与任务、习惯与打卡、旧对话、
+AI 角色会话与提案、每日记录、身体记录。它是阅读/迁移用的导出包，不是恢复包；
+恢复请使用备份与恢复演练。角色会话里的 dsh 会话 ID 与 verdict token 不进入导出。
 
 ## 恢复
 

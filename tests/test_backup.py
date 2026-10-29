@@ -101,6 +101,57 @@ def test_backup_includes_committed_wal_data(backup_source):
         writer.close()
 
 
+def test_backup_carries_v1_ai_tables_and_memory_hub_notes(backup_source):
+    """P5：1.0 新增的 AI/记忆中枢数据在备份-恢复后仍完整。"""
+    database, vault, backups, data = backup_source
+    stamp = "2026-10-29T00:00:00+00:00"
+    with database.connect() as connection:
+        connection.execute(
+            "INSERT INTO ai_threads(id,role_id,mode,title,dsh_session_id,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("thread-1", "journal_companion", "discuss", "备份会话", "session-1", stamp, stamp),
+        )
+        connection.execute(
+            "INSERT INTO ai_turns(thread_id,turn_index,role,content,created_at) VALUES (?,?,?,?,?)",
+            ("thread-1", 0, "user", "备份轮次", stamp),
+        )
+        connection.execute(
+            "INSERT INTO ai_proposals(id,kind,title,payload_json,dedupe_key,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("prop-1", "new_task", "备份提案", "{}", "backup-proposal", stamp),
+        )
+        connection.execute(
+            "INSERT INTO memory_hub_events(kind,summary,occurred_at,created_at,dedupe_key) "
+            "VALUES (?,?,?,?,?)",
+            ("observation", "备份事件", stamp, stamp, "backup-event"),
+        )
+        connection.execute(
+            "INSERT INTO memory_hub_runs(id,trigger,range_days,status,started_at) "
+            "VALUES (?,?,?,?,?)",
+            ("run-1", "manual", 7, "ok", stamp),
+        )
+    observation = vault / "01_自我档案" / "08_忆灵观察" / "观察-备份.md"
+    observation.parent.mkdir(parents=True)
+    observation.write_text("# 忆灵观察\n备份里的画像快照。\n", encoding="utf-8")
+
+    result = create_backup(database, vault, backups)
+    with zipfile.ZipFile(result["path"]) as archive:
+        assert "vault/01_自我档案/08_忆灵观察/观察-备份.md" in archive.namelist()
+        assert not any(name.startswith("vault/.torch-os/") for name in archive.namelist())
+
+    restored = restore_backup(Path(result["path"]), data / "v1-recovered", allowed_parent=data)
+    restored_database = Database(Path(restored["database_path"]))
+    with restored_database.connect() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("ai_threads", "ai_turns", "ai_proposals",
+                          "memory_hub_events", "memory_hub_runs")
+        }
+    assert counts == {"ai_threads": 1, "ai_turns": 1, "ai_proposals": 1,
+                      "memory_hub_events": 1, "memory_hub_runs": 1}
+    assert (Path(restored["vault_dir"]) / "01_自我档案" / "08_忆灵观察" / "观察-备份.md").is_file()
+
+
 def test_backup_excludes_environment_keys_logs_and_non_markdown(backup_source):
     database, vault, backups, data = backup_source
     (data / ".env").write_text("MODEL_API_KEY=test-only-secret", encoding="utf-8")

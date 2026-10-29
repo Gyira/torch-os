@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -125,3 +128,33 @@ def test_run_headless_maps_timeout(tmp_path):
 def test_redact_hides_keys_and_tokens():
     assert "sk-***" in ai_gateway.redact("key sk-abcdef")
     assert "token=***" in ai_gateway.redact("http://127.0.0.1:1/?token=secret&x=1")
+
+
+def test_role_runs_never_exceed_the_global_concurrency_limit(tmp_path):
+    """P5 验收：多个页面同时发角色请求时，全局最多只跑 2 个 dsh。"""
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def runner(argv, **kwargs):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.4)
+        with lock:
+            active -= 1
+        return SimpleNamespace(returncode=0, stdout=NDJSON, stderr="")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [
+            pool.submit(
+                ai_gateway.run_headless, "并发检查", workspace=tmp_path, environ={},
+                command=DshCommand(("dsh",), "installed"), runner=runner, timeout=10,
+            )
+            for _ in range(4)
+        ]
+        results = [future.result(timeout=20) for future in futures]
+
+    assert [result.text for result in results] == ["先把今天最重的那件事拆成两步。"] * 4
+    assert peak == ai_gateway.DEFAULT_CONCURRENCY == 2

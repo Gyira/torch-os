@@ -1,7 +1,7 @@
-# AI 角色层（v1.0 P0–P1）
+# AI 角色层（v1.0）
 
 > 本文记录 v1.0 角色层：角色卡、统一 dsh 网关、上下文装配、页面内角色抽屉与提案协议。
-> P2 写作/知识库、P3 记忆中枢、P4 生活运营报告均已接入；P5 做加固与发布。
+> P0–P4 已接入；P5 已完成 Windows 进程/编码/并发/超时测试、审计覆盖、备份/导出与浏览器探针。
 
 ## 1. 一个内核，多张角色卡
 
@@ -132,13 +132,21 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 - P2：人生路/知识库编辑器、判类、润色、讨论、分享链接。
 - P3：记忆中枢综合、画像、身份补丁 verdict、苏格拉底入口。
 - P4：生活运营专家报告与建议（`docs/LIFE_SYSTEMS.md`）。
-- P5：加固、浏览器验收、版本与发布。
+- P5：Windows 进程/编码/并发/超时实测（`tests/test_ai_gateway_process.py`、
+  `tests/test_ai_gateway.py`）；v1.0 审计覆盖（`tests/test_v1_audit.py`）；
+  备份/导出覆盖新表（`tests/test_backup.py`、`tests/test_export_bundle.py`）；
+  v1 浏览器探针（`scripts/browser_v1_probe.py`）与 `scripts/check_all.ps1`。
 
-## 9. 探针结论（2026-10-29）
+## 9. 探针与加固结论（2026-10-29）
 
 - 本机 `dsh`：`0.2.0-rc.2`（`C:\Users\19814\AppData\Roaming\npm\dsh`）。
 - `dsh headless --help` 确认支持 `--json`、`--session-id`、`-`（stdin）。
 - 安装包 `@deepseek-ai/dsh-skill-filesystem` 读取 `DSH_AGENTS_HOME`；角色子进程把它
   指向 `dsh/roles`，避免加载主对话的 `dsh/AGENTS.md`。
-- 真实模型调用、进程树杀灭与工具行为仍需在 P1 用一次低 token 的实际会话复核；
-  P0 测试全部使用 fake runner，不消耗 Key。
+- P5 用真实子进程（不是 fake runner）验证了：stdin 多行中文/emoji 回环、超时
+  `taskkill /T /F` 连 node 孙进程一起终止、连续 3 轮超时后无残留 node、全局并发 ≤2。
+- 审计与日志：角色轮次/一次性能力/提案/忆灵/写作只写计数与路径元数据；测试断言审计
+  不含正文、回复、画像、身份值或 `sk-` Key。stderr 只保留脱敏后的尾部。
+- 2026-10-30 经用户同意，用真实 Key 做了 3 次低 token `journal_companion/polish` 调用：
+  6.3 / 3.7 / 5.2 秒全部返回；调用前后 node PID 集合一致、无残留；stderr 脱敏后不含
+  Key 或原始 prompt。自动化测试仍全部使用 fake runner 或本地假 dsh，不消耗 Key。

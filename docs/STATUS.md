@@ -7,18 +7,21 @@
 
 - 分支：`main`
 - 代码基线：`bd99da9`（`docs(handoff): 更新换机交接与运行模式说明（2026-10-28修订）`，以 `git log -1` 为准）
-- 工作树：v1.0 P0–P4 未提交（AI 角色层/上下文/提案/新表/6 个新章节/角色抽屉/小组件显隐/
-  应用内 Markdown 编辑器/知识库分享链接/忆灵画像与身份补丁/生活运营 AI 报告/版本 1.0.0/文档）；
-  以 `git status` 为准。
+- 工作树：v1.0 P0–P5 未提交（AI 角色层/上下文/提案/新表/6 个新章节/角色抽屉/小组件显隐/
+  应用内 Markdown 编辑器/知识库分享链接/忆灵画像与身份补丁/生活运营 AI 报告/版本 1.0.0/
+  P5 进程与审计加固/浏览器探针/文档）；以 `git status` 为准。
 - 布局版本：**`pillars-v2`**（v1.0 P0 增量新增 6 章：`00_人生路/09_随笔`、
   `01_自我档案/08_忆灵观察`、`02_生活运营/06_健康报告`、`07_财务报告`、`08_生活建议`、
   `09_家庭与智能家居`；共 43 章，旧路径不变，不做迁移）
-- 后端：**985 passed / 1 skipped / 0 failed**（2026-10-29 P0–P3 全量，522.69 秒；含
-  AI 角色/上下文/提案 37 项、写作/分享 10 项、忆灵/事件 7 项）
-- 前端：**378 passed**（2026-10-29 实跑，含角色抽屉/提案/小组件显隐 13 项、编辑器模型 8 项、
-  忆灵面板契约 3 项）
-- `scripts/check_all.ps1`：**2026-10-29 exit 0**（Python 985 / 前端 378 / 文本完整性 / 模块面 /
+- 后端：**996 passed / 1 skipped / 0 failed**（2026-10-30 P0–P5 全量，559.61 秒；含
+  AI 角色/上下文/提案 37 项、写作/分享 10 项、忆灵/事件 7 项、生活运营 5 项、
+  P5 进程/并发/审计/备份/导出 6 项）
+- 前端：**380 passed**（2026-10-30 实跑，含角色抽屉/提案/小组件显隐 13 项、编辑器模型 8 项、
+  忆灵面板契约 3 项、生活运营 AI 2 项）
+- `scripts/check_all.ps1`：**2026-10-30 exit 0**（Python 996 / 前端 380 / 文本完整性 / 模块面 /
   JS 语法 / compileall / pip check 全部通过；脚本已自设 UTF-8）
+- 浏览器验收：`browser_v1_probe.py` 与 `browser_pillars_probe.py` 在 QA 实例全部 `ok: true`，
+  JS 错误 0；截图在 `.test-data/pillar-probe-v1e/`。
 - 能力标记：**54**（v1.0 新增 `ai_roles`、`proposals`、`widget_visibility`、`note_editor`、
   `share_link`、`memory_hub`、`life_assistant`、`life_reports`）；用户表：**30 张**
   （新增 5 张 AI/记忆中枢表，其中多张 deprecated）；MCP 只读工具：**12 个**
@@ -33,6 +36,28 @@
 
 ## 已完成
 
+- **2026-10-29 v1.0 P5：加固与发布**：
+  - Windows 进程实测（`tests/test_ai_gateway_process.py`）：真实 Python 子进程代替 dsh，
+    stdin 多行中文/emoji 回环；超时 `taskkill /T /F` 连 node 孙进程一起终止；
+    连续 3 轮超时后无残留 node（node 不在 PATH 时跳过）。
+  - 并发与编码：`tests/test_ai_gateway.py` 用 4 个并发调用验证全局并发峰值 = 2；
+    `ai_gateway._kill_tree` 的 taskkill 输出显式 UTF-8，避免非 UTF-8 代码页崩溃。
+  - 审计覆盖（`tests/test_v1_audit.py`）：写作创建/编辑/移动、AI chat/run、生活运营报告、
+    提案创建/采纳、忆灵综合、身份补丁都落审计；断言不含正文、回复、画像、身份值、提案标题
+    或 `sk-` Key。
+  - 备份/导出：`test_backup.py` 验证 SQLite 备份-恢复后 5 张 v1.0 新表完整；一键导出包新增
+    `ai.md`/`ai.json`（角色会话、轮次、提案），不导出 dsh session id、verdict token、Key。
+  - 浏览器验收：新增 `scripts/browser_v1_probe.py`（工作台忆灵条/旧提问卡不存在/小组件显隐/
+    写作保存/分享入口/忆灵面板/生活运营 4 入口），并修掉两个探针在 Edge 首次启动时误连
+    `edge://sync-confirmation-dialog/` 的问题；旧 `browser_pillars_probe.py` 同步 v1.0 的
+    “n 打开应用内编辑器/允许章节可编辑”断言。两者 QA 实跑 `ok: true`、JS 错误 0。
+  - 真实模型验收（2026-10-30，用户同意）：`RoleService` + 真实 dsh 连续 3 次
+    `journal_companion/polish` 调用，6.3/3.7/5.2 秒全部返回；调用前后 node PID 集合一致，
+    无残留；stderr 脱敏后不含 Key 或原始 prompt。
+  - 文档：`WAKE_UP_START` 改为 1.0 自检与版本变化；`DATA_HANDBOOK` 补 `.torch-os/忆灵/`、
+    `ai-runtime/` 与备份/导出边界；`AI_ROLES` 记录 P5 实测结论；插件 README、README、
+    help-content 同步 1.0。
+  - 全量：`check_all.ps1` exit 0（Python 996 passed / 1 skipped，559.61 秒；前端 380）。
 - **2026-10-29 v1.0 P4：生活运营 AI 报告**：
   - 后端 `life_reports.py`：只读健康/财务月度表、恋爱分析摘要、未完成任务；
     `health_doctor` 报告 → `06_健康报告`，`finance_advisor` → `07_财务报告`，
@@ -323,6 +348,15 @@
 
 ## 仍保留 / 已知限制
 
+- P5 自动化测试不消耗真实模型 Key：角色网关的进程/超时/并发用本地假 dsh 验证。
+  2026-10-30 另用真实 Key 完成 3 次低 token 角色调用验收（6.3 / 3.7 / 5.2 秒，均返回内容；
+  调用前后 node PID 集合一致、无残留；stderr 脱敏后不含 Key 或原始 prompt）。
+- 全量测试跨午夜时，`tests/test_tasks.py` / `test_workbench.py` 的 `TODAY` 常量会与运行中
+  日期翻页不一致，出现 7 个日期断言失败（2026-10-30 00:0x 实测）；白天重跑即通过，
+  不是代码回归。若要在发布流水线里彻底消除，需把测试时钟固定到同一日期。
+- ZIP 备份包含 SQLite（含 `ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*`）与 Vault
+  内的 Markdown，但不含其余 `.torch-os`（忆灵画像 JSON、身份备份、personal-data、恋爱库/Key）；
+  换机时复制整个个人数据库文件夹可全部带走。一键导出包已包含 AI 角色会话与提案。
 - 「与神对话」现在是完整 dsh：默认可按 dsh 自己的权限读写当前库，torch 不再套只读确认或自动备份。
   dsh 首次启动可能需要 Node.js >=24.9 / npx 下载；模型、密钥、账号登录都在 dsh 内完成。
 - torch 不再提供模型、模型密钥、本地回答、管家问答或向量检索；问答统一在 dsh。
@@ -358,21 +392,23 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 
 # 隔离 QA（独立库，全虚构数据；真实库不会被写入）
 .\.venv\Scripts\python.exe -m backend.app.qa_runtime --port 8766
+.\.venv\Scripts\python.exe scripts\browser_v1_probe.py --base-url http://127.0.0.1:8766 --port 9334
 .\.venv\Scripts\python.exe scripts\browser_pillars_probe.py --base-url http://127.0.0.1:8766 --output .test-data\pillar-probe --port 9333
 ```
 
-浏览器探针会截图到输出目录，并打印 `report.json`；检查 `ok: true`、
-`help_nav`、`help_hidden_outside_settings`、快捷键/撤销检查与四库 chapter/row 指标。
+v1 探针检查工作台忆灵条、小组件显隐、写作保存、分享入口、忆灵面板与生活运营 4 个 AI 入口；
+四库探针会截图到输出目录，并打印 `report.json`，检查 `ok: true`、`help_nav`、
+`help_hidden_outside_settings`、快捷键/编辑器检查与四库 chapter/row 指标。两个探针都要
+`js_errors` 为空。输出目录需先存在。
 
 ## 下一步候选
 
-本轮用户指定顺序：**键盘导航（已完成）→ 危险操作确认与撤销（已完成）→ 退役旧后端（已完成）→ 新产品功能（任务 ↔ 目标联动、知识库收件箱批量整理已完成；2026-10-26 起四库只读，批量整理入口已退役）**。
+v1.0 P0–P5 代码与自动化验收已完成；发布前剩下人工步骤：
 
-1. 四库已改为只读＋跳转 Obsidian（2026-10-26）：浏览、搜索、复制双链/路径、反向链接保留；
-   增删标签与移动章节退役，编辑统一回 Obsidian。
-2. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
-3. 继续选下一组产品功能（按用户需求）。
-4. dsh 后续：12 个只读工具已接入（2026-10-26，见 `docs/MCP_BRIDGE.md`）；还剩
-   dsh 的 OAuth 回调验证与模型/账号配置。
-5. 用真实 dsh 版本跑一次浏览器/ Obsidian 验收，确认 `/harness/` 的 HTTP + WebSocket
-   与 npx 首次启动提示；后续 dsh 升级时回归代理契约。
+1. 回归真实 dsh 主对话 iframe、`/harness/` 的 HTTP + WebSocket 与 npx 首次启动提示
+   （角色层真实模型 3 连调已于 2026-10-30 通过）。
+2. **提交 v1.0 P0–P5 变更**（当前工作树未提交）；`APP_VERSION`、插件 manifest 与文档都已是 1.0.0。
+3. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
+4. 继续选下一组产品功能（按用户需求）。
+5. dsh 后续：12 个只读工具已接入（见 `docs/MCP_BRIDGE.md`）；还剩 dsh 的 OAuth 回调验证与
+   模型/账号配置。dsh 升级时回归 `/harness/` 代理契约与角色层 headless 参数。

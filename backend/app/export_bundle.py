@@ -17,6 +17,8 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Response
 
 from . import body_source
+from .ai_export import AIExportService
+from .ai_export import render_markdown as render_ai_markdown
 from .conversation_export import ConversationExportService
 from .conversation_export import render_markdown as render_conversations_markdown
 from .db import Database
@@ -51,6 +53,7 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
     planning = PlanningExportService(vault_dir).collect()
     growth = GrowthExportService(database, vault_dir).collect()
     conversations = ConversationExportService(database).collect()
+    ai_roles = AIExportService(database).collect()
     journal = JournalExportService(database).collect()
     body_rows = body_source.all_entries(vault_dir)
     body = {
@@ -70,6 +73,8 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
         "growth.json": json.dumps(growth, ensure_ascii=False, indent=2) + "\n",
         "conversations.md": render_conversations_markdown(conversations),
         "conversations.json": json.dumps(conversations, ensure_ascii=False, indent=2) + "\n",
+        "ai.md": render_ai_markdown(ai_roles),
+        "ai.json": json.dumps(ai_roles, ensure_ascii=False, indent=2) + "\n",
         "journal.md": render_journal_markdown(journal),
         "journal.json": json.dumps(journal, ensure_ascii=False, indent=2) + "\n",
         "body.csv": _body_csv(body_rows),
@@ -83,6 +88,9 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
         "habit_entries": growth["counts"]["habit_entries"],
         "conversations": conversations["counts"]["conversations"],
         "messages": conversations["counts"]["messages"],
+        "ai_threads": ai_roles["counts"]["threads"],
+        "ai_turns": ai_roles["counts"]["turns"],
+        "ai_proposals": ai_roles["counts"]["proposals"],
         "journal_days": journal["counts"]["days"],
         "body_days": len(body_rows),
     }
@@ -98,6 +106,7 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
         "- planning.md / planning.json：人生路目标笔记与 Markdown 任务",
         "- growth.md / growth.json：习惯与打卡",
         "- conversations.md / conversations.json：保存过的对话与引用",
+        "- ai.md / ai.json：AI 角色抽屉的会话、回复、来源与提案状态",
         "- journal.md / journal.json：每日记录（含情绪与饮食摘要）",
         "- body.csv / body.json：身体记录（来自健康月度 Markdown 表）",
         "",
