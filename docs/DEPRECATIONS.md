@@ -22,7 +22,7 @@
 - `/api/steward/ask` 与 `/api/steward/status`：旧管家问答；问答统一交给 dsh。
 - `/api/workbench/summarize`：旧模型润色接口；`/api/workbench/draft` 仍保留。
 - `/api/conversations`、`/api/conversations/{id}`：旧对话读取；历史数据仍可通过导出接口读取。
-- **2026-10-26 四库只读**（手动写入改为在 Obsidian 原生编辑器里做）：
+- **2026-10-26 四库只读**（旧写接口；手动写入先改为在 Obsidian 原生编辑器里做）：
   - `POST /api/capture`：旧快速捕获对话框。
   - `POST /api/notes/update`、`POST /api/notes/move`：笔记标签/状态更新与章节移动。
   - `POST /api/reviews/weekly`、`POST /api/reviews/monthly`：周/月复盘骨架生成。
@@ -35,6 +35,11 @@
   以上接口现在都返回 404。界面对应按钮改为跳转 Obsidian：「＋ 在 Obsidian 新建」、
   「在 Obsidian 打开并编辑」、「在 Obsidian 打开月度表」、「打开本周复盘 / 打开本月复盘」、
   「在 Obsidian 打开习惯文件」、「在 Obsidian 打开原文」。插件内用 `torch:new-note` /
+
+  2026-10-29 v1.0 P2 起，人生路/知识库的**允许章节**通过新接口恢复应用内写入
+  （`POST/PUT /api/writing/notes`、`/api/writing/notes/move`、`/api/writing/classify|polish`）；
+  旧的 `/api/capture`、`/api/notes/update`、`/api/notes/move` 仍然退役，不会复活。
+  日记、任务、习惯、身份、生活运营的写入口不变；自我档案/生活运营页面仍只读。
   `torch:open-note` 宿主桥，浏览器模式退回 `obsidian://new` / `obsidian://open`；
   工作台的任务、日历、习惯打卡、四象限、滴答同步、备份与迁移不受影响。
 
@@ -77,6 +82,11 @@
 - 旧 hash（`#today`、`#identity`、`#profile`、`#memory`、`#bazi`、`#goals`、`#habits`、
   `#brain`、`#documents`、`#notes`、`#archive`、`#help`）仍会重定向到新页面。
 - 旧书签/外部客户端调用已移除路由会得到 404；请改用上表中的相邻接口或 Markdown 文件。
-- 2026-10-26 起四库编辑统一在 Obsidian：插件只读浏览与跳转，写接口返回 404；
-  外部客户端请直接改 Vault 里的 Markdown，工作台操作仍走 `/api/time/*` 等既有接口。
+- 2026-10-26 起四库默认只读；2026-10-29 v1.0 P2 只对人生路/知识库的允许章节开放
+  `/api/writing/*`，旧的只读写接口仍返回 404；自我档案/生活运营仍只读。
+  外部客户端可继续直接改 Vault 里的 Markdown，工作台操作仍走 `/api/time/*` 等既有接口。
+- 2026-10-29 v1.0 P3：工作台旧的每日提问卡下线；`/api/questions/*` 保留用于队列与
+  “下一个缺口”，但回答只写 `01_自我档案/02_记忆与自传`，不再直接写身份。
+  `identity_inbox.accept_draft` 同样只写记忆笔记（不再改身份字段）；身份只由忆灵审核的
+  `identity_patch` 或苏格拉底 verdict 后的补丁写入，见 `docs/MEMORY_HUB.md`。
 - 备份、恢复副本与导出包仍包含历史数据；迁移或清理表前先做一次已验证备份。

@@ -124,8 +124,11 @@ def test_identity_fact_goes_through_the_same_queue(tmp_path: Path) -> None:
 
     result = client.post("/api/pending/facts", json={"id": item["id"], "action": "accept"})
     assert result.status_code == 200, result.text
-    identity = (vault / "01_自我档案/01_内核与三观/身份（identity）.md").read_text(encoding="utf-8")
-    assert "称呼我小林" in identity
+    payload = result.json()["result"]
+    assert payload["target"] == "memory"
+    note = vault / payload["path"]
+    assert "称呼我小林" in note.read_text(encoding="utf-8")
+    assert not (vault / "01_自我档案/01_内核与三观/身份（identity）.md").exists()
     assert client.get("/api/pending/summary").json()["fact"] == 0
 
 

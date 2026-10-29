@@ -1,10 +1,86 @@
-# 薪火OS 功能地图（0.99）
+# 薪火OS 功能地图（1.0）
 
 这份文档是「当前仓库实际能做什么」的清单，不是愿景。它与运行中的
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`monthly_review`、`personal_data`、`planning_export`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+
+## AI 角色层（1.0 P0–P1）
+
+- `GET /api/ai/status`：角色层是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数；
+  QA/禁用 dsh 时返回 `available=false`，不启动子进程。
+- `GET /api/ai/roles`：读取 `dsh/roles/*.md` 的角色元数据（id/name/modes/proposals），
+  不返回 prompt 正文；非法角色只出现在 `role_errors`，不会被使用。
+- 当前已加载 7 个角色：忆灵/苏格拉底、写作伙伴、学术导师、AI 生活助理、恋爱大师、
+  私人医生、理财专家。角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，
+  不是第二个模型或第二个 Key。
+- `POST /api/ai/chat`：页面内角色抽屉的一轮对话；`thread_id` 续聊，`selectors` 只接受
+  identity/note/journal/tasks 等枚举来源，后端读取、编号、截断，浏览器不能上传任意长文本。
+- `POST /api/ai/run`：一次性能力（润色/判类/分享总结/报告的底座），返回 `text` 与
+  `structured` JSON；解析失败只保留自然语言，不产生提案。
+- `GET/POST /api/ai/threads`、`GET/DELETE /api/ai/threads/{id}`：角色会话；删除需要
+  `confirm=true`。
+- `GET /api/proposals`、`GET /api/proposals/{id}`、`POST /api/proposals/{id}/apply|reject`：
+  通用提案状态机；P1–P3 已注册 `new_task`/`new_habit`/`new_note`/`archive_note`/
+  `identity_patch` 落盘 handler；采纳任务会在 `00_人生路/08_任务与待办/任务/` 生成任务笔记；
+  未注册的 kind 返回 409。
+- 角色子进程通过 stdin 运行 `dsh --profile headless --json -`，空工作区、环境白名单、
+  超时杀进程树；详见 `docs/AI_ROLES.md`。
+- 前端：工作台时间管理顶部有「AI 助手」按钮，打开 `life_assistant/tasks` 角色抽屉；
+  提案卡片采纳后生成任务/习惯。小组件显隐在设置 →「工作台小组件」，隐藏组件不初始化、
+  不发请求，偏好存 `.torch-os/personal-data.json`。
+- 生活运营 AI 见下节；未注册的提案 apply 返回 409，不会静默成功。
+
+## 生活运营 AI（1.0 P4）
+
+- `GET /api/ops/ai/overview`：健康/财务月度汇总、恋爱分析摘要、最近报告、未完成任务；
+  不发原始聊天、不控制设备。
+- `POST /api/ops/ai/report {domain, confirm:true}`：
+  - `health` → 私人医生报告写 `02_生活运营/06_健康报告`；
+  - `finance` → 理财专家报告写 `07_财务报告`；
+  - `love` → 恋爱大师建议写 `08_生活建议`；
+  - `life` → AI 生活助理汇总写 `08_生活建议`，建议生成 new_task/new_habit 提案。
+- 报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
+- 前端生活运营页顶部 AI 卡片：生活助理/私人医生/理财专家/恋爱大师按钮；报告路径与提案卡片；
+  家庭系统只显示“后续版本”占位。
+- 恋爱系统 12 页保持不动；新增角色只读摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
+
+## 忆灵 / 记忆中枢（1.0 P3）
+
+- `GET /api/memory-hub/overview`：规范画像、待审复盘卡、待审身份补丁、观察快照、
+  记忆候选与统计；`GET /portrait`、`GET /portrait/history`。
+- `GET/POST /api/memory-hub/events`：角色/主 dsh/用户投递的“值得记住的事”，
+  按 kind|summary|source|日期去重；主 dsh 用 `scripts/memory_event.py` 投递。
+- `POST /api/memory-hub/synthesize`（confirm=true）：读取身份、上一版画像、近 7/14/30 天
+  日记、未完成任务、已确认记忆、新事件与旧提问队列；调用忆灵 `synthesize`，写
+  `.torch-os/忆灵/画像.json`（带 revision 与历史）、`01_自我档案/08_忆灵观察` 快照、
+  复盘卡与 `identity_patch` 提案；事件标记 absorbed。
+- `GET/POST /api/memory-hub/cards…`：待审卡列表、留下（写进忆灵观察）、忽略。
+- 身份两条写入路径：忆灵审核的补丁直接采纳；苏格拉底的补丁必须带 verdict token。
+  `apply_identity_patch` 校验 `base_revision`、写前备份、审计不记内容。
+- 工作台旧的每日提问卡已移除；回答改为写记忆笔记（`01_自我档案/02_记忆与自传`），
+  由忆灵综合后再提议身份修改。自我档案新增忆灵面板、状态/画像/复盘卡、苏格拉底抽屉入口。
+- 详细说明见 `docs/MEMORY_HUB.md`。
+
+## 写作与知识库（1.0 P2）
+
+- `GET /api/writing/chapters`：应用内可写的章节清单（人生路 14 章 / 知识库 8 章）。
+- `POST /api/writing/notes`、`PUT /api/writing/notes`、`POST /api/writing/notes/move`：
+  新建/编辑/移动；只允许允许清单章节；`expected_revision` 冲突返回 409；所有写入审计；
+  `VAULT_READ_ONLY=1` 时 409。日记、任务、习惯、身份、生活运营不在这里写。
+- `POST /api/writing/classify`：AI 判类（写作伙伴/学术导师），AI 不可用时回退到
+  `journal_inbox` 规则（含新增的 essay 随笔）；只返回卡片，不落盘。
+- `POST /api/writing/polish`：AI 润色，返回 `polished/changes`；前端预览后由用户点
+  “应用到正文”，AI 不可用时拒绝、不改正文。
+- 前端：人生路/知识库页头「＋ 写一条」和阅读器「编辑」打开应用内 Markdown 编辑器
+  （工具栏 + 实时预览 + 字数 + revision 冲突提示 + 在 Obsidian 打开）；
+  知识库页头/侧栏「问答」打开 DeepSeek 问答入口。
+- `POST /api/knowledge/share/preview|archive|digest`：只接受 `chat.deepseek.com/share/<id>`；
+  preview 取回问答并预览；archive 在用户确认后写成知识库 Markdown；
+  digest 让学术导师整理成 `new_note` 提案，采纳后才落盘。
+- 不做 chat.deepseek.com iframe/登录态/Cookie；只做外链 + 公开分享链接解析。
+- P2 已注册 `new_note`/`archive_note` 提案 handler。
 
 ## 一级导航
 
@@ -117,7 +193,8 @@
 
 ## 四库
 
-- 四库只读：插件内不写 Markdown，新建/改标签/移章节都在 Obsidian 里做。
+- 读写边界（1.0 P2 起）：**人生路/知识库的允许章节可在应用内写**（工具栏 + 预览 + revision），
+  任务/习惯/日记/身份/生活运营仍由各自专用入口管理；**自我档案/生活运营页面仍只读**。
   笔记以页内阅读视图打开：Markdown 按 Obsidian 风格渲染（标题/表格/任务清单/标注块/代码块/双链），
   右侧目录，下方关联任务与反向链接；支持复制双链/路径和「在 Obsidian 打开并编辑」。
 

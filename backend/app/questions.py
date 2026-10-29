@@ -1,8 +1,12 @@
 """主动提问：按我最近的状态，一天问一个「关于我」的问题。
 
-三种去处，各自清楚：
+v1.0 P3 起，回答**不再直接写身份**：问题只是忆灵的输入之一，回答先落成
+`01_自我档案/02_记忆与自传` 的一篇记忆笔记，由忆灵综合后再生成待审核的身份补丁。
+身份只经忆灵审核或苏格拉底 verdict 两条路径写入。
 
-- **我回答了** → 直接写进自我档案。被问到、并且我亲口答了，这就是确认，不再要二次确认；
+三种去处：
+
+- **我回答了** → 写一篇记忆笔记（带问题与来源），不直接覆盖身份；
 - **我跳过**   → 这个问题冷却 7 天，换成下一个；
 - **别再问这个** → 永久不再问。
 
@@ -354,16 +358,9 @@ def answer_question(vault_dir: Path | str, question_id: str, text: str,
         raise ValueError("回答不能为空")
     ensure_vault_writable(read_only, "回答提问并写入自我档案")
 
-    field = question.get("field")
-    if field:
-        current = read_identity(vault_dir)
-        if str(current.get(field) or "").strip():
-            # 这期间我已经在别处填了：不要覆盖，改成留一条记忆。
-            result = _write_answer_note(vault_dir, {**question, "chapter": "memory"}, answer)
-        else:
-            result = _write_identity_field(vault_dir, field, answer, read_only=read_only)
-    else:
-        result = _write_answer_note(vault_dir, question, answer)
+    # v1.0 P3：问题回答只作为忆灵的输入，先落记忆笔记，绝不直接改身份。
+    # 记忆笔记会是 self 库的记忆候选；忆灵综合时决定是否提出身份补丁。
+    result = _write_answer_note(vault_dir, {**question, "chapter": "memory"}, answer)
 
     state = load_state(vault_dir)
     state["answered"][question["id"]] = _now().isoformat(timespec="seconds")

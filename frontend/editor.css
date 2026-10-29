@@ -1,0 +1,275 @@
+/* v1.0 P2：应用内 Markdown 编辑器 + 知识库分享链接预览。
+   沿用 --p-* 设计变量；不使用内联样式，符合严格 CSP。 */
+
+.note-editor-dialog,
+.share-link-dialog {
+  width: min(1120px, 96vw);
+  max-height: min(88vh, 980px);
+  padding: 0;
+  border: 1px solid var(--p-line);
+  border-radius: 18px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  box-shadow: 0 28px 80px rgb(16 27 43 / 24%);
+}
+
+.share-link-dialog { width: min(900px, 94vw); }
+
+.note-editor-dialog[open],
+.share-link-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.note-editor-dialog::backdrop,
+.share-link-dialog::backdrop {
+  background: rgb(16 27 43 / 42%);
+  backdrop-filter: blur(2px);
+}
+
+.note-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--p-line);
+}
+
+.note-editor-head h2 {
+  margin: 2px 0 4px;
+  font-family: var(--p-font-display);
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.note-editor-head p { margin: 0; }
+
+#note-editor-status,
+#share-link-status {
+  min-height: 20px;
+  margin: 4px 22px 0;
+}
+
+.note-editor-meta {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(140px, .7fr) minmax(160px, 1fr);
+  gap: 12px;
+  padding: 12px 22px;
+}
+
+.note-editor-meta label,
+.share-link-form label,
+.share-preview-meta label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-editor-meta input,
+.note-editor-meta select,
+.share-link-form input,
+.share-preview-meta input,
+.share-preview-meta select {
+  width: 100%;
+  border: 1px solid var(--p-line);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.note-editor-meta input:focus,
+.note-editor-meta select:focus,
+.share-link-form input:focus,
+.share-preview-meta input:focus,
+.share-preview-meta select:focus {
+  border-color: var(--p-accent);
+  outline: 2px solid var(--p-accent-soft);
+  outline-offset: 1px;
+}
+
+.note-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 22px 10px;
+  border-bottom: 1px solid var(--p-line);
+}
+
+.note-editor-toolbar button {
+  min-width: 34px;
+  height: 30px;
+  border: 1px solid var(--p-line);
+  border-radius: 7px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.note-editor-toolbar button:hover {
+  border-color: var(--p-accent);
+  color: var(--p-accent);
+  background: var(--p-accent-soft);
+}
+
+.note-editor-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 260px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.note-editor-body textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  resize: none;
+  border: 0;
+  border-right: 1px solid var(--p-line);
+  padding: 16px 18px;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font: 14px/1.75 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.note-editor-body textarea:focus { outline: 0; }
+
+.note-editor-preview {
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: var(--p-surface);
+}
+
+.note-editor-polish {
+  margin: 0 22px 10px;
+  border: 1px solid var(--p-accent-line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--p-accent-soft);
+}
+
+.note-editor-polish-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.note-editor-polish-text {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--p-surface);
+}
+
+.note-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--p-line);
+}
+
+.note-editor-actions .meta { margin-right: auto; }
+
+/* ── 知识库分享 ─────────────────────────────────────────────── */
+
+.share-link-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) minmax(150px, .8fr);
+  gap: 12px;
+  padding: 12px 22px;
+}
+
+.share-link-form .form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.share-link-result {
+  overflow-y: auto;
+  padding: 0 22px 18px;
+}
+
+.share-preview {
+  border-top: 1px solid var(--p-line);
+  padding-top: 14px;
+}
+
+.share-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-preview-head h3 {
+  margin: 4px 0 5px;
+  font-family: var(--p-font-display);
+  font-size: 22px;
+}
+
+.share-preview-head .text-button { flex: none; }
+
+.share-preview-meta {
+  display: grid;
+  grid-template-columns: minmax(160px, .8fr) minmax(220px, 1.2fr);
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.share-preview-body {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--p-line);
+  border-radius: 10px;
+  padding: 12px 16px;
+  background: var(--p-bg);
+}
+
+.share-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.share-preview-actions .field-help { margin-left: auto; }
+
+.share-preview-proposal { margin-top: 10px; }
+
+@media (max-width: 760px) {
+  .note-editor-meta,
+  .share-link-form,
+  .share-preview-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .note-editor-body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .note-editor-body textarea {
+    border-right: 0;
+    border-bottom: 1px solid var(--p-line);
+    min-height: 200px;
+  }
+
+  .note-editor-preview { min-height: 180px; }
+}

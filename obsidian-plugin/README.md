@@ -1,4 +1,4 @@
-# 薪火OS · Obsidian 插件（0.99.3）
+# 薪火OS · Obsidian 插件（1.0.0）
 
 把整个工作台住进 Obsidian：一个 `薪火OS` 标签页里是产品本体（iframe 内嵌 `?embed=1&panel=1&host=obsidian`），
 外加按库隔离的数据目录、自动拉起本地服务、主题跟随与打开任务文档。**免构建**：`main.js` 是手写的

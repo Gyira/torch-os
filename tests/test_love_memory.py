@@ -243,5 +243,5 @@ def test_love_memory_chapter_is_additive() -> None:
     chapter = next(item for item in ops["chapters"] if item["key"] == "love_memory")
     assert chapter["path"] == "02_生活运营/05_情感与记忆"
     assert chapter["default_type"] == "memory"
-    assert len(vault_layout.CHAPTERS) == 37
+    assert len(vault_layout.CHAPTERS) == 43
     assert manifest["layout_version"] == "pillars-v2"

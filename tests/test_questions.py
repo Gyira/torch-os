@@ -89,9 +89,9 @@ def test_answering_a_queued_question_consumes_the_card(tmp_path: Path) -> None:
 
     result = questions.answer_question(vault, "queue:q0", "世界大体是可被理解的，但运气占三成。")
 
-    assert result["target"] == "identity"
-    identity = (vault / "01_自我档案/01_内核与三观/身份（identity）.md").read_text(encoding="utf-8")
-    assert "世界大体是可被理解的" in identity
+    assert result["target"] == "memory"
+    note = vault / result["path"]
+    assert "世界大体是可被理解的" in note.read_text(encoding="utf-8")
     assert not (vault / questions.QUEUE_DIR / "q0.md").exists()
     assert (vault / questions.QUEUE_DIR / "已用" / "q0.md").is_file()
 
@@ -153,13 +153,15 @@ def test_the_cli_refuses_a_question_without_a_reason(tmp_path: Path) -> None:
     assert bad_target.returncode == 2
 
 
-def test_answering_a_field_question_writes_the_identity_card(tmp_path: Path) -> None:
+def test_answering_a_field_question_writes_a_memory_note_not_identity(tmp_path: Path) -> None:
     client, vault = make_client(tmp_path)
     result = client.post("/api/questions/answer", json={"id": "identity.name", "text": "小林"})
     assert result.status_code == 200, result.text
-    assert result.json()["target"] == "identity"
-    identity = (vault / "01_自我档案/01_内核与三观/身份（identity）.md").read_text(encoding="utf-8")
-    assert "name: 小林" in identity
+    payload = result.json()
+    assert payload["target"] == "memory"
+    note = vault / payload["path"]
+    assert "小林" in note.read_text(encoding="utf-8")
+    assert not (vault / "01_自我档案/01_内核与三观/身份（identity）.md").exists()
     assert questions.load_state(vault)["answered"]["identity.name"]
 
 

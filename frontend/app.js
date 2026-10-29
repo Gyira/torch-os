@@ -16,10 +16,11 @@ import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
 import { initPending } from "./pending.js";
-import { initQuestions } from "./questions.js";
+import { initMemoryHub, loadSelfHub } from "./memory-hub.js";
 import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
+import { initRoleDrawer } from "./roles.js";
 
 const titles = NAV_LABELS;
 
@@ -46,7 +47,7 @@ const PANE_LOADERS = {
   "agent-view": () => { initDshPane(); loadDshPane(); },
   "love-view": () => { initLovePane(); loadLovePane(); },
   "life-view": () => loadPillarModule("life"),
-  "self-view": () => loadPillarModule("self"),
+  "self-view": () => { loadPillarModule("self"); loadSelfHub(); },
   "ops-view": () => loadPillarModule("ops"),
   "knowledge-view": () => loadPillarModule("knowledge"),
   "settings-view": () => { loadSettings(); loadSchedulePanel(); },
@@ -387,7 +388,9 @@ function scheduleWorkbenchAnchor() {
 // 先把库里的值灌回 localStorage，再初始化各小组件；后端不可用时用本机缓存继续启动。
 try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
 initSettings(); initInbox();
-initWorkbench(); initPillars(); initPending(); initQuestions();
+initWorkbench(); initPillars(); initPending();
+initMemoryHub();
+initRoleDrawer();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
 initHelp();

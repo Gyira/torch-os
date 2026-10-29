@@ -25,7 +25,10 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
+from .ai_roles import RoleRegistry, RoleService, create_ai_router
 from .deepseek_balance import DeepSeekBalanceService, create_deepseek_balance_router
+from .proposals import ProposalService, create_proposals_router
+from . import memory_hub, note_editor, knowledge_share, life_reports
 from .dsh_proxy import DshProxy, create_dsh_router
 from .dsh_web import DisabledDshRuntime, DshWebRuntime
 from .envfile import write_env_value
@@ -65,7 +68,7 @@ from .journal_chat import create_journal_chat_router
 from .journal_inbox import create_journal_inbox_router
 from .journal_review import create_journal_review_router
 from .todo_note import create_todo_router
-from .tasks import create_tasks_router
+from .tasks import TaskCreate, create_task, create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
@@ -76,7 +79,7 @@ from .love_storage import (
 )
 from .train_tracker import create_train_tracker_router
 from .journal_export import create_journal_export_router
-from .habits import create_habits_router
+from .habits import HabitCreate, HabitService, create_habits_router
 from .task_import import create_task_import_router
 from .link_audit import audit_wolai_links
 from .attachment_plan import plan_wolai_attachment_localization
@@ -102,7 +105,7 @@ from .wolai_import import WolaiImportError, preview_wolai_archive, import_select
 from .wolai_import import preview_import_states
 from .workbench import create_workbench_router
 
-APP_VERSION = '0.99.0'
+APP_VERSION = '1.0.0'
 
 # Page manifest consumed by the local dsh sidebar plugin (0.88.0). The labels
 # mirror frontend/nav-order.js; tests keep the two in sync.
@@ -262,6 +265,96 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     dsh_proxy = DshProxy(dsh_runtime)
     deepseek_balance = DeepSeekBalanceService(
         database.path.parent, enabled=runtime_label == 'personal')
+    # v1.0 AI 角色层：角色卡属于仓库（dsh/roles），不属于用户库；换库只换数据，不换人格。
+    role_registry = RoleRegistry(Path(__file__).resolve().parents[2] / 'dsh' / 'roles')
+    ai_enabled = runtime_label == 'personal' and getattr(dsh_runtime, 'enabled', False)
+    proposal_service = ProposalService(database)
+    # P1 只注册“任务/习惯”两个落盘 handler；笔记与身份补丁分别在 P2/P3 接入。
+    def _apply_new_task(proposal, edits):
+        payload = dict(proposal.get("payload") or {})
+        if edits:
+            payload.update(edits)
+        tags = payload.get("tags")
+        result = create_task(
+            vault_dir,
+            TaskCreate(
+                title=str(payload.get("title") or proposal.get("title") or "").strip(),
+                list_name=str(payload.get("list") or payload.get("list_name") or "")[:40],
+                date=str(payload.get("date") or payload.get("due_date") or "")[:10],
+                priority=str(payload.get("priority") or "none")[:10],
+                tags=[str(item) for item in tags] if isinstance(tags, list) else [],
+            ),
+            database, read_only=vault_read_only,
+        )
+        return {"task": result.get("task"), "revision": result.get("revision")}
+
+    def _apply_new_habit(proposal, edits):
+        payload = dict(proposal.get("payload") or {})
+        if edits:
+            payload.update(edits)
+        result = HabitService(database, vault_dir=vault_dir, read_only=vault_read_only).create(
+            HabitCreate(
+                title=str(payload.get("title") or proposal.get("title") or "").strip(),
+                cue=str(payload.get("cue") or "")[:500],
+                minimum_action=str(payload.get("minimum_action") or "")[:500],
+                frequency=payload.get("frequency") if isinstance(payload.get("frequency"), dict) else None,
+                target_days=payload.get("target_days") if isinstance(payload.get("target_days"), int) else None,
+                icon=str(payload.get("icon") or "🌱")[:16],
+                group=str(payload.get("group") or "默认")[:40],
+                reminder=str(payload.get("reminder") or "")[:5],
+            )
+        )
+        return {"habit": result}
+
+    def _apply_new_note(proposal, edits):
+        payload = dict(proposal.get("payload") or {})
+        if edits:
+            payload.update(edits)
+        tags = payload.get("tags")
+        note = note_editor.create_note(
+            database, vault_dir,
+            chapter=str(payload.get("chapter") or "")[:40],
+            title=str(payload.get("title") or proposal.get("title") or "")[:200],
+            body=str(payload.get("body") or ""),
+            tags=[str(item) for item in tags] if isinstance(tags, list) else [],
+            source=str(payload.get("source") or "")[:500],
+            generated_by=str(payload.get("generated_by") or "ai")[:40],
+            read_only=vault_read_only,
+        )
+        return {"note": note}
+
+    def _apply_archive_note(proposal, edits):
+        payload = dict(proposal.get("payload") or {})
+        if edits:
+            payload.update(edits)
+        note = note_editor.move_note(
+            database, vault_dir,
+            path=str(payload.get("path") or "")[:2048],
+            target_chapter=str(payload.get("target_chapter") or payload.get("chapter") or "")[:40],
+            expected_revision=str(payload.get("expected_revision") or "")[:64],
+            read_only=vault_read_only,
+        )
+        return {"note": note}
+
+    proposal_service.register("new_task", _apply_new_task)
+    proposal_service.register("new_habit", _apply_new_habit)
+    proposal_service.register("new_note", _apply_new_note)
+    proposal_service.register("archive_note", _apply_archive_note)
+    proposal_service.register(
+        "identity_patch",
+        lambda proposal, edits: memory_hub.apply_identity_patch(
+            database, vault_dir, proposal, read_only=vault_read_only))
+    ai_service = RoleService(
+        role_registry, deepseek_balance,
+        enabled=ai_enabled,
+        environ=dict(os.environ),
+        agents_home=Path(__file__).resolve().parents[2] / 'dsh' / 'roles',
+        workspace=database.path.parent / 'ai-runtime' / 'workspace',
+        database=database,
+        vault_dir=vault_dir,
+        proposals=proposal_service,
+        read_only=vault_read_only,
+    )
     scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
 
@@ -357,6 +450,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.dsh_runtime = dsh_runtime
     app.state.dsh_proxy = dsh_proxy
     app.state.deepseek_balance = deepseek_balance
+    app.state.ai_roles = role_registry
+    app.state.ai_service = ai_service
+    app.state.proposals = proposal_service
     app.mount('/assets', StaticFiles(directory=frontend), name='assets')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1','localhost','[::1]','testserver',host])
 
@@ -460,6 +556,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                 'runtime_label':runtime_label, 'vault_name':Path(vault_dir).name,
                 'vault_scoped':bool(vault_scoped), 'default_mode':'dsh',
                 'capabilities':{
+                    'ai_roles':ai_enabled,
                     'attachment_localize':True,'attachment_plan':True,
                     'audit_summary':True,'backup_plan':True,'candidate_tidy':True,
                     'conversation_export':True,'conversation_extract':True,
@@ -469,18 +566,22 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'export_bundle':True,'growth_export':True,'habits':True,
                     'history_cleanup_preview':True,'history_restore':True,'identity':True,
                     'import_history':True,'journal_export':True,'link_audit':True,
+                    'life_assistant':ai_enabled,'life_reports':True,
                     'love': runtime_label == 'personal',
                     'love_memory': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
-                    'memory_export':True,'monthly_review':True,
+                    'memory_export':True,'memory_hub':True,'monthly_review':True,
+                    'note_editor':True,
                     'personal_data':True,'planning_export':True,
+                    'proposals':True,
                     'restore_drill':True,'restored_copies':True,'scheduler':True,
-                    'scheduler_weekly':True,'schema_export':True,'task_reorder':True,
-                    'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
+                    'scheduler_weekly':True,'schema_export':True,'share_link':runtime_label == 'personal',
+                    'task_reorder':True,'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
                     'vault_admin':runtime_label == 'personal',
                     'vault_connection':not vault_scoped,'weather':True,
                     'weflow_sync': runtime_label == 'personal',
+                    'widget_visibility':True,
                     'workbench':True,
                     'workspaces':runtime_label == 'personal' and not vault_scoped,
                 }}
@@ -721,9 +822,25 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_weather_router())
     # DeepSeek 余额：官方余额接口的白名单代理；Key 不返回前端、不写日志，QA 模式不联网。
     app.include_router(create_deepseek_balance_router(deepseek_balance))
+    # v1.0 AI 角色：只返回角色元数据与可用性；聊天/润色等能力在 P1 接入。
+    app.include_router(create_ai_router(ai_service))
+    # v1.0 提案层：AI 只提议，用户确认后才由各阶段的 handler 落盘。
+    app.include_router(create_proposals_router(proposal_service))
+    # v1.0 写作：只开放人生路/知识库的允许清单章节；自我档案/生活运营仍由专用流程写。
+    app.include_router(note_editor.create_writing_router(
+        database, vault_dir, ai_service, read_only=vault_read_only))
+    # v1.0 知识库分享链接：只抓 chat.deepseek.com 的公开分享；不做网页内嵌/登录态。
+    app.include_router(knowledge_share.create_knowledge_share_router(
+        database, vault_dir, role_service=ai_service, proposals=proposal_service,
+        read_only=vault_read_only))
+    # v1.0 忆灵：事件/画像/复盘卡/身份补丁；身份只走 proposal handler。
+    app.include_router(memory_hub.create_memory_hub_router(
+        database, vault_dir, role_service=ai_service, proposals=proposal_service,
+        read_only=vault_read_only))
     # 恋爱系统：数据统一放在当前个人数据库的 .torch-os/love/，不启动独立服务；
     # AI 只走用户配置的 DeepSeek。QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据。
     train_tracker_legacy: list[Path] = []
+    love_settings: Any = None
     if runtime_label == 'personal':
         from .config import (
             LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DATA_DIR,
@@ -774,6 +891,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             love_settings.target_name,
             read_only=vault_read_only,
         ), dependencies=[Depends(journal_data_guard)])
+    # v1.0 生活运营 AI：健康/财务/恋爱/生活助理；报告落 06–08 章，建议只生成提案。
+    app.include_router(life_reports.create_life_ai_router(
+        database, vault_dir, role_service=ai_service, proposals=proposal_service,
+        love_settings=love_settings, read_only=vault_read_only))
     # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
     # 12306 同步只在用户点击时发生；QA 模式禁用同步，但仍可导入本地时刻表。
     app.include_router(create_train_tracker_router(

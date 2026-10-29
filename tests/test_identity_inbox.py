@@ -60,7 +60,7 @@ def test_list_skips_empty_text_and_sorts_newest_first(tmp_path: Path) -> None:
     assert items[0]["field_label"] == "称呼"
 
 
-def test_accept_field_writes_identity_and_keeps_banner(tmp_path: Path) -> None:
+def test_accept_field_writes_a_memory_note_not_identity(tmp_path: Path) -> None:
     vault = make_vault(tmp_path)
     identity = vault / "01_自我档案/01_内核与三观/身份（identity）.md"
     identity.parent.mkdir(parents=True)
@@ -70,26 +70,29 @@ def test_accept_field_writes_identity_and_keeps_banner(tmp_path: Path) -> None:
 
     result = identity_inbox.accept_draft(vault, "draft.md")
 
-    assert result["target"] == "identity" and result["field"] == "name"
+    assert result["target"] == "memory" and result["field"] == "name"
+    note = vault / result["path"]
+    body = note.read_text(encoding="utf-8")
+    assert "称呼我小林" in body and "候选字段" in body
+    assert result["path"].startswith(vault_layout.chapter_dir("memory"))
     text = identity.read_text(encoding="utf-8")
-    assert "name: 称呼我小林" in text
-    assert "看更大的世界" in text, "横幅座右铭不能被身份写入抹掉"
-    assert "原来的笔记" in text
+    assert "name:" not in text, "候选不再直接写身份"
+    assert "看更大的世界" in text and "原来的笔记" in text
     assert not (vault / identity_inbox.INBOX_DIR / "draft.md").exists()
     assert (vault / identity_inbox.ACCEPTED_DIR / "draft.md").is_file()
 
 
-def test_accept_refuses_to_overwrite_a_filled_field(tmp_path: Path) -> None:
+def test_accept_never_overwrites_a_filled_identity_field(tmp_path: Path) -> None:
     vault = make_vault(tmp_path)
     identity = vault / "01_自我档案/01_内核与三观/身份（identity）.md"
     identity.parent.mkdir(parents=True)
     identity.write_text("---\ntype: identity\nname: 原来的名字\n---\n\n", encoding="utf-8")
     write_draft(vault, "draft.md")
 
-    with pytest.raises(ValueError):
-        identity_inbox.accept_draft(vault, "draft.md")
+    result = identity_inbox.accept_draft(vault, "draft.md")
+    assert result["target"] == "memory"
     assert "原来的名字" in identity.read_text(encoding="utf-8")
-    assert (vault / identity_inbox.INBOX_DIR / "draft.md").is_file(), "拒绝时不能弄丢候选"
+    assert not (vault / identity_inbox.INBOX_DIR / "draft.md").exists()
 
 
 def test_accept_memory_writes_a_note_in_the_memory_chapter(tmp_path: Path) -> None:

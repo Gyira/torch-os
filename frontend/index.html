@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -31,8 +31,8 @@
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
       <!-- 待确认中枢：草稿 / 事实 / 分流 三处积压在这里汇总成一个常驻数字（2026-10-27）。 -->
       <div id="workbench-pending" class="pending-strip" data-pending-strip hidden></div>
-      <!-- 主动提问：一天一个「关于我」的问题，答了直接写进自我档案（2026-10-27）。 -->
-      <div id="workbench-question" class="question-slot" data-question-slot hidden></div>
+      <!-- 忆灵（v1.0 P3）：用一张常驻条替代旧的主动提问卡；记忆中枢成为身份修改的前门。 -->
+      <div id="workbench-memory" class="memory-strip" data-memory-strip hidden></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
@@ -96,7 +96,7 @@
               <header class="time-head">
                 <h3 id="time-board-title">今天</h3>
                 <div class="time-progress" role="group" aria-label="今日闭环完成度（含日记）"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
-                <button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="true">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="time-dida-sync" class="text-button" title="从滴答清单拉取最新任务" hidden>立即同步</button>
+                <button type="button" id="time-ai-btn" class="text-button" title="让 AI 生活助理看看今天的任务">AI 助手</button><button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="true">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="time-dida-sync" class="text-button" title="从滴答清单拉取最新任务" hidden>立即同步</button>
               </header>
               <p id="time-board-hint" class="field-help" hidden></p>
               <div id="time-goal-filter" class="time-goal-filter" role="status" hidden>
@@ -221,6 +221,7 @@
       <div class="pillar-shell" data-pillar="life"><div class="pillar-empty">正在读取人生路…</div></div>
     </section>
     <section id="self-view" class="view pillar-view" data-module="self" hidden>
+      <section id="self-hub" class="self-hub" data-self-hub aria-label="忆灵与当前状态"></section>
       <div class="pillar-shell" data-pillar="self"><div class="pillar-empty">正在读取自我档案…</div></div>
     </section>
     <section id="ops-view" class="view pillar-view" data-module="ops" hidden>
@@ -291,6 +292,7 @@
           <button class="settings-nav-item" type="button" data-settings-nav="backup" aria-current="false">备份与恢复</button>
           <button class="settings-nav-item" type="button" data-settings-nav="data" aria-current="false">数据与导出</button>
           <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="migration" aria-current="false">库结构与迁移</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="widgets" aria-current="false">工作台小组件</button>
           <button class="settings-nav-item" type="button" data-settings-nav="help" aria-current="false">帮助</button><button class="settings-nav-item" type="button" data-settings-nav="about" aria-current="false">关于</button>
         </nav>
         <div class="settings-content">
@@ -464,7 +466,15 @@
               <ul id="nav-order-list" class="nav-order-list" aria-label="菜单顺序"></ul>
               <p id="nav-order-feedback" class="status-message" role="status"></p>
             </article>
-          </section>          <section class="settings-section" data-settings-section="about" aria-labelledby="settings-about-heading" hidden>
+          </section>
+          <section class="settings-section" data-settings-section="widgets" aria-labelledby="settings-widgets-heading" hidden>
+            <article class="settings-card">
+              <div class="settings-card-head"><div><span class="eyebrow">WORKBENCH WIDGETS</span><h2 id="settings-widgets-heading" tabindex="-1">工作台小组件</h2><p>关掉的小组件不再出现在工作台，也不会请求数据；顺序与显隐都保存在当前个人数据库的 <code>.torch-os/personal-data.json</code>。</p></div><button id="widget-settings-reset" class="text-button" type="button">恢复默认</button></div>
+              <ul id="widget-settings-list" class="widget-settings-list" aria-label="小组件开关"></ul>
+              <p id="widget-settings-feedback" class="status-message" role="status"></p>
+            </article>
+          </section>
+          <section class="settings-section" data-settings-section="about" aria-labelledby="settings-about-heading" hidden>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">ABOUT</span><h2 id="settings-about-heading" tabindex="-1">你的数据如何被使用</h2><p>四条边界说明；完整功能与数据去向见“帮助”页。</p></div><button class="text-button" type="button" data-go-view="help">打开帮助页</button></div>
               <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>新记忆需要人工确认；拒绝、撤回或归档后不再参与检索。</li><li>「与神对话」由本地 DeepSeek Harness 提供；模型、密钥与权限都在 dsh 内配置。</li><li>dsh 直接读写当前库，写入不经过 torch 的确认或自动备份；重要改动请自行备份。</li></ul></div>
@@ -519,6 +529,96 @@
     </fieldset>
     <div class="form-actions"><span id="banner-feedback" class="status-message" role="status" aria-live="polite"></span><button id="banner-cancel" class="button secondary" type="button">取消</button><button id="banner-save" class="button primary" type="submit">保存</button></div>
   </form>
+</dialog>
+<aside id="role-drawer" class="role-drawer" hidden aria-label="AI 角色对话">
+  <div class="role-drawer-head">
+    <div><span class="eyebrow" id="role-drawer-eyebrow">AI 角色</span><h2 id="role-drawer-title">AI 角色</h2><p id="role-drawer-subtitle" class="field-help"></p></div>
+    <button id="role-drawer-close" class="small-button" type="button" aria-label="关闭角色对话">关闭</button>
+  </div>
+  <p id="role-drawer-status" class="field-help" role="status"></p>
+  <div id="role-drawer-messages" class="role-drawer-messages" aria-live="polite"></div>
+  <div id="role-drawer-chips" class="role-drawer-chips"></div>
+  <form id="role-drawer-form" class="role-drawer-form">
+    <label class="visually-hidden" for="role-drawer-input">给角色发消息</label>
+    <textarea id="role-drawer-input" rows="3" maxlength="8000" placeholder="想聊什么？"></textarea>
+    <div class="role-drawer-actions"><span id="role-drawer-hint" class="field-help">AI 只提议，采纳后才写入。</span><button type="submit" id="role-drawer-send" class="button primary">发送</button></div>
+  </form>
+</aside>
+<div id="role-drawer-backdrop" class="role-drawer-backdrop" hidden></div>
+<dialog id="note-editor-dialog" class="note-editor-dialog" aria-labelledby="note-editor-heading">
+  <div class="note-editor-head">
+    <div><p class="eyebrow" id="note-editor-eyebrow">写作</p><h2 id="note-editor-heading">写一条</h2><p id="note-editor-status" class="status-message" role="status"></p></div>
+    <button id="note-editor-close" class="small-button" type="button">关闭</button>
+  </div>
+  <div class="note-editor-meta">
+    <label>标题<input id="note-editor-title" type="text" maxlength="200" autocomplete="off" /></label>
+    <label>章节<select id="note-editor-chapter"></select></label>
+    <label>标签<input id="note-editor-tags" type="text" maxlength="200" placeholder="用、或逗号分隔" /></label>
+  </div>
+  <div id="note-editor-toolbar" class="note-editor-toolbar" role="toolbar" aria-label="Markdown 工具栏">
+    <button type="button" data-editor-action="h2" title="标题（##）">H2</button>
+    <button type="button" data-editor-action="bold" title="加粗（**）"><strong>B</strong></button>
+    <button type="button" data-editor-action="italic" title="斜体（*）"><em>I</em></button>
+    <button type="button" data-editor-action="strike" title="删除线（~~）"><s>S</s></button>
+    <button type="button" data-editor-action="bullet" title="无序列表">•</button>
+    <button type="button" data-editor-action="task" title="待办清单">☑</button>
+    <button type="button" data-editor-action="quote" title="引用">❝</button>
+    <button type="button" data-editor-action="code" title="行内代码">&lt;/&gt;</button>
+    <button type="button" data-editor-action="link" title="链接">🔗</button>
+    <button type="button" data-editor-action="divider" title="分割线">—</button>
+  </div>
+  <div class="note-editor-body">
+    <label class="visually-hidden" for="note-editor-text">正文 Markdown</label>
+    <textarea id="note-editor-text" spellcheck="false" placeholder="写点什么……"></textarea>
+    <div id="note-editor-preview" class="md-body note-editor-preview" aria-live="polite"></div>
+  </div>
+  <section id="note-editor-polish" class="note-editor-polish" hidden aria-label="AI 润色预览">
+    <div class="note-editor-polish-head"><p class="eyebrow">AI 润色预览</p><p id="note-editor-polish-changes" class="field-help"></p></div>
+    <div id="note-editor-polish-text" class="md-body note-editor-polish-text"></div>
+    <div class="form-actions"><button id="note-editor-polish-apply" type="button" class="button primary">应用到正文</button><button id="note-editor-polish-cancel" type="button" class="text-button">取消</button></div>
+  </section>
+  <div class="note-editor-actions">
+    <span id="note-editor-count" class="meta"></span>
+    <button id="note-editor-classify" type="button" class="text-button">AI 建议章节</button>
+    <button id="note-editor-role" type="button" class="text-button">和写作伙伴聊聊</button>
+    <button id="note-editor-obsidian" type="button" class="text-button">在 Obsidian 打开</button>
+    <button id="note-editor-reload" type="button" class="text-button">重新载入</button>
+    <button id="note-editor-polish-btn" type="button" class="button secondary">AI 润色</button>
+    <button id="note-editor-cancel" type="button" class="button secondary">取消</button>
+    <button id="note-editor-save" type="button" class="button primary">保存</button>
+  </div>
+</dialog>
+<dialog id="memory-event-dialog" class="note-editor-dialog memory-event-dialog" aria-labelledby="memory-event-heading">
+  <div class="note-editor-head">
+    <div><p class="eyebrow">忆灵</p><h2 id="memory-event-heading">告诉忆灵一件事</h2><p class="field-help">只写你确认过的观察/感受/决定；它先成为事件，综合后才可能变成画像或身份补丁。</p></div>
+    <button id="memory-event-close" class="small-button" type="button">关闭</button>
+  </div>
+  <div class="note-editor-meta memory-event-meta">
+    <label>类型<select id="memory-event-kind">
+      <option value="observation">观察</option>
+      <option value="decision">决定</option>
+      <option value="feeling">感受</option>
+      <option value="relationship">关系</option>
+      <option value="goal_change">目标变化</option>
+      <option value="correction">纠正</option>
+    </select></label>
+    <label>来源（可选）<input id="memory-event-source" type="text" maxlength="500" placeholder="例如：今天的复盘 / 和某人的对话" /></label>
+  </div>
+  <label class="memory-event-text-label">内容<textarea id="memory-event-text" rows="5" maxlength="1000" placeholder="今天我发现……"></textarea></label>
+  <div class="form-actions"><span id="memory-event-status" class="status-message" role="status"></span><button id="memory-event-save" class="button primary" type="button">投递给忆灵</button></div>
+</dialog>
+<dialog id="share-link-dialog" class="share-link-dialog" aria-labelledby="share-link-heading">
+  <div class="note-editor-head">
+    <div><p class="eyebrow">KNOWLEDGE · Q&amp;A</p><h2 id="share-link-heading">DeepSeek 问答</h2><p class="field-help">在浏览器打开 chat.deepseek.com；问完复制公开分享链接回来。</p></div>
+    <button id="share-link-close" class="small-button" type="button">关闭</button>
+  </div>
+  <div class="share-link-form">
+    <label>分享链接<input id="share-link-url" type="url" maxlength="2048" placeholder="https://chat.deepseek.com/share/..." autocomplete="off" /></label>
+    <label>轮次<input id="share-link-rounds" type="text" maxlength="80" placeholder="默认全部，如 1,3-5" /></label>
+    <div class="form-actions"><button id="share-link-external" class="button secondary" type="button">打开 DeepSeek 问答 ↗</button><button id="share-link-preview" class="button primary" type="button">取回分享</button></div>
+  </div>
+  <p id="share-link-status" class="status-message" role="status"></p>
+  <div id="share-link-result" class="share-link-result"></div>
 </dialog>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script type="module" src="/assets/app.js"></script>

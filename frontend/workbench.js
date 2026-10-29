@@ -15,9 +15,11 @@ import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js"
 import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-widget.js";
 import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
+import { applyWidgetVisibility, readStoredWidgetHidden, resolveWidgetHidden } from "./widget-order.js";
 import { loadPendingStrip } from "./pending.js";
-import { loadQuestionCard } from "./questions.js";
+import { initMemoryStrip, loadMemoryStrip } from "./memory-strip.js";
 import { initBookmarks } from "./bookmarks.js";
+import { initTasksAI } from "./tasks-ai.js";
 
 let current = null;
 let bannerStats = null;
@@ -164,6 +166,8 @@ function renderDaily(payload) {
 }
 
 export async function loadWorkbench() {
+  // 设置页开启一个之前隐藏的小组件后，切回工作台时补初始化；已初始化的会跳过。
+  initVisibleWidgets();
   try {
     const payload = await api(`/api/workbench/today?day=${shanghaiDay()}`);
     renderWorkbench(payload);
@@ -172,11 +176,12 @@ export async function loadWorkbench() {
   } catch (error) {
     setStatus("#time-status", `读取失败：${error.message}`, "error");
   }
-  loadWeatherWidget();
-  loadDeepSeekBalance();
-  loadTrainTrackerWidget();
+  const hidden = currentWidgetHidden();
+  if (!hidden.has("weather")) loadWeatherWidget();
+  if (!hidden.has("deepseek")) loadDeepSeekBalance();
+  if (!hidden.has("train-tracker")) loadTrainTrackerWidget();
   loadPendingStrip();
-  loadQuestionCard();
+  loadMemoryStrip();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */
@@ -239,11 +244,42 @@ function initBannerCollapse() {
   button.addEventListener("dblclick", (event) => event.stopPropagation());
 }
 
+const initializedWidgets = new Set();
+
+function widgetColumns() {
+  return {
+    left: document.querySelector('[data-widget-column="left"]'),
+    right: document.querySelector('[data-widget-column="right"]'),
+  };
+}
+
+function currentWidgetHidden() {
+  return new Set(resolveWidgetHidden(readStoredWidgetHidden()));
+}
+
+/** 只初始化当前可见的小组件；隐藏组件不建监听、不发请求，设置页打开后再初始化。 */
+function initVisibleWidgets() {
+  const hidden = currentWidgetHidden();
+  const initializers = [
+    ["weather", initWeatherWidget],
+    ["countdown", initCountdownWidget],
+    ["anniversary", initAnniversaryWidget],
+    ["almanac", initAlmanacWidget],
+    ["deepseek", initDeepSeekBalance],
+    ["train-tracker", initTrainTrackerWidget],
+    ["duty", initDutyWidget],
+  ];
+  for (const [key, initialize] of initializers) {
+    if (hidden.has(key) || initializedWidgets.has(key)) continue;
+    initialize();
+    initializedWidgets.add(key);
+  }
+  applyWidgetVisibility(widgetColumns(), Array.from(hidden));
+}
+
 export function initWorkbench() {
   // 网页书签栏：问候语右侧的快捷入口（数据在 .torch-os，齿轮里增删改）。
   initBookmarks();
-  // 天气卡：时钟、打开系统时自动刷新、点卡片打开详情浮窗；城市管理都在 weather-widget.js。
-  initWeatherWidget();
   // 每日必做的勾选（习惯打卡本身由 habits-page.js 处理）
   $("#time-daily-list").addEventListener("change", (event) => {
     const dailyBox = event.target.closest("[data-daily-toggle]");
@@ -252,12 +288,15 @@ export function initWorkbench() {
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
-  initCountdownWidget();
-  initAnniversaryWidget();
+  initVisibleWidgets();
   initWidgetDrag();
-  initAlmanacWidget();
-  initDeepSeekBalance();
-  initTrainTrackerWidget();
-  initDutyWidget();
   initTimeModule();
+  initTasksAI();
+  initMemoryStrip();
+  // 设置页开关后：补初始化新显示的小组件，再按显隐重新加载。
+  document.addEventListener("torch:widgets-changed", () => {
+    if (state.view !== "workbench") return;
+    initVisibleWidgets();
+    loadWorkbench();
+  });
 }

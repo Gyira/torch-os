@@ -1,4 +1,4 @@
-/* 薪火OS · Obsidian 插件（0.99.3，免构建的 CommonJS 单文件）。
+/* 薪火OS · Obsidian 插件（1.0.0，免构建的 CommonJS 单文件）。
  *
  * 把整个工作台以 iframe 的方式住进 Obsidian（`?embed=1&panel=1&host=obsidian`）。
  *

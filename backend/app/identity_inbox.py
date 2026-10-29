@@ -1,13 +1,13 @@
-"""身份候选：dsh 从对话里提炼的「关于我」，先落队列，我确认后才进自我档案。
+"""身份候选：dsh 从对话里提炼的「关于我」，先落队列，交给忆灵复核。
 
 分工写死在这里：
 
 - dsh 只往 `<库>/.torch-os/身份待确认/` 投递 Markdown 卡片，不碰四库、不碰数据库；
-- 采纳时由本模块写入：身份字段（称呼/座右铭/三观/人生观/价值观）或
-  `01_自我档案/02_记忆与自传` 的一篇笔记；
+- v1.0 P3 起，采纳候选**只写一篇记忆笔记**（`01_自我档案/02_记忆与自传`），
+  不再直接写身份字段；忆灵综合时看到这篇笔记，才会提出待审身份补丁；
 - 丢弃只是把卡片挪进 `已丢弃/`，四库一个字都不动。
 
-四库页面仍然只读——唯一的写入点是用户在「自我档案」里点「采纳」的那一下。
+身份只有两条写入路径：忆灵审核的补丁、苏格拉底 verdict 后的补丁。
 """
 
 from __future__ import annotations
@@ -90,43 +90,28 @@ def _pending(vault_dir: Path | str, name: str) -> Path:
 
 
 def accept_draft(vault_dir: Path | str, name: str, *, read_only: bool = False) -> dict[str, Any]:
-    """采纳：身份字段已有内容时不覆盖，让用户自己去合并。"""
+    """采纳候选：只留一篇记忆笔记，不直接改身份；身份由忆灵/苏格拉底提议。"""
     ensure_vault_writable(read_only, "采纳身份候选")
     path = _pending(vault_dir, name)
     draft = read_draft(path)
     text = draft["text"][:MAX_TEXT]
     if not text:
         raise ValueError("候选内容为空")
-
-    if draft["kind"] == "field":
-        field = draft["field"]
-        if not field:
-            raise ValueError("候选没有指定身份字段")
-        current = read_identity(vault_dir)
-        if str(current.get(field) or "").strip():
-            raise ValueError(f"{FIELD_LABELS[field]}已经有内容了：请到 Obsidian 里合并，这里不覆盖")
-        payload = {key: str(current.get(key) or "")
-                   for key in ("name", "motto", "worldview", "lifeview", "values", "notes")}
-        payload[field] = text
-        payload["revision"] = str(current.get("revision") or "")
-        write_identity(vault_dir, IdentityWrite(**payload), read_only=read_only)
-        identity_path = _identity_path(Path(vault_dir))
-        result = {
-            "target": "identity",
-            "field": field,
-            "field_label": FIELD_LABELS[field],
-            "path": identity_path.relative_to(Path(vault_dir).resolve()).as_posix(),
-        }
-    else:
-        body = f"> {text}\n"
-        if draft["evidence"]:
-            body += f"\n## 来自对话\n\n> {draft['evidence']}\n"
-        note = pillar_notes.create_note(
-            vault_dir, pillar="self", chapter="memory", title=text[:60], body=body,
-            tags=["dsh", "身份候选"], source="dsh",
-        )
-        result = {"target": "memory", "path": note.get("path") or "", "title": note.get("title") or ""}
-
+    field = draft.get("field") or ""
+    field_label = FIELD_LABELS.get(field, "")
+    body = f"> {text}\n"
+    if field_label:
+        body += f"\n## 候选字段\n\n{field_label}\n"
+    if draft["evidence"]:
+        body += f"\n## 来自对话\n\n> {draft['evidence']}\n"
+    note = pillar_notes.create_note(
+        vault_dir, pillar="self", chapter="memory", title=text[:60], body=body,
+        tags=["dsh", "身份候选"], source="dsh",
+    )
+    result = {
+        "target": "memory", "field": field, "field_label": field_label,
+        "path": note.get("path") or "", "title": note.get("title") or "",
+    }
     archived = _archive(path, Path(vault_dir) / ACCEPTED_DIR)
     return {**result, "kind": draft["kind"], "text": text, "archived_as": archived}
 

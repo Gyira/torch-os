@@ -1,0 +1,610 @@
+/* v1.0 P1：页面内 AI 角色抽屉 + 提案卡片 + 小组件管理。
+   沿用 styles.css 的 --p-* 设计变量；不写内联样式，符合严格 CSP。 */
+
+.role-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(16 27 43 / 38%);
+  backdrop-filter: blur(2px);
+}
+
+.role-drawer {
+  position: fixed;
+  z-index: 81;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 94vw);
+  border-left: 1px solid var(--p-line);
+  background: var(--p-surface);
+  box-shadow: -18px 0 48px rgb(16 27 43 / 18%);
+}
+
+.role-drawer[hidden],
+.role-drawer-backdrop[hidden] {
+  display: none;
+}
+
+.role-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--p-line);
+}
+
+.role-drawer-head h2 {
+  margin: 2px 0 4px;
+  font-family: var(--p-font-display);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.role-drawer-head p {
+  margin: 0;
+}
+
+#role-drawer-status {
+  min-height: 20px;
+  margin: 0;
+  padding: 6px 20px;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+}
+
+.role-drawer-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 20px 16px;
+  overscroll-behavior: contain;
+}
+
+.role-message {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--p-line);
+  border-radius: 14px;
+  background: var(--p-bg);
+}
+
+.role-message-user {
+  margin-left: 34px;
+  border-color: var(--p-accent-soft);
+  background: var(--p-accent-soft);
+}
+
+.role-message-assistant {
+  margin-right: 12px;
+}
+
+.role-message-label {
+  margin-bottom: 6px;
+  color: var(--p-ink-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.role-message-body {
+  color: var(--p-ink);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.role-message-body > :first-child { margin-top: 0; }
+.role-message-body > :last-child { margin-bottom: 0; }
+.role-message-body p { margin: 0 0 8px; }
+.role-message-body ul,
+.role-message-body ol { margin: 6px 0 8px; padding-left: 22px; }
+
+.role-sources {
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px dashed var(--p-line);
+  list-style: none;
+  color: var(--p-ink-faint);
+  font-size: 11px;
+}
+
+.role-sources li {
+  display: flex;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.role-source-id {
+  flex: none;
+  color: var(--p-accent);
+  font-weight: 700;
+}
+
+.role-empty {
+  padding: 28px 4px;
+  color: var(--p-ink-faint);
+  text-align: center;
+}
+
+.role-empty h3 {
+  margin: 6px 0 8px;
+  color: var(--p-ink);
+  font-family: var(--p-font-display);
+  font-size: 20px;
+}
+
+.role-drawer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 10px;
+}
+
+.role-chip {
+  border: 1px solid var(--p-line);
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.role-chip:hover {
+  border-color: var(--p-accent);
+  color: var(--p-accent);
+}
+
+.role-drawer-form {
+  padding: 10px 20px 18px;
+  border-top: 1px solid var(--p-line);
+}
+
+.role-drawer-form textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font: inherit;
+  line-height: 1.6;
+}
+
+.role-drawer-form textarea:focus {
+  border-color: var(--p-accent);
+  outline: 2px solid var(--p-accent-soft);
+  outline-offset: 1px;
+}
+
+.role-drawer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.role-proposals {
+  margin: -4px 0 14px;
+}
+
+.proposal-card {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--p-line);
+  border-left: 3px solid var(--p-accent);
+  border-radius: 12px;
+  background: var(--p-surface);
+}
+
+.proposal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proposal-head h4 {
+  margin: 3px 0 4px;
+  font-size: 15px;
+}
+
+.proposal-status {
+  flex: none;
+  color: var(--p-ink-faint);
+  font-size: 11px;
+}
+
+.proposal-reason {
+  margin: 6px 0;
+  color: var(--p-ink-faint);
+  font-size: 13px;
+}
+
+.proposal-diff {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.proposal-diff li { margin: 3px 0; }
+.proposal-from { color: var(--p-ink-faint); text-decoration: line-through; }
+.proposal-arrow { margin: 0 5px; color: var(--p-accent); }
+.proposal-to { color: var(--p-ink); font-weight: 600; }
+
+.proposal-sources {
+  margin: 8px 0;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+}
+
+.proposal-sources ul {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.proposal-card[data-proposal-status="applied"] {
+  border-left-color: var(--p-ok-solid);
+}
+
+.proposal-card[data-proposal-status="rejected"] {
+  border-left-color: var(--p-line);
+  opacity: .72;
+}
+
+.widget-settings-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.widget-settings-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--p-line);
+}
+
+.widget-settings-list li:first-child { border-top: 0; }
+.widget-settings-list strong { display: block; margin-bottom: 2px; }
+.widget-settings-list small { color: var(--p-ink-faint); line-height: 1.5; }
+.widget-settings-list label { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 640px) {
+  .role-drawer {
+    top: auto;
+    left: 0;
+    width: 100%;
+    height: min(78vh, 640px);
+    border-left: 0;
+    border-top: 1px solid var(--p-line);
+    border-radius: 18px 18px 0 0;
+  }
+}
+
+/* ── v1.0 P3：忆灵工作台条 / 自我档案忆灵面板 ───────────────── */
+
+.memory-strip {
+  margin: 0 0 14px;
+}
+
+.memory-strip[hidden] { display: none; }
+
+.memory-strip-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--p-line);
+  border-left: 3px solid var(--p-pillar-self);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.memory-strip-inner:hover {
+  border-color: var(--p-pillar-self);
+  background: var(--p-pillar-self-soft);
+}
+
+.memory-strip-detail {
+  color: var(--p-ink-faint);
+  font-size: 12px;
+}
+
+.memory-strip-go {
+  margin-left: auto;
+  color: var(--p-pillar-self);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.self-hub {
+  max-width: 1680px;
+  margin: 0 auto 22px;
+  padding: 18px 22px;
+  border: 1px solid var(--p-line);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 8% 0%, var(--p-pillar-self-soft), transparent 42%),
+    var(--p-surface);
+}
+
+.self-hub[hidden] { display: none; }
+
+.self-hub-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.self-hub-head h2 {
+  margin: 4px 0 5px;
+  font-family: var(--p-font-display);
+  font-size: 28px;
+}
+
+.self-hub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.self-hub-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(240px, .8fr);
+  gap: 14px;
+}
+
+.self-hub-card {
+  border: 1px solid var(--p-line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--p-bg);
+}
+
+.self-hub-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.self-hub-portrait .md-body {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.self-hub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.self-hub-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  margin: 8px 0 0;
+}
+
+.self-hub-stats div {
+  border-top: 1px solid var(--p-line);
+  padding-top: 7px;
+}
+
+.self-hub-stats dt {
+  color: var(--p-ink-faint);
+  font-size: 11px;
+}
+
+.self-hub-stats dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.self-hub-observations {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.self-hub-observations li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--p-line);
+  font-size: 13px;
+}
+
+.self-hub-cards { margin-top: 14px; }
+
+.memory-card {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--p-line);
+  border-left: 3px solid var(--p-pillar-self);
+  border-radius: 12px;
+  background: var(--p-surface);
+}
+
+.memory-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.memory-card-head h4 {
+  margin: 3px 0 5px;
+  font-size: 15px;
+}
+
+.memory-card .md-body {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.memory-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.self-hub-loading,
+.self-hub-error {
+  padding: 18px;
+  color: var(--p-ink-faint);
+  text-align: center;
+}
+
+.memory-event-meta {
+  grid-template-columns: minmax(140px, .5fr) minmax(220px, 1.5fr);
+}
+
+.memory-event-text-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 22px 4px;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.memory-event-text-label textarea {
+  min-height: 120px;
+  border: 1px solid var(--p-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--p-bg);
+  color: var(--p-ink);
+  font: inherit;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .self-hub-head { flex-direction: column; }
+  .self-hub-actions { justify-content: flex-start; }
+  .self-hub-grid { grid-template-columns: 1fr; }
+}
+
+/* ── v1.0 P4：生活运营 AI 卡片 ─────────────────────────────── */
+
+.ops-ai-slot { margin: 0 0 16px; }
+
+.ops-ai-card {
+  border: 1px solid var(--p-line);
+  border-left: 3px solid var(--p-pillar-ops);
+  border-radius: 16px;
+  padding: 16px 18px;
+  background:
+    radial-gradient(circle at 0% 0%, var(--p-pillar-ops-soft), transparent 45%),
+    var(--p-surface);
+}
+
+.ops-ai-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ops-ai-head h3 {
+  margin: 4px 0 5px;
+  font-family: var(--p-font-display);
+  font-size: 22px;
+}
+
+.ops-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.ops-ai-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ops-ai-domain {
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--p-bg);
+}
+
+.ops-ai-stat {
+  margin: 4px 0;
+  font-weight: 700;
+}
+
+.ops-ai-reports {
+  margin-top: 12px;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+}
+
+.ops-ai-reports ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ops-ai-reports li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.ops-ai-result { margin-top: 12px; }
+
+.ops-ai-output {
+  border-top: 1px solid var(--p-line);
+  padding-top: 10px;
+}
+
+.ops-ai-output .md-body,
+.ops-ai-output > .field-help {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ops-ai-proposals { margin-top: 10px; }
+
+@media (max-width: 1000px) {
+  .ops-ai-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .ops-ai-head { flex-direction: column; }
+  .ops-ai-actions { justify-content: flex-start; }
+  .ops-ai-grid { grid-template-columns: 1fr; }
+}

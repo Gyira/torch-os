@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
@@ -47,6 +47,9 @@ const IMPORTS = {
   "./archive-markup.js": ["archiveMarkup"],
   "./journal-model.js": ["shanghaiDay"],
   "./journal-ritual.js": ["openJournalReview"],
+  "./note-editor.js": ["initNoteEditor", "openNoteEditor"],
+  "./share-link.js": ["initShareLink", "openShareLinkDialog"],
+  "./ops-ai.js": ["initOpsAI", "loadOpsAI"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],
 };
 

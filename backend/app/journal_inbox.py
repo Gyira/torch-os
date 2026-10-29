@@ -44,9 +44,14 @@ REFLECTION_MARKS = (
 INSIGHT_MARKS = (
     "明白", "原来", "意识到", "学到", "想通", "体会", "感悟", "懂了", "搞懂", "看清",
 )
-KIND_LABELS = {"diary": "日记", "reflection": "反思", "insight": "心得"}
-KIND_CHAPTER = {"reflection": "reflection", "insight": "insight_life"}
-KIND_TYPE = {"reflection": "reflection", "insight": "insight"}
+# v1.0 随笔：不是日记流水，也不是反思结论，更像一段观察/联想/情绪的白描。
+ESSAY_MARKS = (
+    "忽然", "想起", "好像", "也许", "有时候", "不知为何", "总觉得", "看着",
+    "窗", "路上", "夜里", "一个人", "安静", "恍惚", "假如", "倘若",
+)
+KIND_LABELS = {"diary": "日记", "reflection": "反思", "insight": "心得", "essay": "随笔"}
+KIND_CHAPTER = {"reflection": "reflection", "insight": "insight_life", "essay": "essay"}
+KIND_TYPE = {"reflection": "reflection", "insight": "insight", "essay": "essay"}
 
 
 def shanghai_today() -> date:
@@ -70,8 +75,9 @@ def _score(unit: str) -> tuple[str, list[str]]:
         "diary": [mark for mark in DIARY_MARKS if mark in unit],
         "reflection": [mark for mark in REFLECTION_MARKS if mark in unit],
         "insight": [mark for mark in INSIGHT_MARKS if mark in unit],
+        "essay": [mark for mark in ESSAY_MARKS if mark in unit],
     }
-    order = {"reflection": 3, "insight": 2, "diary": 1}
+    order = {"reflection": 3, "insight": 2, "essay": 1.5, "diary": 1}
     best = max(marks, key=lambda kind: (len(marks[kind]), order[kind]))
     return (best, marks[best]) if marks[best] else ("", [])
 

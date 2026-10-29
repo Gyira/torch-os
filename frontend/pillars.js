@@ -1,20 +1,41 @@
-﻿// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
+// 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
 // 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
 // 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
 import { $, api, escapeHtml, formatRelativeDate, state as appState, toast } from "./core.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
+import { initOpsAI, loadOpsAI } from "./ops-ai.js";
 import { openSteward } from "./pillar-steward.js";
-import { identityInboxMarkup } from "./identity-inbox.js";
 import { archiveMarkup } from "./archive-markup.js";
 import { shanghaiDay } from "./journal-model.js";
 import { openJournalReview } from "./journal-ritual.js";
+import { initNoteEditor, openNoteEditor } from "./note-editor.js";
+import { initShareLink, openShareLinkDialog } from "./share-link.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
 } from "./task-open.js";
 
 const GOAL_CHAPTERS = new Set(["goal_year", "goal_quarter", "goal_month"]);
+
+// 与 backend/app/note_editor.py 的允许清单保持一致；这里只决定“是否显示编辑按钮”，
+// 真正写入仍由后端再校验一次。
+const WRITABLE_LIFE_CHAPTERS = new Set([
+  "reflection", "insight_life", "insight_work", "insight_study",
+  "review_week", "review_month", "goal_year", "goal_quarter", "goal_month",
+  "project_plan", "work_review_project", "work_review_meeting",
+  "work_review_pitfall", "essay",
+]);
+const WRITABLE_KNOWLEDGE_CHAPTERS = new Set([
+  "inbox", "topic", "reading", "course", "concept",
+  "method_work", "method_general", "output",
+]);
+
+function canWriteChapter(view, chapter) {
+  if (view === "life") return WRITABLE_LIFE_CHAPTERS.has(chapter);
+  if (view === "knowledge") return WRITABLE_KNOWLEDGE_CHAPTERS.has(chapter);
+  return false;
+}
 
 const PILLAR_META = {
   life: {
@@ -271,6 +292,7 @@ function readerMarkup(view, reading, railItems) {
   const backlinks = Array.isArray(reading.backlinks) ? reading.backlinks : [];
   const linkedTasks = Array.isArray(reading.linkedTasks) ? reading.linkedTasks : [];
   const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
+  const canWrite = canWriteChapter(view, note.chapter);
   const date = !journalLabel && note.date
     ? ` · ${escapeHtml(formatRelativeDate(note.date))}`
     : "";
@@ -305,7 +327,8 @@ function readerMarkup(view, reading, railItems) {
           <button type="button" class="pillar-reader-back" data-reader-back="${view}"><span aria-hidden="true">←</span> 返回列表</button>
           <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(chapterTitle(view, note.chapter))}</p>
           <div class="pillar-reader-actions">
-            <button type="button" class="button primary" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
+            ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">编辑</button>` : ""}
+            <button type="button" class="${canWrite ? "small-button" : "button primary"}" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
             <button type="button" class="small-button" data-reader-copy-wikilink="${view}" title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
             <button type="button" class="small-button" data-reader-copy-path="${view}">复制路径</button>
           </div>
@@ -322,8 +345,9 @@ function readerMarkup(view, reading, railItems) {
             ${linkedSection}
             ${backlinksSection}
             <footer class="pillar-reader-foot">
-              <p class="field-help">这是只读阅读视图；正文、标签和所在章节都在 Obsidian 里改。</p>
-              <button type="button" class="button primary" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
+              <p class="field-help">${canWrite ? "这篇可以应用内编辑；也可以随时回 Obsidian 改，保存时会用 revision 防止互相覆盖。" : "这是只读阅读视图；正文、标签和所在章节都在 Obsidian 里改。"}</p>
+              ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">应用内编辑</button>` : ""}
+              <button type="button" class="${canWrite ? "small-button" : "button primary"}" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
             </footer>
           </article>
           ${tocMarkup}
@@ -368,11 +392,18 @@ function renderShell(view) {
         <label class="pillar-search"><span class="sr-only">搜索${escapeHtml(meta.title)}</span>
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
+        ${view === "knowledge" ? `<button type="button" class="button secondary" data-share-link title="DeepSeek 问答：外链打开，分享链接取回归档">问答</button>` : ""}
         <button type="button" class="button secondary" data-steward-open="${view}" title="提案与健康检查（只读）">管家</button>
-        <button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>
+        ${view === "life" || view === "knowledge"
+          ? `<button type="button" class="button primary" data-editor-new="${view}" title="应用内写一条（Markdown 工具栏+预览）" aria-keyshortcuts="N">＋ 写一条</button>
+             <button type="button" class="text-button" data-pillar-new="${view}" title="在 Obsidian 新建笔记">Obsidian</button>`
+          : `<button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>`}
       </div>
     </header>`;
   const reading = state.reading[view];
+  // 自我档案的忆灵面板只在列表/总览显示；进入阅读器时让出整页空间。
+  const selfHub = document.getElementById("self-hub");
+  if (selfHub) selfHub.hidden = view === "self" && Boolean(reading);
   // 阅读视图单独放宽容器：列表/总览 1680，文章阅读用更宽的 1840。
   root.classList.toggle("is-reading", Boolean(reading));
   if (reading) {
@@ -390,6 +421,7 @@ function renderShell(view) {
     || (view === "ops" && (chapter === "health" || chapter === "finance") && !notes.length && !searching)
     || (view === "life" && chapter === "habit" && !notes.length && !searching);
   root.innerHTML = `${headHtml}
+    ${view === "ops" ? `<div class="ops-ai-slot" data-ops-ai></div>` : ""}
     <div class="pillar-layout">
       <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
         <button type="button" class="pillar-rail-item${chapter ? "" : " is-active"}" data-pillar-chapter="${view}" data-chapter="">总览
@@ -418,19 +450,25 @@ function renderShell(view) {
           ${notes.length ? notes.map(noteRow).join("") : `<div class="pillar-empty">
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
             <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
-            <button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter)}">＋ 在 Obsidian 新建</button>
+            ${view === "life" || view === "knowledge"
+              ? `<button type="button" class="button secondary" data-editor-new="${view}" data-new-chapter="${escapeHtml(chapter || (view === "life" ? "reflection" : "topic"))}">＋ 写一条</button>`
+              : `<button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter)}">＋ 在 Obsidian 新建</button>`}
           </div>`}
         </div>`)}
       </section>
       <aside class="pillar-aside">
         <section class="pillar-card">
-          <p class="eyebrow">在 Obsidian 写</p>
+          <p class="eyebrow">${view === "life" || view === "knowledge" ? "写一条" : "在 Obsidian 写"}</p>
           <div class="pillar-quick">
             ${meta.quick.map((item) => item.ops
               ? `<button type="button" class="pillar-quick-button" data-ops-open="${escapeHtml(item.ops)}">${escapeHtml(item.label)}</button>`
-              : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
+              : (view === "life" || view === "knowledge") && !["journal", "habit"].includes(item.chapter)
+                ? `<button type="button" class="pillar-quick-button" data-editor-new="${view}" data-new-chapter="${escapeHtml(item.chapter)}" data-new-type="${escapeHtml(item.type)}">${escapeHtml(item.label)}</button>`
+                : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
           </div>
-          <p class="field-help">这里只读；点按钮会在 Obsidian 里新建/打开对应笔记。</p>
+          <p class="field-help">${view === "life" || view === "knowledge"
+            ? "应用内可直接写允许章节；任务、习惯、日记和身份仍走各自的专用入口。"
+            : "这里只读；点按钮会在 Obsidian 里新建/打开对应笔记。"}</p>
         </section>
         ${view === "self" && overview?.identity && !archiveView ? `<section class="pillar-card pillar-identity-card">
           <p class="eyebrow">身份卡</p>
@@ -439,13 +477,13 @@ function renderShell(view) {
           ${overview.identity.worldview ? `<p class="field-help">三观：${escapeHtml(overview.identity.worldview.slice(0, 90))}</p>` : ""}
           <button type="button" class="text-button" data-open-identity="${escapeHtml(overview.identity.path || "")}">${overview.identity.exists ? "在 Obsidian 打开身份卡" : "去写身份卡"}</button>
         </section>` : ""}
-        ${view === "self" ? identityInboxMarkup(overview?.drafts || []) : ""}
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
           <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
             <button type="button" class="pillar-quick-button" data-journal-review>今晚复盘（8 分钟）</button>
+            <button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="reflection">随手写一条</button>
             <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">打开本月复盘</button>
           </div>
@@ -459,19 +497,27 @@ function renderShell(view) {
           </div>
           <p class="field-help">近 7 天写了 ${week.filter((day) => day.exists).length} 天；点有记录的日期打开当天日记。</p>
         </section>` : ""}
+        ${view === "knowledge" ? `<section class="pillar-card">
+          <p class="eyebrow">DeepSeek 问答</p>
+          <p class="field-help">在浏览器问完，复制公开分享链接回来；可归档成 md，或让学术导师整理成提案。</p>
+          <button type="button" class="pillar-quick-button" data-share-link>打开问答 / 归档分享</button>
+        </section>` : ""}
         ${view === "knowledge" && overview ? `<section class="pillar-card">
           <p class="eyebrow">收件箱</p>
           <p class="pillar-stat">${overview.inbox_count ?? 0} 条待分流</p>
-          <button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="inbox">去看看（只读）</button>
+          <button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="inbox">去看看</button>
         </section>` : ""}
         <section class="pillar-card pillar-card-quiet">
           <p class="eyebrow">说明</p>
-          <p class="field-help">${escapeHtml(meta.subtitle)}四库在这里只读浏览；新建与修改都在 Obsidian 里完成，插件只负责跳过去。</p>
+          <p class="field-help">${escapeHtml(meta.subtitle)}${view === "life" || view === "knowledge"
+            ? "允许章节可在应用内写（保存用 revision 防覆盖）；日记、任务、习惯、身份和生活运营仍走各自入口。"
+            : "这里只读浏览；新建与修改都在 Obsidian 里完成。"}</p>
         </section>
       </aside>
     </div>`;
   if (view === "ops") {
     mountOps(view).catch((error) => toast(error.message, "error"));
+    loadOpsAI();
   }
   if (view === "knowledge" && chapter === "inbox") {
     mountInboxSuggestions().catch((error) => toast(error.message, "error"));
@@ -620,6 +666,31 @@ function bindPillarEvents() {
       openOpsTable(opsQuick.dataset.opsOpen);
       return;
     }
+    const editorNew = event.target.closest?.("[data-editor-new]");
+    if (editorNew) {
+      openNoteEditor({
+        context: editorNew.dataset.editorNew || appState.view,
+        chapter: editorNew.dataset.newChapter || "",
+        title: "",
+        body: "",
+      }).catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
+      return;
+    }
+    const editorEdit = event.target.closest?.("[data-editor-edit]");
+    if (editorEdit) {
+      const view = editorEdit.dataset.editorEdit || appState.view;
+      const reading = state.reading[view];
+      if (reading?.note) {
+        openNoteEditor({ note: reading.note })
+          .catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
+      }
+      return;
+    }
+    const shareLink = event.target.closest?.("[data-share-link]");
+    if (shareLink) {
+      openShareLinkDialog();
+      return;
+    }
     const create = event.target.closest?.("[data-pillar-new]");
     if (create) {
       openNewNote(create.dataset.pillarNew,
@@ -669,34 +740,6 @@ function bindPillarEvents() {
         await openReview(review.dataset.review);
       } finally {
         review.disabled = false;
-      }
-      return;
-    }
-    const draftAccept = event.target.closest?.("[data-identity-draft-accept]");
-    if (draftAccept) {
-      const name = draftAccept.dataset.identityDraftAccept;
-      draftAccept.disabled = true;
-      try {
-        const result = await api(`/api/identity/drafts/${encodeURIComponent(name)}/accept`, { method: "POST" });
-        toast(result.target === "identity" ? `已写进身份卡：${result.field_label || ""}` : "已写进 02_记忆与自传。", "success");
-        await loadPillarModule("self");
-      } catch (error) {
-        toast(error.message, "error");
-        draftAccept.disabled = false;
-      }
-      return;
-    }
-    const draftReject = event.target.closest?.("[data-identity-draft-reject]");
-    if (draftReject) {
-      const name = draftReject.dataset.identityDraftReject;
-      draftReject.disabled = true;
-      try {
-        await api(`/api/identity/drafts/${encodeURIComponent(name)}/reject`, { method: "POST" });
-        toast("已丢弃；四库没有改动。", "info");
-        await loadPillarModule("self");
-      } catch (error) {
-        toast(error.message, "error");
-        draftReject.disabled = false;
       }
       return;
     }
@@ -1010,6 +1053,17 @@ export function initPillars() {
   bindPillarEvents();
   bindOpsEvents();
   bindHabitEvents();
+  initNoteEditor();
+  initShareLink();
+  initOpsAI();
+  // 编辑器保存/分享归档后，当前库的列表要刷新；阅读中不打断。
+  document.addEventListener("torch:notes-changed", (event) => {
+    const view = event.detail?.pillar || appState.view;
+    if ((view === "life" || view === "knowledge")
+        && appState.view === view && !state.reading[view]) {
+      loadPillarModule(view);
+    }
+  });
 }
 
 export async function loadPillarModule(view) {

@@ -1,4 +1,4 @@
-# 薪火OS 数据手册（0.99）
+# 薪火OS 数据手册（1.0）
 
 这份手册描述当前运行中的 SQLite 结构，以及备份、导出、恢复与「什么会离开本机」的边界。
 它由 `GET /api/schema.json` / `GET /api/schema.md` 的实际结构校验，测试会阻止手册与运行库漂移。
@@ -46,6 +46,9 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 
 | 表 | 分组 |
 |---|---|
+| `ai_proposals` | 建议与提醒 |
+| `ai_threads` | 对话 |
+| `ai_turns` | 对话 |
 | `audit_events` | 系统 |
 | `bazi_profiles` | 个人参考 |
 | `conversations` | 对话 |
@@ -66,6 +69,8 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 | `memory_deletions` | 资料与记忆 |
 | `memory_embeddings` | 资料与记忆 |
 | `memory_events` | 资料与记忆 |
+| `memory_hub_events` | 资料与记忆 |
+| `memory_hub_runs` | 资料与记忆 |
 | `memory_usages` | 资料与记忆 |
 | `messages` | 对话 |
 | `scheduler_settings` | 每日记录 |
@@ -79,10 +84,14 @@ localStorage 只是当前窗口缓存：`frontend/personal-data.js` 在启动时
 ## 各表用途（不包含正文）
 
 - 资料与记忆：`documents` 是 Vault 文件索引；`memories` 是人工确认/候选/归档的记忆；
-  `memory_events`、`memory_deletions`、`memory_usages` 记录变更、删除墓碑与引用。
+  `memory_events`、`memory_deletions`、`memory_usages` 记录变更、删除墓碑与引用；
+  `memory_hub_events` 收集角色投递的“值得记住的事”，`memory_hub_runs` 记录每次忆灵综合。
   `memory_embeddings` 是旧向量缓存（deprecated，无读写，不自动删除）。
 - 对话：`conversations`、`messages` 保留历史对话导出数据；`harness_sessions` 是旧 ACP
-  会话引用（deprecated，无写入方）。新的 AI 会话由 DeepSeek Harness 自己管理。
+  会话引用（deprecated，无写入方）。`ai_threads`/`ai_turns` 是 v1.0 角色抽屉的会话与轮次；
+  「与神对话」主对话仍由 DeepSeek Harness 自己管理。
+- 建议与提醒：`suggestions` 是旧提醒表；`ai_proposals` 是 AI 角色提出的待确认动作
+  （身份补丁/新笔记/新任务/新习惯），只有用户采纳后才会落盘。
 - 目标与任务：`goals`、`tasks`、`task_import_ledger` 是旧 SQLite 结构（deprecated，无写入方）；
   目标和任务以 Markdown 为权威，任务导入用任务笔记的稳定导入键去重。
 - 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，

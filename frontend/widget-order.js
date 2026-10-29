@@ -265,3 +265,57 @@ export function dropAfterTarget(rect, clientY) {
   if (!rect) return false;
   return Number(clientY) > Number(rect.top) + Number(rect.height) / 2;
 }
+
+// ── v1.0 P1：小组件显隐 ─────────────────────────────────────────────
+// 显隐单独存一个 key，避免改动已验证的 {left,right} 布局协议；同样经过
+// personal-data.js 镜像到当前库的 .torch-os/personal-data.json。
+const HIDDEN_KEY = "torch-os:workbench-widget-hidden";
+
+export function readStoredWidgetHidden() {
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function storeWidgetHidden(hidden) {
+  try {
+    window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(new Set(hidden || []))));
+  } catch { /* 隐私模式：本次页面内仍生效 */ }
+}
+
+export function clearWidgetHidden() {
+  try { window.localStorage.removeItem(HIDDEN_KEY); } catch { /* ignore */ }
+}
+
+/** 只保留认识的组件 key；没存过 = 全部显示。 */
+export function resolveWidgetHidden(stored, known = WIDGET_ORDER_DEFAULT) {
+  const knownSet = new Set(Array.isArray(known) ? known : WIDGET_ORDER_DEFAULT);
+  const result = [];
+  for (const key of Array.isArray(stored) ? stored : []) {
+    const value = String(key || "").trim();
+    if (knownSet.has(value) && !result.includes(value)) result.push(value);
+  }
+  return result;
+}
+
+export function isWidgetHidden(key, hidden = []) {
+  return resolveWidgetHidden(hidden).includes(String(key || ""));
+}
+
+/** 把 hidden 数组应用到两栏的 data-widget 节点；隐藏节点仍在 DOM 里，便于设置页恢复。 */
+export function applyWidgetVisibility(columns, hidden) {
+  const keys = new Set(resolveWidgetHidden(hidden));
+  for (const container of [columns?.left, columns?.right]) {
+    for (const child of Array.from(container?.children || [])) {
+      const key = String(child?.dataset?.widget || "").trim();
+      if (!key) continue;
+      child.hidden = keys.has(key);
+    }
+  }
+  return Array.from(keys);
+}

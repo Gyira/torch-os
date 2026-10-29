@@ -1,6 +1,7 @@
 import { $, state, api, escapeHtml, renderState, formatDate, setStatus, toast } from "./core.js";
 import { NAV_LABELS, applyNavOrder, clearOrder, currentNavOrder, moveItem, storeOrder } from "./nav-order.js";
 import { initVaultMigration, loadVaultMigration } from "./vault-migration.js";
+import { initWidgetSettings, loadWidgetSettings } from "./widget-settings.js";
 
 let loadId = 0;
 let backupLoadId = 0;
@@ -148,6 +149,7 @@ function showSettingsSection(name, { focus = true } = {}) {
   }
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
+  if (currentSettingsSection === "widgets") loadWidgetSettings();
 }
 
 // The last user action stays visible: a background refresh redraws the list and
@@ -351,6 +353,7 @@ async function runBackup(filename = null) {
 
 export function initSettings() {
   initVaultMigration();
+  initWidgetSettings();
   $("#refresh-settings").addEventListener("click", loadSettings);
   $("#create-backup").addEventListener("click", () => runBackup());
   $("#run-diagnostics")?.addEventListener("click", runDiagnostics);

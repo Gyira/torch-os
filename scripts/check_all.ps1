@@ -3,6 +3,10 @@
 # It never touches personal data and never calls a model.
 
 $ErrorActionPreference = 'Stop'
+# 仓库脚本与测试默认 UTF-8（Windows 上尤其重要）：让 check_all 自己设置，
+# 避免从不同代码页的终端直接运行时子进程输出乱码导致误报。
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $failures = New-Object System.Collections.Generic.List[string]
 

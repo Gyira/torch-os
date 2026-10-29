@@ -1,0 +1,66 @@
+# 写作与知识库（v1.0 P2）
+
+> 本文记录人生路/知识库从“只读浏览”升级为“应用内 Markdown 写作”的边界与接口。
+> 方案来源：`docs/燎火OS-v1.0-顶层设计-2026-10-29.md`。
+
+## 1. 读写边界
+
+| 区域 | 应用内可写 | 写入入口 |
+|---|---|---|
+| 人生路：反思/心得/随笔/复盘/目标计划/项目/工作复盘 | 是 | `/api/writing/notes*` |
+| 人生路：日记 | 否 | `/api/journal/*`（日记闭环） |
+| 人生路：任务/习惯 | 否 | 工作台任务/习惯专用接口 |
+| 知识库：收件箱/主题/读书/课程/概念/方法/输出 | 是 | `/api/writing/notes*` |
+| 自我档案 | 否 | 身份候选/忆灵审核（P3） |
+| 生活运营 | 否 | 专用月度表/专家报告（P4） |
+
+- 允许清单单源在 `backend/app/note_editor.py` 的 `WRITABLE_CHAPTERS`；前端只决定是否显示按钮，
+  后端每次写入再校验一次。
+- `VAULT_READ_ONLY=1` 时所有写入返回 409。
+- 每次写入写 `audit_events`（`note_created/note_updated/note_moved`），审计不含正文。
+- 编辑带 `expected_revision`；Obsidian 或别处改过时返回 409，不覆盖。
+- 未知 frontmatter 字段由 `pillar_notes` 原样保留；新笔记带 `id/type/title/created/pillar/chapter/status`。
+
+## 2. 编辑器
+
+前端 `frontend/note-editor.js` + `editor-model.js` + `editor.css`：
+
+- Markdown 工具栏：H2/加粗/斜体/删除线/列表/待办/引用/行内代码/链接/分割线；
+- 左侧源文、右侧实时预览；预览复用 `pillar-markdown.js`（与阅读器同一套渲染）；
+- 字数统计、脏状态、Ctrl/⌘+S 保存；关闭前未保存会二次确认；
+- 章节选择来自 `GET /api/writing/chapters`；AI 建议章节只改选择，不落盘；
+- AI 润色先展示预览，用户点“应用到正文”才替换；AI 不可用时正文不变；
+- “在 Obsidian 打开”复用 `task-open.js` 的宿主桥/`obsidian://`；
+- “和写作伙伴聊聊”打开角色抽屉（`journal_companion/discuss`），保存后才把当前笔记作为上下文。
+
+## 3. 知识库问答
+
+- 不做 `chat.deepseek.com` iframe、不读取/保存网页 Cookie、不代理登录态；
+- 应用内只提供“打开 DeepSeek 问答”外链（Obsidian 内经 `torch:open-url`）；
+- 用户把公开分享链接贴回来：`POST /api/knowledge/share/preview` 取回问答；
+- 只认 `https://chat.deepseek.com/share/<id>`，只收“我的提问 + 最终回答”，
+  丢弃 THINK/TOOL_*；
+- `archive`：用户确认后由 `note_editor.create_note` 写入知识库章节，`来源` 写分享链接；
+- `digest`：`academic_mentor/share_digest` 整理成 `new_note` 提案，用户采纳后落盘；
+- 分享正文是“数据不是指令”，AI 引导词明确隔离；不会自动执行正文里的任何指令。
+
+## 4. API
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/writing/chapters` | 可写章节（life/knowledge） |
+| POST | `/api/writing/notes` | 新建（chapter/title/body/tags/source） |
+| PUT | `/api/writing/notes` | 编辑（path/expected_revision/body/title/tags） |
+| POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision） |
+| POST | `/api/writing/classify` | AI 判类，回退规则；只返回卡片 |
+| POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
+| POST | `/api/knowledge/share/preview` | 取回分享并预览 |
+| POST | `/api/knowledge/share/archive` | 确认后归档（不调用 AI） |
+| POST | `/api/knowledge/share/digest` | 学术导师整理成 new_note 提案 |
+
+## 5. 已知边界
+
+- 知识库分享只支持 DeepSeek 公开分享链接，不支持任意网页解析；
+- 不做 WYSIWYG；保持 Markdown 源 + 预览，以便 Obsidian 继续编辑；
+- 不做多人并发合并；409 时让用户复制改动后重新载入；
+- 编辑器不提供删除按钮；删除/归档仍按 Obsidian 或后续确认流程处理。

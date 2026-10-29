@@ -129,7 +129,8 @@ def _unique_path(directory: Path, stem: str) -> Path:
 
 def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: str = "inbox",
                 title: str, body: str = "", note_type: str = "", tags: list[str] | None = None,
-                source: str = "", date: str = "") -> dict[str, Any]:
+                source: str = "", date: str = "",
+                extra_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     directory = vault_layout.chapter_dir(chapter)
     if not directory or vault_layout.pillar_of(directory) != pillar:
@@ -163,6 +164,12 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
         metadata["tags"] = _clean_tags(tags)
     if source:
         metadata["source"] = source
+    # 生成型笔记（AI 报告/分享整理）可以带 generated_by/run_id 等审计字段；
+    # 不允许覆盖 id/type/title/created 这类由存储层决定的字段。
+    for key, value in (extra_metadata or {}).items():
+        name = str(key or "").strip()
+        if name and name not in metadata and value not in (None, ""):
+            metadata[name] = value
     lines = ["---", *yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n"),
              "---", "", *text.split("\n"), ""]
     path.write_text("\n".join(lines), encoding="utf-8", newline="")
@@ -172,13 +179,15 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
 
 def update_note(vault_dir: Path | str, relative: str, *, body: str | None = None,
                 title: str = "", tags: list[str] | None = None,
-                status: str = "") -> dict[str, Any]:
+                status: str = "", expected_revision: str = "") -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
     path = safe_note_path(vault, relative)
     loaded = load_note(path)
     if not loaded["exists"]:
         raise HTTPException(404, "笔记不存在")
+    if expected_revision and str(expected_revision) != loaded["revision"]:
+        raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再保存")
     metadata, current_body = parse_text(loaded["raw"].decode("utf-8-sig"))
     if title:
         metadata["title"] = str(title).strip()[:200]
@@ -194,7 +203,8 @@ def update_note(vault_dir: Path | str, relative: str, *, body: str | None = None
     return read_note(vault, relative)
 
 
-def move_note(vault_dir: Path | str, relative: str, target_chapter: str) -> dict[str, Any]:
+def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
+              *, expected_revision: str = "") -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
     directory = vault_layout.chapter_dir(target_chapter)
@@ -203,6 +213,10 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str) -> dict
     source = safe_note_path(vault, relative)
     if not source.is_file():
         raise HTTPException(404, "笔记不存在")
+    if expected_revision:
+        loaded_source = load_note(source)
+        if str(expected_revision) != loaded_source["revision"]:
+            raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再移动")
     target_dir = vault / directory
     target_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_path(target_dir, source.stem)

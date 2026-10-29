@@ -72,7 +72,8 @@ function openNewCapture() {
     return true;
   }
   if (["life", "self", "ops", "knowledge"].includes(state.view)) {
-    const target = document.querySelector(`#${state.view}-view [data-pillar-new]`);
+    const target = document.querySelector(
+      `#${state.view}-view [data-editor-new], #${state.view}-view [data-pillar-new]`);
     if (!target) return false;
     target.click();
     return true;

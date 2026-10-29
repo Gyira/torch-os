@@ -55,6 +55,8 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("work_review_project", "life", "项目复盘", "00_人生路/05_项目/02_项目复盘", "reflection"),
     ("work_review_meeting", "life", "会议收获", "00_人生路/07_工作复盘/02_会议收获", "insight"),
     ("work_review_pitfall", "life", "踩坑记录", "00_人生路/07_工作复盘/03_踩坑记录", "insight"),
+    # v1.0 写作优先：随笔单独成章；任务/习惯仍在人生路，由工作台专用接口管理。
+    ("essay", "life", "随笔", "00_人生路/09_随笔", "essay"),
     # 01_自我档案
     ("core_values", "self", "内核与三观", "01_自我档案/01_内核与三观", "value"),
     ("memory", "self", "记忆与自传", "01_自我档案/02_记忆与自传", "memory"),
@@ -65,6 +67,8 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("distill_career", "self", "职业原则", "01_自我档案/06_沉淀与创作/02_职业原则", "principle"),
     # 命理参考：个人命盘与长期自省用，独立成一个侧边栏分区
     ("bazi", "self", "我的八字参考", "01_自我档案/07_我的八字参考", "bazi"),
+    # v1.0 忆灵观察：AI 画像快照与观察报告，只追加不覆盖；memory: false，避免再次进入候选池。
+    ("yiling", "self", "忆灵观察", "01_自我档案/08_忆灵观察", "observation"),
     # 02_生活运营
     ("health", "ops", "健康与体重", "02_生活运营/01_健康与体重", "health_month"),
     ("finance", "ops", "财富与记账", "02_生活运营/02_财富与记账", "finance_month"),
@@ -72,6 +76,11 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("affairs", "ops", "证件与事务", "02_生活运营/04_证件与事务", "document"),
     # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
     ("love_memory", "ops", "情感与记忆", "02_生活运营/05_情感与记忆", "memory"),
+    # v1.0 生活运营 AI 报告：专家角色生成的可读产物，落数据层；家庭是占位章节。
+    ("health_report", "ops", "健康报告", "02_生活运营/06_健康报告", "report"),
+    ("finance_report", "ops", "财务报告", "02_生活运营/07_财务报告", "report"),
+    ("life_advice", "ops", "生活建议", "02_生活运营/08_生活建议", "advice"),
+    ("family", "ops", "家庭与智能家居", "02_生活运营/09_家庭与智能家居", "family"),
     # 03_知识库
     ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
     ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),

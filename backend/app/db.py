@@ -96,6 +96,83 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+-- v1.0 AI 角色层：一个角色会话 = 一个 dsh session；对话正文属于过程数据，放 SQLite。
+CREATE TABLE IF NOT EXISTS ai_threads (
+    id TEXT PRIMARY KEY,
+    role_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    dsh_session_id TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_threads_updated ON ai_threads(updated_at DESC);
+CREATE TABLE IF NOT EXISTS ai_turns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,
+    turn_index INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    proposals_json TEXT NOT NULL DEFAULT '[]',
+    structured_json TEXT NOT NULL DEFAULT '{}',
+    seconds REAL,
+    created_at TEXT NOT NULL,
+    UNIQUE(thread_id, turn_index),
+    FOREIGN KEY(thread_id) REFERENCES ai_threads(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_turns_thread ON ai_turns(thread_id, turn_index);
+-- v1.0 通用提案：AI 只提议，用户确认后由后端 apply；身份补丁额外带 verdict_token。
+CREATE TABLE IF NOT EXISTS ai_proposals (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    role_id TEXT NOT NULL DEFAULT '',
+    thread_id TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL,
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    base_revision TEXT NOT NULL DEFAULT '',
+    verdict_json TEXT NOT NULL DEFAULT '{}',
+    verdict_token TEXT NOT NULL DEFAULT '',
+    dedupe_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_proposals_kind ON ai_proposals(kind, status);
+-- v1.0 记忆中枢：角色/主 dsh/用户投递的“值得记住的事”，以及每次综合的运行记录。
+CREATE TABLE IF NOT EXISTS memory_hub_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    source_ref TEXT NOT NULL DEFAULT '',
+    source_kind TEXT NOT NULL DEFAULT '',
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    dedupe_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_memory_hub_events_status ON memory_hub_events(status, created_at DESC);
+CREATE TABLE IF NOT EXISTS memory_hub_runs (
+    id TEXT PRIMARY KEY,
+    trigger TEXT NOT NULL,
+    range_days INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    card_count INTEGER NOT NULL DEFAULT 0,
+    snapshot_path TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_memory_hub_runs_started ON memory_hub_runs(started_at DESC);
 -- Deprecated (2026-10-25): old vector cache; lexical retrieval only, no writers.
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     memory_id INTEGER PRIMARY KEY,
@@ -326,6 +403,14 @@ class Database:
             connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, ?)', (utc_now(),))
             # 5: memory_deletions (hard-deleted memories stay deleted across re-extraction).
             connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (5, ?)', (utc_now(),))
+            # 6: AI role threads/turns (v1.0 role layer).
+            connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (6, ?)', (utc_now(),))
+            # 7: AI proposals (identity_patch/new_note/new_task/new_habit/…).
+            connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (7, ?)', (utc_now(),))
+            # 8: memory hub events (what roles tell 忆灵).
+            connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (8, ?)', (utc_now(),))
+            # 9: memory hub synthesis runs.
+            connection.execute('INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (9, ?)', (utc_now(),))
 
     def audit(self, event_type: str, detail: dict[str, Any] | None = None) -> None:
         with self.connect() as connection:

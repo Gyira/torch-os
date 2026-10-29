@@ -125,7 +125,7 @@ def facts(database: Database, vault_dir: Path | str, limit: int = 50) -> list[di
             "kind": "fact",
             "id": f"identity:{draft['name']}",
             "title": draft["text"],
-            "preview": f"写进 {target}",
+            "preview": f"交给忆灵复核：{target}",
             "lines": [f"原话：{draft['evidence']}"] if draft["evidence"] else [],
             "source": "身份候选 · dsh 对话",
             "created": draft["created"],

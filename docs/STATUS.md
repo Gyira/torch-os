@@ -1,4 +1,4 @@
-# 当前状态与交接（2026-10-27）
+# 当前状态与交接（2026-10-29）
 
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
@@ -6,21 +6,22 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`3c7094a`（`feat(train-tracker): 独立列车追踪新组件及排班表功能`，以 `git log -1` 为准）
-- 工作树：微信同步、每日记忆、ChatLab 文件兜底与新章节未提交（2026-10-27，以 `git status` 为准）；
-  列车追踪/值班日历已提交（`3c7094a`）。工作树里另有一组不是本次改动的 dsh/mentor 文件
-  （`docs/MENTOR.md`、`dsh/skills/`、`scripts/session_brief.py` 等），本次未修改、未回退。
-- 布局版本：**`pillars-v2`**（2026-10-26 起；新增 `02_生活运营/05_情感与记忆` 与
-  `01_自我档案/07_我的八字参考` 后共 37 章，仍是增量添加，旧路径不变）
-- 后端：**807 passed / 1 skipped / 0 failed**（2026-10-27 全量，356.25 秒；5 个既有 QA 编码警告；
-  新增 `tests/test_weflow.py` 17 项、`tests/test_love_memory.py` 7 项）
-- 前端：**286 passed**（2026-10-27 本次改动完成后实跑；`frontend/tests/love.test.mjs` 新增
-  微信同步/每日记忆静态契约与响应式样式用例）。之后并行的 identity-inbox 改动让全量前端出现
-  1 个模块映射失败（`pillars.js` 新增 `./identity-inbox.js` 未登记），love/widget 相关 16 项
-  仍通过；这不是本次微信同步改动。
-- `scripts/check_all.ps1`：**2026-10-25 exit 0**；本轮未重跑全量脚本，后端/前端按上面分别实跑
-- 能力标记：**46**（新增 `weflow_sync`、`love_memory`）；用户表：**25 张**（其中多张 deprecated）；
-  MCP 只读工具：**12 个**
+- 代码基线：`bd99da9`（`docs(handoff): 更新换机交接与运行模式说明（2026-10-28修订）`，以 `git log -1` 为准）
+- 工作树：v1.0 P0–P4 未提交（AI 角色层/上下文/提案/新表/6 个新章节/角色抽屉/小组件显隐/
+  应用内 Markdown 编辑器/知识库分享链接/忆灵画像与身份补丁/生活运营 AI 报告/版本 1.0.0/文档）；
+  以 `git status` 为准。
+- 布局版本：**`pillars-v2`**（v1.0 P0 增量新增 6 章：`00_人生路/09_随笔`、
+  `01_自我档案/08_忆灵观察`、`02_生活运营/06_健康报告`、`07_财务报告`、`08_生活建议`、
+  `09_家庭与智能家居`；共 43 章，旧路径不变，不做迁移）
+- 后端：**985 passed / 1 skipped / 0 failed**（2026-10-29 P0–P3 全量，522.69 秒；含
+  AI 角色/上下文/提案 37 项、写作/分享 10 项、忆灵/事件 7 项）
+- 前端：**378 passed**（2026-10-29 实跑，含角色抽屉/提案/小组件显隐 13 项、编辑器模型 8 项、
+  忆灵面板契约 3 项）
+- `scripts/check_all.ps1`：**2026-10-29 exit 0**（Python 985 / 前端 378 / 文本完整性 / 模块面 /
+  JS 语法 / compileall / pip check 全部通过；脚本已自设 UTF-8）
+- 能力标记：**54**（v1.0 新增 `ai_roles`、`proposals`、`widget_visibility`、`note_editor`、
+  `share_link`、`memory_hub`、`life_assistant`、`life_reports`）；用户表：**30 张**
+  （新增 5 张 AI/记忆中枢表，其中多张 deprecated）；MCP 只读工具：**12 个**
 - 运行环境：`.env` 已指向真实 Vault（`C:\Users\<用户名>\Desktop\Torch\个人数据库`）；
   后端测试使用隔离临时目录，可在这个 `.env` 下直接跑。真实恋爱库当前 **0 个项目 / 0 条消息**，
   微信同步页已支持直接选择单聊新建项目；未在真实库执行同步，WeFlow 联调用的是临时数据库。
@@ -32,6 +33,70 @@
 
 ## 已完成
 
+- **2026-10-29 v1.0 P4：生活运营 AI 报告**：
+  - 后端 `life_reports.py`：只读健康/财务月度表、恋爱分析摘要、未完成任务；
+    `health_doctor` 报告 → `06_健康报告`，`finance_advisor` → `07_财务报告`，
+    `love_master`/`life_assistant` 建议 → `08_生活建议`；建议里的 new_task/new_habit
+    只创建待采纳提案。
+  - 前端 `ops-ai.js`：生活运营页顶部 AI 卡片（生活助理/私人医生/理财专家/恋爱大师）；
+    展示报告路径与提案卡；家庭系统“后续版本”占位。
+  - 文档：`docs/LIFE_SYSTEMS.md`；能力标记新增 `life_assistant`、`life_reports`。
+  - 测试：后端 `test_life_reports.py` 5 项；前端 `ops-ai.test.mjs` 2 项。
+- **2026-10-29 v1.0 P3：忆灵记忆中枢 + 自我档案**：
+  - 后端 `memory_hub.py`：事件去重/读取；综合（7/14/30 天）读取身份、上一版画像、日记、
+    任务、已确认记忆、新事件与旧提问队列；写 `.torch-os/忆灵/画像.json`（revision+历史）、
+    `01_自我档案/08_忆灵观察` 快照、复盘卡与身份补丁提案；事件标记 absorbed。
+  - `apply_identity_patch`：校验 `base_revision`、写前备份 `.torch-os/身份备份/`、审计不记内容；
+    忆灵补丁直接采纳，苏格拉底补丁必须带 verdict token。
+  - 工作台移除旧每日提问卡，改为忆灵常驻条；`questions.answer` 改为写记忆笔记，不再直接写身份。
+  - 前端 `memory-hub.js`/`memory-strip.js`：自我档案忆灵面板（画像/状态/待审卡/身份补丁/
+    观察）、现在整理/告诉忆灵一件事/与苏格拉底聊聊；身份补丁复用 proposal 卡片采纳。
+  - 文档：`docs/MEMORY_HUB.md`；FEATURE_MAP/DEPRECATIONS/AGENTS 同步；能力标记新增 `memory_hub`。
+  - 测试：后端 `test_memory_hub.py` 5 项；前端 `memory-hub.test.mjs` 3 项。
+- **2026-10-29 v1.0 P2：应用内写作 + 知识库分享链接**：
+  - 后端 `note_editor.py`：人生路 14 章 / 知识库 8 章的允许清单；创建/编辑/移动带
+    `expected_revision`（409 不覆盖）、审计、只读库 409；`GET /api/writing/chapters`、
+    `POST/PUT /api/writing/notes`、`/notes/move`。
+  - 后端 `share_link.py` + `knowledge_share.py`：只接受 `chat.deepseek.com/share/<id>`，
+    取回问答（丢弃 THINK/TOOL），预览/归档/学术导师整理；不内嵌网页、不碰登录态。
+  - AI 能力：`/api/writing/classify`（AI 判类，离线回退 `journal_inbox` 规则，新增 essay 随笔）、
+    `/api/writing/polish`（AI 润色，前端预览后用户点应用）；`new_note`/`archive_note` handler 已注册。
+  - 前端 `editor-model.js`/`note-editor.js`/`editor.css`：Markdown 工具栏 + 实时预览 +
+    字数/脏状态 + revision 冲突提示 + 在 Obsidian 打开 + 写作伙伴抽屉；
+    人生路/知识库页头「＋ 写一条」、阅读器「编辑」、侧栏快捷写作。
+  - 前端 `share-link.js`：知识库「问答」入口；外链 DeepSeek、分享链接取回、归档、
+    AI 整理提案卡片。
+  - 文档：`docs/WRITING_AND_KNOWLEDGE.md`；FEATURE_MAP/DEPRECATIONS/AGENTS 的只读政策同步。
+  - 测试：后端 10 项（note_editor 6 + share_link_api 4）；前端编辑器模型 8 项。
+- **2026-10-29 v1.0 P1：角色抽屉 + 上下文 + 待办 AI + 小组件显隐**：
+  - 后端新增 `ai_context.py`（identity/note/journal/tasks 四类只读来源、`[S1]` 编号、
+    token 预算/截断）、`ai_schemas.py`（容错 JSON 解析）、`ai_roles.py` 的
+    `/api/ai/chat|run|threads`；会话写入 `ai_threads`/`ai_turns`，续聊复用 dsh session。
+  - 通用提案 P1 handler：`new_task` → Markdown 任务笔记；`new_habit` → 习惯定义；
+    `identity_patch` 的苏格拉底 verdict token 门槛已生效（handler 在 P3）。
+  - 前端新增 `roles.js`/`roles-model.js`/`proposals.js`/`proposals-model.js`/`roles.css`：
+    共享角色抽屉、Markdown 回复、来源列表、提案卡片（采纳/忽略/去确认）。
+  - 工作台时间管理顶部「AI 助手」→ `life_assistant/tasks`；采纳任务后任务板刷新。
+  - 设置 →「工作台小组件」：显隐开关、恢复默认、隐藏组件不初始化不发请求；
+    偏好与顺序仍进 `.torch-os/personal-data.json`。
+  - 测试：后端 13 项（上下文 6 + 对话/提案 7）；前端 13 项；全量前端 367 passed。
+  - `scripts/check_all.ps1` 自设 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8`：此前从非 UTF-8
+    代码页终端直接运行会让 7 个子进程测试（identity_inbox/mentor_workflow）输出乱码而误报。
+- **2026-10-29 v1.0 P0：AI 角色层地基 + 章节/版本基线**：
+  - 新增 `backend/app/ai_gateway.py`：统一 `dsh --profile headless --json -` 调用；prompt 走
+    stdin（避开 Windows 多行 argv）、空工作区、环境白名单、超时杀进程树、全局并发 2、
+    输出脱敏；测试全部用 fake runner，不消耗 Key。
+  - 新增 `backend/app/ai_roles.py` + `dsh/roles/*.md`：7 个角色卡（忆灵/苏格拉底、写作伙伴、
+    学术导师、AI 生活助理、恋爱大师、私人医生、理财专家）；`GET /api/ai/status`、
+    `GET /api/ai/roles`；非法角色只进 `role_errors`，不加载。
+  - 新增 `backend/app/proposals.py` + 5 张表：`ai_threads`、`ai_turns`、`ai_proposals`、
+    `memory_hub_events`、`memory_hub_runs`；提案 `pending→applied/rejected`，身份补丁支持
+    “忆灵直接采纳 / 苏格拉底 verdict token”两种路径；未注册 handler 的 apply 返回 409。
+  - `vault_layout.py` 增量新增 6 章（43 章，`pillars-v2` 不变）；`APP_VERSION=1.0.0`；
+    README/WAKE_UP_START/FEATURE_MAP/DATA_HANDBOOK/插件 manifest 版本同步。
+  - 新增测试：`test_ai_gateway.py` 10 项、`test_ai_roles.py` 7 项、`test_proposals.py` 7 项；
+    契约测试（docs/nav/schema/love_memory/phase5）同步更新。
+  - 文档：`docs/AI_ROLES.md`；`docs/FEATURE_MAP.md` 增加 AI 角色层 P0 说明。
 - **2026-10-28 习惯打卡模块（对齐滴答清单 + 待办联动）**：
   工作台习惯页补齐周条、习惯卡、月打卡/总打卡/月完成率/当前连续、月历热力图、月度打卡日志
   和新增/编辑/归档/删除；支持每天/每周/每月/每隔 N 天、图标/颜色/分组/提醒/坚持天数/
