@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import stat
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,26 @@ CHAPTER_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     ),
 }
 
+# 2026-10-30：人生路自定义本子 = 00_人生路 下的一个文件夹。
+# 固定章节仍然优先；不在固定一级目录里的直属文件夹都视为“我的本子”。
+# key 使用 `custom:<文件夹名>`，避免和固定章节 key 冲突。
+CUSTOM_NOTEBOOK_PREFIX = "custom:"
+CUSTOM_NOTEBOOK_MAX_NAME = 48
+CUSTOM_NOTEBOOK_ROOT = PILLAR_DIRS["life"]
+LIFE_TOP_DIRS = frozenset(
+    item[3].split("/")[1] for item in CHAPTERS if item[1] == "life"
+)
+_NOTEBOOK_FORBIDDEN = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
+_NOTEBOOK_FOLDED_TOP_DIRS = {name.casefold() for name in LIFE_TOP_DIRS}
+# 自定义本子不能和内置本子/章节同名，否则首页会出现两个「日记」。
+LIFE_RESERVED_NOTEBOOK_TITLES = frozenset(
+    {item[2] for item in CHAPTERS if item[1] == "life"}
+    | {group[1] for group in CHAPTER_GROUPS.get("life", ())}
+)
+_NOTEBOOK_FOLDED_RESERVED_TITLES = {
+    title.casefold() for title in LIFE_RESERVED_NOTEBOOK_TITLES
+}
+
 # v1 → v2 章节搬迁（只给迁移预览/执行用）：旧目录下的文件按相对子路径搬到新章节，
 # 未列出的旧目录（日记、任务、习惯、会议、踩坑…）保持原地不动。
 V1_CHAPTER_MOVES: dict[str, str] = {
@@ -189,21 +210,123 @@ def pillar_of(relpath: str) -> str:
 
 
 def chapter_key_of(relpath: str) -> str:
-    text = normalize_relpath(relpath).casefold()
+    normalized = normalize_relpath(relpath)
+    text = normalized.casefold()
     for path, item in sorted(CHAPTER_BY_PATH.items(), key=lambda pair: -len(pair[0])):
         if text == path or text.startswith(path + "/"):
             return item[0]
-    return ""
+    custom = custom_notebook_name_from_relpath(normalized)
+    return custom_notebook_key(custom) if custom else ""
 
 
 def chapter_dir(chapter_key: str) -> str:
-    item = CHAPTER_BY_KEY.get(chapter_key)
+    value = str(chapter_key or "").strip()
+    if value.startswith(CUSTOM_NOTEBOOK_PREFIX):
+        try:
+            return custom_notebook_path(value[len(CUSTOM_NOTEBOOK_PREFIX):])
+        except ValueError:
+            return ""
+    item = CHAPTER_BY_KEY.get(value)
     return item[3] if item else ""
 
 
 def chapter_default_type(chapter_key: str) -> str:
+    if is_custom_notebook_key(chapter_key):
+        return "note"
     item = CHAPTER_BY_KEY.get(chapter_key)
     return item[4] if item else "note"
+
+
+def validate_notebook_name(value: Any) -> str:
+    """校验“本子=文件夹”的名称；返回 NFC 规范化后的安全文件夹名。"""
+    text = unicodedata.normalize("NFC", str(value or "")).strip()
+    if not text:
+        raise ValueError("本子名称不能为空")
+    if len(text) > CUSTOM_NOTEBOOK_MAX_NAME:
+        raise ValueError(f"本子名称最多 {CUSTOM_NOTEBOOK_MAX_NAME} 个字符")
+    if text in {".", ".."} or text.startswith((".", "_")) or text.endswith((".", " ")):
+        raise ValueError("本子名称不能以 . 或 _ 开头，也不能以点/空格结尾")
+    if _NOTEBOOK_FORBIDDEN.search(text):
+        raise ValueError("本子名称不能包含 < > : \" / \\ | ? * # ^ [ ] 等字符")
+    folded = text.casefold()
+    if folded in _NOTEBOOK_FOLDED_TOP_DIRS:
+        raise ValueError("这个名称是人生路的固定章节目录，请换一个")
+    if folded in _NOTEBOOK_FOLDED_RESERVED_TITLES:
+        raise ValueError("这个名称和内置本子/章节重名，请换一个")
+    if folded in SKIP_DIRECTORIES:
+        raise ValueError("这个名称是系统保留目录，请换一个")
+    if text.split(".")[0].upper() in _RESERVED_STEMS:
+        raise ValueError("这个名称是系统保留名，请换一个")
+    return text
+
+
+def custom_notebook_key(name: str) -> str:
+    return f"{CUSTOM_NOTEBOOK_PREFIX}{name}"
+
+
+def custom_notebook_name(chapter_key: str) -> str:
+    value = str(chapter_key or "").strip()
+    if not value.startswith(CUSTOM_NOTEBOOK_PREFIX):
+        return ""
+    try:
+        return validate_notebook_name(value[len(CUSTOM_NOTEBOOK_PREFIX):])
+    except ValueError:
+        return ""
+
+
+def is_custom_notebook_key(chapter_key: str) -> bool:
+    return bool(custom_notebook_name(chapter_key))
+
+
+def custom_notebook_path(name: str) -> str:
+    return f"{CUSTOM_NOTEBOOK_ROOT}/{validate_notebook_name(name)}"
+
+
+def custom_notebook_name_from_relpath(relpath: str) -> str:
+    """00_人生路/<自定义文件夹>/... → 文件夹名；固定一级目录返回空串。"""
+    text = normalize_relpath(relpath)
+    parts = text.split("/")
+    if len(parts) < 2 or parts[0] != CUSTOM_NOTEBOOK_ROOT:
+        return ""
+    name = parts[1]
+    if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+        return ""
+    if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
+        return ""
+    try:
+        return validate_notebook_name(name)
+    except ValueError:
+        return ""
+
+
+def list_custom_notebooks(vault_dir: Path | str) -> list[str]:
+    """列出 00_人生路 下的自定义本子文件夹（不跟符号链接）。"""
+    root = Path(vault_dir) / CUSTOM_NOTEBOOK_ROOT
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return []
+    names: list[str] = []
+    for entry in entries:
+        name = entry.name
+        if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+            continue
+        if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
+            continue
+        try:
+            info = entry.lstat()
+        except OSError:
+            continue
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            continue
+        if getattr(info, "st_file_attributes", 0) & getattr(
+                stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+            continue
+        try:
+            names.append(validate_notebook_name(name))
+        except ValueError:
+            continue
+    return sorted(names, key=str.casefold)
 
 
 def v1_chapter_move(relpath: str) -> tuple[str, str] | None:

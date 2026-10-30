@@ -47,7 +47,8 @@ const IMPORTS = {
   "./archive-markup.js": ["archiveMarkup"],
   "./journal-model.js": ["shanghaiDay"],
   "./journal-ritual.js": ["openJournalReview"],
-  "./note-editor.js": ["initNoteEditor", "openNoteEditor"],
+  "./note-editor.js": ["initNoteEditor", "invalidateChapterCache", "openNoteEditor"],
+  "./notebook-create.js": ["initNotebookCreate", "openNotebookCreateDialog"],
   "./share-link.js": ["initShareLink", "openDeepSeekAsk", "openShareLinkDialog"],
   "./roles.js": ["openRoleDrawer"],
   "./notebook-model.js": [

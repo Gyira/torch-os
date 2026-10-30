@@ -622,6 +622,24 @@
   <label class="memory-event-text-label">内容<textarea id="memory-event-text" rows="5" maxlength="1000" placeholder="今天我发现……"></textarea></label>
   <div class="form-actions"><span id="memory-event-status" class="status-message" role="status"></span><button id="memory-event-save" class="button primary" type="button">投递给忆灵</button></div>
 </dialog>
+<dialog id="notebook-create-dialog" class="notebook-create-dialog" aria-labelledby="notebook-create-title">
+  <form id="notebook-create-form" class="notebook-create-form">
+    <header class="notebook-create-head">
+      <div><p class="eyebrow">人生路 · 新本子</p><h2 id="notebook-create-title">新建本子</h2></div>
+      <button type="button" id="notebook-create-close" class="small-button">关闭</button>
+    </header>
+    <div class="notebook-create-body">
+      <label for="notebook-create-name">本子名称</label>
+      <input id="notebook-create-name" type="text" maxlength="48" autocomplete="off" placeholder="例如：读书摘记">
+      <p class="field-help">会在 <code>00_人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。</p>
+      <p id="notebook-create-status" class="status-message" role="status"></p>
+    </div>
+    <footer class="notebook-create-foot">
+      <button type="button" id="notebook-create-cancel" class="text-button">取消</button>
+      <button type="submit" id="notebook-create-submit" class="button primary">创建本子</button>
+    </footer>
+  </form>
+</dialog>
 <dialog id="share-link-dialog" class="share-link-dialog" aria-labelledby="share-link-heading">
   <div class="note-editor-head">
     <div><p class="eyebrow">KNOWLEDGE · Q&amp;A</p><h2 id="share-link-heading">DeepSeek 问答</h2><p class="field-help">在浏览器打开 chat.deepseek.com；问完复制公开分享链接回来。</p></div>

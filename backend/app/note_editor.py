@@ -16,6 +16,7 @@ when the vault is read-only.  Frontmatter unknown to Torch is preserved by
 """
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 from typing import Any, Literal
 
@@ -59,21 +60,39 @@ def chapter_pillar(chapter: str) -> str:
 
 
 def is_writable_chapter(chapter: str) -> bool:
-    return str(chapter or "").strip() in WRITABLE_CHAPTERS
+    value = str(chapter or "").strip()
+    return value in WRITABLE_CHAPTERS or vault_layout.is_custom_notebook_key(value)
 
 
 def _require_writable_chapter(chapter: str) -> str:
     value = str(chapter or "").strip()
-    if value not in WRITABLE_CHAPTERS:
+    if value not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(value):
         raise HTTPException(422, "这个章节不在应用内写作范围里")
     return value
 
 
 def _require_writable_path(relative: str) -> str:
     chapter = vault_layout.chapter_key_of(relative)
-    if chapter not in WRITABLE_CHAPTERS:
+    if chapter not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(chapter):
         raise HTTPException(422, "这篇笔记不在应用内写作范围里")
     return chapter
+
+
+def _ensure_custom_notebook_exists(vault_dir: Path | str, chapter: str) -> None:
+    if not vault_layout.is_custom_notebook_key(chapter):
+        return
+    directory = vault_layout.chapter_dir(chapter)
+    target = Path(vault_dir) / directory if directory else None
+    if target is None or not target.is_dir():
+        raise HTTPException(422, "这个本子不存在，请先在人生路新建本子")
+    try:
+        info = target.lstat()
+    except OSError as error:
+        raise HTTPException(422, "本子文件夹不可读") from error
+    if stat.S_ISLNK(info.st_mode) or getattr(
+            info, "st_file_attributes", 0) & getattr(
+                stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+        raise HTTPException(422, "本子文件夹是链接，不能写入")
 
 
 def _ensure_write(read_only: bool, action: str) -> None:
@@ -88,6 +107,7 @@ def create_note(database: Database, vault_dir: Path | str, *, chapter: str, titl
                 source: str = "", date: str = "", generated_by: str = "",
                 read_only: bool = False) -> dict[str, Any]:
     target = _require_writable_chapter(chapter)
+    _ensure_custom_notebook_exists(vault_dir, target)
     _ensure_write(read_only, "新建笔记")
     pillar = chapter_pillar(target)
     extra = {"generated_by": generated_by} if generated_by else None
@@ -119,6 +139,7 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
               read_only: bool = False) -> dict[str, Any]:
     source_chapter = _require_writable_path(path)
     target = _require_writable_chapter(target_chapter)
+    _ensure_custom_notebook_exists(vault_dir, target)
     if chapter_pillar(source_chapter) != chapter_pillar(target):
         raise HTTPException(422, "应用内只支持在同一个库里移动笔记")
     _ensure_write(read_only, "移动笔记")
@@ -134,7 +155,7 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
 class NoteCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    chapter: str = Field(min_length=1, max_length=40)
+    chapter: str = Field(min_length=1, max_length=120)
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(default="", max_length=200_000)
     note_type: str = Field(default="", max_length=40)
@@ -157,7 +178,7 @@ class NoteMoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     path: str = Field(min_length=1, max_length=2048)
-    target_chapter: str = Field(min_length=1, max_length=40)
+    target_chapter: str = Field(min_length=1, max_length=120)
     expected_revision: str = Field(default="", max_length=64)
 
 
@@ -279,7 +300,13 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
             return [{"key": key, "title": CHAPTER_LABELS.get(key, key),
                      "path": vault_layout.chapter_dir(key)}
                     for key in sorted(keys)]
-        return {"life": rows(LIFE_CHAPTERS), "knowledge": rows(KNOWLEDGE_CHAPTERS)}
+        life = rows(LIFE_CHAPTERS)
+        # 自定义本子 = 00_人生路 下的文件夹；编辑器里和固定章节一样可选。
+        for name in vault_layout.list_custom_notebooks(vault_dir):
+            key = vault_layout.custom_notebook_key(name)
+            life.append({"key": key, "title": name,
+                         "path": vault_layout.chapter_dir(key), "custom": True})
+        return {"life": life, "knowledge": rows(KNOWLEDGE_CHAPTERS)}
 
     @router.post("/writing/notes")
     def create(payload: NoteCreateRequest):

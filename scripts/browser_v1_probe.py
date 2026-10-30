@@ -114,6 +114,29 @@ async def run(base_url: str, port: int = 9334) -> dict:
             await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]').click()")
             await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
 
+            # 新建本子 = 在 00_人生路 下建一个文件夹；创建后直接进入本子。
+            notebook_name = f"验收本子-{int(time.time()) % 1_000_000}"
+            await cdp.evaluate("document.querySelector('#life-view [data-notebook-create]').click()")
+            await cdp.wait_for("document.querySelector('#notebook-create-dialog')?.open === true", timeout=20)
+            await cdp.evaluate(
+                "(() => { const input=document.querySelector('#notebook-create-name');"
+                f" input.value={json.dumps(notebook_name)};"
+                " input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+            await cdp.evaluate("document.querySelector('#notebook-create-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))")
+            await cdp.wait_for("document.querySelector('#notebook-create-dialog')?.open !== true", timeout=30)
+            await cdp.wait_for(
+                "document.querySelector('#life-view .notebook-page-heading h3')?.textContent === "
+                f"{json.dumps(notebook_name)}", timeout=30)
+            report["checks"]["notebook_created"] = await cdp.evaluate("""(() => ({
+                title: document.querySelector('#life-view .notebook-page-heading h3')?.textContent || '',
+                write: Boolean(document.querySelector('#life-view .notebook-page [data-editor-new]')),
+            }))()""")
+            await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]').click()")
+            await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
+            report["checks"]["notebook_card_visible"] = bool(await cdp.evaluate(
+                "[...document.querySelectorAll('#life-view .notebook-card')]"
+                f".some((node) => node.textContent.includes({json.dumps(notebook_name)}))"))
+
             # 人生路：应用内写作保存。
             await cdp.evaluate("document.querySelector('#life-view [data-editor-new=\"life\"]').click()")
             await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
@@ -170,6 +193,8 @@ async def run(base_url: str, port: int = 9334) -> dict:
                 and report["checks"].get("life_home", {}).get("notebooks", 0) >= 7
                 and report["checks"].get("journal_editor", {}).get("journal")
                 and report["checks"].get("notebook_page")
+                and report["checks"].get("notebook_created", {}).get("write")
+                and report["checks"].get("notebook_card_visible")
                 and report["checks"].get("editor_saved")
                 and report["checks"].get("knowledge_home", {}).get("ask")
                 and report["checks"].get("knowledge_home", {}).get("form")

@@ -651,3 +651,124 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ── 新建本子 ─────────────────────────────────────────────── */
+
+.notebook-create-card {
+  --nb-accent: var(--pillar-accent);
+  --nb-soft: var(--pillar-soft);
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--p-ink-4);
+  text-align: center;
+}
+
+.notebook-create-card:hover {
+  border-color: var(--pillar-accent);
+  color: var(--pillar-accent);
+}
+
+.notebook-create-plus {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--pillar-soft);
+  color: var(--pillar-accent);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.notebook-create-card .notebook-title { margin-top: 2px; }
+.notebook-create-card .notebook-desc { max-width: 22em; }
+
+.notebook-create-dialog {
+  width: min(560px, 94vw);
+  padding: 0;
+  border: 1px solid var(--p-line-2);
+  border-radius: 18px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  box-shadow: 0 28px 80px var(--p-shadow);
+}
+
+.notebook-create-dialog::backdrop { background: var(--p-overlay); }
+
+.notebook-create-form { display: flex; flex-direction: column; }
+
+.notebook-create-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--p-line);
+}
+
+.notebook-create-head h2 {
+  margin: 2px 0 0;
+  color: var(--p-ink-strong);
+  font-family: var(--p-font-display);
+  font-size: 24px;
+}
+
+.notebook-create-body { padding: 18px 22px 8px; }
+
+.notebook-create-body label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--p-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#notebook-create-name {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--p-line-input);
+  border-radius: 10px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+#notebook-create-name:focus {
+  border-color: var(--p-accent);
+  outline: 2px solid var(--p-focus-ring);
+  outline-offset: 1px;
+}
+
+.notebook-create-body code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--p-surface-2);
+}
+
+.notebook-create-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 20px;
+}
+
+@media (max-width: 760px) {
+  .notebook-create-dialog { width: calc(100vw - 24px); }
+}
+
+.notebook-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.notebook-section-actions .small-create {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+.notebook-create-body .status-message { text-align: left; }

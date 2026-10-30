@@ -6,19 +6,19 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`4488094`（`feat(ai): 完成 v1.0 P5 角色层加固与发布`，以 `git log -1` 为准）
-- 工作树：**2026-10-30 人生路/知识库交互重做未提交**（本子模型/首页 hero/全屏编辑器/
-  今日日记直写/知识库提问首页/新 CSS/探针与文档）；P0–P5 已在基线提交里；
-  以 `git status` 为准。
+- 代码基线：`5d9ecdb`（`feat(editor): 支持应用内全屏写作空间与丰富工具栏`，以 `git log -1` 为准）
+- 工作树：**2026-10-30 自定义本子=文件夹未提交**（本子创建 API/首页新建本子入口/
+  自定义本子卡片/编辑器章节分组/名称校验/探针与文档）；本子首页与全屏编辑器已在
+  `5d9ecdb` 提交；以 `git status` 为准。
 - 布局版本：**`pillars-v2`**（v1.0 P0 增量新增 6 章：`00_人生路/09_随笔`、
   `01_自我档案/08_忆灵观察`、`02_生活运营/06_健康报告`、`07_财务报告`、`08_生活建议`、
   `09_家庭与智能家居`；共 43 章，旧路径不变，不做迁移）
-- 后端：**996 passed / 1 skipped / 0 failed**（2026-10-30 P0–P5 + UI 重做全量，545.33 秒；
+- 后端：**1013 passed / 1 skipped / 0 failed**（2026-10-30 P0–P5 + UI/本子全量，584.09 秒；
   含 AI 角色/上下文/提案 37 项、写作/分享 10 项、忆灵/事件 7 项、生活运营 5 项、
-  P5 进程/并发/审计/备份/导出 6 项）
-- 前端：**391 passed**（2026-10-30 实跑，含本子模型 9 项、编辑器模型 11 项、
+  自定义本子 17 项、P5 进程/并发/审计/备份/导出 6 项）
+- 前端：**392 passed**（2026-10-30 实跑，含本子模型 10 项、编辑器模型 11 项、
   角色抽屉/提案/小组件显隐 13 项、忆灵面板契约 3 项、生活运营 AI 2 项）
-- `scripts/check_all.ps1`：**2026-10-30 exit 0**（Python 996 / 前端 391 / 文本完整性 / 模块面 /
+- `scripts/check_all.ps1`：**2026-10-30 exit 0**（Python 1013 / 前端 392 / 文本完整性 / 模块面 /
   JS 语法 / compileall / pip check 全部通过；脚本已自设 UTF-8）
 - 浏览器验收：`browser_v1_probe.py` 与 `browser_pillars_probe.py` 在 QA 实例全部 `ok: true`，
   JS 错误 0；截图在 `.test-data/pillar-probe-final/` 与 `.test-data/ui-preview/`。
@@ -52,10 +52,15 @@
     审计 `journal_saved` 只记日期/字节数/是否新建；过去日记仍只读。
   - 知识库分享链接支持预填 + 自动取回（`openShareLinkDialog({url, preview})`）；
     首页「取回并归档」直接调用。
+  - **自定义本子 = 文件夹**：人生路「新建本子」调用 `POST /api/notebooks`，在
+    `00_人生路/<名字>/` 创建目录并写 `notebook_created` 审计；`GET /api/notebooks`、
+    `overview.custom_notebooks`、`/api/writing/chapters` 都包含自定义本子；
+    章节 key `custom:<名字>`，本子内笔记仍走 `/api/writing/notes`。名称校验/重复 409/
+    只读 409；删除/改名暂不提供。
   - 文案/帮助同步：`README`、`FEATURE_MAP`、`WRITING_AND_KNOWLEDGE`、`WAKE_UP_START`、
     `frontend/help-content.js`。
   - 浏览器探针：v1 探针新增首页/本子/日记编辑器/知识库提问检查；四库探针同步新选择器。
-    两者 QA 实跑 `ok: true`、JS 错误 0；前端全量 **391 passed**。
+    两者 QA 实跑 `ok: true`、JS 错误 0；前端全量 **392 passed**。
 - **2026-10-29 v1.0 P5：加固与发布**：
   - Windows 进程实测（`tests/test_ai_gateway_process.py`）：真实 Python 子进程代替 dsh，
     stdin 多行中文/emoji 回环；超时 `taskkill /T /F` 连 node 孙进程一起终止；
@@ -377,6 +382,9 @@
 - ZIP 备份包含 SQLite（含 `ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*`）与 Vault
   内的 Markdown，但不含其余 `.torch-os`（忆灵画像 JSON、身份备份、personal-data、恋爱库/Key）；
   换机时复制整个个人数据库文件夹可全部带走。一键导出包已包含 AI 角色会话与提案。
+- 自定义本子目前只提供创建/列出（本子=文件夹）；删除/改名暂不提供，避免误删目录。
+  可在 Obsidian 里重命名文件夹后刷新；空本子没有 Markdown，不会进入 ZIP 备份，
+  写入第一篇笔记后就会随 Markdown 一起备份。
 - 「与神对话」现在是完整 dsh：默认可按 dsh 自己的权限读写当前库，torch 不再套只读确认或自动备份。
   dsh 首次启动可能需要 Node.js >=24.9 / npx 下载；模型、密钥、账号登录都在 dsh 内完成。
 - torch 不再提供模型、模型密钥、本地回答、管家问答或向量检索；问答统一在 dsh。

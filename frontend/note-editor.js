@@ -7,7 +7,9 @@ import {
   TOOLBAR_ACTIONS, applyEditorAction, ensureJournalFrontMatter, isDirty,
   joinFrontMatter, normalizeBody, splitFrontMatter, tagsFromInput, tagsToInput, wordCount,
 } from "./editor-model.js";
-import { journalHeading, notebookForChapter, notebooksFor } from "./notebook-model.js";
+import {
+  isCustomNotebookKey, journalHeading, notebookForChapter, notebooksFor,
+} from "./notebook-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import { openRoleDrawer } from "./roles.js";
 import { openObsidianNote } from "./task-open.js";
@@ -95,6 +97,11 @@ async function loadChapters() {
     chaptersCache = await api("/api/writing/chapters");
   }
   return chaptersCache;
+}
+
+/** 新建/删除本子后让下一次打开编辑器重新读取章节目录。 */
+export function invalidateChapterCache() {
+  chaptersCache = null;
 }
 
 function journalDayFrom(note, options) {
@@ -232,12 +239,15 @@ function fillChapters(chapters, context) {
     else extras.push(chapter);
   }
   const option = (chapter) => `<option value="${escapeAttr(chapter.key)}">${escapeAttr(chapter.title)}</option>`;
+  const custom = extras.filter((chapter) => isCustomNotebookKey(chapter.key));
+  const other = extras.filter((chapter) => !isCustomNotebookKey(chapter.key));
   select.innerHTML = [
     ...notebooksFor(context).map((book) => {
       const items = byNotebook.get(book.key) || [];
       return items.length ? `<optgroup label="${escapeAttr(book.title)}">${items.map(option).join("")}</optgroup>` : "";
     }),
-    extras.map(option).join(""),
+    custom.length ? `<optgroup label="我的本子">${custom.map(option).join("")}</optgroup>` : "",
+    other.map(option).join(""),
   ].join("");
 }
 

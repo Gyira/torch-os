@@ -10,8 +10,9 @@ import { openSteward } from "./pillar-steward.js";
 import { archiveMarkup } from "./archive-markup.js";
 import { shanghaiDay } from "./journal-model.js";
 import { openJournalReview } from "./journal-ritual.js";
-import { initNoteEditor, openNoteEditor } from "./note-editor.js";
+import { initNoteEditor, invalidateChapterCache, openNoteEditor } from "./note-editor.js";
 import { initShareLink, openDeepSeekAsk, openShareLinkDialog } from "./share-link.js";
+import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
 import { openRoleDrawer } from "./roles.js";
 import {
   buildNotebookCards, greetingForHour, journalHeading, knowledgeHeroState,
@@ -123,8 +124,21 @@ function chapterList(view) {
 }
 
 function chapterTitle(view, key) {
-  const chapter = chapterList(view).find((item) => item.key === key);
-  return chapter?.title || key;
+  const value = String(key || "");
+  if (value.startsWith("custom:")) return value.slice("custom:".length);
+  const chapter = chapterList(view).find((item) => item.key === value);
+  return chapter?.title || value;
+}
+
+function notebookCardsFor(view) {
+  const overview = state.overviews[view] || {};
+  return buildNotebookCards(view, overview.chapters || [], overview.custom_notebooks || []);
+}
+
+/** 本子定义里的 chapters 是 key 字符串；本子卡片里的 chapters 是 {key,...} 对象。 */
+function defaultChapterForNotebook(notebook) {
+  const first = notebook?.chapters?.[0];
+  return typeof first === "string" ? first : String(first?.key || "");
 }
 
 function pillarGroups(view) {
@@ -448,7 +462,7 @@ function lifeToolsCard(hero) {
 function lifeHomeMarkup() {
   const overview = state.overviews.life || {};
   const hero = lifeHeroState(overview, shanghaiDay());
-  const cards = buildNotebookCards("life", overview.chapters || []);
+  const cards = notebookCardsFor("life");
   const recent = (overview.recent || [])
     .filter((note) => !["task", "habit"].includes(note.chapter))
     .slice(0, 6);
@@ -483,9 +497,19 @@ function lifeHomeMarkup() {
         <section class="notebook-section">
           <div class="notebook-section-head">
             <div><p class="eyebrow">NOTEBOOKS</p><h3>我的本子</h3></div>
-            <span class="meta">${notebookTotal(cards)} 篇记录</span>
+            <div class="notebook-section-actions">
+              <span class="meta">${notebookTotal(cards)} 篇记录</span>
+              <button type="button" class="button secondary small-create" data-notebook-create="life">＋ 新建本子</button>
+            </div>
           </div>
-          <div class="notebook-grid">${cards.map((card) => notebookCardMarkup("life", card)).join("")}</div>
+          <div class="notebook-grid">
+            ${cards.map((card) => notebookCardMarkup("life", card)).join("")}
+            <button type="button" class="notebook-card notebook-create-card" data-notebook-create="life">
+              <span class="notebook-create-plus" aria-hidden="true">＋</span>
+              <span class="notebook-title">新建本子</span>
+              <span class="notebook-desc">在 00_人生路 下建一个文件夹</span>
+            </button>
+          </div>
         </section>
         <section class="recent-section">
           <div class="notebook-section-head">
@@ -507,7 +531,7 @@ function lifeHomeMarkup() {
 function knowledgeHomeMarkup() {
   const overview = state.overviews.knowledge || {};
   const hero = knowledgeHeroState(overview);
-  const cards = buildNotebookCards("knowledge", overview.chapters || []);
+  const cards = notebookCardsFor("knowledge");
   const recent = (overview.recent || []).slice(0, 6);
   return `<div class="pillar-home knowledge-home">
     <section class="knowledge-hero" aria-labelledby="knowledge-hero-title">
@@ -571,7 +595,7 @@ function notebookPageMarkup(view) {
   const chapter = state.chapter[view] || "";
   const notebook = notebookById(view, state.notebook[view] || "");
   const notebookCard = notebook
-    ? buildNotebookCards(view, overview.chapters || []).find((card) => card.key === notebook.key)
+    ? notebookCardsFor(view).find((card) => card.key === notebook.key)
     : null;
   const searching = Boolean(state.search[view]?.trim());
   const notes = state.notes[view] || [];
@@ -584,9 +608,14 @@ function notebookPageMarkup(view) {
   const description = searching
     ? "在本库所有本子里查找标题、正文和标签。"
     : (notebook?.description || "这个章节里的全部记录。");
-  const chapters = notebook ? subchaptersFor(view, notebook.key, overview.chapters || []) : [];
+  const chapters = notebook
+    ? subchaptersFor(view, notebook.key, [
+      ...(overview.chapters || []),
+      ...(overview.custom_notebooks || []),
+    ])
+    : [];
   const total = notebookCard?.count ?? notes.length;
-  const newChapter = chapter || notebook?.chapters[0]?.key
+  const newChapter = chapter || defaultChapterForNotebook(notebook)
     || (view === "life" ? "reflection" : "topic");
   const unit = view === "life" ? "人生路" : "知识库";
   const direct = !notebook && Boolean(chapter);
@@ -676,7 +705,7 @@ function renderShell(view) {
     ? railGroupMarkup(view, item, collapsedGroups, chapter, countFor)
     : railChapterMarkup(view, item, chapter, countFor(item.key)))).join("");
   const activeNotebook = notebookById(view, state.notebook[view] || "");
-  const headNewChapter = chapter || activeNotebook?.chapters[0]?.key
+  const headNewChapter = chapter || defaultChapterForNotebook(activeNotebook)
     || (view === "life" ? "reflection" : "topic");
   const headUtility = view === "life" && ["task", "habit"].includes(chapter);
   const headHtml = `
@@ -893,8 +922,15 @@ async function loadPillar(view, { keepChapter = false } = {}) {
   if (!(view in state.notebook)) state.notebook[view] = "";
   const overview = await api(`/api/pillars/${view}/overview`);
   state.overviews[view] = overview;
-  const notebook = notebookById(view, state.notebook[view] || "");
+  let notebook = notebookById(view, state.notebook[view] || "");
   if (!notebook) state.notebook[view] = "";
+  // 自定义本子可能在 Obsidian 里被删掉：回首页，不要让用户停在一个不存在的本子里。
+  if (notebook?.custom
+      && !(overview.custom_notebooks || []).some((row) => row.key === notebook.key)) {
+    state.notebook[view] = "";
+    state.chapter[view] = "";
+    notebook = null;
+  }
   if (state.search[view]) {
     state.notes[view] = (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`)).items;
   } else if (notebook && state.chapter[view]) {
@@ -991,6 +1027,21 @@ function bindPillarEvents() {
       openOpsTable(opsQuick.dataset.opsOpen);
       return;
     }
+    const createNotebook = event.target.closest?.("[data-notebook-create]");
+    if (createNotebook) {
+      openNotebookCreateDialog((created) => {
+        invalidateChapterCache();
+        state.reading.life = null;
+        state.notebook.life = created.key;
+        state.chapter.life = "";
+        state.search.life = "";
+        state.searchSeq.life = (state.searchSeq.life || 0) + 1;
+        loadPillar("life")
+          .then(() => window.scrollTo({ top: 0, left: 0, behavior: "smooth" }))
+          .catch((error) => toast(error.message, "error"));
+      });
+      return;
+    }
     const notebookButton = event.target.closest?.("[data-notebook]");
     if (notebookButton) {
       const view = notebookButton.dataset.notebookView || appState.view;
@@ -1047,7 +1098,8 @@ function bindPillarEvents() {
       const view = editorNew.dataset.editorNew || appState.view;
       const notebook = notebookById(view, state.notebook[view] || "");
       const chapter = editorNew.dataset.newChapter || state.chapter[view]
-        || notebook?.chapters[0]?.key || (view === "life" ? "reflection" : "topic");
+        || defaultChapterForNotebook(notebook)
+        || (view === "life" ? "reflection" : "topic");
       openNoteEditor({
         context: view,
         chapter,
@@ -1445,6 +1497,7 @@ export function initPillars() {
   bindOpsEvents();
   bindHabitEvents();
   initNoteEditor();
+  initNotebookCreate();
   initShareLink();
   initOpsAI();
   // 编辑器保存/分享归档后，当前库的列表要刷新；阅读中不打断。

@@ -57,6 +57,8 @@
 | POST | `/api/writing/notes` | 新建（chapter/title/body/tags/source） |
 | PUT | `/api/writing/notes` | 编辑（path/expected_revision/body/title/tags） |
 | POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision） |
+| GET | `/api/notebooks?pillar=life` | 列出 `00_人生路` 下的自定义本子（含计数/最近一篇） |
+| POST | `/api/notebooks` | 新建本子（`pillar:"life"`, `name`）；创建同名文件夹 |
 | POST | `/api/writing/classify` | AI 判类，回退规则；只返回卡片 |
 | POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
 | GET | `/api/journal/note?day=` | 读取当天日记，返回 `content` 与原始字节 `sha256` |
@@ -65,9 +67,25 @@
 | POST | `/api/knowledge/share/archive` | 确认后归档（不调用 AI） |
 | POST | `/api/knowledge/share/digest` | 学术导师整理成 new_note 提案 |
 
+## 4.1 自定义本子（人生路）
+
+- **本子 = 文件夹**：前端「新建本子」调用 `POST /api/notebooks`，在 `00_人生路/<名字>/`
+  创建空文件夹；不另存元数据，Obsidian 里看到的目录就是事实。
+- 固定一级目录（`01_日记`…`09_随笔`）仍是内置本子/章节；其它直属文件夹自动成为
+  自定义本子，章节 key 为 `custom:<文件夹名>`。
+- `overview.custom_notebooks` 和 `/api/writing/chapters` 会返回自定义本子；
+  本子内笔记仍走 `/api/writing/notes`，路径为 `00_人生路/<本子名>/<标题>.md`。
+- 名称校验：1–48 字；禁止 `<>:"/\|?*#^[]`、控制字符、保留设备名、`.`/`_` 开头、
+  固定一级目录名、内置本子/章节名（如「日记」「反思复盘」「目标」）和系统跳过目录；
+  重复文件夹返回 409；只读库 409。
+- 创建写一条 `notebook_created` 审计（pillar/name/path，不含正文）。删除/改名暂不提供，
+  避免误删目录；需要时先在 Obsidian 里操作，再刷新前端。
+
 ## 5. 已知边界
 
 - 知识库分享只支持 DeepSeek 公开分享链接，不支持任意网页解析；
 - 不做 WYSIWYG；保持 Markdown 源 + 预览，以便 Obsidian 继续编辑；
 - 不做多人并发合并；409 时让用户复制改动后重新载入；
-- 编辑器不提供删除按钮；删除/归档仍按 Obsidian 或后续确认流程处理。
+- 编辑器不提供删除按钮；删除/归档仍按 Obsidian 或后续确认流程处理；
+- 自定义本子只支持创建/列出，删除/改名请回 Obsidian；空本子没有 Markdown，不会进入
+  ZIP 备份，写入第一篇笔记后随笔记一起备份。

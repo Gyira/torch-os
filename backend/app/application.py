@@ -28,7 +28,7 @@ from .db import Database
 from .ai_roles import RoleRegistry, RoleService, create_ai_router
 from .deepseek_balance import DeepSeekBalanceService, create_deepseek_balance_router
 from .proposals import ProposalService, create_proposals_router
-from . import memory_hub, note_editor, knowledge_share, life_reports
+from . import memory_hub, note_editor, knowledge_share, life_reports, notebooks
 from .dsh_proxy import DshProxy, create_dsh_router
 from .dsh_web import DisabledDshRuntime, DshWebRuntime
 from .envfile import write_env_value
@@ -829,6 +829,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # v1.0 写作：只开放人生路/知识库的允许清单章节；自我档案/生活运营仍由专用流程写。
     app.include_router(note_editor.create_writing_router(
         database, vault_dir, ai_service, read_only=vault_read_only))
+    # v1.0：人生路自定义本子 = 00_人生路 下的文件夹；创建只建空目录并记审计。
+    app.include_router(notebooks.create_notebook_router(
+        database, vault_dir, read_only=vault_read_only))
     # v1.0 知识库分享链接：只抓 chat.deepseek.com 的公开分享；不做网页内嵌/登录态。
     app.include_router(knowledge_share.create_knowledge_share_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,

@@ -72,6 +72,45 @@ export const KNOWLEDGE_NOTEBOOKS = Object.freeze([
 
 const NOTEBOOKS = { life: LIFE_NOTEBOOKS, knowledge: KNOWLEDGE_NOTEBOOKS };
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+export const CUSTOM_NOTEBOOK_PREFIX = "custom:";
+const CUSTOM_TONES = ["amber", "plum", "sage", "blue", "indigo", "rose", "slate"];
+
+export function isCustomNotebookKey(key) {
+  return String(key || "").startsWith(CUSTOM_NOTEBOOK_PREFIX)
+    && String(key).length > CUSTOM_NOTEBOOK_PREFIX.length;
+}
+
+export function customNotebookName(key) {
+  return isCustomNotebookKey(key) ? String(key).slice(CUSTOM_NOTEBOOK_PREFIX.length) : "";
+}
+
+function toneForName(name) {
+  let total = 0;
+  for (const character of String(name || "")) total += character.codePointAt(0) || 0;
+  return CUSTOM_TONES[total % CUSTOM_TONES.length];
+}
+
+function iconForName(name) {
+  const value = String(name || "").trim();
+  const first = Array.from(value)[0] || "本";
+  return /[0-9]/.test(first) ? "本" : first;
+}
+
+/** 自定义本子的最小定义；count/latest 由 overview 的 custom_notebooks 补齐。 */
+export function customNotebookDefinition(key) {
+  const name = customNotebookName(key);
+  if (!name) return null;
+  return {
+    key: String(key),
+    title: name,
+    eyebrow: "MY NOTEBOOK",
+    icon: iconForName(name),
+    tone: toneForName(name),
+    description: `自建本子 · 00_人生路/${name}`,
+    chapters: [String(key)],
+    custom: true,
+  };
+}
 
 export function notebooksFor(pillar) {
   const list = NOTEBOOKS[String(pillar || "")] || [];
@@ -79,12 +118,15 @@ export function notebooksFor(pillar) {
 }
 
 export function notebookById(pillar, key) {
-  return notebooksFor(pillar).find((item) => item.key === String(key || "")) || null;
+  const target = String(key || "");
+  return notebooksFor(pillar).find((item) => item.key === target)
+    || customNotebookDefinition(target);
 }
 
 export function notebookForChapter(pillar, chapter) {
   const target = String(chapter || "");
   if (!target) return null;
+  if (isCustomNotebookKey(target)) return customNotebookDefinition(target);
   return notebooksFor(pillar).find((item) => item.chapters.includes(target)) || null;
 }
 
@@ -103,7 +145,7 @@ function latestByDate(rows) {
  * 每个本子的 count 是内部章节之和，latest 取最新的一篇；空本子也会保留，
  * 因为“这个本子还没写”本身是引导，不应该被隐藏。
  */
-export function buildNotebookCards(pillar, chapterRows = []) {
+export function buildNotebookCards(pillar, chapterRows = [], customRows = []) {
   const rows = Array.isArray(chapterRows) ? chapterRows : [];
   const byKey = new Map(rows.filter(Boolean).map((row) => [row.key, row]));
   const known = new Set();
@@ -122,8 +164,29 @@ export function buildNotebookCards(pillar, chapterRows = []) {
       empty: mine.every((row) => (Number(row.count) || 0) === 0),
     };
   });
+  // 自定义本子：前端新建的本子 = 00_人生路 下的文件夹，由后端 overview.custom_notebooks 提供。
+  const customCards = (Array.isArray(customRows) ? customRows : [])
+    .map((row) => {
+      const key = String(row?.key || "");
+      const definition = customNotebookDefinition(key);
+      if (!definition) return null;
+      const count = Number(row.count) || 0;
+      return {
+        ...definition,
+        title: String(row.title || definition.title),
+        path: String(row.path || ""),
+        count,
+        latest: row.latest || null,
+        chapters: [{ key, title: String(row.title || definition.title), count }],
+        empty: count === 0,
+      };
+    })
+    .filter(Boolean);
+  cards.push(...customCards);
   // 清单里新增但还没登记到本子的章节，放进“其他”，避免内容在首页消失。
+  const customKeys = new Set(customCards.map((card) => card.key));
   const leftovers = rows.filter((row) => row && !known.has(row.key)
+    && !customKeys.has(row.key) && !isCustomNotebookKey(row.key)
     && !["task", "habit"].includes(row.key));
   if (leftovers.length) {
     cards.push({
@@ -147,6 +210,13 @@ export function subchaptersFor(pillar, notebookKey, chapterRows = []) {
   if (!notebook) return [];
   const byKey = new Map((Array.isArray(chapterRows) ? chapterRows : [])
     .filter(Boolean).map((row) => [row.key, row]));
+  if (isCustomNotebookKey(notebookKey)) {
+    const row = byKey.get(String(notebookKey));
+    return [{
+      key: String(notebookKey), title: row?.title || notebook.title,
+      count: Number(row?.count) || 0,
+    }];
+  }
   return notebook.chapters
     .map((key) => byKey.get(key))
     .filter(Boolean)

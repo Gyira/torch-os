@@ -74,6 +74,12 @@
 - **人生路 / 知识库首页（2026-10-30）**：人生路首屏是「今天，写点什么？」+ 今日日记 +
   我的本子（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘）；知识库首屏是
   「今天想弄明白什么？」+ 打开 DeepSeek + 粘贴分享链接，本子网格在下方。
+- **自定义本子 = 文件夹**：`GET /api/notebooks` 列出 `00_人生路/` 下的自定义本子；
+  `POST /api/notebooks {pillar:"life", name}` 创建同名文件夹并写 `notebook_created` 审计。
+  本子章节 key 为 `custom:<文件夹名>`；`/api/pillars/life/overview` 返回
+  `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，
+  笔记仍走 `/api/writing/notes`。只允许人生路；名称不能和内置本子/章节重名；
+  删除/改名暂不提供。
 - `POST /api/writing/classify`：AI 判类（写作伙伴/学术导师），AI 不可用时回退到
   `journal_inbox` 规则（含新增的 essay 随笔）；只返回卡片，不落盘。
 - `POST /api/writing/polish`：AI 润色，返回 `polished/changes`；前端预览后由用户点

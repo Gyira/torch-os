@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS, buildNotebookCards, greetingForHour,
   journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency,
-  noteCards, notebookForChapter, notebooksFor, subchaptersFor,
+  noteCards, notebookById, notebookForChapter, notebooksFor, subchaptersFor,
 } from "../notebook-model.js";
 
 const LIFE_ROWS = [
@@ -42,6 +42,25 @@ test("subchapters only include the notebook's own chapters with counts", () => {
   assert.deepEqual(rows.map((row) => [row.key, row.count]), [
     ["reflection", 2], ["review_week", 1], ["review_month", 0],
   ]);
+});
+
+test("custom notebooks become their own cards, not one shared 其他 card", () => {
+  const customRows = [{
+    key: "custom:读书摘记", title: "读书摘记", path: "00_人生路/读书摘记",
+    count: 2, latest: { title: "第一条", chapter: "custom:读书摘记", date: "2026-10-30", path: "00_人生路/读书摘记/第一条.md" },
+  }];
+  const cards = buildNotebookCards("life", LIFE_ROWS, customRows);
+  const custom = cards.find((card) => card.key === "custom:读书摘记");
+  assert.equal(custom.title, "读书摘记");
+  assert.equal(custom.count, 2);
+  assert.equal(custom.custom, true);
+  assert.equal(custom.chapters[0].key, "custom:读书摘记");
+  assert.ok(!cards.some((card) => card.key === "other" && card.title === "其他"
+    && card.chapters.some((chapter) => chapter.key === "custom:读书摘记")));
+  assert.equal(notebookById("life", "custom:读书摘记").title, "读书摘记");
+  assert.equal(notebookForChapter("life", "custom:读书摘记").title, "读书摘记");
+  assert.deepEqual(subchaptersFor("life", "custom:读书摘记", customRows).map((row) => row.title),
+    ["读书摘记"]);
 });
 
 test("life hero says what to do today and counts the streak", () => {
