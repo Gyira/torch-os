@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS,
-  buildNotebookCards, canDeleteNotebook, customNotebookKey, customNotebookName,
-  customNotebookPillar, defaultWriteChapter, greetingForHour, isProtectedNotebook,
-  journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency, noteCards,
-  notebookById, notebookForChapter, notebooksFor, subchaptersFor,
+  buildMoveTargetGroups, buildNotebookCards, canDeleteNotebook, customNotebookKey,
+  customNotebookName, customNotebookPillar, defaultWriteChapter, greetingForHour,
+  isProtectedNotebook, journalHeading, knowledgeHeroState, lifeHeroState,
+  mergeNotesByRecency, noteCards, notebookById, notebookForChapter, notebooksFor,
+  subchaptersFor,
 } from "../notebook-model.js";
 
 const LIFE_ROWS = [
@@ -37,6 +38,27 @@ test("notebook lookup maps every declared chapter and ignores unknown ones", () 
   assert.equal(notebookForChapter("life", "essay").key, "essay");
   assert.equal(notebookForChapter("knowledge", "method_general").key, "method");
   assert.equal(notebookForChapter("knowledge", "not-a-chapter"), null);
+});
+
+test("move targets group by notebook, skip the current chapter and keep custom notebooks", () => {
+  const groups = buildMoveTargetGroups("life", [
+    { key: "reflection", title: "反思" },
+    { key: "review_week", title: "周复盘" },
+    { key: "review_month", title: "月复盘" },
+    { key: "insight_life", title: "生活心得" },
+    { key: "essay", title: "随笔" },
+    { key: "custom:读书摘记", title: "读书摘记", custom: true },
+    { key: "unknown_new", title: "未登记" },
+  ], "reflection");
+  assert.deepEqual(groups.map((group) => group.title), [
+    "反思复盘", "心得体会", "随笔", "我的本子", "其他",
+  ]);
+  assert.deepEqual(groups[0].chapters.map((chapter) => chapter.key), ["review_week", "review_month"]);
+  assert.deepEqual(groups[1].chapters.map((chapter) => chapter.key), ["insight_life"]);
+  assert.deepEqual(groups[3].chapters.map((chapter) => chapter.key), ["custom:读书摘记"]);
+  assert.deepEqual(groups[4].chapters.map((chapter) => chapter.key), ["unknown_new"]);
+  // 当前章节永远不会出现在目标里。
+  assert.ok(!groups.some((group) => group.chapters.some((chapter) => chapter.key === "reflection")));
 });
 
 test("subchapters only include the notebook's own chapters with counts", () => {

@@ -16,6 +16,7 @@ when the vault is read-only.  Frontmatter unknown to Torch is preserved by
 """
 from __future__ import annotations
 
+import hashlib
 import stat
 from pathlib import Path
 from typing import Any, Literal
@@ -149,8 +150,29 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
     _ensure_write(read_only, "移动笔记")
     note = pillar_notes.move_note(
         vault_dir, path, target, expected_revision=expected_revision)
-    database.audit("note_moved", {"path": note.get("path", ""),
-                                  "from": source_chapter, "to": target})
+    # 物理文件已经移动；如果这篇笔记已经被「扫描 Vault」进 documents 索引，
+    # 立即同步索引路径/正文哈希，避免 资料/搜索/计数 还指向旧文件夹。
+    new_path = str(note.get("path") or "")
+    index_updated = False
+    if new_path:
+        try:
+            raw = (Path(vault_dir) / new_path).read_bytes()
+            digest = hashlib.sha256(raw).hexdigest()
+        except OSError:
+            digest = ""
+        try:
+            index_updated = database.relocate_document(
+                path, new_path, title=str(note.get("title") or ""),
+                content=str(note.get("body") or ""), sha256=digest,
+                metadata=(note.get("raw_metadata")
+                          if isinstance(note.get("raw_metadata"), dict) else {}),
+            )
+        except Exception:
+            # 文件已经移动成功；索引同步失败不能让用户误以为移动失败。
+            # 下一次「扫描 Vault」会按新路径重新核对并修复。
+            index_updated = False
+    database.audit("note_moved", {"path": new_path, "from": source_chapter,
+                                  "to": target, "index_updated": index_updated})
     return note
 
 

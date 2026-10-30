@@ -23,6 +23,7 @@ import {
   openListDialog, openCopyListDialog, openFolderDialog, openTagDialog, confirmDialog,
 } from "./tasks-dialogs.js";
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
+import { openNoteEditor } from "./note-editor.js";
 import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
 import { initTrashPage, loadTrash } from "./tasks-trash.js";
 
@@ -587,9 +588,19 @@ function bindTaskDropTargets() {
   });
 }
 
-/** 打开任务文档：插件 iframe 里走宿主桥，浏览器里走 obsidian://。 */
+/**
+ * 打开任务文档（2026-10-31）：真实任务在应用内编辑器里打开（每个任务就是一篇文档）；
+ * 旧任务共享 任务（tasks）.md、习惯是虚拟任务，继续在 Obsidian 里打开原笔记。
+ */
 function openTask(task) {
   if (!task) return;
+  if (!task.legacy && !isHabitTask(task) && task.path) {
+    openNoteEditor({ task }).catch((error) => {
+      setStatus("#time-status", `打不开任务文档：${error.message}`, "warning");
+      toast(`打不开任务文档：${error.message}`, "error");
+    });
+    return;
+  }
   if (!openTaskDocument(task, board)) {
     setStatus("#time-status", "没有可打开的任务文档；刷新后重试。", "warning");
   }

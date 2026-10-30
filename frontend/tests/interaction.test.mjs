@@ -77,6 +77,7 @@ class NodeDouble {
   replaceChildren() { this.children = []; this.innerHTML = ""; }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter((node) => node !== this); }
   focus() { this.focused = true; }
+  select() { this.selected = true; }
   requestSubmit() { this.submitRequests = (this.submitRequests || 0) + 1; }
   showModal() { this.open = true; this.modalCount = (this.modalCount || 0) + 1; }
   close(value = "") { this.returnValue = value; this.open = false; }
@@ -855,6 +856,155 @@ test("task rows expose an open-document button and keep legacy tasks read-only",
   assert.equal(byClass(legacy, "task-legacy-badge").length, 1);
   await byClass(legacy, "task-open")[0].emit("click");
   assert.deepEqual(opened, ["00-System/任务/写方案.md", "00-System/任务（tasks）.md"]);
+});
+
+test("double-clicking anywhere on a task row starts inline title rename", async () => {
+  const { load } = await harness();
+  const { taskRow } = (await load("tasks.js")).namespace;
+  const renamed = [];
+  const options = {
+    today: "2026-10-11", lists: [], actions: {},
+    onOpenDocument: () => {},
+    onRename: (task, title) => renamed.push([task.key, title]),
+  };
+  const row = taskRow(calendarTask({
+    key: "row", path: "00_人生路/07_任务与待办/收集箱/写方案.md", title: "写方案",
+  }), options);
+  await row.emit("dblclick");                      // 点在行本身，不是标题文字
+  const input = byClass(row, "task-rename")[0];
+  assert.ok(input);
+  input.value = "写方案 v2";
+  await input.emit("keydown", { key: "Enter" });
+  assert.deepEqual(renamed, [["row", "写方案 v2"]]);
+
+  const cancelled = taskRow(calendarTask({ key: "esc", title: "取消改名" }), options);
+  await cancelled.emit("dblclick");
+  const escInput = byClass(cancelled, "task-rename")[0];
+  assert.ok(escInput);
+  await escInput.emit("keydown", { key: "Escape" });
+  assert.equal(byClass(cancelled, "task-rename").length, 0);   // 标题恢复
+  assert.equal(byClass(cancelled, "task-title").length, 1);
+
+  // 点到按钮/勾选框这类交互控件时不进入改名。
+  const buttonRow = taskRow(calendarTask({ key: "btn", title: "按钮任务" }), options);
+  const open = byClass(buttonRow, "task-open")[0];
+  open.closest = (selector) => selector.includes("button") ? open : null;
+  await buttonRow.emit("dblclick", { target: open });
+  assert.equal(byClass(buttonRow, "task-rename").length, 0);
+
+  // 旧任务只读，整行双击也不改名。
+  const legacy = taskRow(calendarTask({
+    key: "old", legacy: true, title: "买菜", path: "00-System/任务（tasks）.md",
+  }), options);
+  await legacy.emit("dblclick");
+  assert.equal(byClass(legacy, "task-rename").length, 0);
+});
+
+test("task documents use the in-app editor and save with the document revision", async () => {
+  const { load, getNode, setResponse, requests } = await harness();
+  const { openNoteEditor } = (await load("note-editor.js")).namespace;
+  const keyA = "a".repeat(64);
+  const keyB = "b".repeat(64);
+  const doc = {
+    key: keyA, path: "00_人生路/07_任务与待办/收集箱/写方案.md",
+    revision: "r1", title: "写方案", body: "初始正文\n",
+    list_name: "收集箱", done: false,
+  };
+  setResponse((url, options) => {
+    if (!url.startsWith("/api/time/tasks/document")) return {};
+    if (options?.method === "POST") {
+      const payload = JSON.parse(options.body);
+      return {
+        ...doc, key: keyB,
+        path: "00_人生路/07_任务与待办/收集箱/写方案 v2.md",
+        revision: "r2", title: payload.title, body: payload.body,
+      };
+    }
+    return doc;
+  });
+
+  await openNoteEditor({ task: { key: keyA } });
+  assert.equal(getNode("#note-editor-heading").textContent, "任务文档");
+  assert.equal(getNode("#note-editor-title").value, "写方案");
+  assert.equal(getNode("#note-editor-text").value, "初始正文\n");
+  assert.equal(getNode("#note-editor-delete").hidden, true);
+  assert.equal(getNode("#note-editor-classify").hidden, true);
+  assert.equal(getNode("#note-editor-paper .editor-meta-row").hidden, true);
+
+  getNode("#note-editor-text").value = "新正文\n";
+  getNode("#note-editor-title").value = "写方案 v2";
+  await getNode("#note-editor-save").emit("click");
+  const posts = () => requests
+    .filter(({ url, options }) => url.startsWith("/api/time/tasks/document")
+      && options?.method === "POST")
+    .map(({ options }) => JSON.parse(options.body));
+  assert.equal(posts().length, 1);
+  assert.deepEqual(posts()[0], {
+    key: keyA, expected_revision: "r1", title: "写方案 v2", body: "新正文\n",
+  });
+  assert.equal(getNode("#note-editor-title").value, "写方案 v2");
+
+  // 标题改名换 key：下一次保存必须用响应里的新 key/revision。
+  getNode("#note-editor-text").value = "再改一点\n";
+  await getNode("#note-editor-save").emit("click");
+  assert.equal(posts().length, 2);
+  assert.equal(posts()[1].key, keyB);
+  assert.equal(posts()[1].expected_revision, "r2");
+});
+
+test("moving a note posts the target chapter with the latest file revision", async () => {
+  const { load, getNode, setResponse, requests } = await harness();
+  const { openNoteMoveDialog } = (await load("pillars.js")).namespace;
+  setResponse((url) => {
+    if (url === "/api/writing/chapters") {
+      return {
+        life: [
+          { key: "reflection", title: "反思" },
+          { key: "review_week", title: "周复盘" },
+          { key: "essay", title: "随笔" },
+          { key: "custom:读书", title: "读书", custom: true },
+        ],
+        knowledge: [],
+      };
+    }
+    if (url.startsWith("/api/notes?")) {
+      return { revision: "rev-1", path: "00_人生路/02_反思复盘/01_反思/旧文.md" };
+    }
+    if (url === "/api/writing/notes/move") {
+      return { path: "00_人生路/09_随笔/旧文.md", chapter: "essay" };
+    }
+    if (url === "/api/pillars") return { layout_version: "pillars-v2", pillars: [] };
+    if (url === "/api/pillars/life/overview") {
+      return { chapters: [], custom_notebooks: [], recent: [], count: 0 };
+    }
+    if (url.startsWith("/api/pillars/life/notes")) return { items: [] };
+    return {};
+  });
+
+  await openNoteMoveDialog({
+    path: "00_人生路/02_反思复盘/01_反思/旧文.md", title: "旧文", chapter: "reflection",
+  }, { view: "life" });
+  assert.equal(getNode("#note-move-dialog").open, true);
+  assert.equal(getNode("#note-move-note").textContent, "《旧文》");
+  const select = getNode("#note-move-target");
+  assert.match(select.innerHTML, /随笔/);
+  assert.match(select.innerHTML, /我的本子/);
+  assert.equal(select.value, "");                // 不预选目标，避免误点直接移动
+  // 当前本子（反思复盘）整个不出现在目标里，也不预选目标。
+  assert.ok(!select.innerHTML.includes("<optgroup label=\"反思复盘\">"));
+  assert.ok(!select.innerHTML.includes('value="reflection"'));
+
+  select.value = "essay";
+  await getNode("#note-move-form").emit("submit");
+  const request = requests.find(({ url, options }) => url === "/api/writing/notes/move"
+    && options?.method === "POST");
+  assert.ok(request);
+  assert.deepEqual(JSON.parse(request.options.body), {
+    path: "00_人生路/02_反思复盘/01_反思/旧文.md",
+    target_chapter: "essay",
+    expected_revision: "rev-1",
+  });
+  assert.equal(getNode("#note-move-dialog").open, false);
 });
 
 test("sidebar list colors use CSSOM and defined lists can be dragged into order", async () => {

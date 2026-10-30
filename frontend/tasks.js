@@ -62,8 +62,7 @@ export function taskRow(task, options) {
   title.textContent = task.title;
   title.title = legacy
     ? "旧任务：在 任务（tasks）.md 中编辑（应用内只读）"
-    : habit ? "双击可以改习惯名称" : "双击可以改字";
-  if (!legacy) title.addEventListener("dblclick", () => startRename(title, task, options));
+    : habit ? "双击任务条可以改习惯名称" : "双击任务条可以改标题";
 
   let legacyBadge = null;
   if (legacy) {
@@ -168,7 +167,7 @@ export function taskRow(task, options) {
     openButton.className = "task-open";
     openButton.textContent = "📄 文档";
     openButton.title = legacy ? "打开总任务文件（旧任务在 Obsidian 里编辑）"
-      : habit ? "打开习惯笔记" : "打开任务文档";
+      : habit ? "打开习惯笔记" : "打开任务文档（应用内编辑）";
     openButton.setAttribute("aria-label", `${legacy ? "打开总任务文件" : habit ? "打开习惯笔记" : "打开文档"}：${task.title}`);
     openButton.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -180,6 +179,16 @@ export function taskRow(task, options) {
   row.addEventListener("click", (event) => {
     if (event.target.closest("input, button, a")) return;
     options.onPick?.(task);
+  });
+  // 整行双击都能改名（2026-10-31）：不必精确点在标题文字上；交互控件除外。
+  row.addEventListener("dblclick", (event) => {
+    if (legacy) return;
+    const target = event.target;
+    if (target && target !== row
+        && target.closest?.("input, button, a, .task-rename")) return;
+    if (!title.isConnected) return;
+    event.preventDefault?.();
+    startRename(title, task, options);
   });
   row.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -326,7 +335,7 @@ export function openTaskMenu(anchor, task, options) {
   const { lists = [], tags = [], today, actions = {} } = options;
   openPopover(anchor, (layer, close) => {
     if (task.path && actions.openDocument) {
-      menuRow(layer, task.legacy ? "📄 打开总任务文件" : isHabitTask(task) ? "📄 打开习惯笔记" : "📄 打开文档", () => {
+      menuRow(layer, task.legacy ? "📄 打开总任务文件" : isHabitTask(task) ? "📄 打开习惯笔记" : "📄 打开文档（编辑器）", () => {
         close();
         actions.openDocument(task);
       });
@@ -521,8 +530,8 @@ function taskItem(task, options, shape) {
   const title = document.createElement("span");
   title.className = "time-item-title";
   title.textContent = task.title;
-  title.title = legacy ? "旧任务：应用内只读" : "双击可以改字";
-  if (!legacy) title.addEventListener("dblclick", () => startRename(title, task, options));
+  title.title = legacy ? "旧任务：应用内只读"
+    : habit ? "双击任务条可以改习惯名称" : "双击任务条可以改标题";
 
   const time = timeLabel(task.time);
   const when = document.createElement("span");
@@ -537,6 +546,18 @@ function taskItem(task, options, shape) {
     event.preventDefault();
     openTaskMenu(item, task, options);
   });
+  // 日历条目同样整块可双击改名（勾选框/按钮除外）。
+  if (!legacy) {
+    item.addEventListener("dblclick", (event) => {
+      const target = event.target;
+      if (target && target !== item
+          && target.closest?.("input, button, a, .task-rename")) return;
+      if (!title.isConnected) return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      startRename(title, task, options);
+    });
+  }
   item.addEventListener("click", (event) => {
     if (event.target?.closest?.("input, button, a")) return;
     // 日历条目住在格子 / 列里：点条目本身不能顺带触发「切到日视图 / 那一刻加任务」

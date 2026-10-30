@@ -13,6 +13,12 @@ import {
   notebooksFor,
 } from "./notebook-model.js";
 import { shanghaiDay } from "./journal-model.js";
+import {
+  filterTemplates, firstEmptyLineOffset, isBlankJournalBody, journalTemplateBody,
+  rankedTemplates, resolveTemplate, suggestTemplates, templateById,
+  templateEmptyMarkup, templateFilterMarkup, templateFilters, templateRowMarkup,
+  templateStripMarkup, templateVariables,
+} from "./journal-templates.js";
 import { openRoleDrawer } from "./roles.js";
 import { openObsidianNote } from "./task-open.js";
 
@@ -29,14 +35,23 @@ const state = {
   tags: [],
   journal: false,
   journalDay: "",
+  task: false,
+  taskKey: "",
   frontmatter: "",
   preview: false,
   focus: false,
   busy: false,
+  template: { dismissed: false, touched: false, applied: null },
 };
 let chaptersCache = null;
 let initialized = false;
 let polish = null;
+let openingTaskDocument = false;
+let templateUndoTimer = 0;
+const RECENT_TEMPLATES_KEY = "torch.template.recent.v1";
+const templateSheet = {
+  ranked: [], filter: "all", query: "", preview: null, shift: 0,
+};
 
 function el(id) { return document.getElementById(id); }
 
@@ -62,7 +77,7 @@ export function initNoteEditor() {
   el("note-editor-delete")?.addEventListener("click", () => deleteCurrentNote());
   el("note-editor-reload")?.addEventListener("click", () => reloadNote());
   el("note-editor-chapter")?.addEventListener("change", () => {
-    if (state.mode === "edit" && !state.journal) {
+    if (state.mode === "edit" && !state.journal && !state.task) {
       const target = el("note-editor-chapter")?.value || "";
       setStatus(target && target !== state.chapter ? "保存后会移动到新的本子。" : "");
     }
@@ -75,8 +90,116 @@ export function initNoteEditor() {
   el("note-editor-obsidian")?.addEventListener("click", () => openInObsidian());
   el("note-editor-preview-toggle")?.addEventListener("click", () => setPreviewMode(!state.preview));
   el("note-editor-focus-toggle")?.addEventListener("click", () => setFocusMode(!state.focus));
-  el("note-editor-text")?.addEventListener("input", () => updatePreview());
-  el("note-editor-title")?.addEventListener("input", () => updatePreview());
+  el("note-editor-text")?.addEventListener("input", () => {
+    handleTemplateInput();
+    updatePreview();
+  });
+  el("note-editor-title")?.addEventListener("input", () => {
+    handleTemplateInput();
+    updatePreview();
+  });
+  el("note-editor-tags")?.addEventListener("input", () => handleTemplateInput());
+  el("note-editor-template-strip")?.addEventListener("click", (event) => {
+    const chip = event.target.closest?.("[data-template-id]");
+    if (chip) {
+      applyTemplateById(chip.dataset.templateId);
+      return;
+    }
+    if (event.target.closest?.("#template-open-all")) {
+      openTemplateSheet();
+      return;
+    }
+    if (event.target.closest?.("#template-strip-dismiss")) dismissTemplateStrip();
+  });
+  el("note-editor-template-sheet")?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-template-close]")) {
+      closeTemplateSheet();
+      return;
+    }
+    const filter = event.target.closest?.("[data-template-filter]");
+    if (filter) {
+      setTemplateFilter(filter.dataset.templateFilter);
+      return;
+    }
+    const row = event.target.closest?.(".template-row");
+    if (row) {
+      openTemplatePreview(row.dataset.templateId);
+      return;
+    }
+    if (event.target.closest?.("#template-preview-back")) {
+      showTemplateList();
+      return;
+    }
+    if (event.target.closest?.("#template-preview-shuffle")) {
+      shuffleTemplateQuestion();
+      return;
+    }
+    if (event.target.closest?.("#template-preview-use")) usePreviewedTemplate();
+  });
+  el("note-editor-template-undo-btn")?.addEventListener("click", () => {
+    const applied = state.template.applied;
+    if (applied) undoAppliedTemplate(applied);
+  });
+  el("note-editor-template-undo")?.addEventListener("focusin", () => {
+    window.clearTimeout(templateUndoTimer);
+    templateUndoTimer = 0;
+  });
+  el("note-editor-template-undo")?.addEventListener("focusout", (event) => {
+    const node = el("note-editor-template-undo");
+    if (!node || node.hidden) return;
+    if (!node.contains(event.relatedTarget)) hideTemplateUndo();
+  });
+  el("template-search")?.addEventListener("input", () => {
+    templateSheet.query = el("template-search")?.value || "";
+    renderTemplateResults();
+  });
+  el("note-editor-template-sheet")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || !isTemplateSheetOpen()) return;
+    const nodes = [...document.querySelectorAll(
+      "#note-editor-template-sheet button:not([disabled]), #note-editor-template-sheet input")]
+      .filter((node) => node.offsetParent !== null);
+    if (!nodes.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement;
+    const panel = document.querySelector("#note-editor-template-sheet .template-sheet-panel");
+    if (!document.querySelector("#note-editor-template-sheet")?.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
+    if (active === panel) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const dialog = el("note-editor-dialog");
+    if (!dialog?.open) return;
+    // 上面还开着确认框/详情框时，Escape 归那个对话框处理。
+    const active = document.activeElement;
+    const otherDialog = [...document.querySelectorAll("dialog[open]")]
+      .find((node) => node !== dialog && node.contains(active));
+    if (otherDialog) return;
+    // 部分浏览器里 <dialog> 的 cancel 不可取消：在 keydown 阶段拦下，
+    // 模板面板只收起自己；没有面板时走带“放弃修改”确认的正常关闭。
+    event.preventDefault();
+    event.stopPropagation();
+    if (isTemplateSheetOpen()) closeTemplateSheet();
+    else closeEditor();
+  }, true);
   el("note-editor-toolbar")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-editor-action]");
     if (button) applyToolbar(button.dataset.editorAction);
@@ -97,6 +220,10 @@ export function initNoteEditor() {
   });
   el("note-editor-dialog")?.addEventListener("cancel", (event) => {
     event.preventDefault();
+    if (isTemplateSheetOpen()) {
+      closeTemplateSheet();
+      return;
+    }
     closeEditor();
   });
 }
@@ -144,39 +271,436 @@ async function openJournalDraft(day) {
   };
 }
 
+async function fetchTaskDocument(task) {
+  const key = String(task?.key || "").trim();
+  const path = String(task?.path || "").trim();
+  if (!key && !path) throw new Error("缺少任务文档的 key 或路径。");
+  const query = key
+    ? `key=${encodeURIComponent(key)}`
+    : `path=${encodeURIComponent(path)}`;
+  return api(`/api/time/tasks/document?${query}`);
+}
+
+function applyTaskDocument(doc) {
+  state.mode = "edit";
+  state.taskKey = String(doc?.key || state.taskKey);
+  state.path = String(doc?.path || "");
+  state.revision = String(doc?.revision || "");
+  state.title = String(doc?.title || "");
+  state.body = normalizeBody(doc?.body ?? "");
+  state.savedBody = state.body;
+}
+
 function applyJournalUi() {
   const dialog = el("note-editor-dialog");
   const paper = el("note-editor-paper");
   dialog?.classList.toggle("is-journal", state.journal);
+  dialog?.classList.toggle("is-task", state.task);
   paper?.classList.toggle("is-journal", state.journal);
   const title = el("note-editor-title");
   if (title) {
     title.readOnly = state.journal;
+    title.placeholder = state.task ? "任务标题" : "标题";
+    title.setAttribute("aria-label", state.task ? "任务标题" : "笔记标题");
     title.setAttribute("aria-readonly", state.journal ? "true" : "false");
   }
+  const text = el("note-editor-text");
+  if (text) text.placeholder = state.journal ? "开始记录…" : "写点什么……";
   const meta = document.querySelector("#note-editor-paper .editor-meta-row");
-  if (meta) meta.hidden = state.journal;
+  if (meta) meta.hidden = state.journal || state.task;
   const classify = el("note-editor-classify");
   if (classify) {
     classify.textContent = "AI 建议章节";
-    classify.hidden = state.journal;
+    classify.hidden = state.journal || state.task;
   }
 }
 
+function templateDay() {
+  return state.journal ? (state.journalDay || shanghaiDay()) : shanghaiDay();
+}
+
+function templateContentPresent() {
+  if (state.journal) {
+    return !isBlankJournalBody(currentBody(), state.journalDay || shanghaiDay());
+  }
+  return Boolean(currentTitle() || currentBody().trim() || currentTags().length);
+}
+
+/** 模板只出现在人生路的空白新写作里：已有笔记、知识库、已开始写的都不可用。 */
+function templateEligible() {
+  if (!state.open || state.busy || String(state.context || "") !== "life") return false;
+  if (state.journal) return !templateContentPresent();
+  return state.mode === "new" && !templateContentPresent();
+}
+
+function refreshTemplateStrip() {
+  const strip = el("note-editor-template-strip");
+  if (!strip) return;
+  const visible = templateEligible()
+    && !state.template.dismissed
+    && !state.template.touched
+    && !state.template.applied;
+  if (!visible) {
+    strip.hidden = true;
+    return;
+  }
+  const suggestions = suggestTemplates({
+    day: templateDay(),
+    recent: readRecentTemplates(),
+    now: new Date(),
+  });
+  if (!suggestions.length) {
+    strip.hidden = true;
+    return;
+  }
+  const chips = el("template-strip-chips");
+  if (chips) chips.innerHTML = templateStripMarkup(suggestions);
+  strip.hidden = false;
+}
+
+function handleTemplateInput() {
+  if (!state.open) return;
+  if (state.template.applied) {
+    hideTemplateUndo();
+    return;
+  }
+  if (state.template.touched) return;
+  if (!templateContentPresent()) return;
+  state.template.touched = true;
+  refreshTemplateStrip();
+}
+
+function dismissTemplateStrip() {
+  state.template.dismissed = true;
+  refreshTemplateStrip();
+  (state.journal ? el("note-editor-text") : el("note-editor-title"))?.focus?.();
+}
+
+function showTemplateUndo(applied) {
+  const node = el("note-editor-template-undo");
+  const text = el("note-editor-template-undo-text");
+  if (!node) return;
+  if (text) text.textContent = `已套用「${applied.name}」`;
+  node.hidden = false;
+  window.clearTimeout(templateUndoTimer);
+  templateUndoTimer = window.setTimeout(hideTemplateUndo, 6000);
+}
+
+function hideTemplateUndo() {
+  window.clearTimeout(templateUndoTimer);
+  templateUndoTimer = 0;
+  const node = el("note-editor-template-undo");
+  if (node) node.hidden = true;
+}
+
+function readRecentTemplates() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_TEMPLATES_KEY) || "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((id) => typeof id === "string").slice(0, 10)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentTemplate(id) {
+  const next = [id, ...readRecentTemplates().filter((item) => item !== id)].slice(0, 10);
+  try {
+    window.localStorage.setItem(RECENT_TEMPLATES_KEY, JSON.stringify(next));
+  } catch {
+    // 本地存储不可用时只影响建议顺序，套用照常进行。
+  }
+}
+
+function isTemplateSheetOpen() {
+  const sheet = el("note-editor-template-sheet");
+  return Boolean(sheet && !sheet.hidden);
+}
+
+function openTemplateSheet() {
+  if (!templateEligible() || state.template.applied || isTemplateSheetOpen()) return;
+  templateSheet.ranked = rankedTemplates({ day: templateDay(), now: new Date() });
+  templateSheet.filter = "all";
+  templateSheet.query = "";
+  templateSheet.preview = null;
+  templateSheet.shift = 0;
+  const search = el("template-search");
+  if (search) search.value = "";
+  showTemplateListStep();
+  renderTemplateFilters();
+  renderTemplateResults();
+  const sheet = el("note-editor-template-sheet");
+  if (sheet) sheet.hidden = false;
+  const shell = document.querySelector("#note-editor-dialog .editor-shell");
+  if (shell) shell.inert = true;
+  const results = el("template-results");
+  if (results) results.scrollTop = 0;
+  el("template-open-all")?.setAttribute("aria-expanded", "true");
+  const panel = document.querySelector("#note-editor-template-sheet .template-sheet-panel");
+  window.setTimeout(() => {
+    if (isTemplateSheetOpen()) panel?.focus?.();
+  }, 30);
+}
+
+function closeTemplateSheet({ restoreFocus = true } = {}) {
+  const sheet = el("note-editor-template-sheet");
+  if (!sheet || sheet.hidden) return;
+  sheet.hidden = true;
+  templateSheet.preview = null;
+  const shell = document.querySelector("#note-editor-dialog .editor-shell");
+  if (shell) shell.inert = false;
+  el("template-open-all")?.setAttribute("aria-expanded", "false");
+  document.querySelector("#note-editor-template-sheet .template-sheet-panel")
+    ?.setAttribute("aria-labelledby", "template-sheet-title");
+  if (restoreFocus) el("template-open-all")?.focus?.();
+}
+
+function showTemplateListStep() {
+  const list = el("template-list-step");
+  const preview = el("template-preview-step");
+  if (list) list.hidden = false;
+  if (preview) preview.hidden = true;
+  document.querySelector("#note-editor-template-sheet .template-sheet-panel")
+    ?.setAttribute("aria-labelledby", "template-sheet-title");
+}
+
+function renderTemplateFilters() {
+  const host = el("template-filters");
+  if (!host) return;
+  const filters = templateFilters(templateSheet.ranked);
+  if (!filters.some((filter) => filter.key === templateSheet.filter)) templateSheet.filter = "all";
+  host.innerHTML = templateFilterMarkup(filters, templateSheet.filter);
+}
+
+function renderTemplateResults() {
+  const host = el("template-results");
+  if (!host) return;
+  const items = filterTemplates(templateSheet.ranked, {
+    filter: templateSheet.filter,
+    query: templateSheet.query,
+  });
+  host.innerHTML = items.length
+    ? items.map((item) => templateRowMarkup(item.template, item.recommended)).join("")
+    : templateEmptyMarkup(templateSheet.query);
+  const query = String(templateSheet.query || "").trim();
+  const status = el("template-list-status");
+  if (status) {
+    status.textContent = items.length
+      ? `共 ${items.length} 个模板`
+      : (query ? `没有找到与「${query}」相关的模板` : "这里还没有模板");
+  }
+}
+
+function setTemplateFilter(filter) {
+  templateSheet.filter = String(filter || "all");
+  const nodes = [...(el("template-filters")?.querySelectorAll("[data-template-filter]") || [])];
+  if (!nodes.some((node) => node.dataset.templateFilter === templateSheet.filter)) {
+    templateSheet.filter = "all";
+  }
+  for (const node of nodes) {
+    node.setAttribute("aria-pressed", node.dataset.templateFilter === templateSheet.filter ? "true" : "false");
+  }
+  renderTemplateResults();
+  nodes.find((node) => node.dataset.templateFilter === templateSheet.filter)?.focus?.();
+}
+
+function openTemplatePreview(id) {
+  const template = templateById(id);
+  if (!template) return;
+  templateSheet.preview = template;
+  templateSheet.shift = 0;
+  renderTemplatePreview();
+  const list = el("template-list-step");
+  const preview = el("template-preview-step");
+  if (list) list.hidden = true;
+  if (preview) preview.hidden = false;
+  document.querySelector("#note-editor-template-sheet .template-sheet-panel")
+    ?.setAttribute("aria-labelledby", "template-preview-name");
+  el("template-search")?.blur?.();
+  el("template-preview-name")?.focus?.();
+}
+
+function renderTemplatePreview() {
+  const template = templateSheet.preview;
+  if (!template) return;
+  const variables = templateVariables(templateDay(), {
+    now: new Date(), questionShift: templateSheet.shift,
+  });
+  const resolved = resolveTemplate(template, variables);
+  const name = el("template-preview-name");
+  if (name) name.textContent = resolved.name;
+  const title = el("template-preview-title");
+  if (title) title.textContent = resolved.title;
+  const body = el("template-preview-body");
+  if (body) body.innerHTML = renderMarkdownDocument(resolved.body).html;
+  const hint = el("template-preview-hint");
+  if (hint) {
+    hint.textContent = state.journal
+      ? "日期与问题已按这篇日记填好；模板标题会写进正文第一行。"
+      : "日期与问题已按这篇记录填好。";
+  }
+  const card = document.querySelector("#template-preview-step .template-preview-card");
+  if (card) card.scrollTop = 0;
+  const shuffle = el("template-preview-shuffle");
+  if (shuffle) shuffle.hidden = !resolved.usesQuestion;
+}
+
+function showTemplateList() {
+  templateSheet.preview = null;
+  showTemplateListStep();
+  renderTemplateResults();
+  el("template-search")?.focus?.();
+}
+
+function shuffleTemplateQuestion() {
+  templateSheet.shift += 1;
+  renderTemplatePreview();
+}
+
+function usePreviewedTemplate() {
+  const template = templateSheet.preview;
+  if (template) applyTemplate(template, templateSheet.shift);
+}
+
+function applyTemplateById(id) {
+  const template = templateById(id);
+  if (template) applyTemplate(template, 0);
+}
+
+function applyTemplate(template, questionShift = 0) {
+  if (!template || state.busy) return;
+  if (!templateEligible()) {
+    closeTemplateSheet();
+    setStatus("已经开始写了，模板只能套用在空白页上。", "warning");
+    toast("已经开始写了，模板只能套用在空白页上。", "warning");
+    return;
+  }
+  const variables = templateVariables(templateDay(), {
+    now: new Date(), questionShift,
+  });
+  const resolved = resolveTemplate(template, variables);
+  const titleInput = el("note-editor-title");
+  const textInput = el("note-editor-text");
+  const tagsInput = el("note-editor-tags");
+  if (!textInput) return;
+  const before = {
+    title: titleInput?.value || "",
+    body: textInput.value,
+    tags: tagsInput?.value || "",
+  };
+  const prefix = state.journal ? `# ${resolved.title}\n\n` : "";
+  const body = state.journal
+    ? journalTemplateBody(resolved.title, resolved.body)
+    : resolved.body;
+  if (state.preview) setPreviewMode(false);
+  if (state.journal) {
+    textInput.value = body;
+  } else {
+    if (titleInput) titleInput.value = resolved.title;
+    textInput.value = body;
+    if (tagsInput) {
+      tagsInput.value = tagsToInput([...new Set([
+        ...tagsFromInput(before.tags), ...(resolved.tags || []),
+      ])]);
+    }
+  }
+  const applied = {
+    id: template.id,
+    name: template.name,
+    title: titleInput?.value || "",
+    body: textInput.value,
+    tags: tagsInput?.value || "",
+    before,
+  };
+  state.template.applied = applied;
+  state.template.touched = true;
+  rememberRecentTemplate(template.id);
+  closeTemplateSheet({ restoreFocus: false });
+  refreshTemplateStrip();
+  const caret = prefix.length + firstEmptyLineOffset(resolved.body);
+  textInput.focus?.();
+  textInput.setSelectionRange?.(caret, caret);
+  updatePreview();
+  setStatus(`已套用「${template.name}」，保存后写入。`, "success");
+  showTemplateUndo(applied);
+}
+
+function undoAppliedTemplate(applied) {
+  if (!applied || state.template.applied !== applied) return;
+  hideTemplateUndo();
+  const titleInput = el("note-editor-title");
+  const textInput = el("note-editor-text");
+  const tagsInput = el("note-editor-tags");
+  const pristine = (titleInput?.value || "") === applied.title
+    && normalizeBody(textInput?.value || "") === normalizeBody(applied.body)
+    && (tagsInput?.value || "") === applied.tags;
+  if (!pristine) {
+    setStatus("已经开始写了，模板内容保留。", "warning");
+    toast("已经开始写了，模板内容保留。", "warning");
+    return;
+  }
+  if (titleInput) titleInput.value = applied.before.title;
+  if (textInput) textInput.value = applied.before.body;
+  if (tagsInput) tagsInput.value = applied.before.tags;
+  state.template.applied = null;
+  state.template.touched = false;
+  state.template.dismissed = false;
+  refreshTemplateStrip();
+  updatePreview();
+  setStatus("已撤销模板。", "success");
+  if (state.journal) textInput?.focus?.();
+  else titleInput?.focus?.();
+}
+
+function resetTemplateSession() {
+  closeTemplateSheet({ restoreFocus: false });
+  hideTemplateUndo();
+  state.template = { dismissed: false, touched: false, applied: null };
+  templateSheet.ranked = [];
+  templateSheet.filter = "all";
+  templateSheet.query = "";
+  templateSheet.preview = null;
+  templateSheet.shift = 0;
+}
+
 export async function openNoteEditor(options = {}) {
+  if (openingTaskDocument) return;
   initNoteEditor();
+  resetTemplateSession();
   const note = options.note || null;
+  const task = options.task || null;
   const headingOverride = String(options.heading || "");
   const journalDay = journalDayFrom(note, options);
   state.open = true;
   state.busy = false;
-  state.journal = Boolean(journalDay);
-  state.journalDay = journalDay;
+  state.journal = Boolean(journalDay) && !task;
+  state.journalDay = state.journal ? journalDay : "";
+  state.task = Boolean(task);
+  state.taskKey = String(task?.key || "");
   state.preview = false;
   state.focus = false;
   polish = null;
   hidePolish();
-  if (state.journal) {
+  if (state.task) {
+    state.context = "life";
+    state.chapter = "";
+    state.tags = [];
+    state.frontmatter = "";
+    state.mode = "edit";
+    openingTaskDocument = true;
+    try {
+      applyTaskDocument(await fetchTaskDocument(task));
+    } catch (error) {
+      state.open = false;
+      state.task = false;
+      state.taskKey = "";
+      throw error;
+    } finally {
+      openingTaskDocument = false;
+    }
+    if (el("note-editor-chapter")) el("note-editor-chapter").innerHTML = "";
+  } else if (state.journal) {
     state.context = "life";
     state.chapter = "journal";
     state.tags = [];
@@ -220,12 +744,13 @@ export async function openNoteEditor(options = {}) {
   if (heading) {
     heading.textContent = state.journal
       ? "今天的日记"
-      : (note ? "编辑笔记" : (headingOverride || "写一条"));
+      : state.task ? "任务文档" : (note ? "编辑笔记" : (headingOverride || "写一条"));
   }
   const eyebrow = el("note-editor-eyebrow");
   if (eyebrow) eyebrow.textContent = state.journal
     ? `人生路 · ${state.journalDay}`
-    : (state.context === "knowledge" ? "知识库 · 写作" : "人生路 · 写作");
+    : state.task ? "人生路 · 任务文档"
+      : (state.context === "knowledge" ? "知识库 · 写作" : "人生路 · 写作");
   el("note-editor-title").value = state.title;
   el("note-editor-tags").value = tagsToInput(state.tags);
   el("note-editor-text").value = state.body;
@@ -233,13 +758,17 @@ export async function openNoteEditor(options = {}) {
   setPreviewMode(false);
   setFocusMode(false);
   syncDeleteButton();
-  setStatus("");
+  setStatus(state.task
+    ? "标题就是任务板上的名字；正文保存在任务文档里，日期和优先级仍在任务板。"
+    : "");
   updatePreview();
+  refreshTemplateStrip();
   const dialog = el("note-editor-dialog");
   if (dialog && !dialog.open) {
     try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
   }
   window.setTimeout(() => {
+    if (!state.open || isTemplateSheetOpen()) return;
     (state.journal || state.mode === "edit" ? el("note-editor-text") : el("note-editor-title"))?.focus?.();
   }, 30);
 }
@@ -282,6 +811,7 @@ function currentTags() {
 
 function dirty() {
   if (state.journal) return isDirty(currentBody(), state.savedBody);
+  if (state.task) return isDirty(currentBody(), state.savedBody) || currentTitle() !== state.title;
   return state.mode === "new"
     ? Boolean(currentTitle() || currentBody() || currentTags().length)
     : isDirty(currentBody(), state.savedBody) || currentTitle() !== state.title
@@ -308,7 +838,7 @@ function syncChapterSelect() {
 function syncDeleteButton() {
   const button = el("note-editor-delete");
   if (!button) return;
-  button.hidden = state.journal || state.mode !== "edit" || !state.path;
+  button.hidden = state.journal || state.task || state.mode !== "edit" || !state.path;
   button.disabled = state.busy;
 }
 
@@ -341,7 +871,7 @@ export async function deleteNoteFile(note, { dirtyNote = false } = {}) {
 }
 
 async function deleteCurrentNote() {
-  if (state.busy || state.journal || state.mode !== "edit" || !state.path) return;
+  if (state.busy || state.journal || state.task || state.mode !== "edit" || !state.path) return;
   state.busy = true;
   syncDeleteButton();
   setStatus("正在删除…");
@@ -384,6 +914,7 @@ async function closeEditor({ force = false } = {}) {
     });
     if (!leave) return;
   }
+  resetTemplateSession();
   const dialog = el("note-editor-dialog");
   if (dialog?.open) dialog.close();
   else dialog?.removeAttribute("open");
@@ -453,6 +984,7 @@ function applyToolbar(action) {
   textarea.value = result.text;
   textarea.focus();
   textarea.setSelectionRange(result.selectionStart, result.selectionEnd);
+  handleTemplateInput();
   updatePreview();
 }
 
@@ -475,6 +1007,7 @@ async function saveJournal(body) {
     state.revision = String(result.sha256 || "");
     state.frontmatter = splitFrontMatter(content).frontmatter;
     state.savedBody = body;
+    hideTemplateUndo();
     setStatus("已写进今天的日记。", "success");
     toast("今天的日记已保存。", "success");
     document.dispatchEvent(new CustomEvent("torch:notes-changed", {
@@ -494,11 +1027,76 @@ async function saveJournal(body) {
   }
 }
 
+function taskDocumentTitle(body) {
+  return String(body.split("\n").find((line) => line.trim()) || "")
+    .replace(/^#+\s*/, "").trim().slice(0, 40) || "未命名任务";
+}
+
+/**
+ * 任务文档保存：走任务专用接口，只校验该文件的 revision。
+ * 文件层会补齐结尾换行，所以 savedBody 记提交的规范化正文，不回写 textarea（避免光标跳动）。
+ */
+async function saveTaskDocument(body) {
+  if (!dirty()) {
+    setStatus("没有新的修改。", "success");
+    return true;
+  }
+  let title = currentTitle();
+  if (!title) {
+    title = taskDocumentTitle(body);
+    el("note-editor-title").value = title;
+  }
+  const previousPath = state.path;
+  const normalized = normalizeBody(body);
+  state.busy = true;
+  syncDeleteButton();
+  setStatus("正在保存任务文档…");
+  try {
+    const result = await api("/api/time/tasks/document", {
+      method: "POST",
+      body: JSON.stringify({
+        key: state.taskKey, expected_revision: state.revision,
+        title, body: normalized,
+      }),
+      timeoutMs: 60000,
+    });
+    state.taskKey = String(result?.key || state.taskKey);
+    state.path = String(result?.path || state.path);
+    state.revision = String(result?.revision || "");
+    state.title = String(result?.title || title);
+    state.body = normalized;
+    state.savedBody = normalized;
+    el("note-editor-title").value = state.title;
+    const renamed = state.path !== previousPath;
+    setStatus(renamed ? "已保存；标题变化已同步到任务板。" : "已保存。", "success");
+    toast("任务文档已保存。", "success");
+    document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
+    dispatchNotesChanged(
+      { path: state.path, chapter: "task", pillar: "life" }, previousPath);
+    updatePreview();
+    return true;
+  } catch (error) {
+    if (error.status === 409 && !/只读/.test(error.message || "")) {
+      setStatus("任务文档已在别处修改或已移动，未覆盖。请从任务板重新打开。", "error");
+    } else {
+      setStatus(`保存失败：${error.message}`, "error");
+    }
+    return false;
+  } finally {
+    state.busy = false;
+    syncDeleteButton();
+  }
+}
+
 async function saveNote() {
   if (state.busy) return;
   const body = currentBody();
   if (state.journal) {
     await saveJournal(body);
+    return;
+  }
+  if (state.task) {
+    await saveTaskDocument(body);
     return;
   }
   const previousPath = state.path;
@@ -572,6 +1170,8 @@ async function saveNote() {
     toast(moved ? "笔记已保存并移动。" : "笔记已保存。", "success");
     dispatchNotesChanged(note, previousPath);
     updatePreview();
+    refreshTemplateStrip();
+    hideTemplateUndo();
   } catch (error) {
     if (error.status === 409) {
       setStatus("这篇笔记已在 Obsidian 或别处修改，未覆盖。请复制你的改动后点“重新载入”。", "error");
@@ -585,7 +1185,7 @@ async function saveNote() {
 }
 
 async function reloadNote() {
-  if (!state.path) return;
+  if (!state.path && !state.taskKey) return;
   if (dirty()) {
     const ok = await confirmAction({
       title: "重新载入并丢弃本地修改？",
@@ -594,6 +1194,7 @@ async function reloadNote() {
     });
     if (!ok) return;
   }
+  resetTemplateSession();
   if (state.journal) {
     try {
       const draft = await openJournalDraft(state.journalDay || shanghaiDay());
@@ -603,8 +1204,23 @@ async function reloadNote() {
       el("note-editor-text").value = state.body;
       setStatus("已重新载入今天的日记。", "success");
       updatePreview();
+      refreshTemplateStrip();
     } catch (error) {
       setStatus(`重新载入失败：${error.message}`, "error");
+    }
+    return;
+  }
+  if (state.task) {
+    try {
+      applyTaskDocument(await fetchTaskDocument({
+        key: state.taskKey, path: state.path,
+      }));
+      el("note-editor-title").value = state.title;
+      el("note-editor-text").value = state.body;
+      setStatus("已重新载入任务文档。", "success");
+      updatePreview();
+    } catch (error) {
+      setStatus(`重新载入失败：${error.message}。请关闭后从任务板重新打开。`, "error");
     }
     return;
   }
@@ -624,12 +1240,14 @@ async function reloadNote() {
     syncDeleteButton();
     setStatus("已重新载入磁盘版本。", "success");
     updatePreview();
+    refreshTemplateStrip();
   } catch (error) {
     setStatus(`重新载入失败：${error.message}`, "error");
   }
 }
 
 async function classifyDraft() {
+  if (state.task) return;
   const body = currentBody();
   if (!body.trim()) {
     toast("先写点内容，再让 AI 判类。", "warning");
@@ -720,6 +1338,7 @@ function applyPolish() {
     textarea.setSelectionRange(polish.start, polish.start + polish.polished.length);
   }
   hidePolish();
+  handleTemplateInput();
   updatePreview();
   setStatus("已应用到正文；保存后写入。", "success");
 }

@@ -36,11 +36,42 @@
 
 ## 已完成
 
+- **2026-10-31 文档直接移动到其他本子（人生路 / 知识库）**：
+  - 后端原有 `POST /api/writing/notes/move`：`pillar_notes.move_note` 用 `os.replace`
+    真正把 Markdown 从原文件夹移到目标章节文件夹，更新 frontmatter `chapter`/`pillar`/`updated`，
+    写 `note_moved` 审计；搜索/列表直接读磁盘。如果笔记已被「扫描 Vault」进 SQLite
+    `documents` 索引，新增的 `Database.relocate_document` 会同步 `path`/标题/正文哈希/
+    metadata，FTS 由更新触发器刷新（`note_moved` 审计带 `index_updated`）；未索引的笔记由
+    下一次扫描按新路径收录。
+  - 前端新增入口：笔记卡片右上角「移动」、阅读器「移动到本子」；按当前库读取
+    `/api/writing/chapters`，按内置本子顺序分组（自定义本子进「我的本子」），当前本子不列出。
+    提交前先读最新 `/api/notes` revision，再调移动接口；成功后在阅读器中跟随新路径并刷新列表。
+  - 编辑器原有「本子」选择器保存时移动保留。
+  - 测试：`frontend/tests/interaction.test.mjs` 新增移动对话框、目标分组和请求体用例；
+    `frontend/tests/notebook-model.test.mjs` 新增 `buildMoveTargetGroups` 用例；
+    后端 `tests/test_note_editor.py` 新增“扫描索引后移动，documents 路径/哈希/FTS 同步、
+    再扫描 changed=0”用例，原有“文件旧路径消失、新路径存在”的移动测试保留；
+    前端全量 **418 passed**。
+- **2026-10-31 任务文档应用内编辑（三个入口 + 整行双击改名）**：
+  - 后端新增 `GET/POST /api/time/tasks/document`：按 `key` 或人生路阅读器的 `path` 读任务
+    文档；保存标题/正文只校验**该文件的 revision**（任务板 revision 是复合值，不混用），
+    日期/时间/优先级/标签/完成/完成于/清单/dida_id/目标等 frontmatter 原样保留。
+    改标题会重命名文件并轮换任务 key，响应返回新 `key/path/revision/title`；
+    `task_document_saved` 审计只记清单、是否改名和字节数。
+  - 编辑器 `openNoteEditor({task})`：标题就是任务板显示的名字；隐藏本子/标签/AI 判类/删除，
+    保存与重新载入走任务接口；标题改名后继续用新 key 保存。任务行「文档」/右键菜单、
+    人生路「任务与待办」阅读器、目标笔记下方关联任务都打开同一套全屏编辑器。
+  - 任务板行与日历条目支持整条双击就地改标题（勾选框/按钮/标签和旧任务不触发）；
+    虚拟习惯仍走习惯页/原入口，旧任务仍只读并回 Obsidian。
+  - 测试：`tests/test_tasks.py` 30 passed；`frontend/tests/interaction.test.mjs` 37 passed
+    （含任务文档读写/改名/完成态/旧任务/只读库、编辑器任务模式与整行双击改名）；
+    前端全量 **418 passed**；模块面与文本/结构检查通过。
 - **2026-10-31 清单右键菜单（`torchos项目管理` 右键没反应 / 不能编辑）**：
   - 原因：2026-10-30 的布局迁移把 `任务/torchos项目管理` 上移成清单目录，却没在
     `_系统/任务（tasks）.md` 的 `清单:` 里补定义；后端把这类目录标成 `synthetic`，
     侧栏对合成清单既不挂右键菜单、也不给「…」，所以右键整行没有反应。这个清单的定义
-    在 10-30 21:56 的配置重写里丢失，之后它就一直以合成清单存在。
+    在 10-30 晚上的一次配置重写里丢失（迁移前的备份里还有、审计里没有删清单记录），
+    之后它就一直以合成清单存在。
   - 侧栏：清单行一律挂右键菜单和「…」（编辑/置顶/复制/删除），合成清单同样可用；
     菜单标签改用 `textContent` 拼，清单名里的 `<`/`&` 不会被当成标签。
   - 后端：合成清单第一次被编辑/置顶/复制/删除时，按 `create_list` 的默认值补登记定义；

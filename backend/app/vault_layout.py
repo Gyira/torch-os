@@ -360,10 +360,11 @@ def custom_notebook_pillar_of(relpath: str) -> str:
 
 
 def custom_notebook_name_from_relpath(relpath: str) -> str:
-    """<库>/<自定义文件夹>/... → 文件夹名；固定一级目录返回空串。"""
+    """<库>/<自定义文件夹>/<笔记>.md → 文件夹名；库根直属文件与固定一级目录返回空串。"""
     text = normalize_relpath(relpath)
     parts = text.split("/")
-    if len(parts) < 2 or custom_notebook_pillar_of(text) == "":
+    # 至少要有「库 / 本子文件夹 / 笔记」三段；库根下的散落文件不是自定义本子。
+    if len(parts) < 3 or custom_notebook_pillar_of(text) == "":
         return ""
     name = parts[1]
     if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:

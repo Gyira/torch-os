@@ -26,7 +26,7 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .db import Database, utc_now
@@ -99,6 +99,17 @@ class TaskUpdate(BaseModel):
     pinned: bool | None = None
     done: bool | None = None
     day: str = Field(default="", max_length=10)
+
+
+class TaskDocumentSave(BaseModel):
+    """任务文档的正文/标题保存；revision 是单文件的 revision，不是任务板复合 revision。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: TaskKey
+    expected_revision: str = Field(default="", max_length=64)
+    title: str = Field(default="", max_length=MAX_TITLE)
+    body: str = Field(default="", max_length=200_000)
 
 
 class TaskReorder(BaseModel):
@@ -929,6 +940,62 @@ def update_task(vault_dir: Path | str, payload: TaskUpdate, database: Database, 
     return {"revision": _revision_now(vault_dir), "task": _note_public(updated)}
 
 
+# ===== 任务文档（应用内编辑器） =====
+
+
+def _document_payload(note: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": note["key"],
+        "path": note["relpath"],
+        "revision": note["revision"],
+        "title": note["title"],
+        "body": task_notes.note_body(note),
+        "list_name": note["list_name"],
+        "done": note["done"],
+    }
+
+
+def _document_note(state: dict[str, Any], *, key: str = "",
+                   path: str = "") -> dict[str, Any]:
+    """按 key 或相对路径定位任务笔记；路径只在扫描结果里比对，不碰文件系统。"""
+    if key:
+        return _require_note(state, key)
+    target = str(path or "").replace("\\", "/").strip()
+    if not target:
+        raise HTTPException(422, "需要任务 key 或文档路径")
+    for note in state["notes"]:
+        if note["relpath"] == target:
+            return note
+    raise HTTPException(404, "任务文档不存在；请刷新任务板后重试")
+
+
+def read_task_document(vault_dir: Path | str, *, key: str = "",
+                       path: str = "") -> dict[str, Any]:
+    state = _read_state(vault_dir)
+    return _document_payload(_document_note(state, key=key, path=path))
+
+
+def save_task_document(vault_dir: Path | str, payload: TaskDocumentSave,
+                       database: Database, *, read_only: bool = False) -> dict[str, Any]:
+    """保存任务文档的标题与正文；只校验该文件的 revision，避免被无关任务改动误伤。"""
+    _ensure_write(read_only, "编辑任务文档")
+    state = _read_state(vault_dir)
+    note = _document_note(state, key=payload.key)
+    expected = str(payload.expected_revision or "").strip()
+    if expected and expected != note["revision"]:
+        raise HTTPException(409, "任务文档已在别处修改：请重新载入后再保存")
+    title = _clean_title(payload.title)
+    updated = task_notes.rewrite_task_note(
+        vault_dir, note, folder=_folder_for_list(note["list_name"]), title=title,
+        values=_note_values(note), body=payload.body)
+    _audit(database, "task_document_saved", {
+        "list": updated["list_name"],
+        "renamed": updated["relpath"] != note["relpath"],
+        "bytes": len(payload.body.encode("utf-8")),
+    })
+    return _document_payload(updated)
+
+
 def _stable_task_key(note: dict[str, Any]) -> str:
     return f"{note['relpath']}\u0000{note['key']}"
 
@@ -1745,6 +1812,15 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     @router.post("/tasks/update")
     def tasks_update(payload: TaskUpdate):
         return update_task(vault_dir, payload, database, read_only=read_only)
+
+    @router.get("/tasks/document")
+    def tasks_document(key: str = Query(default="", max_length=64),
+                       path: str = Query(default="", max_length=2048)):
+        return read_task_document(vault_dir, key=key, path=path)
+
+    @router.post("/tasks/document")
+    def tasks_document_save(payload: TaskDocumentSave):
+        return save_task_document(vault_dir, payload, database, read_only=read_only)
 
     @router.post("/tasks/reorder")
     def tasks_reorder(payload: TaskReorder):

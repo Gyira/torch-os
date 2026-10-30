@@ -43,13 +43,18 @@ def _clean_tags(values: list[str] | None) -> list[str]:
 def _metadata(relative: str, metadata: dict[str, Any], path: Path) -> dict[str, Any]:
     pillar = vault_layout.pillar_of(relative)
     chapter = vault_layout.chapter_key_of(relative)
+    # 任务笔记的标题在中文 frontmatter「标题」里（文件名可能因重名带编号）；
+    # 人生路阅读器与任务板应显示同一个文档标题。
+    title = metadata.get("title")
+    if str(metadata.get("type") or "").strip().lower() == "task":
+        title = metadata.get("标题") or title
     return {
         "path": relative,
         # 路径是结构事实来源；frontmatter 只补空缺，过期字段由健康检查报告。
         "pillar": pillar or str(metadata.get("pillar") or ""),
         "chapter": chapter or str(metadata.get("chapter") or ""),
         "type": str(metadata.get("type") or vault_layout.chapter_default_type(chapter)),
-        "title": str(metadata.get("title") or path.stem),
+        "title": str(title or path.stem),
         "id": str(metadata.get("id") or ""),
         "date": str(metadata.get("date") or metadata.get("created") or ""),
         "status": str(metadata.get("status") or ("inbox" if chapter == "inbox" else "active")),

@@ -9,7 +9,8 @@
 |---|---|---|
 | 人生路：反思/心得/随笔/复盘/目标计划/项目/工作复盘 | 是 | `/api/writing/notes*` |
 | 人生路：日记（仅今天） | 是 | `/api/journal/write`（sha 冲突校验；过去只读） |
-| 人生路：任务/习惯 | 否 | 工作台任务/习惯专用接口 |
+| 人生路：任务文档（正文 + 标题） | 是 | `/api/time/tasks/document`（文件级 revision；标题即任务名） |
+| 人生路：任务排期/完成/清单、习惯 | 否 | 工作台任务/习惯专用接口 |
 | 知识库：收件箱/主题/读书/课程/概念/方法/输出 | 是 | `/api/writing/notes*` |
 | 自我档案 | 否 | 身份候选/忆灵审核（P3） |
 | 生活运营 | 否 | 专用月度表/专家报告（P4） |
@@ -19,6 +20,11 @@
 - `VAULT_READ_ONLY=1` 时所有写入返回 409。
 - 每次写入写 `audit_events`（`note_created/note_updated/note_moved/note_deleted`），审计不含正文。
 - 编辑带 `expected_revision`；Obsidian 或别处改过时返回 409，不覆盖。
+- 任务文档是额外的一条写入路径：一任务一笔记，标题就是任务板显示的名字。任务行「文档」、
+  右键菜单、人生路「任务与待办」阅读器都打开同一套全屏编辑器；保存走
+  `/api/time/tasks/document`，只比较该文件的 revision（不是任务板复合 revision）。
+  改标题会重命名文件并轮换任务 key；日期/时间/优先级/标签/完成/清单等 frontmatter 由任务板
+  接口维护，编辑器保存时原样保留。旧任务（共享 `任务（tasks）.md`）与虚拟习惯仍只回 Obsidian。
 - 未知 frontmatter 字段由 `pillar_notes` 原样保留；新笔记带 `id/type/title/created/pillar/chapter/status`。
 
 ## 2. 编辑器
@@ -36,6 +42,9 @@
   AI 建议章节只改选择，保存后才落盘/移动；
 - **今天的日记**：`chapter=journal` 时读取 `/api/journal/note`，只显示正文，保留原 front matter；
   保存走 `/api/journal/write`，带 `expected_sha`；只允许写今天，过去日记保持只读；
+- **任务文档**：`openNoteEditor({task})` 读取 `GET /api/time/tasks/document`，标题就是任务标题，
+  正文是任务 Markdown 的 body；隐藏本子/标签/AI 判类/删除，保存走任务专用接口；
+  任务板、日历条目和人生路阅读器共用同一入口；
 - AI 润色先展示预览，用户点“应用到正文”才替换；AI 不可用时正文不变；
 - “在 Obsidian 打开”复用 `task-open.js` 的宿主桥/`obsidian://`；
 - “删除”（编辑页脚/阅读页操作区）：二次确认后软删除到 `.torch-os/笔记回收站/<批次>/files/...`，
@@ -62,7 +71,7 @@
 | GET | `/api/writing/chapters` | 可写章节（life/knowledge） |
 | POST | `/api/writing/notes` | 新建（chapter/title/body/tags/source） |
 | PUT | `/api/writing/notes` | 编辑（path/expected_revision/body/title/tags） |
-| POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision），含自定义本子 |
+| POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision），含自定义本子；实际移动 Markdown 文件 |
 | POST | `/api/writing/notes/delete` | 软删除到 `.torch-os/笔记回收站`（path/expected_revision） |
 | GET | `/api/notebooks?pillar=life` 或 `?pillar=knowledge` | 列出该库下的自定义本子（含计数/最近一篇） |
 | POST | `/api/notebooks` | 新建本子（`pillar`/`name`）；在对应库根目录创建同名文件夹 |
@@ -71,6 +80,8 @@
 | POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
 | GET | `/api/journal/note?day=` | 读取当天日记，返回 `content` 与原始字节 `sha256` |
 | POST | `/api/journal/write` | 写今天日记（day/content/expected_sha/confirm） |
+| GET | `/api/time/tasks/document?key=` 或 `?path=` | 读任务文档（标题、正文、文件级 revision） |
+| POST | `/api/time/tasks/document` | 保存任务文档（key/expected_revision/title/body）；标题改名会换 key |
 | POST | `/api/knowledge/share/preview` | 取回分享并预览 |
 | POST | `/api/knowledge/share/archive` | 确认后归档（不调用 AI） |
 | POST | `/api/knowledge/share/digest` | 学术导师整理成 new_note 提案 |
@@ -87,7 +98,14 @@
 - `overview.custom_notebooks`（两个库都会返回）和 `/api/writing/chapters` 会返回
   自定义本子；本子内笔记仍走 `/api/writing/notes`，路径为
   `<库根目录>/<本子名>/<标题>.md`。
-- 编辑器「本子」选择器支持**在同一库内移动笔记**：固定章节 ↔ 自定义本子、
+- **直接移动**：笔记卡片右上角的「移动」和阅读器里的「移动到本子」会打开目标本子选择框；
+  提交时先读取笔记最新 revision，再调用 `POST /api/writing/notes/move`。后端用 `os.replace`
+  把 Markdown 文件从原文件夹移到目标本子文件夹，并更新 frontmatter 的 `chapter`/`pillar`
+  与 `updated`，写 `note_moved` 审计；四库搜索/列表读取磁盘，不需要额外的数据库路径索引。
+  如果这篇笔记已经被「扫描 Vault」写进 SQLite `documents` 索引，移动接口会同时更新索引的
+  `path`、标题、正文哈希、metadata 与 FTS 路径；未索引的笔记由下一次扫描按新路径收录。
+  当前本子整体不会出现在目标里（多章节的目标本子再选具体章节）；同名文件自动编号，不覆盖。
+- 编辑器「本子」选择器同样支持**在同一库内移动笔记**：固定章节 ↔ 自定义本子、
   自定义本子 ↔ 自定义本子；保存时先写正文再移动，移动失败不会丢正文。
   跨库（人生路 ↔ 知识库）移动仍不开放，避免 frontmatter 与分类语义混乱。
 - 删除本子走 `POST /api/notebooks/delete`（`confirm:true`）：内置本子按
@@ -107,7 +125,11 @@
 
 - 知识库分享只支持 DeepSeek 公开分享链接，不支持任意网页解析；
 - 不做 WYSIWYG；保持 Markdown 源 + 预览，以便 Obsidian 继续编辑；
-- 不做多人并发合并；409 时让用户复制改动后重新载入；
+- 任务文档只覆盖标题与正文；排期、完成、优先级、标签、清单和删除仍由任务板/回收站管理；
+  旧任务与虚拟习惯不进入应用内任务编辑器；
+- 移动文档只移动 Markdown 文件本身并更新它自己的 frontmatter；不会搬图片附件、改写其它
+  笔记里的双链或相对路径，跨库（人生路 ↔ 知识库）移动仍不开放；
+- 不做多人并发合并；409 时让用户复制改动后重新载入；任务文档改名后需从任务板重新打开；
 - 笔记删除是软删除到 `.torch-os/笔记回收站`，本子删除是软删除到
   `.torch-os/本子回收站`；应用内暂不提供回收站列表/恢复/清空，
   需要找回时在文件管理器里按 `manifest.json` 的原路径放回；

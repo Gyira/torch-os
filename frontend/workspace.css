@@ -645,9 +645,9 @@
 .notebook-page { animation: home-rise .28s cubic-bezier(.2, .8, .2, 1) both; }
 
 .notebook-note-grid .note-card { animation: note-card-in .26s cubic-bezier(.2, .8, .2, 1) both; }
-.notebook-note-grid .note-card:nth-child(2) { animation-delay: .03s; }
-.notebook-note-grid .note-card:nth-child(3) { animation-delay: .06s; }
-.notebook-note-grid .note-card:nth-child(4) { animation-delay: .09s; }
+.notebook-note-grid .note-card-wrap:nth-child(2) .note-card { animation-delay: .03s; }
+.notebook-note-grid .note-card-wrap:nth-child(3) .note-card { animation-delay: .06s; }
+.notebook-note-grid .note-card-wrap:nth-child(4) .note-card { animation-delay: .09s; }
 
 @keyframes note-card-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -774,3 +774,73 @@
 }
 
 .notebook-create-body .status-message { text-align: left; }
+
+/* 移动文档对话框（2026-10-31）：复用新建本子的外壳，只补下拉框与标题。 */
+.note-move-dialog { width: min(520px, 94vw); }
+
+.note-move-note-title {
+  margin: 0 0 6px;
+  color: var(--p-ink-strong);
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+#note-move-target {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--p-line-input);
+  border-radius: 10px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+#note-move-target:focus {
+  border-color: var(--p-accent);
+  outline: 2px solid var(--p-focus-ring);
+  outline-offset: 1px;
+}
+
+.note-move-dialog .notebook-create-body .field-help { margin: 0 0 10px; }
+
+/* 卡片右上角的「移动」入口：卡片本身仍是按钮，移动按钮是它的兄弟节点。 */
+.note-card-wrap { position: relative; display: flex; min-width: 0; }
+
+.note-card-wrap > .note-card { flex: 1; width: 100%; }
+
+.note-card.has-move .note-card-top { padding-right: 48px; }
+
+.note-card-move {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  padding: 4px 9px;
+  border: 1px solid var(--p-line-input);
+  border-radius: 999px;
+  background: var(--p-surface);
+  color: var(--p-ink-3);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  /* 常显但压低存在感，悬停/聚焦时提亮；这样不用先发现悬停才知道能移动。 */
+  opacity: .72;
+  transition: opacity .14s ease, color .14s ease, border-color .14s ease;
+}
+
+.note-card-wrap:hover .note-card-move,
+.note-card-wrap:focus-within .note-card-move {
+  opacity: 1;
+}
+
+.note-card-move:hover,
+.note-card-move:focus-visible {
+  color: var(--p-ink);
+  border-color: var(--pillar-accent, var(--p-accent));
+}
+
+@media (hover: none) {
+  .note-card-move { opacity: .9; }
+}

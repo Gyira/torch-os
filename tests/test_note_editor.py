@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from backend.app import note_editor
@@ -9,6 +11,7 @@ from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.identity import IdentityWrite
 from backend.app import identity
+from backend.app.vault import scan_vault
 
 
 def make_client(tmp_path, *, read_only=False):
@@ -60,6 +63,39 @@ def test_create_edit_and_move_a_life_note_with_revision_guard(tmp_path):
         events = [row["event_type"] for row in connection.execute(
             "SELECT event_type FROM audit_events ORDER BY id")]
     assert "note_created" in events and "note_updated" in events and "note_moved" in events
+
+
+def test_move_updates_the_scanned_document_index_path(tmp_path):
+    client, database, vault = make_client(tmp_path)
+    created = client.post("/api/writing/notes", json={
+        "chapter": "reflection", "title": "移动索引", "body": "移动前的正文",
+    }).json()
+    assert scan_vault(vault, database)["changed"] >= 1
+    with database.connect() as connection:
+        before = connection.execute(
+            "SELECT * FROM documents WHERE path=?", (created["path"],)).fetchone()
+    assert before is not None and before["available"] == 1
+
+    moved = client.post("/api/writing/notes/move", json={
+        "path": created["path"], "target_chapter": "essay",
+        "expected_revision": created["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    new_path = moved.json()["path"]
+
+    with database.connect() as connection:
+        after = connection.execute(
+            "SELECT * FROM documents WHERE id=?", (before["id"],)).fetchone()
+        old = connection.execute(
+            "SELECT id FROM documents WHERE path=?", (created["path"],)).fetchone()
+    assert after is not None
+    assert after["path"] == new_path and after["available"] == 1
+    assert old is None
+    metadata = json.loads(after["metadata_json"])
+    assert metadata["chapter"] == "essay"
+    assert metadata["pillar"] == "life"
+    # 索引已经带着新路径/哈希，下一次扫描不需要把它当成新文档重扫。
+    assert scan_vault(vault, database)["changed"] == 0
 
 
 def test_writing_allow_list_rejects_journal_identity_tasks_and_cross_pillar_move(tmp_path):

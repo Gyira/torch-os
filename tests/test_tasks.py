@@ -163,6 +163,11 @@ def test_create_notes_folders_and_validation(tmp_path):
     payload = board(client)
     duplicates = [task for task in payload["tasks"] if task["title"] == "第一条任务"]
     assert len(duplicates) == 2
+    # 文件名因重名带编号时，人生路阅读器仍显示 frontmatter 里的文档标题。
+    second_doc = client.get("/api/notes", params={
+        "path": "00_人生路/07_任务与待办/收集箱/第一条任务 2.md"})
+    assert second_doc.status_code == 200, second_doc.text
+    assert second_doc.json()["title"] == "第一条任务"
 
     payload = board(client)
     listed = post(client, "/api/time/lists", {"name": "工作", "color": "#22c55e",
@@ -248,6 +253,128 @@ def test_update_rename_move_done_and_conflicts(tmp_path):
     assert cleared.status_code == 200
     task = find(board(client), "晨跑训练")
     assert task["date"] == "" and task["time"] == ""
+
+
+def test_task_document_read_save_and_title_rename(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    created = post(client, "/api/time/tasks", {
+        "title": "写方案", "date": "2026-10-20", "time": "09:00",
+        "priority": "high", "tags": ["重要"], "revision": payload["revision"]})
+    assert created.status_code == 200, created.text
+    task = created.json()["task"]
+    path = inbox_dir(tmp_path) / "写方案.md"
+    path.write_text(path.read_text(encoding="utf-8") + "初始正文\n", encoding="utf-8")
+
+    doc = client.get("/api/time/tasks/document", params={"key": task["key"]})
+    assert doc.status_code == 200, doc.text
+    document = doc.json()
+    assert document["title"] == "写方案"
+    assert document["body"].strip() == "初始正文"
+    assert document["path"] == task["path"]
+
+    # 人生路任务章节：通用阅读接口与章节列表都能看到这篇文档。
+    reading = client.get("/api/notes", params={"path": task["path"]})
+    assert reading.status_code == 200, reading.text
+    reading_note = reading.json()
+    assert reading_note["chapter"] == "task" and reading_note["type"] == "task"
+    assert reading_note["title"] == "写方案"
+    listed = client.get("/api/pillars/life/notes", params={"chapter": "task", "limit": 500})
+    assert listed.status_code == 200, listed.text
+    assert any(item["path"] == task["path"] for item in listed.json()["items"])
+
+    # 人生路阅读器只有路径：按 path 也能读回同一篇文档。
+    by_path = client.get("/api/time/tasks/document", params={"path": task["path"]})
+    assert by_path.status_code == 200, by_path.text
+    assert by_path.json()["key"] == task["key"]
+
+    # 任务板 revision 是复合 revision，不能当文档 revision 用。
+    stale = post(client, "/api/time/tasks/document", {
+        "key": task["key"], "expected_revision": board(client)["revision"],
+        "title": "写方案", "body": "不能写"})
+    assert stale.status_code == 409
+
+    saved = post(client, "/api/time/tasks/document", {
+        "key": task["key"], "expected_revision": document["revision"],
+        "title": "写方案 v2", "body": "# 方案\n\n正文内容\n"})
+    assert saved.status_code == 200, saved.text
+    saved_doc = saved.json()
+    assert saved_doc["title"] == "写方案 v2"
+    assert saved_doc["path"].endswith("/写方案 v2.md")
+    assert saved_doc["key"] != task["key"]
+    renamed_path = inbox_dir(tmp_path) / "写方案 v2.md"
+    assert renamed_path.is_file() and "正文内容" in renamed_path.read_text(encoding="utf-8")
+
+    row = find(board(client), "写方案 v2")
+    assert row["path"] == saved_doc["path"]
+    assert row["done"] is False and row["priority"] == "high" and row["tags"] == ["重要"]
+    assert row["date"] == "2026-10-20" and row["time"] == "09:00"
+
+    # 标题改名会轮换 key：旧 key 失效，新 key + 新 revision 可继续保存。
+    gone = client.get("/api/time/tasks/document", params={"key": task["key"]})
+    assert gone.status_code == 409
+    second = post(client, "/api/time/tasks/document", {
+        "key": saved_doc["key"], "expected_revision": saved_doc["revision"],
+        "title": "写方案 v2", "body": "第二版\n"})
+    assert second.status_code == 200, second.text
+    assert "第二版" in renamed_path.read_text(encoding="utf-8")
+
+    with Database(tmp_path / "tasks.sqlite3").connect() as connection:
+        rows = connection.execute(
+            "SELECT event_type, detail_json FROM audit_events").fetchall()
+    details = [detail for event, detail in rows if event == "task_document_saved"]
+    assert details
+    assert all("写方案" not in detail and "正文内容" not in detail for detail in details)
+
+
+def test_task_document_keeps_done_state_and_rejects_legacy_or_read_only(tmp_path):
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    created = post(client, "/api/time/tasks", {
+        "title": "完成也要能写", "revision": payload["revision"]})
+    task = created.json()["task"]
+    payload = board(client)
+    done = post(client, "/api/time/tasks/update", {
+        "key": task["key"], "done": True, "revision": payload["revision"]})
+    assert done.status_code == 200, done.text
+    task = find(board(client), "完成也要能写")
+    assert task["done"] is True
+    doc = client.get("/api/time/tasks/document", params={"key": task["key"]})
+    assert doc.status_code == 200
+    saved = post(client, "/api/time/tasks/document", {
+        "key": task["key"], "expected_revision": doc.json()["revision"],
+        "title": "完成也要能写", "body": "完成后补一条记录\n"})
+    assert saved.status_code == 200, saved.text
+    done_dir = note_dir(tmp_path) / "已完成"
+    saved_file = done_dir / "完成也要能写.md"
+    assert saved_file.is_file() and "完成后补一条记录" in saved_file.read_text(encoding="utf-8")
+    row = find(board(client), "完成也要能写")
+    assert row["done"] is True and row["path"].endswith("/已完成/完成也要能写.md")
+
+    # 旧任务共享 任务（tasks）.md，没有独立文档。
+    legacy = find(board(client), "买菜", legacy=True)
+    assert client.get("/api/time/tasks/document", params={"key": legacy["key"]}).status_code == 409
+    assert post(client, "/api/time/tasks/document", {
+        "key": legacy["key"], "title": "买菜", "body": "x"}).status_code == 409
+
+    # 只读库：能读文档，不能写文档。
+    readonly_vault = tmp_path / "readonly"
+    note = readonly_vault / "vault" / "00_人生路" / "07_任务与待办" / "收集箱" / "只读文档.md"
+    note.parent.mkdir(parents=True)
+    original = "---\ntype: task\n标题: 只读文档\n---\n\n正文\n"
+    note.write_text(original, encoding="utf-8")
+    readonly = make_client(readonly_vault, read_only=True)
+    readonly_board = board(readonly)
+    readonly_task = find(readonly_board, "只读文档")
+    readable = readonly.get("/api/time/tasks/document", params={"key": readonly_task["key"]})
+    assert readable.status_code == 200, readable.text
+    denied = post(readonly, "/api/time/tasks/document", {
+        "key": readonly_task["key"], "expected_revision": readable.json()["revision"],
+        "title": "只读文档", "body": "不能写"})
+    assert denied.status_code == 409
+    assert note.read_text(encoding="utf-8") == original
 
 
 def test_duplicate_and_delete_are_soft(tmp_path):

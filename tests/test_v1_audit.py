@@ -157,7 +157,7 @@ def test_v1_writes_are_audited_without_bodies_or_secrets(tmp_path):
 
     assert set(details["note_created"]) == {"path", "chapter"}
     assert set(details["note_updated"]) == {"path", "chapter"}
-    assert set(details["note_moved"]) == {"path", "from", "to"}
+    assert set(details["note_moved"]) == {"path", "from", "to", "index_updated"}
     assert set(details["journal_saved"]) == {"day", "bytes", "created"}
     assert set(details["ai_turn_completed"]) == {
         "role", "mode", "thread_id", "chars", "seconds", "proposals", "events", "structured",

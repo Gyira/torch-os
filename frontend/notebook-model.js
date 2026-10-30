@@ -189,6 +189,29 @@ export function notebookForChapter(pillar, chapter) {
   return notebooksFor(pillar).find((item) => item.chapters.includes(target)) || null;
 }
 
+/**
+ * 移动文档对话框的目标分组（纯函数）。
+ * 输入是 /api/writing/chapters 的某个库章节数组；当前章节不列出；
+ * 固定章节按本子定义顺序分组，自定义本子放「我的本子」，未登记章节兜底「其他」。
+ */
+export function buildMoveTargetGroups(pillar, chapters = [], currentChapter = "") {
+  const rows = (Array.isArray(chapters) ? chapters : [])
+    .filter((chapter) => chapter && chapter.key && chapter.key !== currentChapter);
+  const byKey = new Map(rows.map((chapter) => [chapter.key, chapter]));
+  const groups = [];
+  for (const notebook of notebooksFor(pillar)) {
+    const mine = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
+    if (mine.length) groups.push({ key: notebook.key, title: notebook.title, chapters: mine });
+  }
+  const custom = rows.filter((chapter) => chapter.custom === true
+    || customNotebookPillar(chapter.key) === pillar);
+  if (custom.length) groups.push({ key: "custom", title: "我的本子", chapters: custom });
+  const covered = new Set(groups.flatMap((group) => group.chapters.map((chapter) => chapter.key)));
+  const others = rows.filter((chapter) => !covered.has(chapter.key));
+  if (others.length) groups.push({ key: "other", title: "其他", chapters: others });
+  return groups;
+}
+
 function latestByDate(rows) {
   const notes = rows.map((row) => row?.latest).filter(Boolean);
   if (!notes.length) return null;

@@ -593,6 +593,54 @@ class Database:
                 connection.execute('UPDATE documents SET available=0 WHERE id=?', (row['id'],))
             return len(missing)
 
+    def relocate_document(
+        self, old_path: str, new_path: str, *,
+        title: str = "", content: str | None = None,
+        sha256: str = "", metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Keep the scanned ``documents`` projection pointing at a moved Markdown file.
+
+        The four-library UI reads and lists notes from disk; this index is the
+        read-only 资料/记忆 projection.  An in-app move should update its path (and
+        the FTS row via the update trigger) immediately instead of waiting for the
+        next Vault scan.  Unindexed notes are ignored and get picked up by the scan.
+        """
+        old = str(old_path or "")
+        new = str(new_path or "")
+        if not old or not new or old == new:
+            return False
+        with self.connect() as connection:
+            row = connection.execute(
+                'SELECT * FROM documents WHERE path=?', (old,)).fetchone()
+            if row is None or not row['available']:
+                return False
+            conflict = connection.execute(
+                'SELECT * FROM documents WHERE path=? AND id<>?', (new, row['id'])
+            ).fetchone()
+            if conflict is not None:
+                # The mover only picks filenames that do not exist on disk, so a
+                # row still owning this path is a stale index entry; free it first.
+                self._retire_source_path(connection, conflict)
+            fields = ['path=?', 'last_known_path=NULL']
+            values: list[Any] = [new]
+            if title:
+                fields.append('title=?')
+                values.append(str(title)[:200])
+            if content is not None:
+                fields.append('content=?')
+                values.append(str(content))
+            if sha256:
+                fields.append('sha256=?')
+                values.append(str(sha256))
+            if metadata is not None:
+                fields.append('metadata_json=?')
+                values.append(json.dumps(metadata, ensure_ascii=False, default=str))
+            connection.execute(
+                f'UPDATE documents SET {", ".join(fields)} WHERE id=?',
+                (*values, row['id']),
+            )
+            return True
+
     def get_document(self, document_id: int) -> dict[str, Any] | None:
         with self.connect() as connection:
             row = connection.execute('SELECT * FROM documents WHERE id=? AND available=1', (document_id,)).fetchone()

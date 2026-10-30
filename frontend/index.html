@@ -565,6 +565,15 @@
       <div class="editor-paper" id="note-editor-paper">
         <div class="editor-paper-head">
           <input id="note-editor-title" class="editor-title-input" type="text" maxlength="200" autocomplete="off" placeholder="标题" aria-label="笔记标题" />
+          <section id="note-editor-template-strip" class="template-strip" aria-label="从模板开始" hidden>
+            <div class="template-strip-head">
+              <span class="template-strip-wand" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 21 9-9"/><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m12.2 6.2-1.2-1.2"/></svg></span>
+              <p class="template-strip-title">从模板开始</p>
+              <button id="template-open-all" class="template-strip-all" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="note-editor-template-sheet">全部</button>
+              <button id="template-strip-dismiss" class="template-strip-dismiss" type="button" aria-label="收起模板建议" title="收起模板建议">×</button>
+            </div>
+            <div id="template-strip-chips" class="template-strip-chips"></div>
+          </section>
           <div class="editor-meta-row">
             <label class="editor-meta-field">本子<select id="note-editor-chapter"></select></label>
             <label class="editor-meta-field">标签<input id="note-editor-tags" type="text" maxlength="200" placeholder="用、或逗号分隔" /></label>
@@ -589,6 +598,10 @@
         </section>
         <footer class="editor-footer">
           <span id="note-editor-count" class="meta"></span>
+          <span id="note-editor-template-undo" class="editor-template-undo" hidden>
+            <span id="note-editor-template-undo-text" role="status" aria-live="polite"></span>
+            <button id="note-editor-template-undo-btn" type="button" class="text-button">撤销</button>
+          </span>
           <div class="editor-ai-actions">
             <button id="note-editor-classify" type="button" class="text-button">AI 建议章节</button>
             <button id="note-editor-polish-btn" type="button" class="button secondary">AI 润色</button>
@@ -602,6 +615,37 @@
         </footer>
       </div>
     </div>
+  </div>
+  <div id="note-editor-template-sheet" class="template-sheet" hidden>
+    <div class="template-sheet-backdrop" data-template-close="true"></div>
+    <section class="template-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="template-sheet-title" tabindex="-1">
+      <span class="template-sheet-handle" aria-hidden="true"></span>
+      <div id="template-list-step" class="template-step">
+        <h3 id="template-sheet-title" class="template-sheet-title">选择模板</h3>
+        <label class="template-search" for="template-search">
+          <span class="template-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+          <input id="template-search" type="search" placeholder="搜索模板" aria-label="搜索模板" autocomplete="off" spellcheck="false" />
+        </label>
+        <div id="template-filters" class="template-filters" role="group" aria-label="模板分类"></div>
+        <p id="template-list-status" class="visually-hidden" role="status" aria-live="polite"></p>
+        <div id="template-results" class="template-results"></div>
+      </div>
+      <div id="template-preview-step" class="template-step" hidden>
+        <div class="template-preview-head">
+          <button id="template-preview-back" class="template-preview-back" type="button" aria-label="返回模板列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
+          <h3 id="template-preview-name" class="template-sheet-title" tabindex="-1">模板</h3>
+        </div>
+        <p id="template-preview-hint" class="template-preview-hint">日期与问题已按这篇日记填好。</p>
+        <div class="template-preview-card">
+          <p id="template-preview-title" class="template-preview-title"></p>
+          <div id="template-preview-body" class="md-body template-preview-body"></div>
+        </div>
+        <div class="template-preview-actions">
+          <button id="template-preview-shuffle" class="button secondary" type="button" hidden>换一题</button>
+          <button id="template-preview-use" class="button primary" type="button">使用这个模板</button>
+        </div>
+      </div>
+    </section>
   </div>
 </dialog>
 <dialog id="memory-event-dialog" class="note-editor-dialog memory-event-dialog" aria-labelledby="memory-event-heading">
@@ -638,6 +682,26 @@
     <footer class="notebook-create-foot">
       <button type="button" id="notebook-create-cancel" class="text-button">取消</button>
       <button type="submit" id="notebook-create-submit" class="button primary">创建本子</button>
+    </footer>
+  </form>
+</dialog>
+<dialog id="note-move-dialog" class="notebook-create-dialog note-move-dialog" aria-labelledby="note-move-title">
+  <form id="note-move-form" class="notebook-create-form">
+    <header class="notebook-create-head">
+      <div><p class="eyebrow" id="note-move-eyebrow">人生路 · 移动文档</p><h2 id="note-move-title">移动到本子</h2></div>
+      <button type="button" id="note-move-close" class="small-button">关闭</button>
+    </header>
+    <div class="notebook-create-body">
+      <p class="note-move-note-title" id="note-move-note"></p>
+      <p class="field-help" id="note-move-from"></p>
+      <label for="note-move-target">目标本子 / 章节</label>
+      <select id="note-move-target"></select>
+      <p class="field-help">会把 Markdown 文件从原文件夹移动到目标本子文件夹；正文、标签和 frontmatter 原样保留。同名文件会自动编号，不覆盖。</p>
+      <p id="note-move-status" class="status-message" role="status"></p>
+    </div>
+    <footer class="notebook-create-foot">
+      <button type="button" id="note-move-cancel" class="text-button">取消</button>
+      <button type="submit" id="note-move-submit" class="button primary">移动</button>
     </footer>
   </form>
 </dialog>
