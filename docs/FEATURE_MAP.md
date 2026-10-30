@@ -82,8 +82,11 @@
   `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，笔记仍走
   `/api/writing/notes`。名称不能和内置本子/章节/库名重名；
   笔记可在同一库的本子之间移动，也可软删除到 `.torch-os/笔记回收站`。
-  `POST /api/notebooks/delete {pillar,key,confirm:true}` 把自定义本子整夹软删除到
-  `.torch-os/本子回收站`；固定章节不能删除，本子改名/跨库移动仍不提供。
+  `POST /api/notebooks/delete {pillar,key,confirm:true}` 支持内置与自建本子：
+  **人生路仅保留随笔、知识库仅保留收件箱**，这两个默认本子不可删；其他内置本子
+  按章节集合整体移入 `.torch-os/本子回收站`，并从清单/首页/编辑器隐藏
+  （`.torch-os/deleted-notebooks.json`），启动不再重建；自建本子整夹删除。
+  本子改名/跨库移动仍不提供。
 - `POST /api/writing/classify`：AI 判类（写作伙伴/学术导师），AI 不可用时回退到
   `journal_inbox` 规则（含新增的 essay 随笔）；只返回卡片，不落盘。
 - `POST /api/writing/polish`：AI 润色，返回 `polished/changes`；前端预览后由用户点

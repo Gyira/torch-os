@@ -249,6 +249,8 @@ def _today() -> str:
 
 
 def _audit(database: Database, event_type: str, details: dict[str, Any]) -> None:
+    if database is None:  # 启动迁移/离线脚本允许不传库；有库时审计照写
+        return
     with database.connect() as connection:
         connection.execute(
             "INSERT INTO audit_events(event_type, detail_json, created_at) VALUES (?, ?, ?)",
@@ -384,15 +386,28 @@ def _load_tasks(path: Path) -> dict[str, Any]:
                      bad_encoding="任务文件不是 UTF-8 编码，暂不能编辑")
 
 
-def _front_matter(loaded: dict[str, Any]) -> dict[str, Any]:
+def _front_matter_state(loaded: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """读 front matter；解析失败时第二个返回值是给用户看的原因（"" = 正常）。
+
+    ``_front_matter`` 把坏 YAML 当成空配置，任何一次写回都会把清单/标签定义
+    整段抹掉（2026-10-31 追查「torchos项目管理」为什么变成不可编辑的合成清单时发现的
+    损失路径）。读的时候只用空配置兜底，写之前必须先用这里的 error 拦住。
+    """
     if not loaded["exists"] or loaded["body_start"] == 0:
-        return {}
+        return {}, ""
     block = "\n".join(loaded["lines"][1:loaded["body_start"] - 1])
     try:
         data = yaml.safe_load(block) or {}
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
+    except yaml.YAMLError as error:
+        detail = getattr(error, "problem", "") or str(error).splitlines()[0]
+        return {}, f"任务配置文件的 front matter 解析失败（{detail}）；先在 Obsidian 里修好"
+    if not isinstance(data, dict):
+        return {}, "任务配置文件的 front matter 不是键值结构；先在 Obsidian 里修好"
+    return data, ""
+
+
+def _front_matter(loaded: dict[str, Any]) -> dict[str, Any]:
+    return _front_matter_state(loaded)[0]
 
 
 def defined_lists(loaded: dict[str, Any]) -> list[dict[str, Any]]:
@@ -569,9 +584,10 @@ def _read_state(vault_dir: Path | str) -> dict[str, Any]:
     notes, warnings = task_notes.scan_task_notes(vault_dir)
     config_rel = note_relative(path, vault_dir)
     legacy = _parse_legacy_tasks(loaded, config_rel)
+    _metadata, config_error = _front_matter_state(loaded)
     return {
         "path": path, "loaded": loaded, "notes": notes, "warnings": warnings,
-        "config_rel": config_rel, "legacy": legacy,
+        "config_rel": config_rel, "legacy": legacy, "config_error": config_error,
         "revision": task_notes.board_revision(loaded.get("revision", ""), notes),
     }
 
@@ -597,9 +613,59 @@ def _require_note(state: dict[str, Any], key: str) -> dict[str, Any]:
 def _all_list_names(state: dict[str, Any]) -> set[str]:
     names = {entry["name"] for entry in defined_lists(state["loaded"])}
     names.add(INBOX)
-    for task in [*state["legacy"], *state["notes"]]:
-        names.add(task["list_name"])
+    names.update(_observed_list_names(state))
     return names
+
+
+def _observed_list_names(state: dict[str, Any]) -> set[str]:
+    """任务里实际用到的清单名：目录里有任务、配置里还没登记的也算（合成清单）。"""
+    return {task["list_name"] for task in [*state["legacy"], *state["notes"]]}
+
+
+def _adopt_definition(state: dict[str, Any], name: str) -> dict[str, Any] | None:
+    """合成清单第一次被写操作碰到时的定义；不是合成清单就返回 None。
+
+    目录里已经在用的清单在配置里没有定义（历史迁移把 `任务/<清单>` 上移却没写定义），
+    侧栏以前对这类清单不给菜单，编辑/删除根本无从下手（2026-10-31 用户报右键没反应）。
+    这里按 create_list 的默认值补一条定义，让四个操作都能落到配置里。
+    """
+    if name not in _observed_list_names(state):
+        return None
+    return {"名称": name, "颜色": "#3b82f6"}
+
+
+def undefined_list_names(vault_dir: Path | str) -> list[str]:
+    """有任务、但配置 `清单:` 里没有定义、而且能补登记成清单的名字。
+
+    配置坏掉时返回空：读不出定义就分不清“没登记”和“读不出来”，硬写只会丢定义
+    （`_base_metadata` 会 409），启动迁移也会因此每次都想跑一遍。
+    """
+    state = _read_state(vault_dir)
+    if state["config_error"]:
+        return []
+    known = {entry["name"] for entry in defined_lists(state["loaded"])}
+    names: list[str] = []
+    for name in sorted(_observed_list_names(state) - known):
+        try:
+            task_notes.clean_list_name(name)  # 名字不能当文件夹：登记也建不出目录
+        except HTTPException:
+            continue
+        names.append(name)
+    return names
+
+
+def adopt_undefined_lists(vault_dir: Path | str, database: Database, *,
+                          read_only: bool = False) -> list[str]:
+    """把“目录里在用、配置没定义”的清单补登记（幂等；只写定义，不移动任务）。"""
+    _ensure_write(read_only, "登记清单")
+    adopted: list[str] = []
+    for name in undefined_list_names(vault_dir):
+        try:
+            create_list(vault_dir, ListCreate(name=name), database, read_only=read_only)
+        except HTTPException:
+            continue  # 单个清单失败不影响其它清单；下次启动还会再试
+        adopted.append(name)
+    return adopted
 
 
 def _require_list(state: dict[str, Any], value: str) -> str:
@@ -651,7 +717,13 @@ def _find_tag_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] 
 
 
 def _base_metadata(loaded: dict[str, Any]) -> dict[str, Any]:
-    metadata = dict(_front_matter(loaded)) if loaded["exists"] else {}
+    metadata: dict[str, Any] = {}
+    if loaded["exists"]:
+        parsed, error = _front_matter_state(loaded)
+        if error:
+            # 坏 front matter 写回去 = 静默丢掉全部清单/标签定义；宁可让用户先修文件。
+            raise HTTPException(409, f"{error}（为避免覆盖清单/标签定义，本次写入已取消）")
+        metadata = dict(parsed)
     metadata.setdefault("type", "tasks")
     return metadata
 
@@ -772,6 +844,10 @@ def read_tasks(vault_dir: Path | str, *, read_only: bool = False) -> dict[str, A
 
     tasks = [_public_task(task) for task in state["legacy"]]
     tasks.extend(_note_public(note) for note in state["notes"])
+    warnings = list(state["warnings"])
+    if state["config_error"]:
+        # 配置读不出来时，清单会全部退化成“合成清单”（只读展示）；明确告诉前端。
+        warnings.append({"path": state["config_rel"], "reason": state["config_error"]})
     return {
         "exists": loaded["exists"],
         "revision": state["revision"],
@@ -787,7 +863,7 @@ def read_tasks(vault_dir: Path | str, *, read_only: bool = False) -> dict[str, A
         "folders": cleaned_folders,
         "tags": tags + [{"name": name, "color": "", "pinned": False} for name in used],
         "tasks": tasks,
-        "warnings": state["warnings"],
+        "warnings": warnings,
     }
 
 
@@ -1152,7 +1228,10 @@ def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, 
     entries = _entries(metadata, "清单")
     entry = _find_entry(entries, name)
     if entry is None:
-        raise HTTPException(422, f"没有叫“{name}”的清单")
+        entry = _adopt_definition(state, name)
+        if entry is None:
+            raise HTTPException(422, f"没有叫“{name}”的清单")
+        entries.append(entry)  # 合成清单：这次写操作顺手把定义补上
     old_name = name
     new_name = _clean_list_name(payload.new_name) if payload.new_name.strip() else ""
     rename = bool(new_name and new_name != name)
@@ -1304,7 +1383,10 @@ def duplicate_list(vault_dir: Path | str, payload: ListDuplicate, database: Data
     entries = _entries(metadata, "清单")
     source = _find_entry(entries, name)
     if source is None:
-        raise HTTPException(422, f"没有叫“{name}”的清单")
+        source = _adopt_definition(state, name)
+        if source is None:
+            raise HTTPException(422, f"没有叫“{name}”的清单")
+        entries.append(source)  # 复制合成清单：顺带把原清单登记成正式清单
     existing_names = {str(entry.get("名称")) for entry in entries}
     copy_name = _clean_list_name(_unique_list_name(existing_names, f"{name} 副本"))
 
@@ -1358,8 +1440,12 @@ def delete_list(vault_dir: Path | str, payload: NamedPayload, database: Database
     metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
     entry = _find_entry(entries, name)
+    adopted = False
     if entry is None:
-        raise HTTPException(422, f"没有叫“{name}”的清单")
+        entry = _adopt_definition(state, name)
+        if entry is None:
+            raise HTTPException(422, f"没有叫“{name}”的清单")
+        adopted = True  # 合成清单：删掉目录即可，配置里本来就没有这条定义
     legacy_removed = sum(1 for task in state["legacy"] if task["list_name"] == name)
     result = task_notes.trash_list_folder(
         vault_dir, name,
@@ -1367,10 +1453,11 @@ def delete_list(vault_dir: Path | str, payload: NamedPayload, database: Database
         list_definition=entry,
     )
     removed = int(result.get("count") or 0) + legacy_removed
-    entries.remove(entry)
-    metadata["清单"] = entries
-    lines = _config_lines_without_section(metadata, _config_body(state["loaded"]), name)
-    _guarded_write(state["loaded"], lines)
+    if not adopted:
+        entries.remove(entry)
+        metadata["清单"] = entries
+        lines = _config_lines_without_section(metadata, _config_body(state["loaded"]), name)
+        _guarded_write(state["loaded"], lines)
     _audit(database, "list_deleted", {"name": name, "tasks": removed})
     return {"revision": _revision_now(vault_dir), "deleted": name, "tasks": removed,
             "trash": result.get("trash") or ""}

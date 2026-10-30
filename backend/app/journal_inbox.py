@@ -199,6 +199,13 @@ def save_cards(database: Any, vault_dir: Path | str, day: str, cards: list[dict[
         raise HTTPException(409, str(error)) from error
     if not cards:
         raise HTTPException(400, "没有可写的内容")
+    hidden = vault_layout.hidden_chapters(vault_dir)
+    for card in cards:
+        kind = card.get("kind")
+        if kind == "diary" and "journal" in hidden:
+            raise HTTPException(422, "日记本子已被删除，不能写入")
+        if kind in KIND_CHAPTER and KIND_CHAPTER[kind] in hidden:
+            raise HTTPException(422, "目标本子已被删除，不能写入")
 
     written: list[dict[str, Any]] = []
     diary_text = "\n".join(card["body"].strip() for card in cards if card["kind"] == "diary").strip()
@@ -214,6 +221,8 @@ def save_cards(database: Any, vault_dir: Path | str, day: str, cards: list[dict[
 
 
 def _save_diary(database: Any, vault_dir: Path | str, day: str, text: str) -> dict[str, Any]:
+    if vault_layout.is_notebook_deleted(vault_dir, "life", "journal"):
+        raise HTTPException(422, "日记本子已被删除，不能写入")
     path = Path(vault_dir) / vault_layout.journal_path(day)
     if path.is_file():
         original = path.read_text(encoding="utf-8", errors="replace")

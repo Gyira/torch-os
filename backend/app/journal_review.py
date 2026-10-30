@@ -486,6 +486,8 @@ def write_note(vault_dir: Path | str, day: str, content: str, *,
     """只写当天这一篇。写前备份、sha 校验、原子替换。"""
     if not confirm:
         raise HTTPException(400, "写入日记需要 confirm=true")
+    if vault_layout.is_notebook_deleted(vault_dir, "life", "journal"):
+        raise HTTPException(422, "日记本子已被删除，不能写入；需要时请从本子回收站恢复")
     target_day = validate_day(day)
     today = shanghai_today()
     if target_day != today:
@@ -686,6 +688,8 @@ def distill_candidates(vault_dir: Path | str, day: str, limit: int = 2) -> list[
             continue
         kind = _classify(paragraph)
         chapter = "reflection" if kind == "reflection" else "insight_life"
+        if vault_layout.is_chapter_hidden(vault_dir, chapter):
+            chapter = "essay"  # 默认本子始终在；避免往已删除的回顾章节里落新笔记。
         title = _note_title(paragraph)
         candidates.append({
             "kind": kind,

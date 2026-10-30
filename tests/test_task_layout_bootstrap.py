@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from backend.app import dida_sync, task_layout_bootstrap, task_notes, task_trash
+from backend.app import dida_sync, task_layout_bootstrap, task_notes, task_trash, tasks
 from backend.app.db import Database
 
 TASK_ROOT = "00_人生路/07_任务与待办"
@@ -119,6 +119,33 @@ def test_plan_does_not_write(tmp_path):
     assert plan["dry_run"] is True and plan["count"] > 0
     assert before == after
     assert not (vault / TASK_ROOT / "收集箱").exists()
+
+
+def test_bootstrap_registers_list_folders_without_definitions(tmp_path):
+    """`任务/<清单>` 上移后配置里没有定义的目录，启动迁移要补登记成普通清单。"""
+    vault = tmp_path / "vault"
+    root = vault / TASK_ROOT
+    (root / "torchos项目管理").mkdir(parents=True)
+    (root / "torchos项目管理" / "健康系统.md").write_text(_task("健康系统"), encoding="utf-8")
+    for name in ("收集箱", "已完成", "回收站", "_系统"):
+        (root / name).mkdir(parents=True, exist_ok=True)
+    (root / "_系统" / "任务（tasks）.md").write_text(CONFIG, encoding="utf-8")
+
+    database = Database(tmp_path / "torch.sqlite3")
+    database.initialize()
+    result = task_layout_bootstrap.ensure_task_data_layout(vault, database=database)
+
+    assert result["status"] == "done"
+    assert result["lists_adopted"] == ["torchos项目管理"]
+    assert (root / "torchos项目管理" / "健康系统.md").is_file()  # 只登记，不搬任务
+    board = tasks.read_tasks(vault)
+    entry = next(item for item in board["lists"] if item["name"] == "torchos项目管理")
+    assert entry["synthetic"] is False
+    assert next(task for task in board["tasks"] if task["title"] == "健康系统")["list_name"] == "torchos项目管理"
+
+    # 幂等：第二次启动发现无事可做，不再备份、不再写配置。
+    second = task_layout_bootstrap.ensure_task_data_layout(vault, database=database)
+    assert second.get("already_done") is True
 
 
 def test_bootstrap_returns_already_done_for_clean_vault(tmp_path):

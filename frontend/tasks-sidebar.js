@@ -196,7 +196,11 @@ function openRowMenu(anchor, rows) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "time-popover-row";
-      button.innerHTML = `<span class="time-popover-label">${escapeHtml(row.label)}</span>`;
+      // 标签用 textContent（不用 innerHTML 拼）：清单名里有 < > & 也不会被当成标签。
+      const label = document.createElement("span");
+      label.className = "time-popover-label";
+      label.textContent = row.label;
+      button.append(label);
       button.addEventListener("click", (event) => {
         event.stopPropagation();
         close();
@@ -286,20 +290,19 @@ export function renderTaskSidebar(container, options) {
   const listDrag = { current: null }; // 本次渲染共享：拖拽源与落点在两个行闭包里
   const pushList = (host, entry) => {
     // synthetic = 在 Obsidian 里手工建出来、还没登记定义的目录：可见、可筛选，
-    // 但不提供改名/复制/删除（这些动作需要写配置定义）。快速添加仍然可用。
+    // 快速添加与右键菜单都可用。改名/置顶/复制/删除会由后端在第一次写入时
+    // 把目录补登记成清单（2026-10-31：以前这里直接不给菜单，右键像坏了）。
     const actions = [
       { icon: "＋", title: "在这个清单里加任务", onClick: () => onQuickAdd(entry.name) },
     ];
-    const menuItems = entry.synthetic ? [] : [
+    const menuItems = [
       { label: "编辑", onClick: () => onListAction("edit", entry) },
       { label: entry.pinned ? "取消置顶" : "置顶", onClick: () => onListAction("pin", entry) },
       { label: "复制", onClick: () => onListAction("duplicate", entry) },
       { label: "删除", onClick: () => onListAction("delete", entry) },
     ];
-    if (menuItems.length) {
-      actions.push({ icon: "…", title: "清单操作",
-        onClick: (anchor) => openRowMenu(anchor, menuItems) });
-    }
+    actions.push({ icon: "…", title: "清单操作",
+      onClick: (anchor) => openRowMenu(anchor, menuItems) });
     const row = item(host, {
       id: entry.name, iconEntry: entry, label: entry.name,
       count: listCounts[entry.name] || 0, active: selection.list === entry.name, kind: "list",

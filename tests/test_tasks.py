@@ -644,6 +644,84 @@ def test_synthetic_lists_and_warnings(tmp_path):
     assert find(payload, "手工任务")["list_name"] == "自由清单"
 
 
+def test_undefined_list_edit_registers_the_folder_first(tmp_path):
+    """目录里在用的清单（配置缺定义）第一次编辑时补登记，右键菜单才不会点了就 422。"""
+    client = make_client(tmp_path)
+    root = note_dir(tmp_path)
+    (root / "torchos项目管理").mkdir(parents=True)
+    (root / "torchos项目管理" / "健康系统.md").write_text(
+        "---\ntype: task\n日期: 2026-10-30\n---\n正文\n", encoding="utf-8")
+
+    payload = board(client)
+    entry = next(item for item in payload["lists"] if item["name"] == "torchos项目管理")
+    assert entry["synthetic"] is True
+
+    updated = post(client, "/api/time/lists/update", {
+        "name": "torchos项目管理", "color": "#22c55e", "pinned": True,
+        "revision": payload["revision"]})
+    assert updated.status_code == 200, updated.text
+    payload = board(client)
+    entry = next(item for item in payload["lists"] if item["name"] == "torchos项目管理")
+    assert entry["synthetic"] is False
+    assert entry["color"] == "#22c55e" and entry["pinned"] is True
+    assert find(payload, "健康系统")["list_name"] == "torchos项目管理"
+    assert "torchos项目管理" in config_file(tmp_path).read_text(encoding="utf-8")
+
+
+def test_undefined_list_can_be_renamed_copied_and_deleted(tmp_path):
+    client = make_client(tmp_path)
+    root = note_dir(tmp_path)
+    for name in ("甲清单", "乙清单"):
+        (root / name).mkdir(parents=True)
+        (root / name / f"{name}任务.md").write_text(
+            "---\ntype: task\n---\n正文\n", encoding="utf-8")
+
+    # 改名：补登记 + 目录一起改名，任务跟着走。
+    payload = board(client)
+    renamed = post(client, "/api/time/lists/update", {
+        "name": "甲清单", "new_name": "甲清单改名",
+        "revision": payload["revision"]})
+    assert renamed.status_code == 200, renamed.text
+    assert (root / "甲清单改名" / "甲清单任务.md").is_file()
+    assert not (root / "甲清单").exists()
+
+    # 复制：原清单一并登记，副本是普通清单。
+    payload = board(client)
+    copied = post(client, "/api/time/lists/duplicate", {
+        "name": "乙清单", "scope": "all_keep", "revision": payload["revision"]})
+    assert copied.status_code == 200, copied.text
+    payload = board(client)
+    assert next(item for item in payload["lists"] if item["name"] == "乙清单")["synthetic"] is False
+    assert next(item for item in payload["lists"] if item["name"] == "乙清单 副本")["synthetic"] is False
+    copies = [task["title"] for task in payload["tasks"] if task["list_name"] == "乙清单 副本"]
+    assert copies == ["乙清单任务"]
+
+    # 删除：目录进回收站，清单从看板消失（配置里本来就没有定义，不用改配置）。
+    payload = board(client)
+    deleted = post(client, "/api/time/lists/delete", {
+        "name": "乙清单", "revision": payload["revision"]})
+    assert deleted.status_code == 200, deleted.text
+    assert not (root / "乙清单").exists()
+    payload = board(client)
+    assert all(item["name"] != "乙清单" for item in payload["lists"])
+
+
+def test_broken_config_front_matter_blocks_writes_instead_of_dropping_lists(tmp_path):
+    """坏 YAML 时读模型退化成空配置；写之前必须拦住，不能把清单定义整段抹掉。"""
+    client = make_client(tmp_path)
+    broken = seed(tmp_path, "---\ntype: tasks\n清单: [\n---\n")
+    before = broken.read_bytes()
+
+    payload = board(client)
+    assert any(item["path"].endswith("任务（tasks）.md")
+               and "front matter 解析失败" in item["reason"] for item in payload["warnings"])
+
+    blocked = post(client, "/api/time/lists", {"name": "新清单"})
+    assert blocked.status_code == 409, blocked.text
+    assert "front matter 解析失败" in blocked.json()["detail"]
+    assert broken.read_bytes() == before
+
+
 def test_attach_list_dida_project_preserves_other_metadata(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)

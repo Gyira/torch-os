@@ -86,8 +86,9 @@ def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
 def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[str, Any]:
     key = _pillar_or_404(pillar)
     notes = pillar_notes.list_notes(vault_dir, pillar=key, limit=500)
+    hidden = vault_layout.hidden_chapters(vault_dir)
     chapters: list[dict[str, Any]] = []
-    for chapter in vault_layout.chapter_manifest()["pillars"]:
+    for chapter in vault_layout.chapter_manifest(hidden=hidden)["pillars"]:
         if chapter["key"] != key:
             continue
         for item in chapter["chapters"]:
@@ -108,6 +109,8 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
     }
     if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
         payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
+        payload["deleted_notebooks"] = sorted(
+            vault_layout.deleted_notebook_keys(vault_dir).get(key, set()))
     if key == "life":
         today_date = shanghai_today()
         today = today_date.isoformat()
@@ -171,7 +174,8 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
 
     @router.get("/pillars")
     def pillars_manifest():
-        return vault_layout.chapter_manifest()
+        return vault_layout.chapter_manifest(
+            hidden=vault_layout.hidden_chapters(vault_dir))
 
     @router.get("/pillars/{pillar}/overview")
     def pillar_overview(pillar: str):
@@ -224,9 +228,12 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
 
     @router.get("/steward/inbox-suggestions")
     def inbox_suggestions(limit: int = Query(default=50, ge=1, le=200)):
-        # 直接复用管家提案，确保界面上的 id 与只读提案一致。
+        # 直接复用管家提案，确保界面上的 id 与只读提案一致；已删除的本子不再建议。
+        hidden = vault_layout.hidden_chapters(vault_dir)
         items = []
         for proposal in steward.inbox_proposals(vault_dir):
+            if proposal["target_chapter"] in hidden:
+                continue
             items.append({
                 "proposal_id": proposal["id"],
                 "path": proposal["path"],

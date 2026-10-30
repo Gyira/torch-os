@@ -80,6 +80,25 @@ export function defaultWriteChapter(pillar) {
     : DEFAULT_LIFE_WRITE_CHAPTER;
 }
 
+// 用户明确保留的默认内置本子：人生路随笔、知识库收件箱。
+export const PROTECTED_NOTEBOOK_KEYS = Object.freeze({
+  life: Object.freeze(["essay"]),
+  knowledge: Object.freeze(["inbox"]),
+});
+
+export function isProtectedNotebook(pillar, key) {
+  return (PROTECTED_NOTEBOOK_KEYS[String(pillar || "")] || [])
+    .includes(String(key || ""));
+}
+
+/** 自建本子都可删；内置本子除随笔/收件箱外都可删。 */
+export function canDeleteNotebook(pillar, notebook) {
+  if (!notebook?.key) return false;
+  if (notebook.custom) return true;
+  return notebooksFor(pillar).some((item) => item.key === notebook.key)
+    && !isProtectedNotebook(pillar, notebook.key);
+}
+
 const NOTEBOOKS = { life: LIFE_NOTEBOOKS, knowledge: KNOWLEDGE_NOTEBOOKS };
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export const CUSTOM_NOTEBOOK_PREFIX = "custom:";
@@ -185,25 +204,35 @@ function latestByDate(rows) {
  * 每个本子的 count 是内部章节之和，latest 取最新的一篇；空本子也会保留，
  * 因为“这个本子还没写”本身是引导，不应该被隐藏。
  */
-export function buildNotebookCards(pillar, chapterRows = [], customRows = []) {
+export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
+                                   deletedNotebooks = []) {
   const rows = Array.isArray(chapterRows) ? chapterRows : [];
   const byKey = new Map(rows.filter(Boolean).map((row) => [row.key, row]));
+  const deleted = new Set(Array.isArray(deletedNotebooks) ? deletedNotebooks : []);
+  const hiddenChapters = new Set();
+  for (const notebook of notebooksFor(pillar)) {
+    if (deleted.has(notebook.key)) {
+      for (const key of notebook.chapters) hiddenChapters.add(key);
+    }
+  }
   const known = new Set();
-  const cards = notebooksFor(pillar).map((notebook) => {
-    const mine = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
-    for (const key of notebook.chapters) known.add(key);
-    return {
-      ...notebook,
-      count: mine.reduce((total, row) => total + (Number(row.count) || 0), 0),
-      latest: latestByDate(mine),
-      chapters: mine.map((row) => ({
-        key: row.key,
-        title: row.title || row.key,
-        count: Number(row.count) || 0,
-      })),
-      empty: mine.every((row) => (Number(row.count) || 0) === 0),
-    };
-  });
+  const cards = notebooksFor(pillar)
+    .filter((notebook) => !deleted.has(notebook.key))
+    .map((notebook) => {
+      const mine = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
+      for (const key of notebook.chapters) known.add(key);
+      return {
+        ...notebook,
+        count: mine.reduce((total, row) => total + (Number(row.count) || 0), 0),
+        latest: latestByDate(mine),
+        chapters: mine.map((row) => ({
+          key: row.key,
+          title: row.title || row.key,
+          count: Number(row.count) || 0,
+        })),
+        empty: mine.every((row) => (Number(row.count) || 0) === 0),
+      };
+    });
   // 自定义本子：前端新建的本子 = 00_人生路 下的文件夹，由后端 overview.custom_notebooks 提供。
   const customCards = (Array.isArray(customRows) ? customRows : [])
     .map((row) => {
@@ -223,6 +252,7 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = []) {
     })
     .filter(Boolean);
   cards.push(...customCards);
+  for (const key of hiddenChapters) known.add(key);
   // 清单里新增但还没登记到本子的章节，放进“其他”，避免内容在首页消失。
   const customKeys = new Set(customCards.map((card) => card.key));
   const leftovers = rows.filter((row) => row && !known.has(row.key)

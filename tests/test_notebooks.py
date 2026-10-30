@@ -178,9 +178,9 @@ def test_delete_custom_notebook_moves_the_whole_folder_to_trash(tmp_path):
     wrong_pillar = client.post("/api/notebooks/delete", json={
         "pillar": "life", "key": created["key"], "confirm": True})
     assert wrong_pillar.status_code == 422
-    fixed_chapter = client.post("/api/notebooks/delete", json={
-        "pillar": "knowledge", "key": "topic", "confirm": True})
-    assert fixed_chapter.status_code == 422
+    protected_inbox = client.post("/api/notebooks/delete", json={
+        "pillar": "knowledge", "key": "inbox", "confirm": True})
+    assert protected_inbox.status_code == 422
 
     deleted = client.post("/api/notebooks/delete", json={
         "pillar": "knowledge", "key": created["key"], "confirm": True})
@@ -210,9 +210,9 @@ def test_delete_life_custom_notebook_uses_its_own_trash_path(tmp_path):
     assert created["key"] == "custom:待删人生本"
     assert (vault / "00_人生路" / "待删人生本").is_dir()
 
-    fixed = client.post("/api/notebooks/delete", json={
-        "pillar": "life", "key": "journal", "confirm": True})
-    assert fixed.status_code == 422
+    protected_essay = client.post("/api/notebooks/delete", json={
+        "pillar": "life", "key": "essay", "confirm": True})
+    assert protected_essay.status_code == 422
 
     deleted = client.post("/api/notebooks/delete", json={
         "pillar": "life", "key": created["key"], "confirm": True})
@@ -222,6 +222,94 @@ def test_delete_life_custom_notebook_uses_its_own_trash_path(tmp_path):
     assert payload["trash_path"].startswith(".torch-os/本子回收站/")
     assert not (vault / "00_人生路" / "待删人生本").exists()
     assert (vault / payload["trash_path"]).is_dir()
+
+
+def test_delete_builtin_life_notebook_hides_it_and_moves_all_chapters(tmp_path):
+    client, database, vault = make_client(tmp_path)
+    first = client.post("/api/writing/notes", json={
+        "chapter": "reflection", "title": "一条反思", "body": "正文"}).json()
+    second = client.post("/api/writing/notes", json={
+        "chapter": "review_week", "title": "周复盘", "body": "正文"}).json()
+    overview = client.get("/api/pillars/life/overview").json()
+    assert any(item["key"] == "reflection" for item in overview["chapters"])
+
+    deleted = client.post("/api/notebooks/delete", json={
+        "pillar": "life", "key": "reflection", "confirm": True})
+    assert deleted.status_code == 200, deleted.text
+    payload = deleted.json()
+    assert payload["builtin"] is True and payload["count"] == 2
+    assert not (vault / first["path"]).exists()
+    assert not (vault / second["path"]).exists()
+    assert (vault / payload["trash_path"]).is_dir()
+    manifest = json.loads((vault / payload["trash_batch"] / "manifest.json")
+                          .read_text(encoding="utf-8"))
+    assert manifest["builtin"] is True
+    assert manifest["chapters"] == ["reflection", "review_week", "review_month"]
+
+    overview = client.get("/api/pillars/life/overview").json()
+    assert "reflection" in overview["deleted_notebooks"]
+    assert all(item["key"] not in {"reflection", "review_week", "review_month"}
+               for item in overview["chapters"])
+    chapters = client.get("/api/writing/chapters").json()["life"]
+    assert all(item["key"] not in {"reflection", "review_week", "review_month"}
+               for item in chapters)
+    blocked = client.post("/api/writing/notes", json={
+        "chapter": "reflection", "title": "不能再写", "body": "x"})
+    assert blocked.status_code == 422
+
+    # 章节轨/分组清单也过滤；重启 bootstrap 不再重建被删章节。
+    manifest_api = client.get("/api/pillars").json()
+    life = next(item for item in manifest_api["pillars"] if item["key"] == "life")
+    assert all(item["key"] not in {"reflection", "review_week", "review_month"}
+               for item in life["chapters"])
+    assert all(group["key"] != "review" for group in life["groups"])
+    created = vault_layout.ensure_layout(vault)
+    assert "00_人生路/02_反思复盘/01_反思" not in created
+    assert not (vault / "00_人生路" / "02_反思复盘" / "01_反思").exists()
+
+    with database.connect() as connection:
+        rows = [dict(row) for row in connection.execute(
+            "SELECT event_type, detail_json FROM audit_events ORDER BY id")]
+    detail = json.loads(next(row for row in rows
+                             if row["event_type"] == "notebook_deleted")["detail_json"])
+    assert detail["builtin"] is True and detail["pillar"] == "life"
+
+
+def test_delete_builtin_knowledge_notebook_but_inbox_is_protected(tmp_path):
+    client, _, vault = make_client(tmp_path)
+    created = client.post("/api/writing/notes", json={
+        "chapter": "topic", "title": "主题卡片", "body": "正文"}).json()
+    protected = client.post("/api/notebooks/delete", json={
+        "pillar": "knowledge", "key": "inbox", "confirm": True})
+    assert protected.status_code == 422
+
+    deleted = client.post("/api/notebooks/delete", json={
+        "pillar": "knowledge", "key": "topic", "confirm": True})
+    assert deleted.status_code == 200, deleted.text
+    assert not (vault / created["path"]).exists()
+    overview = client.get("/api/pillars/knowledge/overview").json()
+    assert "topic" in overview["deleted_notebooks"]
+    chapters = client.get("/api/writing/chapters").json()["knowledge"]
+    assert all(item["key"] != "topic" for item in chapters)
+    assert client.post("/api/writing/notes", json={
+        "chapter": "topic", "title": "不能再写", "body": "x"}).status_code == 422
+    created_dirs = vault_layout.ensure_layout(vault)
+    assert "03_知识库/01_主题笔记" not in created_dirs
+    assert not (vault / "03_知识库" / "01_主题笔记").exists()
+
+
+def test_delete_journal_blocks_journal_writes_until_restored(tmp_path):
+    client, _, _ = make_client(tmp_path)
+    deleted = client.post("/api/notebooks/delete", json={
+        "pillar": "life", "key": "journal", "confirm": True})
+    assert deleted.status_code == 200, deleted.text
+    from backend.app.journal_review import shanghai_today
+    response = client.post("/api/journal/write", json={
+        "day": shanghai_today().isoformat(),
+        "content": "---\ntype: journal\n---\n\n今天",
+        "confirm": True,
+    })
+    assert response.status_code == 422
 
 
 def test_writing_to_a_missing_custom_notebook_is_refused(tmp_path):

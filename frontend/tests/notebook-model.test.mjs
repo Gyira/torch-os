@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS,
-  buildNotebookCards, customNotebookKey, customNotebookName, customNotebookPillar,
-  defaultWriteChapter, greetingForHour, journalHeading, knowledgeHeroState,
-  lifeHeroState, mergeNotesByRecency, noteCards, notebookById, notebookForChapter,
-  notebooksFor, subchaptersFor,
+  buildNotebookCards, canDeleteNotebook, customNotebookKey, customNotebookName,
+  customNotebookPillar, defaultWriteChapter, greetingForHour, isProtectedNotebook,
+  journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency, noteCards,
+  notebookById, notebookForChapter, notebooksFor, subchaptersFor,
 } from "../notebook-model.js";
 
 const LIFE_ROWS = [
@@ -93,6 +93,28 @@ test("the general life writing entry defaults to essay", () => {
   assert.equal(defaultWriteChapter("life"), "essay");
   assert.equal(defaultWriteChapter("knowledge"), "topic");
   assert.equal(defaultWriteChapter(""), "essay");
+});
+
+test("deleted builtin notebooks are filtered and protected defaults stay", () => {
+  const rows = [
+    { key: "reflection", title: "反思", count: 1, latest: null },
+    { key: "review_week", title: "周复盘", count: 1, latest: null },
+    { key: "essay", title: "随笔", count: 1, latest: null },
+  ];
+  const cards = buildNotebookCards("life", rows, [], ["reflection"]);
+  assert.ok(!cards.some((card) => card.key === "reflection"));
+  assert.ok(cards.some((card) => card.key === "essay"));
+  const other = cards.find((card) => card.key === "other");
+  assert.ok(!other || !other.chapters.some((chapter) =>
+    ["reflection", "review_week", "review_month"].includes(chapter.key)));
+  assert.equal(isProtectedNotebook("life", "essay"), true);
+  assert.equal(isProtectedNotebook("life", "reflection"), false);
+  assert.equal(isProtectedNotebook("knowledge", "inbox"), true);
+  assert.equal(canDeleteNotebook("life", { key: "reflection" }), true);
+  assert.equal(canDeleteNotebook("life", { key: "essay" }), false);
+  assert.equal(canDeleteNotebook("knowledge", { key: "inbox" }), false);
+  assert.equal(canDeleteNotebook("knowledge", { key: "topic" }), true);
+  assert.equal(canDeleteNotebook("life", { key: "custom:自建", custom: true }), true);
 });
 
 test("life hero says what to do today and counts the streak", () => {

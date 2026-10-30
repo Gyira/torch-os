@@ -64,15 +64,19 @@ def is_writable_chapter(chapter: str) -> bool:
     return value in WRITABLE_CHAPTERS or vault_layout.is_custom_notebook_key(value)
 
 
-def _require_writable_chapter(chapter: str) -> str:
+def _require_writable_chapter(chapter: str, vault_dir: Path | str) -> str:
     value = str(chapter or "").strip()
+    if vault_layout.is_chapter_hidden(vault_dir, value):
+        raise HTTPException(422, "这个本子已被删除，不能写入")
     if value not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(value):
         raise HTTPException(422, "这个章节不在应用内写作范围里")
     return value
 
 
-def _require_writable_path(relative: str) -> str:
+def _require_writable_path(relative: str, vault_dir: Path | str) -> str:
     chapter = vault_layout.chapter_key_of(relative)
+    if vault_layout.is_chapter_hidden(vault_dir, chapter):
+        raise HTTPException(422, "这个本子已被删除，不能写入")
     if chapter not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(chapter):
         raise HTTPException(422, "这篇笔记不在应用内写作范围里")
     return chapter
@@ -106,7 +110,7 @@ def create_note(database: Database, vault_dir: Path | str, *, chapter: str, titl
                 body: str = "", note_type: str = "", tags: list[str] | None = None,
                 source: str = "", date: str = "", generated_by: str = "",
                 read_only: bool = False) -> dict[str, Any]:
-    target = _require_writable_chapter(chapter)
+    target = _require_writable_chapter(chapter, vault_dir)
     _ensure_custom_notebook_exists(vault_dir, target)
     _ensure_write(read_only, "新建笔记")
     pillar = chapter_pillar(target)
@@ -123,7 +127,7 @@ def create_note(database: Database, vault_dir: Path | str, *, chapter: str, titl
 def update_note(database: Database, vault_dir: Path | str, *, path: str,
                 body: str | None = None, title: str = "", tags: list[str] | None = None,
                 expected_revision: str = "", read_only: bool = False) -> dict[str, Any]:
-    _require_writable_path(path)
+    _require_writable_path(path, vault_dir)
     _ensure_write(read_only, "编辑笔记")
     note = pillar_notes.update_note(
         vault_dir, path, body=body, title=title, tags=tags,
@@ -137,8 +141,8 @@ def update_note(database: Database, vault_dir: Path | str, *, path: str,
 def move_note(database: Database, vault_dir: Path | str, *, path: str,
               target_chapter: str, expected_revision: str = "",
               read_only: bool = False) -> dict[str, Any]:
-    source_chapter = _require_writable_path(path)
-    target = _require_writable_chapter(target_chapter)
+    source_chapter = _require_writable_path(path, vault_dir)
+    target = _require_writable_chapter(target_chapter, vault_dir)
     _ensure_custom_notebook_exists(vault_dir, target)
     if chapter_pillar(source_chapter) != chapter_pillar(target):
         raise HTTPException(422, "应用内只支持在同一个库里移动笔记")
@@ -153,7 +157,7 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
 def delete_note(database: Database, vault_dir: Path | str, *, path: str,
                 expected_revision: str = "", read_only: bool = False) -> dict[str, Any]:
     """软删除：只允许应用内可写章节；文件移进 `.torch-os/笔记回收站`。"""
-    chapter = _require_writable_path(path)
+    chapter = _require_writable_path(path, vault_dir)
     _ensure_custom_notebook_exists(vault_dir, chapter)
     _ensure_write(read_only, "删除笔记")
     result = pillar_notes.trash_note(
@@ -317,10 +321,12 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
 
     @router.get("/writing/chapters")
     def chapters():
+        hidden = vault_layout.hidden_chapters(vault_dir)
+
         def rows(keys):
             return [{"key": key, "title": CHAPTER_LABELS.get(key, key),
                      "path": vault_layout.chapter_dir(key)}
-                    for key in sorted(keys)]
+                    for key in sorted(keys) if key not in hidden]
         result = {"life": rows(LIFE_CHAPTERS), "knowledge": rows(KNOWLEDGE_CHAPTERS)}
         # 自定义本子 = 各库根目录下的文件夹；编辑器里和固定章节一样可作为移动目标。
         for pillar in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
@@ -365,8 +371,17 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
 
     @router.post("/writing/classify")
     def classify(payload: ClassifyRequest):
-        return classify_text(payload.text, day=payload.day, context=payload.context,
-                             role_service=role_service)
+        result = classify_text(payload.text, day=payload.day, context=payload.context,
+                               role_service=role_service)
+        hidden = vault_layout.hidden_chapters(vault_dir)
+        fallback = "essay" if payload.context == "life" else "inbox"
+        for card in result.get("cards", []):
+            chapter = str(card.get("chapter") or "")
+            if chapter in hidden:
+                card["chapter"] = fallback
+                card["target"] = vault_layout.chapter_dir(fallback)
+                card["reason"] = ((card.get("reason") or "") + "；原建议本子已删除，改到默认本子").strip("；")
+        return result
 
     @router.post("/writing/polish")
     def polish(payload: PolishRequest):

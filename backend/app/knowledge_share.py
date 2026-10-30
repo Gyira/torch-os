@@ -44,10 +44,13 @@ def _preview_or_422(url: str, rounds: str = "") -> dict[str, Any]:
         raise HTTPException(422, str(error)) from error
 
 
-def _knowledge_chapter(value: str, fallback: str) -> str:
+def _knowledge_chapter(value: str, fallback: str, vault_dir: Path | str) -> str:
     chapter = str(value or "").strip() or fallback
     if chapter not in note_editor.KNOWLEDGE_CHAPTERS:
         raise HTTPException(422, "分享只能归档到知识库章节")
+    if vault_layout.is_chapter_hidden(vault_dir, chapter):
+        # 收件箱是保留内置本子；原目标被删时回到收件箱，避免写进看不见的目录。
+        chapter = "inbox"
     return chapter
 
 
@@ -59,6 +62,8 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
     @router.post("/knowledge/share/preview")
     def preview(payload: PreviewRequest):
         result = _preview_or_422(payload.url, payload.rounds)
+        if vault_layout.is_chapter_hidden(vault_dir, str(result.get("suggested_chapter") or "")):
+            result["suggested_chapter"] = "inbox"
         if result["chars_markdown"] > MAX_PREVIEW_MARKDOWN:
             result["markdown"] = result["markdown"][:MAX_PREVIEW_MARKDOWN] + "\n\n…（预览已截断，归档时按原文）"
             result["preview_truncated"] = True
@@ -71,7 +76,7 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
         result = _preview_or_422(payload.url, payload.rounds)
         if len(result["markdown"].encode("utf-8")) > pillar_notes.MAX_BODY:
             raise HTTPException(413, "这篇分享太长，请用轮次缩小范围后再归档")
-        chapter = _knowledge_chapter(payload.chapter, result["suggested_chapter"])
+        chapter = _knowledge_chapter(payload.chapter, result["suggested_chapter"], vault_dir)
         note = note_editor.create_note(
             database, vault_dir, chapter=chapter,
             title=payload.title or result["title"], body=result["markdown"],
@@ -103,7 +108,7 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
             note_data = {}
         chapter = _knowledge_chapter(
             str(note_data.get("chapter") or payload.chapter or ""),
-            result["suggested_chapter"])
+            result["suggested_chapter"], vault_dir)
         title = str(note_data.get("title") or result["title"])[:200]
         markdown = str(note_data.get("markdown") or "").strip() or result["markdown"]
         try:

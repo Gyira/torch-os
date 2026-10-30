@@ -19,10 +19,11 @@ import { initShareLink, openDeepSeekAsk, openShareLinkDialog } from "./share-lin
 import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
 import { openRoleDrawer } from "./roles.js";
 import {
-  DEFAULT_LIFE_WRITE_CHAPTER, buildNotebookCards, customNotebookName,
-  customNotebookPillar, defaultWriteChapter, greetingForHour, journalHeading,
-  knowledgeHeroState, lifeHeroState, mergeNotesByRecency, noteCard, noteCards,
-  notebookById, notebookForChapter, notebookTotal, subchaptersFor,
+  DEFAULT_LIFE_WRITE_CHAPTER, buildNotebookCards, canDeleteNotebook,
+  customNotebookName, customNotebookPillar, defaultWriteChapter, greetingForHour,
+  journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency, noteCard,
+  noteCards, notebookById, notebookForChapter, notebookTotal, notebooksFor,
+  subchaptersFor,
 } from "./notebook-model.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
@@ -128,9 +129,26 @@ async function ensureManifest() {
   return state.manifest;
 }
 
+function deletedNotebooksFor(view) {
+  return new Set(
+    Array.isArray(state.overviews[view]?.deleted_notebooks)
+      ? state.overviews[view].deleted_notebooks : []);
+}
+
+function hiddenChapterKeysFor(view) {
+  const deleted = deletedNotebooksFor(view);
+  const hidden = new Set();
+  for (const notebook of notebooksFor(view)) {
+    if (!deleted.has(notebook.key)) continue;
+    for (const chapter of notebook.chapters) hidden.add(chapter);
+  }
+  return hidden;
+}
+
 function chapterList(view) {
   const pillar = state.manifest?.pillars?.find((item) => item.key === view);
-  return pillar?.chapters || [];
+  const hidden = hiddenChapterKeysFor(view);
+  return (pillar?.chapters || []).filter((chapter) => !hidden.has(chapter.key));
 }
 
 function chapterTitle(view, key) {
@@ -143,7 +161,9 @@ function chapterTitle(view, key) {
 
 function notebookCardsFor(view) {
   const overview = state.overviews[view] || {};
-  return buildNotebookCards(view, overview.chapters || [], overview.custom_notebooks || []);
+  return buildNotebookCards(
+    view, overview.chapters || [], overview.custom_notebooks || [],
+    overview.deleted_notebooks || []);
 }
 
 /** 本子定义里的 chapters 是 key 字符串；本子卡片里的 chapters 是 {key,...} 对象。 */
@@ -461,39 +481,44 @@ function companionCardMarkup(view) {
   </section>`;
 }
 
-function lifeToolsCard(hero) {
+function lifeToolsCard(hero, { journalEnabled = true, reviewEnabled = true } = {}) {
   return `<section class="pillar-card home-tools">
     <p class="eyebrow">今天也可以</p>
     <div class="pillar-quick">
       <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="task">任务与待办</button>
       <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="habit">习惯追踪</button>
-      <button type="button" class="pillar-quick-button" data-journal-review>今晚复盘 · 8 分钟</button>
+      ${reviewEnabled ? `<button type="button" class="pillar-quick-button" data-journal-review>今晚复盘 · 8 分钟</button>` : ""}
     </div>
-    <p class="field-help">${hero.written ? "今天已经写过一页，剩下的交给时间。" : "先写一句，今天就有了落点。"}</p>
+    <p class="field-help">${journalEnabled
+      ? (hero.written ? "今天已经写过一页，剩下的交给时间。" : "先写一句，今天就有了落点。")
+      : "灵感来了就写点什么，写完再分类。"}</p>
   </section>`;
 }
 
 function lifeHomeMarkup() {
   const overview = state.overviews.life || {};
   const hero = lifeHeroState(overview, shanghaiDay());
+  const deleted = deletedNotebooksFor("life");
+  const journalEnabled = !deleted.has("journal");
+  const reviewEnabled = journalEnabled && !deleted.has("reflection");
   const cards = notebookCardsFor("life");
   const recent = (overview.recent || [])
     .filter((note) => !["task", "habit"].includes(note.chapter))
     .slice(0, 6);
   const greeting = greetingForHour(new Date().getHours());
   return `<div class="pillar-home life-home">
-    <section class="life-hero" aria-labelledby="life-hero-title">
+    <section class="life-hero${journalEnabled ? "" : " is-solo"}" aria-labelledby="life-hero-title">
       <div class="life-hero-main">
         <p class="eyebrow">${escapeHtml(greeting)} · ${escapeHtml(hero.dayLabel)}</p>
         <h3 id="life-hero-title">${escapeHtml(hero.headline)}</h3>
         <p class="life-hero-copy">${escapeHtml(hero.copy)}</p>
         <div class="life-hero-actions">
           <button type="button" class="button primary hero-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">✍ 写点什么</button>
-          <button type="button" class="text-button" data-journal-review>今晚复盘</button>
+          ${reviewEnabled ? `<button type="button" class="text-button" data-journal-review>今晚复盘</button>` : ""}
         </div>
-        <p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>
+        ${journalEnabled ? `<p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>` : ""}
       </div>
-      <div class="life-today-card">
+      ${journalEnabled ? `<div class="life-today-card">
         <div class="life-today-head">
           <div><p class="eyebrow">今日日记</p><p class="life-today-state">${hero.written ? "已写" : "还没写"}</p></div>
           <span class="life-today-dot${hero.written ? " is-done" : ""}" aria-hidden="true"></span>
@@ -503,7 +528,7 @@ function lifeHomeMarkup() {
         ${hero.todayPath
           ? `<button type="button" class="pillar-quick-button" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
           : `<button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
-      </div>
+      </div>` : ""}
     </section>
     <div class="pillar-home-body">
       <main class="pillar-home-main">
@@ -535,7 +560,7 @@ function lifeHomeMarkup() {
       </main>
       <aside class="pillar-home-aside">
         ${companionCardMarkup("life")}
-        ${lifeToolsCard(hero)}
+        ${lifeToolsCard(hero, { journalEnabled, reviewEnabled })}
       </aside>
     </div>
   </div>`;
@@ -648,6 +673,9 @@ function notebookPageMarkup(view) {
   const isInbox = view === "knowledge" && (chapter === "inbox" || notebook?.key === "inbox");
   const isJournal = notebook?.key === "journal";
   const hero = view === "life" ? lifeHeroState(overview, shanghaiDay()) : null;
+  const lifeDeleted = deletedNotebooksFor("life");
+  const lifeJournalEnabled = !lifeDeleted.has("journal");
+  const lifeReviewEnabled = lifeJournalEnabled && !lifeDeleted.has("reflection");
   return `<div class="pillar-home notebook-page">
     <div class="pillar-home-body">
       <main class="pillar-home-main notebook-main">
@@ -664,7 +692,7 @@ function notebookPageMarkup(view) {
           <div class="notebook-page-actions">
             ${isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
             <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>
-            ${notebook?.custom ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(notebook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除本子</button>` : ""}`}
+            ${canDeleteNotebook(view, notebook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(notebook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除本子</button>` : ""}`}
           </div>
         </header>
         ${chapters.length > 1 && !searching ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
@@ -684,14 +712,17 @@ function notebookPageMarkup(view) {
       </main>
       <aside class="pillar-home-aside">
         ${companionCardMarkup(view)}
-        ${view === "life" ? lifeToolsCard(hero) : ""}
+        ${view === "life" ? lifeToolsCard(hero, {
+          journalEnabled: lifeJournalEnabled,
+          reviewEnabled: lifeReviewEnabled,
+        }) : ""}
         <section class="pillar-card home-stats">
           <p class="eyebrow">本子</p>
           <p class="home-card-stat">${Number(total) || 0}<small> 篇</small></p>
           <p class="field-help">${notebook ? escapeHtml(notebook.description || "") : "当前章节的笔记。"}</p>
           ${chapters.length > 1 ? `<div class="home-chip-list">${chapters.map((item) => `<span>${escapeHtml(item.title)} ${item.count}</span>`).join("")}</div>` : ""}
         </section>
-        ${view === "life" && (isJournal || notebook?.key === "reflection") ? `<section class="pillar-card home-week-card">
+        ${view === "life" && lifeJournalEnabled && (isJournal || notebook?.key === "reflection") ? `<section class="pillar-card home-week-card">
           <p class="eyebrow">最近 7 天</p>
           ${weekMarkup(hero.week, hero.day)}
           <p class="field-help">近 7 天写了 ${hero.weekDone} 天${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}。</p>
@@ -960,6 +991,21 @@ async function loadPillar(view, { keepChapter = false } = {}) {
     state.chapter[view] = "";
     notebook = null;
   }
+  // 内置本子被删除后从首页隐藏；停在这个本子的阅读/列表状态一并退出。
+  const deletedNotebooks = deletedNotebooksFor(view);
+  if (notebook && deletedNotebooks.has(notebook.key)) {
+    state.notebook[view] = "";
+    state.chapter[view] = "";
+    state.reading[view] = null;
+    notebook = null;
+  }
+  const hiddenChapters = hiddenChapterKeysFor(view);
+  if (state.chapter[view] && hiddenChapters.has(state.chapter[view])) {
+    state.chapter[view] = "";
+  }
+  if (state.reading[view]?.note && hiddenChapters.has(state.reading[view].note.chapter)) {
+    state.reading[view] = null;
+  }
   if (state.search[view]) {
     state.notes[view] = (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`)).items;
   } else if (notebook && state.chapter[view]) {
@@ -1103,11 +1149,12 @@ function bindPillarEvents() {
       const view = deleteNotebook.dataset.notebookDeletePillar || appState.view;
       const notebook = notebookById(view, key);
       const card = notebookCardsFor(view).find((item) => item.key === key);
-      if (!notebook?.custom || !card) return;
+      if (!notebook || !card || !canDeleteNotebook(view, notebook)) return;
       const count = Number(card.count) || 0;
+      const builtinHint = notebook.custom ? "" : "这个内置本子会从首页隐藏，相关入口也会停用；";
       const ok = await confirmAction({
         title: "删除这个本子？",
-        message: `「${notebook.title}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后仍可在文件管理器里找回。`,
+        message: `${builtinHint}「${notebook.title}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后仍可在文件管理器里找回。`,
         confirmLabel: "删除本子", danger: true,
       });
       if (!ok) return;

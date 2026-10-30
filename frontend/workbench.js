@@ -102,22 +102,22 @@ function renderWelcome(payload) {
     <div>
       <p class="eyebrow">第一次来</p>
       <h3>先做一件小事</h3>
-      <p>不用先整理结构。写一句日记、加一条任务，或者打开帮助看看四库怎么用。</p>
+      <p>不用先整理结构。写一句灵感、加一条任务，或者打开帮助看看四库怎么用。</p>
     </div>
     <div class="workbench-welcome-actions">
-      <button type="button" class="small-button" data-welcome="journal">打开今天的日记</button>
+      <button type="button" class="small-button" data-welcome="write">写点什么</button>
       <button type="button" class="small-button" data-welcome="task">加一条任务</button>
       <button type="button" class="small-button" data-welcome="help">打开帮助</button>
       <button type="button" class="workbench-welcome-dismiss" data-welcome="dismiss" aria-label="关闭开始使用提示">×</button>
     </div>`;
   banner.insertAdjacentElement("afterend", card);
-  card.querySelector('[data-welcome="journal"]')?.addEventListener("click", () => {
+  card.querySelector('[data-welcome="write"]')?.addEventListener("click", () => {
     dismissWelcome();
     card.remove();
     location.hash = "#life";
     let attempts = 0;
     const timer = window.setInterval(() => {
-      const button = document.querySelector('#life-view [data-capture-chapter="journal"]');
+      const button = document.querySelector('#life-view [data-editor-new="life"]');
       if (button) {
         window.clearInterval(timer);
         button.click();

@@ -36,6 +36,21 @@
 
 ## 已完成
 
+- **2026-10-31 清单右键菜单（`torchos项目管理` 右键没反应 / 不能编辑）**：
+  - 原因：2026-10-30 的布局迁移把 `任务/torchos项目管理` 上移成清单目录，却没在
+    `_系统/任务（tasks）.md` 的 `清单:` 里补定义；后端把这类目录标成 `synthetic`，
+    侧栏对合成清单既不挂右键菜单、也不给「…」，所以右键整行没有反应。这个清单的定义
+    在 10-30 21:56 的配置重写里丢失，之后它就一直以合成清单存在。
+  - 侧栏：清单行一律挂右键菜单和「…」（编辑/置顶/复制/删除），合成清单同样可用；
+    菜单标签改用 `textContent` 拼，清单名里的 `<`/`&` 不会被当成标签。
+  - 后端：合成清单第一次被编辑/置顶/复制/删除时，按 `create_list` 的默认值补登记定义；
+    启动迁移新增「登记清单」一步，把迁移时漏登记的目录补进配置（幂等、只写定义不搬任务，
+    `task-layout.json` 记 `lists_adopted`）。
+  - 顺手堵住丢定义的路：配置 front matter 解析失败时不再当空配置写回（409），
+    看板 `warnings` 会指出坏在哪个文件。
+  - 测试：`frontend/tests/interaction.test.mjs` 右键菜单 1 项；`tests/test_tasks.py`
+    合成清单编辑/改名/复制/删除 + 坏 YAML 拒写 3 项；`tests/test_task_layout_bootstrap.py`
+    迁移补登记 1 项。
 - **2026-10-30 人生路/知识库交互重做（Jotsy 式本子首页）**：
   - 新增 `frontend/notebook-model.js`：本子定义（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘、
     收件箱/主题/读书/课程/概念/方法/输出）、章节聚合、今日/知识库 hero 状态、笔记卡片数据；
@@ -64,12 +79,18 @@
     `.torch-os/笔记回收站/<批次>/files/...`（带 revision 校验与 `note_deleted` 审计）。
   - **「写点什么」统一写作入口**：人生路首页/页头不再分别提供「写今天的日记」「记一条反思」
     和通用「写一条」，改为一个「写点什么」；打开后空白标题、默认分类随笔，保存前可改本子。
-    各本子页的「写一条」保留并默认指向该本子；随笔是不可删除的默认本子，固定章节保持不可删。
+    各本子页的「写一条」保留并默认指向该本子。
   - **知识库自定义本子**：`/api/notebooks` 支持 `pillar=life|knowledge`；知识库 key
     使用 `custom:knowledge:<名字>`，路径为 `03_知识库/<名字>/`。知识库首页「新建本子」
     与自定义本子页「删除本子」已接入；删除整夹软删除到 `.torch-os/本子回收站`
-    （`confirm:true` + `notebook_deleted` 审计），固定章节不可删除。知识库自定义本子
-    同样出现在 `/api/writing/chapters`，可作为文档移动目标。
+    （`confirm:true` + `notebook_deleted` 审计）。知识库自定义本子同样出现在
+    `/api/writing/chapters`，可作为文档移动目标。
+  - **内置本子删除**：人生路只保留随笔、知识库只保留收件箱这两个默认内置本子；
+    其他内置本子（日记/反思复盘/心得/目标/项目/工作复盘、主题/读书/课程/概念/方法/输出）
+    都可在本子页删除。后端按 `BUILTIN_NOTEBOOKS` 的章节集合整体移入
+    `.torch-os/本子回收站`，写 `.torch-os/deleted-notebooks.json` 隐藏标记；
+    `/api/pillars`、overview、`/api/writing/chapters` 过滤，`ensure_layout` 不再重建；
+    日记删除后 `/api/journal/write` 返回 422。保护本子 key：life `essay`、knowledge `inbox`。
   - 文案/帮助同步：`README`、`FEATURE_MAP`、`WRITING_AND_KNOWLEDGE`、`WAKE_UP_START`、
     `frontend/help-content.js`。
   - 浏览器探针：v1 探针新增首页/本子/日记编辑器/知识库提问/**新建本子→进入空本子**检查；
@@ -419,9 +440,10 @@
   迁移后旧目录只做只读兜底、空目录保留。真实库这轮只搬了项目计划下的 2 个文件（见上）。
 - 首版仍不做复杂图谱、聊天页、WYSIWYG 富文本/图片附件编辑器；Markdown 深度编辑仍以
   Obsidian 为兜底，应用内提供全屏 Markdown 写作空间。
-- 自定义本子支持创建/列出/整夹软删除（应用回收站在 `.torch-os/本子回收站`，暂不提供
-  应用内恢复/清空）；改名和跨库移动仍请在 Obsidian 里做。空本子不进入 ZIP 备份，
-  写入第一篇 Markdown 后随笔记备份。
+- 本子支持创建/列出/整夹软删除：人生路只保留随笔、知识库只保留收件箱，其他内置/自建
+  本子都可删；内容移到 `.torch-os/本子回收站`，内置本子的隐藏标记在
+  `.torch-os/deleted-notebooks.json`。应用内暂不提供回收站恢复/清空；改名和跨库移动
+  仍请在 Obsidian 里做。空本子不进入 ZIP 备份，写入第一篇 Markdown 后随笔记备份。
 
 ## 验证命令
 

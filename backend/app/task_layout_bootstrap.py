@@ -161,6 +161,20 @@ def _ensure_list_folders(vault: Path) -> int:
     return created
 
 
+def _adopt_orphan_lists(vault: Path, database: Any) -> list[str]:
+    """把任务根下已经在用、配置里却没有定义的清单目录补登记（2026-10-31）。
+
+    `任务/<清单>` 展开成 `07_任务与待办/<清单>` 时只搬目录、不写定义的话，这些清单
+    会一直是“合成清单”：能看、能加任务，但右键没有菜单，改名/复制/删除都做不了。
+    这里按 `create_list` 的规则补一条定义（只写配置，不移动任务、不改已有定义）。
+    """
+    try:
+        from . import tasks  # 延迟导入，避免任务模块初始化环
+        return tasks.adopt_undefined_lists(vault, database)
+    except Exception:
+        return []
+
+
 def _move_done_tasks(vault: Path) -> tuple[int, list[dict[str, str]]]:
     moved = 0
     errors: list[dict[str, str]] = []
@@ -291,6 +305,12 @@ def plan_task_layout(vault_dir: Path | str) -> dict[str, Any]:
                 actions.append(f"移动已完成任务 {note['relpath']}")
     except Exception:
         pass
+    try:
+        from . import tasks
+        for name in tasks.undefined_list_names(vault):
+            actions.append(f"登记清单 {name}")
+    except Exception:
+        pass
     if (vault / task_trash_store.LEGACY_TRASH_DIR).is_dir():
         actions.append("迁移旧 .torch-os/task-trash")
     return {"dry_run": True, "actions": actions, "count": len(actions)}
@@ -328,6 +348,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
     _flatten_inner_task_dir(vault, root, moves, conflicts)
     _move_loose_root_tasks(vault, root, moves, conflicts)
     list_folders = _ensure_list_folders(vault)
+    lists_adopted = _adopt_orphan_lists(vault, database)
     done_moved, done_errors = _move_done_tasks(vault)
     errors.extend(f"{item.get('path')}:{item.get('error')}" for item in done_errors)
     trash_moved = _migrate_old_trash(vault, moves, conflicts)
@@ -346,6 +367,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
         "errors": errors,
         "done_tasks_moved": done_moved,
         "list_folders_created": list_folders,
+        "lists_adopted": lists_adopted,
         "trash_batches_moved": trash_moved,
         "dida_relpaths_updated": db_updated,
     }
@@ -366,7 +388,8 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
                     "INSERT INTO audit_events(event_type, detail_json, created_at) VALUES (?, ?, ?)",
                     ("task_layout_bootstrapped",
                      json.dumps({"moved": len(moves), "done": done_moved,
-                                 "lists": list_folders, "trash": trash_moved,
+                                 "lists": list_folders, "adopted": lists_adopted,
+                                 "trash": trash_moved,
                                  "dida": db_updated, "conflicts": len(conflicts)},
                                 ensure_ascii=False),
                      datetime.now(timezone.utc).isoformat()),

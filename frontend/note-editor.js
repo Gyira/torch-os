@@ -111,6 +111,7 @@ async function loadChapters() {
 /** 新建/删除本子后让下一次打开编辑器重新读取章节目录。 */
 export function invalidateChapterCache() {
   chaptersCache = null;
+  document.dispatchEvent(new CustomEvent("torch:chapters-changed"));
 }
 
 function journalDayFrom(note, options) {

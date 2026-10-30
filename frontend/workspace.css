@@ -25,6 +25,8 @@
   animation: home-rise .42s cubic-bezier(.2, .8, .2, 1) both;
 }
 
+.life-hero.is-solo { grid-template-columns: minmax(0, 1fr); }
+
 .life-hero::before,
 .knowledge-hero::before {
   content: "";

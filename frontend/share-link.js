@@ -34,6 +34,9 @@ export function initShareLink() {
     if (button.dataset.shareAction === "archive") archiveShare(button);
     if (button.dataset.shareAction === "digest") digestShare(button);
   });
+  document.addEventListener("torch:chapters-changed", () => {
+    state.chapters = null;
+  });
   document.addEventListener("torch:proposals-changed", () => {
     if (state.open && state.preview) {
       setStatus("提案已处理；采纳的笔记已写入知识库。", "success");

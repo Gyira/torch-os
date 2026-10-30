@@ -78,6 +78,8 @@ def _build(vault: Path, *, title: str, date_value: str, chapter: str,
     directory = vault_layout.chapter_dir(chapter)
     if not directory:
         raise HTTPException(422, "未知复盘章节")
+    if vault_layout.is_chapter_hidden(vault, chapter):
+        raise HTTPException(422, "这个复盘本子已被删除")
     target = safe_note_path(vault, f"{directory}/{title}.md")
     if target.is_file():
         loaded = load_note(target)

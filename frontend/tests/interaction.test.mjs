@@ -913,6 +913,53 @@ test("sidebar list colors use CSSOM and defined lists can be dragged into order"
   assert.equal(hasClass(rows[1], "is-reorder-before"), false);
 });
 
+test("right-clicking a list row opens the row menu, including folders with no list definition", async () => {
+  const { load, getNode, context } = await harness();
+  const { renderTaskSidebar } = (await load("tasks-sidebar.js")).namespace;
+  const container = getNode("#time-sidebar");
+  const body = context.document.body;
+  const actions = [];
+  renderTaskSidebar(container, {
+    tasks: [], folders: [], tags: [], selection: { view: "today" },
+    lists: [
+      { name: "收集箱", color: "#3b82f6", folder: "", pinned: false, synthetic: false },
+      { name: "心愿清单", color: "#8b5cf6", folder: "", pinned: false, synthetic: false },
+      { name: "torchos项目管理", color: "", folder: "", pinned: false, synthetic: true },
+    ],
+    onListAction: (action, entry) => actions.push([action, entry.name]),
+  });
+  const rows = walk(container).filter((node) => node.dataset.listName);
+  assert.deepEqual(rows.map((row) => row.dataset.listName), ["心愿清单", "torchos项目管理"]);
+
+  // 目录里捡到的合成清单（配置里没有定义）也要有「…」，否则用户只能看到一行死字。
+  const syntheticTools = byClass(rows[1], "time-side-tool");
+  assert.deepEqual(syntheticTools.map((tool) => tool.textContent), ["＋", "…"]);
+
+  // 右键整行：弹出菜单，并拦下浏览器自带的右键菜单。
+  const rightClick = await rows[1].emit("contextmenu");
+  assert.equal(rightClick.defaultPrevented, true);
+  const menu = byClass(body, "time-popover");
+  assert.equal(menu.length, 1);
+  assert.deepEqual(
+    byClass(menu[0], "time-popover-label").map((node) => node.textContent),
+    ["编辑", "置顶", "复制", "删除"]);
+
+  // 菜单项真的能回调（合成清单的编辑由后端补登记定义）。
+  const edit = byClass(menu[0], "time-popover-row")
+    .find((node) => byText(node, "编辑").length > 0);
+  await edit.emit("click");
+  assert.deepEqual(actions, [["edit", "torchos项目管理"]]);
+  assert.equal(byClass(body, "time-popover").length, 0);  // 点完关掉
+
+  // 「…」按钮打开同一份菜单；定义过的清单也一样。
+  await byClass(rows[0], "time-side-tool")[1].emit("click");
+  const definedMenu = byClass(body, "time-popover");
+  assert.equal(definedMenu.length, 1);
+  assert.deepEqual(
+    byClass(definedMenu[0], "time-popover-label").map((node) => node.textContent),
+    ["编辑", "置顶", "复制", "删除"]);
+});
+
 test("standalone pages use the top module navigation instead of the outer sidebar", async () => {
   const h = await harness();
   await h.load("app.js");

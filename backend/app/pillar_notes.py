@@ -77,6 +77,7 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
     else:
         roots = [vault / directory for directory in vault_layout.PILLAR_DIRS.values()]
     text = str(query or "").strip().casefold()
+    hidden = vault_layout.hidden_chapters(vault)
     found: list[dict[str, Any]] = []
     for root in roots:
         if not root.is_dir():
@@ -86,6 +87,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
                 continue
             relative = _relative(vault, path)
             if not relative or vault_layout.is_skipped(relative):
+                continue
+            if vault_layout.chapter_key_of(relative) in hidden:
                 continue
             try:
                 loaded = load_note(path)
@@ -140,6 +143,8 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
     directory = vault_layout.chapter_dir(chapter)
     if not directory or vault_layout.pillar_of(directory) != pillar:
         raise HTTPException(422, "章节与库不匹配")
+    if vault_layout.is_chapter_hidden(vault_dir, chapter):
+        raise HTTPException(422, "这个本子已被删除，不能写入")
     clean_title = str(title or "").strip()
     if not clean_title:
         raise HTTPException(422, "标题不能为空")
@@ -187,6 +192,8 @@ def update_note(vault_dir: Path | str, relative: str, *, body: str | None = None
                 status: str = "", expected_revision: str = "") -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
+    if vault_layout.is_chapter_hidden(vault_dir, vault_layout.chapter_key_of(relative)):
+        raise HTTPException(422, "这个本子已被删除，不能写入")
     path = safe_note_path(vault, relative)
     loaded = load_note(path)
     if not loaded["exists"]:
@@ -212,9 +219,13 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
               *, expected_revision: str = "") -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
+    if vault_layout.is_chapter_hidden(vault_dir, vault_layout.chapter_key_of(relative)):
+        raise HTTPException(422, "这个本子已被删除，不能移动")
     directory = vault_layout.chapter_dir(target_chapter)
     if not directory:
         raise HTTPException(422, "未知章节")
+    if vault_layout.is_chapter_hidden(vault_dir, target_chapter):
+        raise HTTPException(422, "目标本子已被删除，不能移入")
     source = safe_note_path(vault, relative)
     if not source.is_file():
         raise HTTPException(404, "笔记不存在")
@@ -248,6 +259,8 @@ def trash_note(vault_dir: Path | str, relative: str,
     """
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
+    if vault_layout.is_chapter_hidden(vault_dir, vault_layout.chapter_key_of(relative)):
+        raise HTTPException(422, "这个本子已被删除，不能删除笔记")
     source = safe_note_path(vault, relative)
     loaded = load_note(source)
     if not loaded["exists"]:
@@ -305,6 +318,7 @@ def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[
     vault = Path(vault_dir).resolve()
     wanted = vault_layout.normalize_relpath(target).removesuffix(".md")
     wanted_name = wanted.rsplit("/", 1)[-1]
+    hidden = vault_layout.hidden_chapters(vault)
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
     for directory in vault_layout.PILLAR_DIRS.values():
@@ -316,6 +330,8 @@ def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[
                 continue
             relative = _relative(vault, path)
             if relative == target or relative in seen:
+                continue
+            if vault_layout.chapter_key_of(relative) in hidden:
                 continue
             try:
                 loaded = load_note(path)

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import stat
 import unicodedata
@@ -121,6 +123,33 @@ KNOWLEDGE_NOTEBOOK_PREFIX = f"{CUSTOM_NOTEBOOK_PREFIX}knowledge:"
 CUSTOM_NOTEBOOK_MAX_NAME = 48
 CUSTOM_NOTEBOOK_PILLARS = ("life", "knowledge")
 CUSTOM_NOTEBOOK_ROOT = PILLAR_DIRS["life"]
+# 内置本子（首页卡片）→ 标题与该本子包含的章节 key。任务/习惯不是本子卡片。
+BUILTIN_NOTEBOOKS: dict[str, dict[str, tuple[str, tuple[str, ...]]]] = {
+    "life": {
+        "journal": ("日记", ("journal",)),
+        "reflection": ("反思复盘", ("reflection", "review_week", "review_month")),
+        "insight": ("心得体会", ("insight_life", "insight_work", "insight_study")),
+        "goal": ("目标", ("goal_year", "goal_quarter", "goal_month")),
+        "project": ("项目", ("project_plan", "work_review_project")),
+        "essay": ("随笔", ("essay",)),
+        "work": ("工作复盘", ("work_review_meeting", "work_review_pitfall")),
+    },
+    "knowledge": {
+        "inbox": ("收件箱", ("inbox",)),
+        "topic": ("主题笔记", ("topic",)),
+        "reading": ("读书笔记", ("reading",)),
+        "course": ("课程笔记", ("course",)),
+        "concept": ("概念卡片", ("concept",)),
+        "method": ("方法库", ("method_work", "method_general")),
+        "output": ("输出与作品", ("output",)),
+    },
+}
+# 用户明确保留的两个默认内置本子：人生路的随笔、知识库的收件箱。
+PROTECTED_NOTEBOOK_KEYS: dict[str, frozenset[str]] = {
+    "life": frozenset({"essay"}),
+    "knowledge": frozenset({"inbox"}),
+}
+DELETED_NOTEBOOKS_REL = Path(".torch-os") / "deleted-notebooks.json"
 # 固定章节仍然优先；不在固定一级目录里的直属文件夹才视为“我的本子”。
 FIXED_TOP_DIRS = frozenset(item[3].split("/")[1] for item in CHAPTERS)
 _NOTEBOOK_FORBIDDEN = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
@@ -188,22 +217,26 @@ def normalize_relpath(value: Any) -> str:
     return text
 
 
-def chapter_manifest() -> dict[str, Any]:
+def chapter_manifest(*, hidden: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
     """给 /api/pillars 的章节清单；前端不复制目录。
 
     `chapters` 保持 `CHAPTERS` 的原始顺序（未分组章节的位置不变），`groups` 只按
-    key 引用章节，供侧边栏分组展示。
+    key 引用章节，供侧边栏分组展示。`hidden` 是已删除内置本子的章节 key，
+    这些章节以及被删空的分组不会出现在清单里。
     """
+    hidden_keys = set(hidden or ())
     pillars: list[dict[str, Any]] = []
     for key in PILLAR_ORDER:
         chapters = [
             {"key": item[0], "title": item[2], "path": item[3], "default_type": item[4]}
-            for item in CHAPTERS if item[1] == key
+            for item in CHAPTERS if item[1] == key and item[0] not in hidden_keys
         ]
-        groups = [
-            {"key": group_key, "title": group_title, "chapters": list(group_chapters)}
-            for group_key, group_title, group_chapters in CHAPTER_GROUPS.get(key, ())
-        ]
+        groups = []
+        for group_key, group_title, group_chapters in CHAPTER_GROUPS.get(key, ()):
+            visible = [chapter for chapter in group_chapters if chapter not in hidden_keys]
+            if visible:
+                groups.append({"key": group_key, "title": group_title,
+                               "chapters": visible})
         pillars.append({
             "key": key,
             "title": PILLAR_TITLES[key],
@@ -376,6 +409,123 @@ def list_custom_notebooks(vault_dir: Path | str,
     return sorted(names, key=str.casefold)
 
 
+def builtin_notebook_title(pillar: str, key: str) -> str:
+    item = BUILTIN_NOTEBOOKS.get(str(pillar or ""), {}).get(str(key or ""))
+    return item[0] if item else ""
+
+
+def builtin_notebook_chapters(pillar: str, key: str) -> tuple[str, ...]:
+    item = BUILTIN_NOTEBOOKS.get(str(pillar or ""), {}).get(str(key or ""))
+    return item[1] if item else ()
+
+
+def is_protected_notebook(pillar: str, key: str) -> bool:
+    return str(key or "") in PROTECTED_NOTEBOOK_KEYS.get(str(pillar or ""), frozenset())
+
+
+def can_delete_builtin_notebook(pillar: str, key: str) -> bool:
+    value = str(key or "")
+    return (value in BUILTIN_NOTEBOOKS.get(str(pillar or ""), {})
+            and not is_protected_notebook(pillar, value))
+
+
+def _deleted_notebooks_file(vault_dir: Path | str) -> Path:
+    return Path(vault_dir).resolve() / DELETED_NOTEBOOKS_REL
+
+
+def deleted_notebook_keys(vault_dir: Path | str) -> dict[str, set[str]]:
+    """读取被删除的内置本子 key；损坏/缺失时按“没有删除”处理。"""
+    result = {pillar: set() for pillar in BUILTIN_NOTEBOOKS}
+    try:
+        payload = json.loads(_deleted_notebooks_file(vault_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return result
+    if not isinstance(payload, dict):
+        return result
+    for pillar, notebooks in BUILTIN_NOTEBOOKS.items():
+        values = payload.get(pillar)
+        if not isinstance(values, list):
+            continue
+        for key in values:
+            if (isinstance(key, str) and key in notebooks
+                    and not is_protected_notebook(pillar, key)):
+                result[pillar].add(key)
+    return result
+
+
+def _write_deleted_notebook_keys(vault_dir: Path | str,
+                                 deleted: dict[str, set[str]]) -> None:
+    root = Path(vault_dir).resolve()
+    path = root / DELETED_NOTEBOOKS_REL
+    if not any(deleted.values()) and not path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": 1,
+        **{pillar: sorted(deleted.get(pillar, set())) for pillar in BUILTIN_NOTEBOOKS},
+    }
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+
+
+def mark_notebook_deleted(vault_dir: Path | str, pillar: str, key: str,
+                          *, deleted: bool = True) -> None:
+    """记录/撤销一个内置本子的删除标记；随笔和收件箱永远不能标记。"""
+    pillar_key = str(pillar or "")
+    notebook_key = str(key or "")
+    if notebook_key not in BUILTIN_NOTEBOOKS.get(pillar_key, {}):
+        raise ValueError("不是内置本子")
+    if deleted and is_protected_notebook(pillar_key, notebook_key):
+        raise ValueError("这个默认本子不能删除")
+    current = deleted_notebook_keys(vault_dir)
+    if deleted:
+        current[pillar_key].add(notebook_key)
+    else:
+        current[pillar_key].discard(notebook_key)
+    _write_deleted_notebook_keys(vault_dir, current)
+
+
+def hidden_chapters(vault_dir: Path | str) -> set[str]:
+    """被删除的内置本子包含的章节 key；这些章节不再出现在首页/编辑器/写入校验里。"""
+    hidden: set[str] = set()
+    for pillar, keys in deleted_notebook_keys(vault_dir).items():
+        for key in keys:
+            hidden.update(builtin_notebook_chapters(pillar, key))
+    return hidden
+
+
+def _unhide_restored_notebooks(vault_dir: Path | str) -> None:
+    """手动把章节文件夹从回收站放回后，下一次启动自动恢复本子显示。"""
+    deleted = deleted_notebook_keys(vault_dir)
+    root = Path(vault_dir)
+    changed = False
+    for pillar, keys in deleted.items():
+        for key in list(keys):
+            chapters = builtin_notebook_chapters(pillar, key)
+            if not any((root / chapter_dir(chapter)).is_dir() for chapter in chapters):
+                continue
+            keys.discard(key)
+            changed = True
+    if not changed:
+        return
+    try:
+        _write_deleted_notebook_keys(vault_dir, deleted)
+    except OSError:
+        pass
+
+
+def is_notebook_deleted(vault_dir: Path | str, pillar: str, key: str) -> bool:
+    return str(key or "") in deleted_notebook_keys(vault_dir).get(str(pillar or ""), set())
+
+
+def is_chapter_hidden(vault_dir: Path | str, chapter_key: str) -> bool:
+    value = str(chapter_key or "").strip()
+    return bool(value) and value in hidden_chapters(vault_dir)
+
+
 def v1_chapter_move(relpath: str) -> tuple[str, str] | None:
     """v1 章节里的文件 → `(v2 目标路径, 章节 key)`；不在搬迁目录里返回 None。
 
@@ -484,8 +634,13 @@ def inbox_dir() -> str:
 
 
 def ensure_layout(vault_dir: Path | str) -> list[str]:
-    """幂等创建四库和章节目录；返回实际创建的相对路径。"""
+    """幂等创建四库和章节目录；返回实际创建的相对路径。
+
+    已删除的内置本子不再重建章节目录，否则重启后空卡片会重新出现。
+    """
     root = Path(vault_dir)
+    _unhide_restored_notebooks(root)
+    hidden = hidden_chapters(root)
     created: list[str] = []
     for relpath in [PILLAR_DIRS[key] for key in PILLAR_ORDER]:
         path = root / relpath
@@ -493,6 +648,8 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
             path.mkdir(parents=True, exist_ok=True)
             created.append(relpath)
     for item in CHAPTERS:
+        if item[0] in hidden:
+            continue
         path = root / item[3]
         if not path.is_dir():
             path.mkdir(parents=True, exist_ok=True)
