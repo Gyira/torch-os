@@ -13,17 +13,17 @@ MOVED_CHAPTERS = {
     "goal_month": ("00_人生路/06_目标与计划/03_月度目标", "00_人生路/04_目标/03_月度目标"),
     "project_plan": ("00_人生路/06_目标与计划/05_项目计划", "00_人生路/05_项目/01_项目计划"),
     "work_review_project": ("00_人生路/07_工作复盘/01_项目复盘", "00_人生路/05_项目/02_项目复盘"),
+    "habit": ("00_人生路/06_目标与计划/04_习惯追踪", "00_人生路/04_目标/04_习惯追踪"),
 }
 
 UNCHANGED_CHAPTERS = {
     "journal": "00_人生路/01_日记",
-    "task": "00_人生路/08_任务与待办",
+    "task": "00_人生路/07_任务与待办",
     "insight_life": "00_人生路/03_心得体会/01_生活心得",
     "insight_work": "00_人生路/03_心得体会/02_工作心得",
     "insight_study": "00_人生路/03_心得体会/03_学习心得",
-    "habit": "00_人生路/06_目标与计划/04_习惯追踪",
-    "work_review_meeting": "00_人生路/07_工作复盘/02_会议收获",
-    "work_review_pitfall": "00_人生路/07_工作复盘/03_踩坑记录",
+    "work_review_meeting": "00_人生路/06_工作复盘/02_会议收获",
+    "work_review_pitfall": "00_人生路/06_工作复盘/03_踩坑记录",
 }
 
 
@@ -52,7 +52,7 @@ def test_moved_chapters_use_v2_paths_and_others_keep_v1_paths():
         assert vault_layout.chapter_dir(chapter) == path, chapter
     assert vault_layout.chapter_key_of("00_人生路/05_项目/01_项目计划/a.md") == "project_plan"
     assert vault_layout.chapter_key_of("00_人生路/02_反思复盘/03_月复盘/2026-10.md") == "review_month"
-    assert vault_layout.chapter_key_of("00_人生路/06_目标与计划/04_习惯追踪/a.md") == "habit"
+    assert vault_layout.chapter_key_of("00_人生路/04_目标/04_习惯追踪/a.md") == "habit"
 
 
 def test_manifest_exposes_life_groups_without_reordering_chapters():
@@ -90,11 +90,10 @@ def test_v1_chapter_move_maps_only_the_moved_directories():
             f"{new}/子目录/笔记.md", chapter)
     for path in (
         "00_人生路/01_日记/2026-10-20.md",
-        "00_人生路/08_任务与待办/任务/写方案.md",
+        "00_人生路/07_任务与待办/收集箱/写方案.md",
         "00_人生路/03_心得体会/01_生活心得/早起.md",
-        "00_人生路/06_目标与计划/04_习惯追踪/习惯定义.md",
-        "00_人生路/07_工作复盘/02_会议收获/周会.md",
-        "00_人生路/07_工作复盘/03_踩坑记录/坑.md",
+        "00_人生路/06_工作复盘/02_会议收获/周会.md",
+        "00_人生路/06_工作复盘/03_踩坑记录/坑.md",
         "00_人生路/02_反思复盘/01_反思/已在 v2.md",
         "03_知识库/00_收件箱/灵感.md",
         "",
@@ -104,6 +103,7 @@ def test_v1_chapter_move_maps_only_the_moved_directories():
 
 def test_index_policy_separates_system_journal_and_memory_sources():
     assert vault_layout.index_policy("00-System/任务/某任务.md") == "skip"
+    assert vault_layout.index_policy("00_人生路/07_任务与待办/回收站/a.md") == "skip"
     assert vault_layout.index_policy(".torch-os/notes.md") == "skip"
     assert vault_layout.index_policy("dashboard.md", {"dashboard": True}) == "skip"
     assert vault_layout.index_policy("00_人生路/01_日记/2026-10-20.md") == "document_only"
@@ -127,8 +127,11 @@ def test_ensure_layout_creates_pillars_and_chapters(tmp_path):
     assert (tmp_path / "00_人生路/01_日记").is_dir()
     assert (tmp_path / "00_人生路/02_反思复盘/01_反思").is_dir()
     assert (tmp_path / "00_人生路/04_目标/01_年度目标").is_dir()
+    assert (tmp_path / "00_人生路/04_目标/04_习惯追踪").is_dir()
     assert (tmp_path / "00_人生路/05_项目/01_项目计划").is_dir()
-    assert (tmp_path / "00_人生路/06_目标与计划/04_习惯追踪").is_dir()
+    assert (tmp_path / "00_人生路/07_任务与待办/收集箱").is_dir()
+    assert (tmp_path / "00_人生路/07_任务与待办/已完成").is_dir()
+    assert (tmp_path / "00_人生路/07_任务与待办/回收站").is_dir()
     assert (tmp_path / "03_知识库/00_收件箱").is_dir()
     assert vault_layout.layout_status(tmp_path)["state"] == "v1"
 

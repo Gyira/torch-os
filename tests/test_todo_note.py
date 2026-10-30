@@ -1,4 +1,4 @@
-"""Markdown 待办（0.99.x）：`00_人生路/08_任务与待办/_系统/待办（todos）.md` 是数据本体——解析、外科写入。
+"""Markdown 待办（0.99.x）：`00_人生路/07_任务与待办/_系统/待办（todos）.md` 是数据本体——解析、外科写入。
 
 钉子：只改目标行、其余字节不变；文件在别处改过就 409；只读一律 409 而读取 200；
 每日必做勾选只写 `.torch-os/todos/daily.json`，**绝不写日记**；`daily/sync` 不依赖 collect_day（无递归）。
@@ -52,7 +52,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def todos_file(tmp_path):
-    return tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "_系统" / "待办（todos）.md"
+    return tmp_path / "vault" / "00_人生路" / "07_任务与待办" / "_系统" / "待办（todos）.md"
 
 
 def journal_file(tmp_path, day=TODAY):
@@ -101,7 +101,7 @@ def test_add_is_surgical_and_tracks_revision(tmp_path):
     index = after_lines.index("- [ ] 新的一条")
     assert after_lines[:index] == before_lines[:index]
     assert after_lines[index + 1:] == before_lines[index:]
-    assert not (tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "_系统" / "待办（todos）.md.tmp").exists()
+    assert not (tmp_path / "vault" / "00_人生路" / "07_任务与待办" / "_系统" / "待办（todos）.md.tmp").exists()
 
     stale = client.post("/api/todos", json={"title": "再一条", "revision": revision})
     assert stale.status_code == 409
@@ -152,7 +152,7 @@ def test_delete_removes_exactly_one_line(tmp_path):
 
 def test_crlf_is_preserved(tmp_path):
     client = make_client(tmp_path)
-    path = tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "_系统" / "待办（todos）.md"
+    path = tmp_path / "vault" / "00_人生路" / "07_任务与待办" / "_系统" / "待办（todos）.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(SAMPLE.replace("\n", "\r\n").encode("utf-8"))
     item = todo_items(client)[0]

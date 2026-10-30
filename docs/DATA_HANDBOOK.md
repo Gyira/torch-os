@@ -23,7 +23,8 @@
 | `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词、`bazi.json`（八字合婚页只读数据） |
 | `.torch-os/love/backups/` | 微信同步写入前自动生成的恋爱数据库备份 |
 | `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
-| `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`task-trash/`、`restored/` | 备份、日志、诊断、迁移与回收站 |
+| `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`restored/` | 备份、日志、诊断与迁移记录 |
+| `00_人生路/07_任务与待办/回收站/` | 任务与清单文件夹的软删除恢复区 |
 | `.torch-os/dida-credentials.json` | 滴答清单登录凭据（敏感） |
 
 `personal-data.json` 的格式是 `{"version":1,"updated_at":"…","values":{…}}`，值统一为字符串，
@@ -105,7 +106,7 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
   身体记录改读健康月度 Markdown 表，旧 `body_entries` 表不再创建。
 - 习惯：`habit_definitions`、`habit_entries` 是 Markdown 的派生缓存（整数 id、同步版本号、
   统计用），不是权威源；`habit_cache_meta` 记录缓存实例、generation 与首次迁移时间。
-  权威内容在 `00_人生路/06_目标与计划/04_习惯追踪/`：`习惯/<名称>.md` 是定义，
+  权威内容在 `00_人生路/04_目标/04_习惯追踪/`：`习惯/<名称>.md` 是定义，
   `打卡/YYYY-MM.md` 是月度打卡表，`习惯定义.md` 是自动生成的只读索引。
   在 Obsidian 里修改笔记或打卡表，应用会在下一次读取时同步回缓存。旧学习表已退役且不再创建。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。

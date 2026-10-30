@@ -3,7 +3,7 @@
 // 全部无框架：一个浮动层 + 外点/Esc 关闭；返回 close() 方便调用方收尾。
 import { escapeHtml } from "./core.js";
 import {
-  PRIORITIES, INBOX, dayOffset, priorityMeta,
+  PRIORITIES, INBOX, RESERVED_LIST_NAMES, dayOffset, priorityMeta,
 } from "./tasks-model.js";
 
 let activePopover = null;
@@ -263,14 +263,16 @@ export function openListPicker(anchor, { lists = [], current = "", onPick }) {
         button.addEventListener("click", () => { close(); onPick(name); });
         rows.push(button);
       };
-      const folders = [...new Set(lists.map((item) => item.folder).filter(Boolean))];
-      for (const item of lists.filter((entry) => !entry.folder)) push(item.name, "");
+      const visible = lists.filter((entry) => entry.name === INBOX
+        || !RESERVED_LIST_NAMES.has(entry.name));
+      const folders = [...new Set(visible.map((item) => item.folder).filter(Boolean))];
+      for (const item of visible.filter((entry) => !entry.folder)) push(item.name, "");
       for (const folder of folders) {
         const head = document.createElement("p");
         head.className = "time-popover-group";
         head.textContent = folder;
         rows.push(head);
-        for (const item of lists.filter((entry) => entry.folder === folder)) push(item.name, folder);
+        for (const item of visible.filter((entry) => entry.folder === folder)) push(item.name, folder);
       }
       if (!rows.length) {
         const empty = document.createElement("p");

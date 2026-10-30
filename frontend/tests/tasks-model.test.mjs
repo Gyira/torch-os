@@ -10,6 +10,7 @@ import {
   firstBusyHour, listColorMap, taskColor, shiftAnchor, calendarViewLabel, calendarTitle,
   CALENDAR_VIEWS, MULTIDAY_OPTIONS, MULTIWEEK_OPTIONS, defaultCalendarState,
   defaultTaskDate, HABIT_LIST_NAME, isHabitTask, habitTaskKey,
+  trashItemSummary, trashDidaIds,
 } from "../tasks-model.js";
 
 const TODAY = "2026-10-08";
@@ -104,7 +105,8 @@ test("completed tasks leave the original view and only appear in done", () => {
   assert.equal(filterTasks([inList], "today", { today: TODAY, list: "心愿清单" }).length, 0);
   assert.equal(filterTasks([inList], "today", { today: TODAY, list: "心愿清单", showDone: true }).length, 1);
   assert.equal(filterTasks([inList], "today", { today: TODAY, tag: "学习" }).length, 0);
-  assert.equal(filterTasks([inList], "today", { today: TODAY, tag: "学习", showDone: true }).length, 1);
+  // 标签只是筛选展示；已完成任务只出现在“已完成”，即使打开 showDone 也不混进标签视图。
+  assert.equal(filterTasks([inList], "today", { today: TODAY, tag: "学习", showDone: true }).length, 0);
 
   // 日历默认也不画已完成。
   assert.deepEqual(tasksByDay([done], { showDone: false }), {});
@@ -436,4 +438,18 @@ test("virtual habit tasks join today and quadrants without polluting lists", () 
   assert.equal(filterTasks([habitTask({ date: "2026-10-09" })], "today", {
     today: TODAY, habitDay: "2026-10-09", showDone: true,
   }).length, 1);
+});
+
+test("trash helpers describe file and folder entries", () => {
+  assert.deepEqual(trashItemSummary({ title: "写方案", list_name: "工作" }), {
+    kind: "file", label: "写方案", meta: "工作",
+  });
+  assert.deepEqual(trashItemSummary({ kind: "folder", title: "工作", count: 3 }), {
+    kind: "folder", label: "清单文件夹「工作」", meta: "3 个任务",
+  });
+  assert.deepEqual(trashDidaIds([
+    { dida_id: "a" },
+    { dida_ids: ["b", "a"] },
+    { kind: "folder", dida_ids: ["c"] },
+  ]), ["a", "b", "c"]);
 });

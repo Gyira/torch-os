@@ -222,7 +222,7 @@ def test_dry_run_does_not_write(tmp_path):
     configure(client)
     result = run_sync(client, dry_run=True)
     assert result["counts"]["created"] == 1
-    assert not (vault / "00_人生路" / "08_任务与待办" / "任务").exists()
+    assert not (vault / "00_人生路" / "07_任务与待办").exists()
 
 
 def test_sync_creates_note_and_is_idempotent(tmp_path):
@@ -339,7 +339,7 @@ def test_remote_project_delete_moves_its_tasks_to_trash(tmp_path):
     client, vault, _seen = make_client(tmp_path, snapshot)
     configure(client)
     run_sync(client)
-    folder = vault / "00_人生路" / "08_任务与待办" / "任务" / "工作"
+    folder = vault / "00_人生路" / "07_任务与待办" / "工作"
     assert folder.is_dir()
 
     # 手机上删除了整个清单：项目不再出现在完整的 projectProfiles 里，任务也不再返回。
@@ -356,7 +356,10 @@ def test_remote_project_delete_moves_its_tasks_to_trash(tmp_path):
     assert [item["name"] for item in board["lists"]] == ["收集箱"]
     trash = client.get("/api/time/trash").json()["items"]
     assert len(trash) == 1
-    assert trash[0]["title"] == "买牛奶"
+    assert trash[0]["kind"] == "folder"
+    assert trash[0]["title"] == "工作"
+    assert trash[0]["count"] == 1
+    assert trash[0]["dida_ids"] == ["task-1"]
     # 被清单删除带走的任务标记为远端删除，不再回写滴答。
     with sqlite3.connect(tmp_path / "dida.sqlite3") as connection:
         statuses = dict(connection.execute(
@@ -379,7 +382,7 @@ def test_missing_project_profiles_never_deletes_local_lists(tmp_path):
     client, vault, _seen = make_client(tmp_path, snapshot)
     configure(client)
     run_sync(client)
-    folder = vault / "00_人生路" / "08_任务与待办" / "任务" / "工作"
+    folder = vault / "00_人生路" / "07_任务与待办" / "工作"
     assert folder.is_dir()
 
     # 增量响应可能没有 projectProfiles；此时不能把“没列出来的项目”当成删除。
@@ -441,7 +444,7 @@ def test_list_rename_keeps_project_mapping(tmp_path):
     notes = scan(vault)[0]
     assert len(notes) == 1
     assert notes[0]["list_name"] == "生活"
-    assert not (vault / "00_人生路" / "08_任务与待办" / "任务" / "工作").exists()
+    assert not (vault / "00_人生路" / "07_任务与待办" / "工作").exists()
 
 
 def test_local_delete_goes_to_trash_and_only_purge_removes_file(tmp_path):
@@ -829,7 +832,8 @@ def test_moved_note_is_not_treated_as_local_delete(tmp_path):
     configure(client, csrf=True)
     run_sync(client)
     note = scan(vault)[0][0]
-    inbox_copy = vault / "00_人生路" / "08_任务与待办" / "任务" / note["path"].name
+    inbox_copy = vault / "00_人生路" / "07_任务与待办" / "收集箱" / note["path"].name
+    inbox_copy.parent.mkdir(parents=True, exist_ok=True)
     note["path"].rename(inbox_copy)
 
     result = run_sync(client)
@@ -882,7 +886,7 @@ def test_read_only_blocks_run_but_allows_test(tmp_path):
     assert client.post("/api/sync/dida/test").status_code == 200
     response = client.post("/api/sync/dida/run", json={"dry_run": False})
     assert response.status_code == 409
-    assert not (vault / "00_人生路" / "08_任务与待办" / "任务").exists()
+    assert not (vault / "00_人生路" / "07_任务与待办").exists()
 
 
 def _create_list(client, name, color="#22c55e"):
@@ -1041,12 +1045,12 @@ def test_stale_snapshot_does_not_delete_locally_created_project(tmp_path):
     run_sync(client)
     project_id = _find_list(client, "新清单")["dida_project_id"]
     assert project_id
-    assert (vault / "00_人生路" / "08_任务与待办" / "任务" / "新清单").is_dir()
+    assert (vault / "00_人生路" / "07_任务与待办" / "新清单").is_dir()
 
     result = run_sync(client)  # 快照仍不含新项目
     assert result["counts"].get("projects_deleted", 0) == 0
     assert "project_seen_pending" in result["warnings"]
-    assert (vault / "00_人生路" / "08_任务与待办" / "任务" / "新清单").is_dir()
+    assert (vault / "00_人生路" / "07_任务与待办" / "新清单").is_dir()
 
     seen["snapshot"] = RemoteSnapshot(
         checkpoint=2, inbox_id="inbox-1",
@@ -1061,7 +1065,7 @@ def test_stale_snapshot_does_not_delete_locally_created_project(tmp_path):
     )
     result = run_sync(client)
     assert result["counts"]["projects_deleted"] == 1
-    assert not (vault / "00_人生路" / "08_任务与待办" / "任务" / "新清单").exists()
+    assert not (vault / "00_人生路" / "07_任务与待办" / "新清单").exists()
 
 
 def test_one_list_create_failure_does_not_block_others(tmp_path):

@@ -21,7 +21,7 @@ from backend.app.habits import HabitCreate, HabitService, create_habits_router
 
 TODAY = date(2026, 10, 3)
 FIRST = "2026-09-28"  # Monday; the frozen today is Saturday.
-HABIT_DIR = "00_人生路/06_目标与计划/04_习惯追踪"
+HABIT_DIR = "00_人生路/04_目标/04_习惯追踪"
 
 
 @pytest.fixture

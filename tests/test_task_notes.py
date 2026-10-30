@@ -46,7 +46,7 @@ def test_safe_stem_cleans_and_limits_names():
 
 def test_create_roundtrip_keeps_strings_and_body(tmp_path):
     note = create_task_note(tmp_path, "", "写方案", fields(), body="第一行\n\n第二行")
-    assert note["path"] == task_root(tmp_path) / "写方案.md"
+    assert note["path"] == task_root(tmp_path) / INBOX / "写方案.md"
     assert note["title"] == "写方案"
     assert note["date"] == "2026-10-17"
     assert note["time"] == "09:00-10:30"
@@ -110,9 +110,12 @@ def test_move_into_occupied_list_numbers_without_losing_title(tmp_path):
     updated = rewrite_task_note(tmp_path, moved, folder="心愿", title=moved["title"],
                                 values=fields(date="", time="", priority="none", tags=[],
                                               done=True, done_on="2026-10-17", pinned=False))
-    assert updated["path"].parent.name == "心愿"
-    assert updated["path"].name == "去海边 2.md"
+    # 勾选完成后任务统一进“已完成”，逻辑清单记在 frontmatter。
+    assert updated["path"].parent.name == "已完成"
+    assert updated["path"].name == "去海边.md"
     assert updated["title"] == "去海边"
+    assert updated["list_name"] == "心愿"
+    assert updated["metadata"]["清单"] == "心愿"
     assert updated["done"] is True and updated["done_on"] == "2026-10-17"
     assert updated["date"] == "" and updated["priority"] == "none"
 
@@ -154,16 +157,11 @@ def test_bad_yaml_is_not_editable(tmp_path):
 def test_trash_note_and_list_folder_safety(tmp_path):
     note = create_task_note(tmp_path, "", "先扔这里", fields())
     batch = trash_note(tmp_path, note)
-    assert batch.startswith(".torch-os/task-trash/")
+    assert batch.startswith("00_人生路/07_任务与待办/回收站/")
     assert not note["path"].exists()
 
     listed = create_task_note(tmp_path, "工作", "清单任务", fields())
     (listed["path"].parent / "附件.txt").write_text("附件", encoding="utf-8")
-    with pytest.raises(HTTPException) as error:
-        trash_list_folder(tmp_path, "工作")
-    assert error.value.status_code == 409
-
-    (listed["path"].parent / "附件.txt").unlink()
     config = tmp_path / "00-System" / "任务（tasks）.md"
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text("---\ntype: tasks\n---\n", encoding="utf-8")
@@ -191,15 +189,17 @@ def test_trash_list_folder_moves_baidu_sync_sidecars(tmp_path):
     assert sidecar.name in trashed
 
 
-def test_trash_list_folder_still_refuses_unknown_cfg(tmp_path):
+def test_trash_list_folder_moves_unknown_files_with_the_folder(tmp_path):
     note = create_task_note(tmp_path, "工作", "清单任务", fields())
     (note["path"].parent / "附件.cfg").write_text("keep me", encoding="utf-8")
 
-    with pytest.raises(HTTPException) as error:
-        trash_list_folder(tmp_path, "工作")
+    result = trash_list_folder(tmp_path, "工作")
 
-    assert error.value.status_code == 409
-    assert note["path"].exists()
+    assert result["count"] == 1
+    assert not note["path"].exists()
+    assert not (task_root(tmp_path) / "工作").exists()
+    trashed = {path.name for path in (tmp_path / result["batch"]).rglob("*") if path.is_file()}
+    assert "附件.cfg" in trashed
 
 
 def test_board_revision_changes_when_any_note_changes(tmp_path):

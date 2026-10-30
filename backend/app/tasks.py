@@ -2,9 +2,9 @@
 
 数据本体分两层：
 
-- **新任务** = `00_人生路/08_任务与待办/任务/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
-  清单来自文件夹；改名/换清单就是改文件名/移动文件；正文原样保留。
-- **旧任务** = `00_人生路/08_任务与待办/_系统/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
+- **新任务** = `00_人生路/07_任务与待办/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
+  清单来自文件夹；勾选完成会移到 `已完成/`，改名/换清单就是改文件名/移动文件；正文原样保留。
+- **旧任务** = `00_人生路/07_任务与待办/_系统/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
   （可在 Obsidian 里直接修改这份文件）。产品不自动迁移旧行。
 
 清单/标签/逻辑文件夹定义仍在 `任务（tasks）.md` 的 front matter（兼容旧文件名 `任务.md` 和
@@ -36,16 +36,19 @@ from .markdown_store import (
     load_note,
     section_bounds as _section_bounds,
 )
-from . import task_notes, task_trash
-from .task_notes import INBOX, TASK_DIR_POSIX
+from . import task_notes, task_trash, vault_layout
+from .task_notes import INBOX, TASK_ROOT_POSIX
 from .task_import import parse_checkboxes
 from .vault import managed_note_path, note_relative
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-TASKS_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务（tasks）.md")
+TASKS_REL = Path(vault_layout.TASK_ROOT, "_系统", "任务（tasks）.md")
+TASKS_08_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务（tasks）.md")
+TASKS_08_LEGACY_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务.md")
 TASKS_OLD_REL = Path("00-System", "任务（tasks）.md")
 TASKS_LEGACY_REL = Path("00-System", "任务.md")
+TASKS_CANONICAL_LEGACY_REL = Path(vault_layout.TASK_ROOT, "_系统", "任务.md")
 MAX_TITLE = 200
 MAX_LIST = 40
 MAX_TAGS = 12
@@ -367,11 +370,13 @@ def _ensure_write(read_only: bool, action: str) -> None:
 
 
 def _tasks_path(vault_dir: Path | str) -> Path:
-    current = managed_note_path(vault_dir, TASKS_REL.as_posix(), TASKS_OLD_REL.as_posix())
-    if current.exists():
-        return current
-    legacy = managed_note_path(vault_dir, TASKS_LEGACY_REL.as_posix())
-    return legacy if legacy.exists() else current
+    """任务配置：07 现行路径优先，其次 08 / 00-System 旧路径；新库写 07。"""
+    for relative in (TASKS_REL, TASKS_CANONICAL_LEGACY_REL, TASKS_08_REL,
+                     TASKS_08_LEGACY_REL, TASKS_OLD_REL, TASKS_LEGACY_REL):
+        path = managed_note_path(vault_dir, relative.as_posix())
+        if path.exists():
+            return path
+    return managed_note_path(vault_dir, TASKS_REL.as_posix())
 
 
 def _load_tasks(path: Path) -> dict[str, Any]:
@@ -547,22 +552,12 @@ def _note_public(note: dict[str, Any]) -> dict[str, Any]:
         "done_on": note["done_on"], "date": note["date"], "time": note["time"],
         "priority": note["priority"], "tags": list(note["tags"]), "pinned": note["pinned"],
         "created": note["created"], "sort_order": note.get("sort_order"),
-        "goal": note.get("goal", ""),
+        "goal": note.get("goal", ""), "storage": note.get("storage", ""),
     }
 
 
 def _note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
-    values = {
-        "date": note["date"], "time": note["time"], "priority": note["priority"],
-        "tags": list(note["tags"]), "done": note["done"], "done_on": note["done_on"],
-        "pinned": note["pinned"], "created": note["created"],
-        "sort_order": note.get("sort_order"),
-        "dida_id": note.get("dida_id", ""),
-        "goal": note.get("goal", ""),
-        "import_key": note.get("import_key", ""),
-    }
-    values.update(changes)
-    return values
+    return task_notes.note_values(note, **changes)
 
 
 # ===== 状态、修订、定位 =====
@@ -611,6 +606,8 @@ def _require_list(state: dict[str, Any], value: str) -> str:
     target = re.sub(r"\s+", " ", str(value or "").strip()) or INBOX
     if target.casefold() == INBOX.casefold():
         return INBOX
+    if target.casefold() in {name.casefold() for name in task_notes.RESERVED_FOLDER_NAMES}:
+        raise HTTPException(422, f"“{target}”是系统任务文件夹，不能作为清单")
     if target not in _all_list_names(state):
         raise HTTPException(422, f"清单“{target}”不存在；先创建清单，或把任务放进收集箱")
     task_notes.clean_list_name(target)  # 新任务要能落进文件夹；失败是 422
@@ -780,7 +777,10 @@ def read_tasks(vault_dir: Path | str, *, read_only: bool = False) -> dict[str, A
         "revision": state["revision"],
         "path": state["config_rel"],
         "vault_name": Path(vault_dir).name,
-        "task_dir": TASK_DIR_POSIX,
+        "task_dir": TASK_ROOT_POSIX,
+        "inbox_dir": vault_layout.TASK_INBOX_DIR,
+        "done_dir": vault_layout.TASK_DONE_DIR,
+        "trash_dir": vault_layout.TASK_TRASH_DIR,
         "read_only": read_only,
         "legacy_tasks": len(state["legacy"]),
         "lists": lists,
@@ -1059,25 +1059,30 @@ def bulk_tasks(vault_dir: Path | str, payload: TaskBulk, database: Database, *,
                 task_notes.trash_note(vault_dir, note, batch=batch)
         elif payload.action == "move":
             for note in picked:
-                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(target),
-                                             title=note["title"], values=_note_values(note))
+                task_notes.rewrite_task_note(
+                    vault_dir, note, folder=_folder_for_list(target),
+                    title=note["title"], values=_note_values(note))
         elif payload.action == "tag":
             for note in picked:
                 merged = list(dict.fromkeys([*note["tags"], *tags]))
-                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
-                                             title=note["title"], values=_note_values(note, tags=merged))
+                task_notes.rewrite_task_note(
+                    vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                    title=note["title"], values=_note_values(note, tags=merged))
         elif payload.action == "date":
             for note in picked:
-                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
-                                             title=note["title"], values=_note_values(note, date=date))
+                task_notes.rewrite_task_note(
+                    vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                    title=note["title"], values=_note_values(note, date=date))
         elif payload.action == "priority":
             for note in picked:
-                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
-                                             title=note["title"], values=_note_values(note, priority=priority))
+                task_notes.rewrite_task_note(
+                    vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                    title=note["title"], values=_note_values(note, priority=priority))
         elif payload.action == "pin":
             for note in picked:
-                task_notes.rewrite_task_note(vault_dir, note, folder=_folder_for_list(note["list_name"]),
-                                             title=note["title"], values=_note_values(note, pinned=payload.pinned))
+                task_notes.rewrite_task_note(
+                    vault_dir, note, folder=_folder_for_list(note["list_name"]),
+                    title=note["title"], values=_note_values(note, pinned=payload.pinned))
         else:  # duplicate
             for note in picked:
                 order = note.get("sort_order")
@@ -1108,12 +1113,14 @@ def create_list(vault_dir: Path | str, payload: ListCreate, database: Database, 
     name = _clean_list_name(payload.name)
     if name.casefold() == INBOX.casefold():
         raise HTTPException(422, "收集箱是内置清单，不能重复创建")
+    if name.casefold() in {item.casefold() for item in task_notes.RESERVED_FOLDER_NAMES}:
+        raise HTTPException(422, f"“{name}”是系统任务文件夹，不能作为清单名")
     folder = _clean_name(payload.folder, what="文件夹名") if payload.folder.strip() else ""
     metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "清单")
     if any(str(entry.get("名称") or "").casefold() == name.casefold() for entry in entries):
         raise HTTPException(422, f"已经有叫“{name}”的清单了")
-    folder_path = task_notes.task_folder(vault_dir, name)
+    folder_path = task_notes.list_folder(vault_dir, name)
     if folder_path.exists() and not folder_path.is_dir():
         raise HTTPException(409, f"任务目录里已经有同名文件“{name}”")
     entry: dict[str, Any] = {"名称": name, "颜色": _clean_color(payload.color) or "#3b82f6"}
@@ -1154,6 +1161,8 @@ def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, 
             raise HTTPException(422, "收集箱不能改名")
         if new_name.casefold() == INBOX.casefold():
             raise HTTPException(422, "不能把清单改名为收集箱")
+        if new_name.casefold() in {item.casefold() for item in task_notes.RESERVED_FOLDER_NAMES}:
+            raise HTTPException(422, f"“{new_name}”是系统任务文件夹，不能作为清单名")
         if any(str(item.get("名称") or "").casefold() == new_name.casefold()
                for item in entries if item is not entry):
             raise HTTPException(422, f"已经有叫“{new_name}”的清单了")
@@ -1190,11 +1199,44 @@ def update_list(vault_dir: Path | str, payload: ListUpdate, database: Database, 
         if heading >= 0:
             lines[heading] = f"## {new_name}"
     renamed_folder = False
+    rewritten_done: list[dict[str, Any]] = []
     if rename:
         renamed_folder = task_notes.rename_list_folder(vault_dir, old_name, new_name)
+        try:
+            for note in list(state["notes"]):
+                if note["storage"] != "done" or note["list_name"] != old_name:
+                    continue
+                fresh = task_notes.rewrite_task_note(
+                    vault_dir, note, folder=new_name, title=note["title"],
+                    values=_note_values(note),
+                )
+                rewritten_done.append(fresh)
+        except Exception:
+            for fresh in reversed(rewritten_done):
+                try:
+                    task_notes.rewrite_task_note(
+                        vault_dir, fresh, folder=old_name, title=fresh["title"],
+                        values=_note_values(fresh),
+                    )
+                except Exception:
+                    pass
+            if renamed_folder:
+                try:
+                    task_notes.rename_list_folder(vault_dir, new_name, old_name)
+                except Exception:
+                    pass
+            raise
     try:
         _guarded_write(state["loaded"], lines)
     except Exception:
+        for fresh in reversed(rewritten_done):
+            try:
+                task_notes.rewrite_task_note(
+                    vault_dir, fresh, folder=old_name, title=fresh["title"],
+                    values=_note_values(fresh),
+                )
+            except Exception:
+                pass
         if renamed_folder:
             try:
                 task_notes.rename_list_folder(vault_dir, new_name, old_name)
@@ -1318,19 +1360,80 @@ def delete_list(vault_dir: Path | str, payload: NamedPayload, database: Database
     entry = _find_entry(entries, name)
     if entry is None:
         raise HTTPException(422, f"没有叫“{name}”的清单")
-    removed = sum(1 for task in state["legacy"] if task["list_name"] == name)
-    removed += sum(1 for note in state["notes"] if note["list_name"] == name)
-    batch = task_notes.new_trash_batch(vault_dir)
-    if state["path"].is_file():
-        task_notes.copy_to_trash(vault_dir, state["path"], batch)
-    task_notes.trash_list_folder(vault_dir, name, batch=batch)
+    legacy_removed = sum(1 for task in state["legacy"] if task["list_name"] == name)
+    result = task_notes.trash_list_folder(
+        vault_dir, name,
+        config_path=state["path"] if state["path"].is_file() else None,
+        list_definition=entry,
+    )
+    removed = int(result.get("count") or 0) + legacy_removed
     entries.remove(entry)
     metadata["清单"] = entries
     lines = _config_lines_without_section(metadata, _config_body(state["loaded"]), name)
     _guarded_write(state["loaded"], lines)
     _audit(database, "list_deleted", {"name": name, "tasks": removed})
     return {"revision": _revision_now(vault_dir), "deleted": name, "tasks": removed,
-            "trash": task_notes.task_relative(batch, vault_dir)}
+            "trash": result.get("trash") or ""}
+
+
+def _update_dida_link_relpath(database: Database, old_note: dict[str, Any],
+                              new_note: dict[str, Any]) -> None:
+    """任务文件移动后同步滴答链接的 relpath，避免下一次同步误判成本地编辑。"""
+    dida_id = str(old_note.get("dida_id") or "").strip()
+    if not dida_id or old_note.get("relpath") == new_note.get("relpath"):
+        return
+    try:
+        with database.connect() as connection:
+            connection.execute(
+                """UPDATE dida_task_links
+                   SET relpath = ?, last_list_name = ?, last_local_revision = ?, updated_at = ?
+                   WHERE external_id = ?""",
+                (new_note["relpath"], new_note["list_name"],
+                 new_note.get("revision", ""), utc_now(), dida_id),
+            )
+    except Exception:
+        # 直接调用任务的测试/只读场景可能没有 dida_task_links；同步会自行兜底。
+        pass
+
+
+def restore_trash_list_definitions(vault_dir: Path | str, definitions: list[dict[str, Any]],
+                                   database: Database, *, read_only: bool = False) -> int:
+    """恢复被删除清单的定义（不覆盖现有清单，不恢复滴答项目 ID）。"""
+    _ensure_write(read_only, "恢复回收站清单定义")
+    state = _read_state(vault_dir)
+    metadata = _base_metadata(state["loaded"])
+    entries = _entries(metadata, "清单")
+    added = 0
+    for definition in definitions or []:
+        if not isinstance(definition, dict):
+            continue
+        name = re.sub(r"\s+", " ", str(definition.get("名称") or definition.get("name") or "").strip())
+        if not name or name.casefold() == INBOX.casefold() or _find_entry(entries, name):
+            continue
+        try:
+            name = task_notes.clean_list_name(name)
+        except HTTPException:
+            continue
+        entry: dict[str, Any] = {"名称": name}
+        try:
+            color = _clean_color(str(definition.get("颜色") or definition.get("color") or ""))
+        except HTTPException:
+            color = ""
+        if color:
+            entry["颜色"] = color
+        if definition.get("置顶") is True:
+            entry["置顶"] = True
+        entries.append(entry)
+        try:
+            task_notes.list_folder(vault_dir, name, create=True)
+        except HTTPException:
+            continue
+        added += 1
+    if added:
+        metadata["清单"] = entries
+        _write_config(state["loaded"], metadata, _config_body(state["loaded"]))
+        _audit(database, "list_restored_from_trash", {"count": added})
+    return added
 
 
 def attach_list_dida_project(vault_dir: Path | str, name: str, project_id: str,
@@ -1363,6 +1466,8 @@ def create_folder(vault_dir: Path | str, payload: NamedPayload, database: Databa
     state = _read_state(vault_dir)
     _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="文件夹名")
+    if name.casefold() in {item.casefold() for item in task_notes.RESERVED_FOLDER_NAMES}:
+        raise HTTPException(422, f"“{name}”是系统任务文件夹，不能作为分组文件夹名")
     metadata = _base_metadata(state["loaded"])
     folders = [str(item) for item in (metadata.get("文件夹") or [])]
     if name in folders:
@@ -1380,6 +1485,8 @@ def update_folder(vault_dir: Path | str, payload: FolderUpdate, database: Databa
     _check_revision(payload.revision, state["revision"])
     name = _clean_name(payload.name, what="文件夹名")
     new_name = _clean_name(payload.new_name, what="文件夹名")
+    if new_name.casefold() in {item.casefold() for item in task_notes.RESERVED_FOLDER_NAMES}:
+        raise HTTPException(422, f"“{new_name}”是系统任务文件夹，不能作为分组文件夹名")
     metadata = _base_metadata(state["loaded"])
     folders = [str(item) for item in (metadata.get("文件夹") or [])]
     if name not in folders:
@@ -1584,7 +1691,11 @@ def create_tasks_router(vault_dir: Path | str, database: Database, *,
     def trash_restore(payload: TrashRestore):
         _ensure_write(read_only, "恢复回收站任务")
         result = task_trash.restore_trash(vault_dir, paths=payload.paths)
-        _audit(database, "task_trash_restored", {"count": result["restored"]})
+        restored_lists = restore_trash_list_definitions(
+            vault_dir, result.get("list_definitions") or [], database, read_only=read_only)
+        result["lists_restored"] = restored_lists
+        _audit(database, "task_trash_restored", {"count": result["restored"],
+                                                  "lists": restored_lists})
         return result
 
     @router.post("/lists")

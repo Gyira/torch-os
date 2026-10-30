@@ -246,6 +246,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     vault_read_only = read_only_enabled(security_environ)
     database.initialize()
     vault_dir.mkdir(parents=True, exist_ok=True)
+    # 真实个人实例启动时幂等整理任务数据层；测试/显式注入库不自动搬文件。
+    task_layout_state: dict[str, Any] = {"status": "skipped", "reason": "not_eligible"}
+    if runtime_label == "personal" and not provided_paths and not vault_read_only:
+        try:
+            from .task_layout_bootstrap import ensure_task_data_layout
+            task_layout_state = ensure_task_data_layout(vault_dir, database=database)
+        except Exception as error:  # 迁移失败不能阻止服务启动
+            task_layout_state = {"status": "error", "error": type(error).__name__}
     data_lock = asyncio.Lock()
     dida_service = DidaSyncService(
         database, vault_dir, read_only=vault_read_only,
@@ -443,6 +451,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app = FastAPI(title='薪火OS', version=APP_VERSION, lifespan=lifespan)
     app.state.database = database
     app.state.vault_dir = vault_dir
+    app.state.task_layout_bootstrap = task_layout_state
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = data_lock

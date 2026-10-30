@@ -115,8 +115,8 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
   - 忆灵审核路径：用户看 diff + 来源后直接采纳（`verdict.requires_dialogue=false`）；
   - 苏格拉底路径：必须带 AI 的 `verdict_token`（`requires_dialogue=true`）。
 - P0 只内置状态机与 HTTP 接口；P1 已注册 `new_task`/`new_habit` handler：
-  - 任务 → `00_人生路/08_任务与待办/任务/` 的一篇 Markdown；
-  - 习惯 → `00_人生路/06_目标与计划/04_习惯追踪/` 的定义与缓存。
+  - 任务 → `00_人生路/07_任务与待办/` 的一篇 Markdown；
+  - 习惯 → `00_人生路/04_目标/04_习惯追踪/` 的定义与缓存。
 - `new_note/archive_note/identity_patch/health_report/finance_report/life_advice`
   的 handler 由 P2–P4 注册；未注册时返回 409，不会静默成功。
 

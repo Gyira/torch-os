@@ -31,8 +31,9 @@ PLUGIN_SOURCE = PROJECT_ROOT / "obsidian-plugin"
 PLUGIN_FILES = ("main.js", "manifest.json", "styles.css")
 PLUGIN_DIR_RELATIVE = ".obsidian/plugins/torch"
 MANIFEST_RELATIVE = ".torch-os/vault-layout.json"
-TASK_NOTES_RELATIVE = "00_人生路/08_任务与待办/任务"
-TASK_SYSTEM_RELATIVE = "00_人生路/08_任务与待办/_系统"
+TASK_NOTES_RELATIVE = vault_layout.TASK_ROOT
+TASK_SYSTEM_RELATIVE = vault_layout.TASK_SYSTEM_DIR
+TASK_EXTRA_DIRECTORIES = list(vault_layout.TASK_SPECIAL_DIRS)
 CORE_PLUGINS = {
     "file-explorer": True, "global-search": True, "switcher": True, "graph": True,
     "backlink": True, "canvas": True, "outgoing-link": True, "tag-pane": True,
@@ -100,7 +101,7 @@ def template_payload(*, vault_dir: Path, runtime_label: str, vault_scoped: bool 
         "pillars": vault_layout.chapter_manifest()["pillars"],
         "chapters": _chapter_rows(),
         "directories": sorted({item[3] for item in vault_layout.CHAPTERS}),
-        "extra_directories": [TASK_NOTES_RELATIVE, TASK_SYSTEM_RELATIVE,
+        "extra_directories": [*TASK_EXTRA_DIRECTORIES,
                               PLUGIN_DIR_RELATIVE, ".torch-os"],
         "seed_files": [vault_layout.identity_paths()[0]],
         "manifest_file": MANIFEST_RELATIVE,
@@ -160,7 +161,7 @@ def _write_json(path: Path, payload: Any) -> None:
 def _build_vault(root: Path, *, plugin_dir: Path) -> dict[str, Any]:
     """在 root 里写入完整模板；返回统计。root 必须是不存在的临时目录。"""
     created = vault_layout.ensure_layout(root)
-    for relative in (TASK_NOTES_RELATIVE, TASK_SYSTEM_RELATIVE, PLUGIN_DIR_RELATIVE, ".torch-os"):
+    for relative in (PLUGIN_DIR_RELATIVE, ".torch-os"):
         path = root / relative
         if not path.is_dir():
             path.mkdir(parents=True, exist_ok=True)

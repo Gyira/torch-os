@@ -54,7 +54,7 @@ def test_apply_requires_confirmation_and_a_registered_handler(tmp_path):
 
     def handler(row, edits):
         calls.append((row["id"], edits))
-        return {"task_path": "00_人生路/08_任务与待办/任务/写周报.md"}
+        return {"task_path": "00_人生路/07_任务与待办/收集箱/写周报.md"}
 
     service.register("new_task", handler)
     applied = service.apply(created["id"], confirm=True, edits={"priority": "high"})

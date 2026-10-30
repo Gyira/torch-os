@@ -4,7 +4,8 @@
 - 人生路 v2 把反思复盘、目标、项目收进分组目录（`02_反思复盘`、`04_目标`、`05_项目`），
   侧边栏分组见 `CHAPTER_GROUPS`；v1 的旧章节目录只由迁移搬到新路径
   （见 `V1_CHAPTER_MOVES`），运行时不再写入；
-- 工作台任务与待办在 `00_人生路/08_任务与待办`；旧 00-System 只做只读兜底；
+- 工作台任务与待办在 `00_人生路/07_任务与待办`（任务根 + 收集箱/已完成/回收站）；
+  旧 08_任务与待办、00-System 只做只读兜底；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
 
 所有路径都以创建目录（Vault 根）为基准，使用 POSIX 相对路径字符串，
@@ -37,11 +38,19 @@ PILLAR_DIRS = {
 }
 PILLAR_ORDER = ("life", "self", "ops", "knowledge")
 
+# 任务数据层（2026-10-30）：任务根下面直接是收集箱/已完成/回收站/各清单文件夹。
+TASK_ROOT = "00_人生路/07_任务与待办"
+TASK_INBOX_DIR = f"{TASK_ROOT}/收集箱"
+TASK_DONE_DIR = f"{TASK_ROOT}/已完成"
+TASK_TRASH_DIR = f"{TASK_ROOT}/回收站"
+TASK_SYSTEM_DIR = f"{TASK_ROOT}/_系统"
+TASK_SPECIAL_DIRS = (TASK_INBOX_DIR, TASK_DONE_DIR, TASK_TRASH_DIR, TASK_SYSTEM_DIR)
+
 # key, pillar, 显示名, 相对路径, 默认 type
 CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     # 00_人生路
     ("journal", "life", "日记", "00_人生路/01_日记", "journal"),
-    ("task", "life", "任务与待办", "00_人生路/08_任务与待办", "task"),
+    ("task", "life", "任务与待办", TASK_ROOT, "task"),
     ("reflection", "life", "反思", "00_人生路/02_反思复盘/01_反思", "reflection"),
     ("insight_life", "life", "生活心得", "00_人生路/03_心得体会/01_生活心得", "insight"),
     ("insight_work", "life", "工作心得", "00_人生路/03_心得体会/02_工作心得", "insight"),
@@ -51,11 +60,11 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("goal_year", "life", "年度目标", "00_人生路/04_目标/01_年度目标", "goal"),
     ("goal_quarter", "life", "季度目标", "00_人生路/04_目标/02_季度目标", "goal"),
     ("goal_month", "life", "月度目标", "00_人生路/04_目标/03_月度目标", "goal"),
-    ("habit", "life", "习惯追踪", "00_人生路/06_目标与计划/04_习惯追踪", "habit_log"),
+    ("habit", "life", "习惯追踪", "00_人生路/04_目标/04_习惯追踪", "habit_log"),
     ("project_plan", "life", "项目计划", "00_人生路/05_项目/01_项目计划", "plan"),
     ("work_review_project", "life", "项目复盘", "00_人生路/05_项目/02_项目复盘", "reflection"),
-    ("work_review_meeting", "life", "会议收获", "00_人生路/07_工作复盘/02_会议收获", "insight"),
-    ("work_review_pitfall", "life", "踩坑记录", "00_人生路/07_工作复盘/03_踩坑记录", "insight"),
+    ("work_review_meeting", "life", "会议收获", "00_人生路/06_工作复盘/02_会议收获", "insight"),
+    ("work_review_pitfall", "life", "踩坑记录", "00_人生路/06_工作复盘/03_踩坑记录", "insight"),
     # v1.0 写作优先：随笔单独成章；任务/习惯仍在人生路，由工作台专用接口管理。
     ("essay", "life", "随笔", "00_人生路/09_随笔", "essay"),
     # 01_自我档案
@@ -133,8 +142,10 @@ V1_CHAPTER_MOVES: dict[str, str] = {
     "00_人生路/06_目标与计划/01_年度目标": "goal_year",
     "00_人生路/06_目标与计划/02_季度目标": "goal_quarter",
     "00_人生路/06_目标与计划/03_月度目标": "goal_month",
+    "00_人生路/06_目标与计划/04_习惯追踪": "habit",
     "00_人生路/06_目标与计划/05_项目计划": "project_plan",
     "00_人生路/07_工作复盘/01_项目复盘": "work_review_project",
+    "00_人生路/06_工作复盘/01_项目复盘": "work_review_project",
 }
 
 CHAPTER_BY_KEY = {item[0]: item for item in CHAPTERS}
@@ -154,7 +165,7 @@ SKIP_DIRECTORIES = {
     ".obsidian", ".git", ".trash", ".claude", ".claudian", ".torch-os",
     "00-system", "99-templates", "templates", "relationship", "relationships",
     "relationship-vault", "relationship vault", "generated", "_附件",
-    "_旧版", "_系统", "_模板",
+    "_旧版", "_系统", "_模板", "回收站",
 }
 SKIP_FILES = {name.casefold() for name in FOREIGN_FILES}
 MEMORY_PILLARS = {"self"}
@@ -450,6 +461,11 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
         if not path.is_dir():
             path.mkdir(parents=True, exist_ok=True)
             created.append(item[3])
+    for relative in TASK_SPECIAL_DIRS:
+        path = root / relative
+        if not path.is_dir():
+            path.mkdir(parents=True, exist_ok=True)
+            created.append(relative)
     return created
 
 
@@ -486,6 +502,8 @@ def layout_status(vault_dir: Path | str) -> dict[str, Any]:
 
 __all__ = [
     "LAYOUT_VERSION", "SYSTEM_DIR", "FOREIGN_FILES", "PILLAR_TITLES",
+    "TASK_ROOT", "TASK_INBOX_DIR", "TASK_DONE_DIR", "TASK_TRASH_DIR",
+    "TASK_SYSTEM_DIR", "TASK_SPECIAL_DIRS",
     "PILLAR_DIRS", "PILLAR_ORDER", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
     "CHAPTER_GROUPS", "V1_CHAPTER_MOVES", "LEGACY_DIRS", "normalize_relpath",
     "chapter_manifest", "pillar_of", "chapter_key_of", "chapter_dir",

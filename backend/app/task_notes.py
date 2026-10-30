@@ -1,20 +1,21 @@
-"""一任务一笔记的存储层（2026-10-17）。
+"""一任务一笔记的存储层（2026-10-30 任务状态文件夹版）。
 
-产品托管的任务现在是 `00_人生路/08_任务与待办/任务/` 下的一篇篇 Markdown：
+任务数据层根目录是 `00_人生路/07_任务与待办`，直接包含：
 
-- `00_人生路/08_任务与待办/任务/<标题>.md` = 收集箱任务；
-- `00_人生路/08_任务与待办/任务/<清单>/<标题>.md` = 自定义清单任务。
+- `收集箱/`：还没有放进清单的未完成任务；
+- `已完成/`：所有 done 任务（平铺，逻辑清单记在 frontmatter `清单`）；
+- `回收站/`：软删除的任务文件与清单文件夹；
+- `<清单>/`：每个自定义清单一个文件夹；
+- `_系统/任务（tasks）.md`：清单配置与旧复选框任务。
 
-规格（与 `tasks.py` 的分工）：
+规则：
 
-- 只有 frontmatter `type: task` 的 `.md` 才是任务；标题默认取文件名，清单取父目录；
-- 文件名不能安全表达标题时（禁用字符/过长/重名编号），frontmatter 写完整 `标题`；
-- 正文与未知 frontmatter 字段逐字保留；更新只重写 frontmatter；
-- 清单目录/文件删除走 `.torch-os/task-trash`（软删除），扫描永不进入那里；
-- 读写复用 `markdown_store` 的修订号与 409 冲突协议。
-
-旧式复选框任务仍在 `00_人生路/08_任务与待办/_系统/任务（tasks）.md`，由 `tasks.py` 继续解析为只读任务；
-迁移前的 `00-System/任务（tasks）.md` 继续兼容读取，本模块不迁移、不改写它们。
+- 未完成任务：父文件夹就是逻辑清单；`收集箱` = 收集箱。
+- 已完成任务：统一放在 `已完成/`，用 frontmatter `清单` 记住原清单；取消完成时移回。
+- 标签 / 今天 / 日历 / 四象限都只是前端筛选，没有对应文件夹。
+- 删除任务或清单走 `task_trash_store` 的批次 manifest，可恢复。
+- 旧 `08_任务与待办/任务`、`07_任务与待办/任务`、`00-System/任务` 仍可读，
+  启动迁移会把它们展开成新布局。
 """
 
 from __future__ import annotations
@@ -32,14 +33,36 @@ from typing import Any
 import yaml
 from fastapi import HTTPException
 
+from . import task_trash_store, vault_layout
 from .markdown_store import guarded_write, load_note
 
 INBOX = "收集箱"
-TASK_DIR_REL = Path("00_人生路", "08_任务与待办", "任务")
-TASK_DIR_POSIX = TASK_DIR_REL.as_posix()
-LEGACY_TASK_DIR_REL = Path("00-System", "任务")
+DONE_DIR_NAME = "已完成"
+TRASH_DIR_NAME = "回收站"
+SYSTEM_DIR_NAME = "_系统"
+LEGACY_INNER_DIR_NAME = "任务"
+LEGACY_ARCHIVE_DIR_NAME = "_旧版"
+
+TASK_ROOT_REL = Path(vault_layout.TASK_ROOT)
+TASK_ROOT_POSIX = vault_layout.TASK_ROOT
+# 兼容旧名字：现在表示整个任务根，而不是根下的“任务/”子目录。
+TASK_DIR_REL = TASK_ROOT_REL
+TASK_DIR_POSIX = TASK_ROOT_POSIX
+
+LEGACY_TASK_ROOT_REL = Path("00_人生路", "08_任务与待办")
+LEGACY_TASK_DIR_REL = LEGACY_TASK_ROOT_REL / LEGACY_INNER_DIR_NAME
 LEGACY_TASK_DIR_POSIX = LEGACY_TASK_DIR_REL.as_posix()
-TRASH_DIR_REL = Path(".torch-os", "task-trash")
+LEGACY_TASK_ROOT_POSIX = LEGACY_TASK_ROOT_REL.as_posix()
+SYSTEM_TASK_DIR_REL = Path("00-System", "任务")
+SYSTEM_TASK_DIR_POSIX = SYSTEM_TASK_DIR_REL.as_posix()
+
+TRASH_DIR_REL = TASK_ROOT_REL / TRASH_DIR_NAME
+LEGACY_TRASH_DIR_REL = task_trash_store.LEGACY_TRASH_DIR
+
+RESERVED_FOLDER_NAMES = frozenset({
+    INBOX, DONE_DIR_NAME, TRASH_DIR_NAME, SYSTEM_DIR_NAME,
+    LEGACY_INNER_DIR_NAME, LEGACY_ARCHIVE_DIR_NAME,
+})
 
 MAX_STEM_CHARS = 96
 MAX_STEM_BYTES = 180
@@ -58,7 +81,7 @@ RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL",
                   *(f"COM{index}" for index in range(1, 10)),
                   *(f"LPT{index}" for index in range(1, 10))}
 KNOWN_KEYS = ("type", "标题", "日期", "时间", "优先级", "标签", "完成", "完成于",
-              "置顶", "创建", "排序", "dida_id", "目标", "导入键")
+              "置顶", "创建", "排序", "dida_id", "目标", "导入键", "清单")
 
 
 def order_value(value: Any) -> float | int | None:
@@ -78,26 +101,60 @@ class TaskNoteFormatError(ValueError):
     """任务笔记的 frontmatter 无法安全解析；读时跳过、写时拒绝。"""
 
 
+# ===== 布局定位 =====
+
+
+def _vault_root(vault_dir: Path | str) -> Path:
+    return Path(vault_dir).resolve()
+
+
 def task_root(vault_dir: Path | str) -> Path:
-    """现行任务目录优先；迁移前的老库继续从 00-System/任务 读取。"""
-    vault = Path(vault_dir).resolve()
-    current = vault / TASK_DIR_REL
-    if current.is_dir():
-        return current
-    legacy = vault / LEGACY_TASK_DIR_REL
+    """现行任务根优先；旧 08 / 00-System 布局继续只读/迁移兜底。"""
+    root = _vault_root(vault_dir)
+    canonical = root / TASK_ROOT_REL
+    if canonical.is_dir():
+        return canonical
+    legacy = root / LEGACY_TASK_DIR_REL
     if legacy.is_dir():
         return legacy
-    return current
+    system = root / SYSTEM_TASK_DIR_REL
+    if system.is_dir():
+        return system
+    return canonical
+
+
+def task_root_relative(vault_dir: Path | str) -> str:
+    root = _vault_root(vault_dir)
+    try:
+        return task_root(vault_dir).relative_to(root).as_posix()
+    except ValueError:
+        return TASK_ROOT_POSIX
+
+
+def task_system_dir(vault_dir: Path | str) -> Path:
+    root = task_root(vault_dir)
+    if root.name == LEGACY_INNER_DIR_NAME:
+        return root.parent / SYSTEM_DIR_NAME
+    return root / SYSTEM_DIR_NAME
+
+
+def is_canonical_layout(vault_dir: Path | str) -> bool:
+    return task_root(vault_dir) == (_vault_root(vault_dir) / TASK_ROOT_REL)
 
 
 def is_task_relpath(relpath: str) -> bool:
     text = str(relpath or "").replace("\\", "/")
-    return (text.startswith(TASK_DIR_POSIX + "/")
-            or text.startswith(LEGACY_TASK_DIR_POSIX + "/"))
+    if text.startswith(vault_layout.TASK_TRASH_DIR + "/"):
+        return False
+    if text.startswith(vault_layout.TASK_INBOX_DIR + "/"):
+        return True
+    return any(text.startswith(prefix + "/") for prefix in (
+        TASK_ROOT_POSIX, LEGACY_TASK_DIR_POSIX, SYSTEM_TASK_DIR_POSIX,
+    ))
 
 
 def task_relative(path: Path, vault_dir: Path | str) -> str:
-    return path.resolve().relative_to(Path(vault_dir).resolve()).as_posix()
+    return path.resolve().relative_to(_vault_root(vault_dir)).as_posix()
 
 
 def task_key(relpath: str) -> str:
@@ -109,6 +166,76 @@ def normalize_title(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _clean_folder_name(folder: Any) -> str:
+    name = normalize_title(folder)
+    if not name or name in {".", ".."} or name.startswith("."):
+        raise HTTPException(422, "清单名不能为空、不能以点开头")
+    if name.casefold() in {item.casefold() for item in RESERVED_FOLDER_NAMES}:
+        raise HTTPException(
+            422, "“收集箱/已完成/回收站/_系统/任务/_旧版”是保留文件夹名，不能作为清单名")
+    if FILENAME_FORBIDDEN.search(name):
+        raise HTTPException(422, "清单名不能包含 \\ / : * ? \" < > | # ^ [ ] 等文件夹/链接特殊字符")
+    if name.rstrip(" .") != name:
+        raise HTTPException(422, "清单名不能以空格或点结尾")
+    if name.split(".", 1)[0].upper() in RESERVED_NAMES:
+        raise HTTPException(422, "这个清单名是操作系统保留名，请换一个")
+    return name
+
+
+def clean_list_name(value: Any) -> str:
+    """校验清单名能直接当文件夹名；不能时抛 422。"""
+    return _clean_folder_name(value)
+
+
+def list_folder(vault_dir: Path | str, list_name: Any, *, create: bool = False) -> Path:
+    """逻辑清单 → 物理文件夹；收集箱 / 空名 = 收集箱文件夹。"""
+    root = task_root(vault_dir)
+    name = normalize_title(list_name)
+    target = root / INBOX if not name or name.casefold() == INBOX.casefold() else root / _clean_folder_name(name)
+    if create:
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise HTTPException(409, f"建不了任务文件夹：{error}") from error
+    return target
+
+
+def task_folder(vault_dir: Path | str, folder: Any, *, create: bool = False) -> Path:
+    """旧名兼容：返回清单的物理文件夹（不是任务状态落点）。"""
+    return list_folder(vault_dir, folder, create=create)
+
+
+def done_folder(vault_dir: Path | str, *, create: bool = False) -> Path:
+    target = task_root(vault_dir) / DONE_DIR_NAME
+    if create:
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise HTTPException(409, f"建不了已完成文件夹：{error}") from error
+    return target
+
+
+def trash_folder(vault_dir: Path | str, *, create: bool = False) -> Path:
+    target = _vault_root(vault_dir) / vault_layout.TASK_TRASH_DIR
+    if create:
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise HTTPException(409, f"建不了任务回收站：{error}") from error
+    return target
+
+
+def destination_folder(vault_dir: Path | str, list_name: Any,
+                       done: bool, *, create: bool = False) -> Path:
+    """任务实际落点：已完成优先；否则清单文件夹 / 收集箱。"""
+    if done:
+        return done_folder(vault_dir, create=create)
+    return list_folder(vault_dir, list_name, create=create)
+
+
+# ===== 文件名 =====
+
+
 def safe_task_stem(title: Any) -> str:
     """把标题变成安全、稳定的文件名 stem（不含 `.md`）。"""
     text = normalize_title(title)
@@ -118,7 +245,6 @@ def safe_task_stem(title: Any) -> str:
         text = text[:-3].rstrip(" .-")
     if not text:
         text = "未命名任务"
-    # 截断时按字符数与 UTF-8 字节数双上限，避免 Windows/路径长度问题。
     kept: list[str] = []
     used = 0
     for character in text:
@@ -178,35 +304,7 @@ def unique_stem(directory: Path, base: str, *, reserved: set[str] | None = None,
         index += 1
 
 
-def _clean_folder_name(folder: Any) -> str:
-    name = normalize_title(folder)
-    if not name or name in {".", ".."} or name.startswith("."):
-        raise HTTPException(422, "清单名不能为空、不能以点开头")
-    if FILENAME_FORBIDDEN.search(name):
-        raise HTTPException(422, "清单名不能包含 \\ / : * ? \" < > | # ^ [ ] 等文件夹/链接特殊字符")
-    if name.rstrip(" .") != name:
-        raise HTTPException(422, "清单名不能以空格或点结尾")
-    if name.split(".", 1)[0].upper() in RESERVED_NAMES:
-        raise HTTPException(422, "这个清单名是操作系统保留名，请换一个")
-    return name
-
-
-def task_folder(vault_dir: Path | str, folder: Any, *, create: bool = False) -> Path:
-    """清单名 → 任务目录；收集箱/空名 = 任务根目录。"""
-    root = task_root(vault_dir)
-    name = normalize_title(folder)
-    target = root if not name or name == INBOX else root / _clean_folder_name(name)
-    if create:
-        try:
-            target.mkdir(parents=True, exist_ok=True)
-        except OSError as error:
-            raise HTTPException(409, f"建不了任务文件夹：{error}") from error
-    return target
-
-
-def clean_list_name(value: Any) -> str:
-    """校验清单名能直接当文件夹名；不能时抛 422。"""
-    return _clean_folder_name(value)
+# ===== frontmatter =====
 
 
 def _coerce_text(value: Any) -> str:
@@ -273,6 +371,18 @@ def _tags_value(value: Any) -> list[str]:
     return tags
 
 
+def _valid_list_name(value: Any) -> str:
+    name = normalize_title(value)
+    if not name:
+        return ""
+    if name.casefold() in {item.casefold() for item in RESERVED_FOLDER_NAMES}:
+        return ""
+    try:
+        return _clean_folder_name(name)
+    except HTTPException:
+        return ""
+
+
 def _metadata(loaded: dict[str, Any]) -> dict[str, Any]:
     if not loaded["exists"]:
         return {}
@@ -294,32 +404,19 @@ def is_task_metadata(metadata: dict[str, Any]) -> bool:
     return str(metadata.get("type") or "").strip().lower() == "task"
 
 
-def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
-    """读一篇任务笔记；不存在/不是任务返回 None，坏 YAML 抛 TaskNoteFormatError。"""
-    loaded = load_note(path, too_large="任务笔记过大，已停止编辑",
-                       bad_encoding="任务笔记不是 UTF-8 编码，暂不能编辑")
-    if not loaded["exists"]:
-        return None
-    metadata = _metadata(loaded)
-    if not is_task_metadata(metadata):
-        return None
+def _note_from_loaded(loaded: dict[str, Any], path: Path, metadata: dict[str, Any], *,
+                      relpath: str, storage: str, list_name: str) -> dict[str, Any]:
     title = normalize_title(metadata.get("标题")) or path.stem
+    list_name = normalize_title(list_name) or INBOX
     done = _bool_text(metadata.get("完成"))
     done_on = _date_text(metadata.get("完成于")) if done else ""
-    folder = ""
-    try:
-        relative_parent = path.parent.resolve().relative_to(task_root(vault_dir))
-        if relative_parent.parts:
-            folder = relative_parent.parts[0]
-    except (OSError, ValueError):
-        folder = ""
-    relpath = task_relative(path, vault_dir)
     return {
         "key": task_key(relpath),
         "path": path,
         "relpath": relpath,
-        "folder": folder,
-        "list_name": folder or INBOX,
+        "folder": "" if list_name.casefold() == INBOX.casefold() else list_name,
+        "list_name": INBOX if list_name.casefold() == INBOX.casefold() else list_name,
+        "storage": storage,
         "title": title,
         "done": done,
         "done_on": done_on,
@@ -344,6 +441,69 @@ def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
     }
 
 
+def _storage_for(vault_dir: Path | str, path: Path) -> tuple[str, str]:
+    """返回 (storage, 父文件夹名)。"""
+    root = task_root(vault_dir)
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return "outside", ""
+    parts = relative.parts
+    legacy_root = root.name == LEGACY_INNER_DIR_NAME or root.parent.name == "00-System"
+    if len(parts) <= 1:
+        return ("legacy-inbox" if legacy_root else "loose"), ""
+    head = parts[0]
+    if head == INBOX:
+        return "inbox", INBOX
+    if head == DONE_DIR_NAME:
+        return "done", DONE_DIR_NAME
+    if head == TRASH_DIR_NAME:
+        return "trash", TRASH_DIR_NAME
+    if head == LEGACY_INNER_DIR_NAME:
+        if len(parts) == 2:
+            return "legacy-inbox", ""
+        return "legacy-list", parts[1]
+    if head in {SYSTEM_DIR_NAME, LEGACY_ARCHIVE_DIR_NAME} or head.startswith("."):
+        return "skip", head
+    return ("legacy-list" if legacy_root else "list"), head
+
+
+def read_task_note(vault_dir: Path | str, path: Path) -> dict[str, Any] | None:
+    """读一篇任务笔记；不存在/不是任务返回 None，坏 YAML 抛 TaskNoteFormatError。"""
+    loaded = load_note(path, too_large="任务笔记过大，已停止编辑",
+                       bad_encoding="任务笔记不是 UTF-8 编码，暂不能编辑")
+    if not loaded["exists"]:
+        return None
+    metadata = _metadata(loaded)
+    if not is_task_metadata(metadata):
+        return None
+    storage, physical_parent = _storage_for(vault_dir, path)
+    if storage == "skip":
+        return None
+    if storage in {"done", "trash", "loose", "legacy-inbox"}:
+        list_name = _valid_list_name(metadata.get("清单")) or (
+            physical_parent if storage == "legacy-list" else "") or INBOX
+    else:
+        list_name = physical_parent or INBOX
+    relpath = task_relative(path, vault_dir)
+    return _note_from_loaded(loaded, path, metadata, relpath=relpath,
+                             storage=storage, list_name=list_name)
+
+
+def inspect_task_file(path: Path, *, list_hint: str = "") -> dict[str, Any] | None:
+    """读回收站/旧批次里的任务文件（不要求位于任务根内）。"""
+    loaded = load_note(path, too_large="任务笔记过大，已停止编辑",
+                       bad_encoding="任务笔记不是 UTF-8 编码，暂不能编辑")
+    if not loaded["exists"]:
+        return None
+    metadata = _metadata(loaded)
+    if not is_task_metadata(metadata):
+        return None
+    list_name = _valid_list_name(metadata.get("清单")) or normalize_title(list_hint) or INBOX
+    return _note_from_loaded(loaded, path, metadata, relpath=path.name,
+                             storage="trash", list_name=list_name)
+
+
 def _warning_path(path: Path, vault_dir: Path | str) -> str:
     try:
         return path.resolve().relative_to(task_root(vault_dir)).as_posix()
@@ -351,7 +511,8 @@ def _warning_path(path: Path, vault_dir: Path | str) -> str:
         return path.name
 
 
-def _scan_file(vault_dir: Path | str, path: Path, warnings: list[dict[str, str]]) -> dict[str, Any] | None:
+def _scan_file(vault_dir: Path | str, path: Path,
+               warnings: list[dict[str, str]]) -> dict[str, Any] | None:
     try:
         return read_task_note(vault_dir, path)
     except TaskNoteFormatError as error:
@@ -368,45 +529,84 @@ def _is_link(entry: Path) -> bool:
 
 
 def _is_sync_sidecar(entry: Path) -> bool:
-    """网盘同步生成的临时 cfg（百度网盘为 *.baiduyun.uploading.cfg）。
-
-    它们不是用户笔记，也不是任务附件；删除清单时应随清单一起进回收站，
-    而不是把整个删除操作卡住。
-    """
     name = entry.name.casefold()
     return (not _is_link(entry) and entry.is_file()
             and ".baiduyun." in name and name.endswith(".cfg"))
 
 
+def _scan_one_level(vault_dir: Path | str, directory: Path, warnings: list[dict[str, str]],
+                    notes: list[dict[str, Any]]) -> None:
+    for entry in _folder_entries(directory):
+        if entry.name.startswith(".") or _is_link(entry) or _is_sync_sidecar(entry):
+            continue
+        if entry.is_dir():
+            warnings.append({"path": _warning_path(entry, vault_dir) + "/",
+                             "reason": "嵌套目录不扫描（任务只支持根目录与一层清单文件夹）"})
+            continue
+        if entry.suffix.lower() != ".md":
+            continue
+        note = _scan_file(vault_dir, entry, warnings)
+        if note is not None:
+            notes.append(note)
+
+
 def scan_task_notes(vault_dir: Path | str) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """扫描任务根 + 一层清单目录；返回任务与读取警告。"""
+    """扫描任务根、收集箱、已完成、各清单文件夹；回收站不进入看板。"""
     root = task_root(vault_dir)
     if not root.is_dir():
         return [], []
     notes: list[dict[str, Any]] = []
     warnings: list[dict[str, str]] = []
-    for entry in _folder_entries(root):
-        if entry.name.startswith(".") or _is_link(entry):
-            continue
-        if entry.is_dir():
-            for child in _folder_entries(entry):
-                if child.name.startswith(".") or _is_link(child):
+    legacy_root = root.name == LEGACY_INNER_DIR_NAME or root.parent.name == "00-System"
+
+    if legacy_root:
+        for entry in _folder_entries(root):
+            if entry.name.startswith(".") or _is_link(entry):
+                continue
+            if entry.is_dir():
+                if entry.name in {TRASH_DIR_NAME, SYSTEM_DIR_NAME, LEGACY_ARCHIVE_DIR_NAME}:
                     continue
-                if child.is_dir():
-                    warnings.append({"path": _warning_path(child, vault_dir) + "/",
-                                     "reason": "嵌套目录不扫描（任务只支持根目录与一层清单文件夹）"})
-                    continue
-                if child.suffix.lower() != ".md":
-                    continue
-                note = _scan_file(vault_dir, child, warnings)
-                if note is not None:
-                    notes.append(note)
-        elif entry.suffix.lower() == ".md":
+                _scan_one_level(vault_dir, entry, warnings, notes)
+                continue
+            if entry.suffix.lower() != ".md" or _is_sync_sidecar(entry):
+                continue
             note = _scan_file(vault_dir, entry, warnings)
             if note is not None:
                 notes.append(note)
-    notes.sort(key=lambda item: item["relpath"])
-    return notes, warnings
+    else:
+        for entry in _folder_entries(root):
+            if entry.name.startswith(".") or _is_link(entry):
+                continue
+            if entry.is_dir():
+                if entry.name in {TRASH_DIR_NAME, SYSTEM_DIR_NAME, LEGACY_ARCHIVE_DIR_NAME}:
+                    continue
+                if entry.name == LEGACY_INNER_DIR_NAME:
+                    warnings.append({
+                        "path": LEGACY_INNER_DIR_NAME + "/",
+                        "reason": "旧任务目录尚未迁移；应用启动迁移会展开到收集箱/清单/已完成",
+                    })
+                _scan_one_level(vault_dir, entry, warnings, notes)
+                continue
+            if entry.suffix.lower() != ".md" or _is_sync_sidecar(entry):
+                continue
+            note = _scan_file(vault_dir, entry, warnings)
+            if note is not None:
+                warnings.append({
+                    "path": entry.name,
+                    "reason": "任务散落在任务根目录；应用启动迁移会移进收集箱",
+                })
+                notes.append(note)
+
+    seen: set[Path] = set()
+    unique: list[dict[str, Any]] = []
+    for note in notes:
+        resolved = note["path"].resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(note)
+    unique.sort(key=lambda item: item["relpath"])
+    return unique, warnings
 
 
 def _as_body_lines(note: dict[str, Any]) -> list[str]:
@@ -414,12 +614,12 @@ def _as_body_lines(note: dict[str, Any]) -> list[str]:
 
 
 def note_body(note: dict[str, Any]) -> str:
-    """任务笔记的正文（保留内部换行，去掉文件末尾由 split 产生的空行）。"""
     lines = _as_body_lines(note)
     return "\n".join(lines)
 
 
-def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dict[str, Any]) -> dict[str, Any]:
+def _build_metadata(existing: dict[str, Any], title: str, stem: str,
+                    fields: dict[str, Any]) -> dict[str, Any]:
     metadata: dict[str, Any] = {"type": "task"}
     if title and title != stem:
         metadata["标题"] = title
@@ -443,7 +643,6 @@ def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dic
         metadata["创建"] = str(fields["created"])
     order = order_value(fields.get("sort_order"))
     if order is None:
-        # 没有显式改顺序时保留原值：滴答回写等旧调用方不会丢「手动排序」。
         order = order_value(existing.get("排序"))
     if order is not None:
         metadata["排序"] = order
@@ -456,6 +655,9 @@ def _build_metadata(existing: dict[str, Any], title: str, stem: str, fields: dic
     import_key = str(fields.get("import_key") or existing.get("导入键") or "").strip()
     if import_key:
         metadata["导入键"] = import_key[:64]
+    list_name = normalize_title(fields.get("list_name") or existing.get("清单"))
+    list_name = _valid_list_name(list_name) or INBOX
+    metadata["清单"] = list_name
     for key, value in existing.items():
         if key not in KNOWN_KEYS:
             metadata[key] = value
@@ -467,7 +669,6 @@ class _TaskDumper(yaml.SafeDumper):
 
 
 def _represent_string(dumper: yaml.SafeDumper, data: str):
-    # 日期/时间必须按字符串写回，避免被 YAML 读成 date / sexagesimal。
     style = '"' if QUOTE_AS_STRING.match(data) else None
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
@@ -482,7 +683,6 @@ def _compose(metadata: dict[str, Any], body_lines: list[str]) -> list[str]:
 
 
 def _body_lines(body: str) -> list[str]:
-    """正文 → 行列表；空正文写一个空行，非空正文补齐末尾换行。"""
     text = str(body or "")
     lines = text.split("\n") if text else [""]
     if text and not text.endswith("\n"):
@@ -516,17 +716,39 @@ def _fields_from(values: dict[str, Any]) -> dict[str, Any]:
         "dida_id": _coerce_text(values.get("dida_id")),
         "goal": _coerce_text(values.get("goal")),
         "import_key": _coerce_text(values.get("import_key")),
+        "list_name": normalize_title(values.get("list_name")),
     }
+
+
+def note_values(note: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    """任务的完整 values，供迁移/批量操作复用。"""
+    values = {
+        "date": note["date"], "time": note["time"], "priority": note["priority"],
+        "tags": list(note["tags"]), "done": note["done"], "done_on": note["done_on"],
+        "pinned": note["pinned"], "created": note["created"],
+        "sort_order": note.get("sort_order"),
+        "dida_id": note.get("dida_id", ""),
+        "goal": note.get("goal", ""),
+        "import_key": note.get("import_key", ""),
+        "list_name": note["list_name"],
+    }
+    values.update(changes)
+    return values
 
 
 def create_task_note(vault_dir: Path | str, folder: Any, title: str,
                      values: dict[str, Any], *, body: str = "") -> dict[str, Any]:
-    """创建一篇任务笔记；重名自动编号，标题无法落进文件名时写 `标题`。"""
+    """创建一篇任务笔记；按 done 自动落到 已完成 / 收集箱 / 清单文件夹。"""
     cleaned = normalize_title(title)
     if not cleaned or len(cleaned) > 200 or any(ord(character) < 32 for character in cleaned):
         raise HTTPException(422, "任务标题需要 1–200 个字符，且不能包含换行")
-    target_dir = task_folder(vault_dir, folder, create=True)
-    fields = _fields_from(values)
+    list_name = normalize_title(folder) or INBOX
+    if list_name.casefold() != INBOX.casefold():
+        list_name = _clean_folder_name(list_name)
+    payload = dict(values)
+    payload["list_name"] = list_name
+    fields = _fields_from(payload)
+    target_dir = destination_folder(vault_dir, list_name, fields["done"], create=True)
     base = safe_task_stem(cleaned)
     stem, _numbered = unique_stem(target_dir, base)
     path = target_dir / f"{stem}.md"
@@ -549,8 +771,6 @@ def create_task_note(vault_dir: Path | str, folder: Any, title: str,
 
 
 def _move_note_file(source: Path, target: Path) -> None:
-    """把源文件移动到目标名；跨目录、只改大小写都走临时名，绝不覆盖。"""
-    # WindowsPath 的 == 不区分大小写，必须按字符串判断“只改大小写”这种情况。
     if source.parent.resolve() == target.parent.resolve() and source.name == target.name:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -574,21 +794,27 @@ def _move_note_file(source: Path, target: Path) -> None:
 
 
 def rewrite_task_note(vault_dir: Path | str, note: dict[str, Any], *,
-                      folder: Any, title: str, values: dict[str, Any],
+                      folder: Any | None, title: str, values: dict[str, Any],
                       body: str | None = None) -> dict[str, Any]:
-    """更新/改名/移动一篇任务笔记；正文默认保留，传入 body 时替换。"""
+    """更新/改名/换清单/勾选完成；done 状态决定最终物理文件夹。"""
     cleaned = normalize_title(title)
     if not cleaned or len(cleaned) > 200 or any(ord(character) < 32 for character in cleaned):
         raise HTTPException(422, "任务标题需要 1–200 个字符，且不能包含换行")
-    target_dir = task_folder(vault_dir, folder, create=True)
-    fields = _fields_from(values)
+    list_name = normalize_title(folder) if folder is not None else note["list_name"]
+    list_name = list_name or INBOX
+    if list_name.casefold() != INBOX.casefold():
+        list_name = _clean_folder_name(list_name)
+    payload = dict(values)
+    payload["list_name"] = list_name
+    fields = _fields_from(payload)
+    target_dir = destination_folder(vault_dir, list_name, fields["done"], create=True)
     title_changed = cleaned != normalize_title(note["title"])
-    folder_changed = target_dir.resolve() != note["path"].parent.resolve()
+    moved_dir = target_dir.resolve() != note["path"].parent.resolve()
     if title_changed:
         base = safe_task_stem(cleaned)
     else:
         base = note["path"].stem
-    if title_changed or folder_changed:
+    if title_changed or moved_dir:
         ignore = note["path"] if target_dir.resolve() == note["path"].parent.resolve() else None
         stem, _numbered = unique_stem(target_dir, base, ignore=ignore)
     else:
@@ -601,7 +827,6 @@ def rewrite_task_note(vault_dir: Path | str, note: dict[str, Any], *,
                  and target.name == note["path"].name)
     guarded_write(note, lines)
     if not same_file:
-        # 先写内容（不丢数据），再挪文件名；只改大小写也走临时名。
         _move_note_file(note["path"], target)
     fresh = read_task_note(vault_dir, target)
     if fresh is None:
@@ -609,31 +834,50 @@ def rewrite_task_note(vault_dir: Path | str, note: dict[str, Any], *,
     return fresh
 
 
+# ===== 回收站写入 =====
+
+
 def new_trash_batch(vault_dir: Path | str) -> Path:
-    root = Path(vault_dir).resolve()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    batch = root / TRASH_DIR_REL / f"{stamp}-{secrets.token_hex(4)}"
     try:
-        batch.mkdir(parents=True, exist_ok=False)
+        return task_trash_store.new_batch(vault_dir)
     except OSError as error:
-        raise HTTPException(409, f"建不了任务回收站：{error}") from error
-    return batch
+        raise HTTPException(409, str(error)) from error
 
 
-def _trash_target(batch: Path, relpath: str) -> Path:
-    target = batch / Path(relpath)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    return target
+def _task_root_relative_path(vault_dir: Path | str, path: Path, note: dict[str, Any]) -> str:
+    """任务文件 → 相对任务根的目标路径（旧“任务/”内层会展开）。"""
+    try:
+        relative = path.resolve().relative_to(task_root(vault_dir).resolve())
+        parts = relative.parts
+    except (OSError, ValueError):
+        parts = tuple(str(note.get("relpath") or path.name).replace("\\", "/").split("/"))
+    if len(parts) <= 1:
+        return f"{INBOX}/{parts[-1] if parts else path.name}"
+    if parts[0] == LEGACY_INNER_DIR_NAME:
+        return "/".join([*parts[1:]])
+    return "/".join(parts)
 
 
 def copy_to_trash(vault_dir: Path | str, path: Path, batch: Path) -> str:
-    """复制一份文件进回收批次（删除清单前备份配置用）。"""
-    target = _trash_target(batch, task_relative(path, vault_dir))
+    """复制一份文件进回收批次（删除清单前备份配置/待办用）。"""
+    name = path.name
+    target = batch / SYSTEM_DIR_NAME / name
+    target.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(path, target)
     except OSError as error:
         raise HTTPException(409, f"备份到任务回收站失败：{error}") from error
-    return task_relative(target, vault_dir)
+    relative = task_trash_store.trash_relative(target, vault_dir)
+    task_trash_store.append_entry(batch, {
+        "id": task_trash_store.entry_id(relative),
+        "kind": "config",
+        "restorable": False,
+        "original_relpath": task_relative(path, vault_dir),
+        "trash_relpath": relative,
+        "title": name,
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return relative
 
 
 def trash_note(vault_dir: Path | str, note: dict[str, Any],
@@ -645,72 +889,150 @@ def trash_note(vault_dir: Path | str, note: dict[str, Any],
     except OSError as error:
         raise HTTPException(409, "任务笔记已经不在原处，请刷新后重试") from error
     batch = batch or new_trash_batch(vault_dir)
-    target = _trash_target(batch, note["relpath"])
+    relative = _task_root_relative_path(vault_dir, source, note)
+    target = batch / "files" / Path(*relative.replace("\\", "/").split("/"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target = _unique_trash_target(target)
     try:
         os.replace(source, target)
     except OSError as error:
         raise HTTPException(409, f"把任务移进回收站失败：{error}") from error
-    return task_relative(batch, vault_dir)
+    trash_rel = task_trash_store.trash_relative(target, vault_dir)
+    task_trash_store.append_entry(batch, {
+        "id": task_trash_store.entry_id(trash_rel),
+        "kind": "file",
+        "restorable": True,
+        "reason": "task_delete",
+        "original_relpath": f"{vault_layout.TASK_ROOT}/{relative}",
+        "trash_relpath": trash_rel,
+        "list_name": note["list_name"],
+        "title": note["title"],
+        "done": bool(note["done"]),
+        "done_on": note["done_on"],
+        "dida_id": note.get("dida_id") or "",
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return task_trash_store.trash_relative(batch, vault_dir)
 
 
-def _folder_notes(vault_dir: Path | str, folder: Any) -> list[dict[str, Any]]:
-    directory = task_folder(vault_dir, folder)
-    notes: list[dict[str, Any]] = []
-    for entry in _folder_entries(directory):
-        if _is_sync_sidecar(entry):
-            continue
-        if entry.name.startswith(".") or _is_link(entry):
-            raise HTTPException(409, "清单目录里有隐藏/链接文件，不能删除这个清单")
-        if entry.is_dir() or entry.suffix.lower() != ".md":
-            raise HTTPException(409, "清单目录里有非任务文件，先在 Obsidian 里处理后再删除清单")
-        try:
-            note = read_task_note(vault_dir, entry)
-        except (TaskNoteFormatError, HTTPException) as error:
-            raise HTTPException(409, "清单目录里有无法识别的笔记，不能删除这个清单") from error
-        if note is None:
-            raise HTTPException(409, "清单目录里有不是任务的文件，不能删除这个清单")
-        notes.append(note)
-    return notes
+def _unique_trash_target(target: Path) -> Path:
+    if not target.exists():
+        return target
+    base = target.stem
+    suffix = target.suffix
+    index = 2
+    while True:
+        candidate = target.with_name(f"{base} {index}{suffix}")
+        if not candidate.exists():
+            return candidate
+        index += 1
 
 
 def trash_list_folder(vault_dir: Path | str, folder: Any, *,
                       config_path: Path | None = None,
-                      batch: Path | None = None) -> dict[str, Any]:
-    """删除清单目录：先检查没有非任务文件，再把配置和任务笔记放进同一个回收批次。"""
-    if normalize_title(folder) in {"", INBOX}:
+                      batch: Path | None = None,
+                      list_definition: dict[str, Any] | None = None) -> dict[str, Any]:
+    """删除清单：整个文件夹 + 该清单的已完成任务一起进同一个回收批次。"""
+    name = normalize_title(folder)
+    if not name or name.casefold() == INBOX.casefold():
         raise HTTPException(422, "收集箱不能删除")
-    directory = task_folder(vault_dir, folder)
-    if not directory.exists():
-        return {"batch": "", "count": 0}
-    notes = _folder_notes(vault_dir, folder)
+    name = _clean_folder_name(name)
+    directory = list_folder(vault_dir, name)
     batch = batch or new_trash_batch(vault_dir)
     if config_path is not None and config_path.is_file():
         copy_to_trash(vault_dir, config_path, batch)
-    for note in notes:
-        target = _trash_target(batch, note["relpath"])
+    if not directory.exists():
+        return {"batch": task_trash_store.trash_relative(batch, vault_dir),
+                "count": 0, "done_count": 0, "folder": name,
+                "trash": task_trash_store.trash_relative(batch, vault_dir)}
+    if not directory.is_dir():
+        raise HTTPException(409, f"任务目录里的“{name}”不是文件夹，不能按清单删除")
+
+    open_notes: list[dict[str, Any]] = []
+    for entry in _folder_entries(directory):
+        if entry.name.startswith(".") or _is_link(entry) or _is_sync_sidecar(entry):
+            continue
+        if entry.is_dir() or entry.suffix.lower() != ".md":
+            continue
         try:
-            os.replace(note["path"], target)
-        except OSError as error:
-            raise HTTPException(409, f"把清单任务移进回收站失败：{error}") from error
-    sidecars = [entry for entry in _folder_entries(directory) if _is_sync_sidecar(entry)]
-    for entry in sidecars:
-        target = _trash_target(batch, task_relative(entry, vault_dir))
+            note = read_task_note(vault_dir, entry)
+        except (TaskNoteFormatError, HTTPException, OSError):
+            note = None
+        if note is not None:
+            open_notes.append(note)
+
+    target = batch / "folders" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target = _unique_trash_target(target)
+    try:
+        os.replace(directory, target)
+    except OSError as error:
+        raise HTTPException(409, f"把清单文件夹移进回收站失败：{error}") from error
+    folder_rel = task_trash_store.trash_relative(target, vault_dir)
+    task_trash_store.append_entry(batch, {
+        "id": task_trash_store.entry_id(folder_rel),
+        "kind": "folder",
+        "restorable": True,
+        "reason": "list_delete",
+        "original_relpath": f"{vault_layout.TASK_ROOT}/{name}",
+        "trash_relpath": folder_rel,
+        "list_name": name,
+        "title": name,
+        "count": len(open_notes),
+        "dida_ids": [note.get("dida_id") for note in open_notes if note.get("dida_id")],
+        "list_definition": dict(list_definition or {}),
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # 已完成目录里属于这个清单的任务也一起进回收站。
+    done_count = 0
+    done_dir = done_folder(vault_dir)
+    for entry in _folder_entries(done_dir):
+        if entry.name.startswith(".") or _is_link(entry) or entry.suffix.lower() != ".md":
+            continue
+        try:
+            note = read_task_note(vault_dir, entry)
+        except (TaskNoteFormatError, HTTPException, OSError):
+            continue
+        if note is None or note["list_name"].casefold() != name.casefold():
+            continue
+        target = batch / "files" / DONE_DIR_NAME / entry.name
+        target = _unique_trash_target(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.replace(entry, target)
         except OSError as error:
-            raise HTTPException(409, f"把清单同步临时文件移进回收站失败：{error}") from error
-    try:
-        directory.rmdir()
-    except OSError:
-        # 还有其它文件（理论上前面已拦截）：保留目录，不阻止清单定义删除。
-        pass
-    return {"batch": task_relative(batch, vault_dir), "count": len(notes)}
+            raise HTTPException(409, f"把该清单的已完成任务移进回收站失败：{error}") from error
+        trash_rel = task_trash_store.trash_relative(target, vault_dir)
+        task_trash_store.append_entry(batch, {
+            "id": task_trash_store.entry_id(trash_rel),
+            "kind": "file",
+            "restorable": True,
+            "reason": "list_delete_done",
+            "original_relpath": f"{vault_layout.TASK_ROOT}/{DONE_DIR_NAME}/{target.name}",
+            "trash_relpath": trash_rel,
+            "list_name": name,
+            "title": note["title"],
+            "done": True,
+            "done_on": note["done_on"],
+            "dida_id": note.get("dida_id") or "",
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+        })
+        done_count += 1
+
+    return {
+        "batch": task_trash_store.trash_relative(batch, vault_dir),
+        "count": len(open_notes) + done_count,
+        "open_count": len(open_notes),
+        "done_count": done_count,
+        "folder": name,
+        "trash": task_trash_store.trash_relative(batch, vault_dir),
+    }
 
 
 def rename_list_folder(vault_dir: Path | str, old_name: Any, new_name: Any) -> bool:
-    """清单改名时同步改磁盘文件夹；只改大小写也安全。"""
-    old_dir = task_folder(vault_dir, old_name)
-    new_dir = task_folder(vault_dir, new_name)
+    old_dir = list_folder(vault_dir, old_name)
+    new_dir = list_folder(vault_dir, new_name)
     if not old_dir.exists():
         return False
     if old_dir.name == new_dir.name:
@@ -736,9 +1058,8 @@ def rename_list_folder(vault_dir: Path | str, old_name: Any, new_name: Any) -> b
 
 
 def board_revision(config_revision: str, notes: list[dict[str, Any]]) -> str:
-    """配置 + 全部任务笔记的复合修订号（前端乐观锁）。"""
     digest = hashlib.sha256()
-    digest.update(b"task-board-v1\0")
+    digest.update(b"task-board-v2\0")
     digest.update((config_revision or "missing").encode("utf-8"))
     for note in sorted(notes, key=lambda item: item["relpath"]):
         digest.update(b"\0" + note["relpath"].encode("utf-8") + b"\0" + note["revision"].encode("utf-8"))
@@ -746,12 +1067,18 @@ def board_revision(config_revision: str, notes: list[dict[str, Any]]) -> str:
 
 
 __all__ = [
-    "INBOX", "TASK_DIR_REL", "TASK_DIR_POSIX", "LEGACY_TASK_DIR_REL",
-    "LEGACY_TASK_DIR_POSIX", "MAX_TAGS", "MAX_TAG_NAME",
-    "PRIORITIES", "TaskNoteFormatError", "task_root", "is_task_relpath",
-    "task_relative", "task_key",
-    "normalize_title", "safe_task_stem", "unique_stem", "task_folder",
-    "clean_list_name", "read_task_note", "scan_task_notes", "create_task_note",
-    "rewrite_task_note", "order_value", "note_body", "new_trash_batch", "copy_to_trash",
-    "trash_note", "trash_list_folder", "rename_list_folder", "board_revision",
+    "INBOX", "DONE_DIR_NAME", "TRASH_DIR_NAME", "SYSTEM_DIR_NAME",
+    "LEGACY_INNER_DIR_NAME", "TASK_ROOT_REL", "TASK_ROOT_POSIX", "TASK_DIR_REL",
+    "TASK_DIR_POSIX", "LEGACY_TASK_ROOT_REL", "LEGACY_TASK_DIR_REL",
+    "LEGACY_TASK_DIR_POSIX", "LEGACY_TASK_ROOT_POSIX", "SYSTEM_TASK_DIR_REL",
+    "SYSTEM_TASK_DIR_POSIX", "TRASH_DIR_REL", "LEGACY_TRASH_DIR_REL",
+    "RESERVED_FOLDER_NAMES", "MAX_TAGS", "MAX_TAG_NAME", "PRIORITIES",
+    "TaskNoteFormatError", "task_root", "task_root_relative", "task_system_dir",
+    "is_canonical_layout", "is_task_relpath", "task_relative", "task_key",
+    "normalize_title", "safe_task_stem", "unique_stem", "list_folder", "task_folder",
+    "done_folder", "trash_folder", "destination_folder", "clean_list_name",
+    "read_task_note", "inspect_task_file", "scan_task_notes", "create_task_note",
+    "rewrite_task_note", "note_values", "order_value", "note_body",
+    "new_trash_batch", "copy_to_trash", "trash_note", "trash_list_folder",
+    "rename_list_folder", "board_revision",
 ]

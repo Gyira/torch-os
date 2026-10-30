@@ -1,5 +1,7 @@
-// 任务回收站：列出 .torch-os/task-trash 里的任务笔记；可恢复或彻底删除。
+// 任务回收站：列出 00_人生路/07_任务与待办/回收站 里的任务文件与清单文件夹；
+// 可恢复到原位置，也可彻底删除。
 import { $, api, escapeHtml, formatDate, jsonBody, setStatus, toast, confirmAction, changed, state } from "./core.js";
+import { trashItemSummary, trashDidaIds } from "./tasks-model.js";
 
 let items = [];
 let selected = new Set();
@@ -25,11 +27,11 @@ function pruneSelection() {
 function render() {
   const panel = $("#time-trash-list");
   const count = $("#time-trash-count");
-  if (count) count.textContent = items.length ? `${items.length} 个已删除任务` : "没有已删除任务";
+  if (count) count.textContent = items.length ? `${items.length} 个已删除条目` : "回收站是空的";
   if (!panel) return;
   if (!items.length) {
     selected.clear();
-    panel.innerHTML = '<p class="empty-state">回收站是空的。删除的任务会先出现在这里，可以恢复，也可以彻底删除。</p>';
+    panel.innerHTML = '<p class="empty-state">回收站是空的。删除的任务或清单文件夹会先出现在这里，可以恢复，也可以彻底删除。</p>';
     return;
   }
   pruneSelection();
@@ -40,20 +42,23 @@ function render() {
       <button type="button" class="text-button" data-trash-restore-selected ${selected.size ? "" : "disabled"}>恢复选中</button>
       <button type="button" class="text-button" data-trash-delete-selected ${selected.size ? "" : "disabled"}>彻底删除选中</button>
       <button type="button" id="time-trash-empty" class="text-button">清空回收站</button>
-      <span class="field-help">恢复会放回原清单；彻底删除才会真正删掉 md 文件。</span>
+      <span class="field-help">恢复会放回原清单或“已完成”；删除清单文件夹会连同它的已完成任务一起恢复。</span>
     </div>
-    <ul class="history-list">${items.map((item) => `
+    <ul class="history-list">${items.map((item) => {
+      const summary = trashItemSummary(item);
+      return `
       <li>
         <div class="trash-item-main">
-          <input type="checkbox" data-trash-select="${escapeHtml(item.trash_path)}" ${selected.has(item.trash_path) ? "checked" : ""} aria-label="选择 ${escapeHtml(item.title || "未命名任务")}" />
+          <input type="checkbox" data-trash-select="${escapeHtml(item.trash_path)}" ${selected.has(item.trash_path) ? "checked" : ""} aria-label="选择 ${escapeHtml(summary.label)}" />
           <div>
-            <strong>${escapeHtml(item.title || "未命名任务")}</strong>
-            <span>${escapeHtml(item.list_name || "收集箱")} · ${escapeHtml(whenText(item.deleted_at))} · ${escapeHtml(sizeText(item.bytes))}${item.done ? " · 已完成" : ""}</span>
+            <strong>${escapeHtml(summary.label)}</strong>
+            <span>${escapeHtml(summary.meta)} · ${escapeHtml(whenText(item.deleted_at))} · ${escapeHtml(sizeText(item.bytes))}${item.done ? " · 已完成" : ""}${summary.kind === "folder" ? " · 文件夹" : ""}</span>
             <span class="meta">${escapeHtml(item.original_path || item.trash_path)}</span>
           </div>
         </div>
         <div class="growth-actions"><button type="button" class="text-button" data-trash-restore="${escapeHtml(item.trash_path)}">恢复</button><button type="button" class="text-button" data-trash-delete="${escapeHtml(item.trash_path)}">彻底删除</button></div>
-      </li>`).join("")}</ul>`;
+      </li>`;
+    }).join("")}</ul>`;
 }
 
 export async function loadTrash() {
@@ -76,7 +81,7 @@ export async function loadTrash() {
 
 /** 滴答侧如果也删除了这些任务，恢复时一并把滴答回收站里的任务恢复回来。 */
 async function restoreDida(targets) {
-  const ids = targets.map((item) => item.dida_id).filter(Boolean);
+  const ids = trashDidaIds(targets);
   if (!ids.length || state.config?.capabilities?.dida_sync !== true) return "";
   try {
     const result = await api("/api/sync/dida/restore", jsonBody("POST", {
@@ -108,9 +113,10 @@ async function restore(paths) {
     await loadTrash();
     changed();
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
-    const local = `已恢复 ${Number(result.restored) || 0} 个任务。`;
+    const local = `已恢复 ${Number(result.restored) || 0} 个条目。`;
+    const lists = Number(result.lists_restored) > 0 ? `并恢复 ${result.lists_restored} 个清单定义。` : "";
     const remote = await remoteRequest;
-    toast(`${local}${remote}`, remote.includes("未能") || remote.includes("失败") ? "warning" : "success");
+    toast(`${local}${lists}${remote}`, remote.includes("未能") || remote.includes("失败") ? "warning" : "success");
     setStatus("#time-trash-status", "");
   } catch (error) {
     setStatus("#time-trash-status", error.message, "error");
@@ -120,13 +126,13 @@ async function restore(paths) {
 async function purge(paths) {
   const targets = items.filter((item) => paths.includes(item.trash_path));
   const label = paths.length > 1
-    ? `选中的 ${paths.length} 个任务`
-    : targets[0]?.title ? `“${targets[0].title}”` : "选中的任务";
+    ? `选中的 ${paths.length} 个条目`
+    : targets[0]?.title ? `“${targets[0].title}”` : "选中的条目";
   const accepted = await confirmAction({
-    title: paths.length ? "彻底删除任务" : "清空回收站",
+    title: paths.length ? "彻底删除回收站条目" : "清空回收站",
     message: paths.length
-      ? `会真正删除 ${label} 的 md 文件，无法从回收站找回。`
-      : "会真正删除回收站里所有任务笔记，无法恢复。",
+      ? `会真正删除 ${label} 的文件/文件夹，无法从回收站找回。`
+      : "会真正删除回收站里所有任务文件和文件夹，无法恢复。",
     confirmLabel: paths.length ? "彻底删除" : "清空回收站",
     danger: true,
   });
@@ -136,7 +142,7 @@ async function purge(paths) {
     const body = paths.length ? { paths } : { all: true };
     const result = await api("/api/time/trash/delete", jsonBody("POST", body));
     selected.clear();
-    toast(`已彻底删除 ${Number(result.deleted) || 0} 个任务文件。`, "success");
+    toast(`已彻底删除 ${Number(result.deleted) || 0} 个条目。`, "success");
     await loadTrash();
   } catch (error) {
     setStatus("#time-trash-status", error.message, "error");

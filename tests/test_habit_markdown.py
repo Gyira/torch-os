@@ -10,7 +10,7 @@ from backend.app.application import create_app
 from backend.app.db import Database
 from backend.app.habits import HabitCreate, HabitEntryWrite, HabitService
 
-HABIT_DIR = "00_人生路/06_目标与计划/04_习惯追踪"
+HABIT_DIR = "00_人生路/04_目标/04_习惯追踪"
 
 
 def make_client(tmp_path):

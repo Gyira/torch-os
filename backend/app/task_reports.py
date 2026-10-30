@@ -2,7 +2,7 @@
 
 Markdown task notes are the authority. The old SQLite ``tasks`` table is retired
 from live reads (2026-10-22); legacy checkbox tasks remain read-only in
-``00_人生路/08_任务与待办/_系统/任务（tasks）.md`` and are intentionally not counted here.
+``00_人生路/07_任务与待办/_系统/任务（tasks）.md`` and are intentionally not counted here.
 """
 
 from __future__ import annotations

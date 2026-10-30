@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from backend.app.task_notes import INBOX
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -32,9 +34,10 @@ def client(tmp_path, monkeypatch):
 
 def add_task(vault: Path, title: str, *, due: str | None = None,
              done_on: str | None = None) -> Path:
-    folder = vault / "00_人生路" / "08_任务与待办" / "任务"
+    root = vault / "00_人生路" / "07_任务与待办"
+    folder = root / ("已完成" if done_on else "收集箱")
     folder.mkdir(parents=True, exist_ok=True)
-    lines = ["---", "type: task"]
+    lines = ["---", "type: task", f"清单: {INBOX}"]
     if due:
         lines.append(f'日期: "{due}"')
     if done_on:

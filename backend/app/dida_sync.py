@@ -557,10 +557,12 @@ class DidaSyncService:
             entries.append({"taskId": dida_id, "projectId": project_id, "item": item})
 
         for item in items:
-            dida_id = str(item.get("dida_id") or "")
-            link = links.get(dida_id)
-            if link is not None:
-                add(dida_id, link, item)
+            dida_ids = [str(item.get("dida_id") or "")]
+            dida_ids.extend(str(value) for value in (item.get("dida_ids") or []))
+            for dida_id in dict.fromkeys(value for value in dida_ids if value):
+                link = links.get(dida_id)
+                if link is not None:
+                    add(dida_id, link, item)
 
         # 回收站里找不到、但本地已不存在的已同步任务（例如已被彻底清理）。
         # 先扫描现有任务笔记，避免把“在任务目录里换了位置”的笔记误判成删除。
@@ -794,6 +796,9 @@ class DidaSyncService:
             if not name or entry.get("synthetic"):
                 continue
             if name.casefold() == task_notes.INBOX.casefold():
+                continue
+            if name.casefold() in {item.casefold()
+                                   for item in task_notes.RESERVED_FOLDER_NAMES}:
                 continue
             project_id = str(entry.get("dida_project_id") or "").strip()
             color = _valid_color(entry.get("color")) or "#3b82f6"
@@ -1633,7 +1638,9 @@ class DidaSyncService:
             warnings["closed_project_inbox"] += 1
             return task_notes.INBOX
         candidate = sanitize_list_name(project.name, fallback=f"滴答清单-{project.id[:6]}")
-        if candidate.casefold() == task_notes.INBOX.casefold():
+        if (candidate.casefold() == task_notes.INBOX.casefold()
+                or candidate.casefold() in {item.casefold()
+                                            for item in task_notes.RESERVED_FOLDER_NAMES}):
             candidate = f"{candidate}-{project.id[:6]}"
         if candidate in lists_by_name:
             mapped_to = str(lists_by_name[candidate].get("dida_project_id") or "")

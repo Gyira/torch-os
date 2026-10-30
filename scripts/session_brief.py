@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 PILLARS = ("00_人生路", "01_自我档案", "02_生活运营", "03_知识库")
-SKIP_DIRS = {".obsidian", ".torch-os", ".git", ".trash", ".claudian", "_旧版", "_系统", "_模板", "_附件"}
+SKIP_DIRS = {".obsidian", ".torch-os", ".git", ".trash", ".claudian", "_旧版", "_系统",
+             "_模板", "_附件", "已完成", "回收站"}
 RECENT_LIMIT = 8
 AI_LIMIT = 6
 TASK_LIMIT = 8
@@ -136,7 +137,7 @@ def _load_front_matter(path: Path) -> dict[str, Any]:
 
 def _open_tasks(vault: Path) -> list[tuple[str, str, str]]:
     tasks: list[tuple[str, str, str]] = []
-    for path in _markdown_files(vault / "00_人生路/08_任务与待办/任务"):
+    for path in _markdown_files(vault / "00_人生路/07_任务与待办"):
         meta, body = _front_matter(path)
         if _truthy(meta.get("完成", "")) or _truthy(meta.get("done", "")):
             continue

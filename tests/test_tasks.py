@@ -62,7 +62,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def config_file(tmp_path):
-    return tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "_系统" / "任务（tasks）.md"
+    return tmp_path / "vault" / "00_人生路" / "07_任务与待办" / "_系统" / "任务（tasks）.md"
 
 
 def legacy_file(tmp_path):
@@ -70,7 +70,11 @@ def legacy_file(tmp_path):
 
 
 def note_dir(tmp_path):
-    return tmp_path / "vault" / "00_人生路" / "08_任务与待办" / "任务"
+    return tmp_path / "vault" / "00_人生路" / "07_任务与待办"
+
+
+def inbox_dir(tmp_path):
+    return note_dir(tmp_path) / "收集箱"
 
 
 def seed(tmp_path, text=SAMPLE, *, legacy_name=False):
@@ -104,11 +108,11 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     payload = board(client)
 
     assert payload["legacy_tasks"] == 4
-    assert payload["path"] == "00_人生路/08_任务与待办/_系统/任务（tasks）.md"
+    assert payload["path"] == "00_人生路/07_任务与待办/_系统/任务（tasks）.md"
     assert payload["vault_name"] == "vault"
-    assert payload["task_dir"] == "00_人生路/08_任务与待办/任务"
+    assert payload["task_dir"] == "00_人生路/07_任务与待办"
     shopping = find(payload, "买菜", legacy=True)
-    assert shopping["path"] == "00_人生路/08_任务与待办/_系统/任务（tasks）.md"
+    assert shopping["path"] == "00_人生路/07_任务与待办/_系统/任务（tasks）.md"
     assert shopping["list_name"] == "收集箱" and shopping["date"] == "2026-10-06"
     assert shopping["priority"] == "high" and shopping["tags"] == ["重要"]
     assert find(payload, "写周报", legacy=True)["done"] is True
@@ -119,8 +123,8 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     assert created.status_code == 200, created.text
     body = created.json()["task"]
     assert body["legacy"] is False
-    assert body["path"] == "00_人生路/08_任务与待办/任务/写方案.md"
-    assert (note_dir(tmp_path) / "写方案.md").is_file()
+    assert body["path"] == "00_人生路/07_任务与待办/收集箱/写方案.md"
+    assert (inbox_dir(tmp_path) / "写方案.md").is_file()
 
     payload = board(client)
     assert payload["legacy_tasks"] == 4
@@ -144,7 +148,7 @@ def test_create_notes_folders_and_validation(tmp_path):
         "title": "第一条任务", "priority": "medium", "tags": ["重要", "工作"],
         "date": TODAY, "time": "7:05", "revision": payload["revision"]})
     assert created.status_code == 200, created.text
-    path = note_dir(tmp_path) / "第一条任务.md"
+    path = inbox_dir(tmp_path) / "第一条任务.md"
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
     assert "type: task" in text
@@ -155,7 +159,7 @@ def test_create_notes_folders_and_validation(tmp_path):
     payload = board(client)
     second = post(client, "/api/time/tasks", {"title": "第一条任务", "revision": payload["revision"]})
     assert second.status_code == 200
-    assert (note_dir(tmp_path) / "第一条任务 2.md").is_file()
+    assert (inbox_dir(tmp_path) / "第一条任务 2.md").is_file()
     payload = board(client)
     duplicates = [task for task in payload["tasks"] if task["title"] == "第一条任务"]
     assert len(duplicates) == 2
@@ -192,7 +196,7 @@ def test_update_rename_move_done_and_conflicts(tmp_path):
     created = post(client, "/api/time/tasks", {
         "title": "晨跑", "date": "2026-10-20", "time": "07:05", "revision": payload["revision"]})
     assert created.status_code == 200, created.text
-    path = note_dir(tmp_path) / "晨跑.md"
+    path = inbox_dir(tmp_path) / "晨跑.md"
     path.write_text(path.read_text(encoding="utf-8") + "我的训练计划\n", encoding="utf-8")
 
     payload = board(client)
@@ -201,7 +205,7 @@ def test_update_rename_move_done_and_conflicts(tmp_path):
         "key": task["key"], "title": "晨跑训练", "revision": payload["revision"]})
     assert renamed.status_code == 200, renamed.text
     assert not path.exists()
-    renamed_path = note_dir(tmp_path) / "晨跑训练.md"
+    renamed_path = inbox_dir(tmp_path) / "晨跑训练.md"
     assert renamed_path.is_file() and "我的训练计划" in renamed_path.read_text(encoding="utf-8")
 
     payload = board(client)
@@ -251,24 +255,24 @@ def test_duplicate_and_delete_are_soft(tmp_path):
     seed(tmp_path)
     created = post(client, "/api/time/tasks", {"title": "写方案", "tags": ["重要"]})
     assert created.status_code == 200
-    path = note_dir(tmp_path) / "写方案.md"
+    path = inbox_dir(tmp_path) / "写方案.md"
     path.write_text(path.read_text(encoding="utf-8") + "正文要留下\n", encoding="utf-8")
     payload = board(client)
     task = find(payload, "写方案")
     copied = post(client, "/api/time/tasks/duplicate", {
         "key": task["key"], "revision": payload["revision"]})
     assert copied.status_code == 200, copied.text
-    copy_path = note_dir(tmp_path) / "写方案 2.md"
+    copy_path = inbox_dir(tmp_path) / "写方案 2.md"
     assert copy_path.is_file() and "正文要留下" in copy_path.read_text(encoding="utf-8")
     payload = board(client)
     assert find(payload, "写方案", legacy=False)["created"] == TODAY
 
-    copy = next(item for item in payload["tasks"] if item["path"] == "00_人生路/08_任务与待办/任务/写方案 2.md")
+    copy = next(item for item in payload["tasks"] if item["path"] == "00_人生路/07_任务与待办/收集箱/写方案 2.md")
     removed = post(client, "/api/time/tasks/delete", {
         "key": copy["key"], "revision": payload["revision"]})
     assert removed.status_code == 200, removed.text
     assert not copy_path.exists()
-    trash = list((tmp_path / "vault" / ".torch-os" / "task-trash").rglob("*.md"))
+    trash = list((note_dir(tmp_path) / "回收站").rglob("*.md"))
     assert any(item.name == "写方案 2.md" for item in trash)
 
     payload = board(client)
@@ -385,18 +389,13 @@ def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
 
     payload = board(client)
     (folder / "附件.txt").write_text("别删我", encoding="utf-8")
-    blocked = post(client, "/api/time/lists/delete", {
-        "name": "临时清单", "revision": payload["revision"]})
-    assert blocked.status_code == 409
-
-    (folder / "附件.txt").unlink()
     (folder / "临时任务.md.baiduyun.uploading.cfg").write_text("{}", encoding="utf-8")
     payload = board(client)
     removed = post(client, "/api/time/lists/delete", {
         "name": "临时清单", "revision": payload["revision"]})
     assert removed.status_code == 200, removed.text
     data = removed.json()
-    assert data["tasks"] == 1 and data["trash"].startswith(".torch-os/task-trash/")
+    assert data["tasks"] == 1 and data["trash"].startswith("00_人生路/07_任务与待办/回收站/")
     assert not folder.exists()
     payload = board(client)
     assert all(item["name"] != "临时清单" for item in payload["lists"])
@@ -406,6 +405,7 @@ def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
     assert any(item.name == "临时任务.md" for item in trash.rglob("*"))
     assert any(item.name == "临时任务.md.baiduyun.uploading.cfg"
                for item in trash.rglob("*"))
+    assert any(item.name == "附件.txt" for item in trash.rglob("*"))
 
     payload = board(client)
     assert post(client, "/api/time/lists/delete", {
@@ -454,7 +454,7 @@ def test_tags_update_notes_and_legacy_lines(tmp_path):
     assert find(payload, "新任务")["tags"] == ["要紧"]
     assert next(tag for tag in payload["tags"] if tag["name"] == "要紧")["pinned"] is True
     assert "#要紧" in config_file(tmp_path).read_text(encoding="utf-8")
-    note_text = (note_dir(tmp_path) / "新任务.md").read_text(encoding="utf-8")
+    note_text = (inbox_dir(tmp_path) / "新任务.md").read_text(encoding="utf-8")
     assert "要紧" in note_text and "重要" not in note_text
 
     payload = board(client)
@@ -609,7 +609,7 @@ def test_legacy_file_compatibility_and_no_auto_migration(tmp_path):
     created = post(client, "/api/time/tasks", {
         "title": "旧文件里的新任务", "revision": payload["revision"]})
     assert created.status_code == 200, created.text
-    assert (note_dir(tmp_path) / "旧文件里的新任务.md").is_file()
+    assert (inbox_dir(tmp_path) / "旧文件里的新任务.md").is_file()
     assert legacy.read_bytes() == before          # 不自动迁移、不改旧文件
     assert not config_file(tmp_path).exists()     # 也不凭空造新配置
     payload = board(client)

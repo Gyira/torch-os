@@ -3,7 +3,8 @@
 // 2026-10-20：清单行支持拖拽调整同组顺序；颜色色点改用 CSSOM 写变量（页面 CSP 会拦内联 style 属性）。
 import { escapeHtml } from "./core.js";
 import {
-  VIEWS, INBOX, INBOX_HINT, viewCounts, countBy, listTree, pinnedItems, listIcon, dropBeforeName,
+  VIEWS, INBOX, INBOX_HINT, RESERVED_LIST_NAMES,
+  viewCounts, countBy, listTree, pinnedItems, listIcon, dropBeforeName,
 } from "./tasks-model.js";
 import { openPopover } from "./tasks-picker.js";
 import { setListDragData, isListDrag, readListDragName } from "./tasks-drag.js";
@@ -234,7 +235,7 @@ export function renderTaskSidebar(container, options) {
   const view = selection.view || (selection.list || selection.tag ? "" : "today");
   // 收集箱是内置清单、不能删除；它只作为「任务看板」里的收集箱视图出现，
   // 不放进「清单管理」，避免和用户清单混在一起并暴露删除/改名操作。
-  const managedLists = lists.filter((entry) => entry.name !== INBOX);
+  const managedLists = lists.filter((entry) => !RESERVED_LIST_NAMES.has(entry.name));
 
   container.replaceChildren();
 

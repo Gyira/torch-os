@@ -8,6 +8,9 @@
 import { shanghaiDay } from "./journal-model.js";
 
 export const INBOX = "收集箱";
+export const DONE = "已完成";
+export const TRASH = "回收站";
+export const RESERVED_LIST_NAMES = new Set([INBOX, DONE, TRASH, "_系统", "任务", "_旧版"]);
 export const HABIT_LIST_NAME = "习惯打卡";
 /** 侧栏与看板上的说明文案：收集箱是临时中转站。 */
 export const INBOX_HINT = "收集箱是临时中转站，临时蹦出的点子、来不及指定清单的任务，可以记录在这里。";
@@ -98,8 +101,9 @@ export function filterTasks(tasks, view, options = {}) {
       && (showDone || !task.done));
   }
   if (tag) {
+    // 标签只是筛选展示，不是文件夹；已完成任务只出现在“已完成”，不再混进标签视图。
     return all.filter((task) => !isHabitTask(task) && (task.tags || []).includes(tag)
-      && (showDone || !task.done));
+      && !task.done);
   }
   if (view === "inbox") {
     return all.filter((task) => !isHabitTask(task) && task.list_name === INBOX
@@ -525,6 +529,30 @@ export function firstBusyHour(tasks, fallback = 7) {
     if (span) hour = Math.min(hour, Math.floor(span.start / 60));
   }
   return Math.max(0, hour);
+}
+
+/** 回收站条目：把文件 / 文件夹两类统一成可读摘要。 */
+export function trashItemSummary(item = {}) {
+  const kind = item.kind === "folder" ? "folder" : "file";
+  if (kind === "folder") {
+    return {
+      kind,
+      label: `清单文件夹「${item.title || item.list_name || "未命名"}」`,
+      meta: `${Number(item.count) || 0} 个任务`,
+    };
+  }
+  return { kind, label: item.title || "未命名任务", meta: item.list_name || INBOX };
+}
+
+/** 回收站条目涉及的所有滴答 ID（文件夹条目会聚合内部任务）。 */
+export function trashDidaIds(items = []) {
+  const ids = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    for (const value of [item?.dida_id, ...(Array.isArray(item?.dida_ids) ? item.dida_ids : [])]) {
+      if (value && !ids.includes(value)) ids.push(value);
+    }
+  }
+  return ids;
 }
 
 /** 清单名 → 颜色（画任务条时按清单上色）。 */
