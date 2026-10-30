@@ -6,10 +6,9 @@
 ## 快照
 
 - 分支：`main`
-- 代码基线：`5d9ecdb`（`feat(editor): 支持应用内全屏写作空间与丰富工具栏`，以 `git log -1` 为准）
-- 工作树：**2026-10-30 自定义本子=文件夹未提交**（本子创建 API/首页新建本子入口/
-  自定义本子卡片/编辑器章节分组/名称校验/探针与文档）；本子首页与全屏编辑器已在
-  `5d9ecdb` 提交；以 `git status` 为准。
+- 代码基线：`b5087ba`（`feat(notebooks): 支持人生路自定义本子功能`，以 `git log -1` 为准）
+- 工作树：**仅 `docs/STATUS.md` 交接更新未提交**；本子创建/自定义本子 UI/测试已在
+  `b5087ba` 提交，本子首页与全屏编辑器在 `5d9ecdb` 提交；以 `git status` 为准。
 - 布局版本：**`pillars-v2`**（v1.0 P0 增量新增 6 章：`00_人生路/09_随笔`、
   `01_自我档案/08_忆灵观察`、`02_生活运营/06_健康报告`、`07_财务报告`、`08_生活建议`、
   `09_家庭与智能家居`；共 43 章，旧路径不变，不做迁移）
@@ -19,9 +18,10 @@
 - 前端：**392 passed**（2026-10-30 实跑，含本子模型 10 项、编辑器模型 11 项、
   角色抽屉/提案/小组件显隐 13 项、忆灵面板契约 3 项、生活运营 AI 2 项）
 - `scripts/check_all.ps1`：**2026-10-30 exit 0**（Python 1013 / 前端 392 / 文本完整性 / 模块面 /
-  JS 语法 / compileall / pip check 全部通过；脚本已自设 UTF-8）
+  JS 语法 / compileall / pip check 全部通过；脚本已自设 UTF-8）；完整日志
+  `.check-all-v1-notebooks.log`。
 - 浏览器验收：`browser_v1_probe.py` 与 `browser_pillars_probe.py` 在 QA 实例全部 `ok: true`，
-  JS 错误 0；截图在 `.test-data/pillar-probe-final/` 与 `.test-data/ui-preview/`。
+  JS 错误 0；截图在 `.test-data/pillar-probe-custom/` 与 `.test-data/ui-preview/`。
 - 能力标记：**54**（v1.0 新增 `ai_roles`、`proposals`、`widget_visibility`、`note_editor`、
   `share_link`、`memory_hub`、`life_assistant`、`life_reports`）；用户表：**30 张**
   （新增 5 张 AI/记忆中枢表，其中多张 deprecated）；MCP 只读工具：**12 个**
@@ -39,7 +39,7 @@
 - **2026-10-30 人生路/知识库交互重做（Jotsy 式本子首页）**：
   - 新增 `frontend/notebook-model.js`：本子定义（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘、
     收件箱/主题/读书/课程/概念/方法/输出）、章节聚合、今日/知识库 hero 状态、笔记卡片数据；
-    `frontend/tests/notebook-model.test.mjs` 9 项。
+    `frontend/tests/notebook-model.test.mjs` 10 项。
   - 人生路首页：**「今天，写点什么？」+ 今日日记 + 最近 7 天 + 我的本子 + 最近写过**；
     本子页有笔记卡片、本子内章节 chips、写作伙伴/工具/本子统计侧栏。主行动不再放在右栏小卡片。
   - 知识库首页：**「今天想弄明白什么？」+ 打开 DeepSeek 提问 + 粘贴分享链接取回**，
@@ -52,15 +52,16 @@
     审计 `journal_saved` 只记日期/字节数/是否新建；过去日记仍只读。
   - 知识库分享链接支持预填 + 自动取回（`openShareLinkDialog({url, preview})`）；
     首页「取回并归档」直接调用。
-  - **自定义本子 = 文件夹**：人生路「新建本子」调用 `POST /api/notebooks`，在
-    `00_人生路/<名字>/` 创建目录并写 `notebook_created` 审计；`GET /api/notebooks`、
-    `overview.custom_notebooks`、`/api/writing/chapters` 都包含自定义本子；
-    章节 key `custom:<名字>`，本子内笔记仍走 `/api/writing/notes`。名称校验/重复 409/
-    只读 409；删除/改名暂不提供。
+  - **自定义本子 = 文件夹**：新增 `backend/app/notebooks.py`，人生路「新建本子」调用
+    `POST /api/notebooks`，在 `00_人生路/<名字>/` 创建目录并写 `notebook_created` 审计；
+    `GET /api/notebooks`、`overview.custom_notebooks`、`/api/writing/chapters` 都包含
+    自定义本子；章节 key `custom:<名字>`，本子内笔记仍走 `/api/writing/notes`。
+    前端 `frontend/notebook-create.js` 负责创建对话框；名称校验/重复 409/只读 409；
+    内置本子名保留；删除/改名暂不提供。测试 `backend/tests/test_notebooks.py` 17 项。
   - 文案/帮助同步：`README`、`FEATURE_MAP`、`WRITING_AND_KNOWLEDGE`、`WAKE_UP_START`、
     `frontend/help-content.js`。
-  - 浏览器探针：v1 探针新增首页/本子/日记编辑器/知识库提问检查；四库探针同步新选择器。
-    两者 QA 实跑 `ok: true`、JS 错误 0；前端全量 **392 passed**。
+  - 浏览器探针：v1 探针新增首页/本子/日记编辑器/知识库提问/**新建本子→进入空本子**检查；
+    四库探针同步新选择器。两者 QA 实跑 `ok: true`、JS 错误 0；前端全量 **392 passed**。
 - **2026-10-29 v1.0 P5：加固与发布**：
   - Windows 进程实测（`tests/test_ai_gateway_process.py`）：真实 Python 子进程代替 dsh，
     stdin 多行中文/emoji 回环；超时 `taskkill /T /F` 连 node 孙进程一起终止；
@@ -382,9 +383,6 @@
 - ZIP 备份包含 SQLite（含 `ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*`）与 Vault
   内的 Markdown，但不含其余 `.torch-os`（忆灵画像 JSON、身份备份、personal-data、恋爱库/Key）；
   换机时复制整个个人数据库文件夹可全部带走。一键导出包已包含 AI 角色会话与提案。
-- 自定义本子目前只提供创建/列出（本子=文件夹）；删除/改名暂不提供，避免误删目录。
-  可在 Obsidian 里重命名文件夹后刷新；空本子没有 Markdown，不会进入 ZIP 备份，
-  写入第一篇笔记后就会随 Markdown 一起备份。
 - 「与神对话」现在是完整 dsh：默认可按 dsh 自己的权限读写当前库，torch 不再套只读确认或自动备份。
   dsh 首次启动可能需要 Node.js >=24.9 / npx 下载；模型、密钥、账号登录都在 dsh 内完成。
 - torch 不再提供模型、模型密钥、本地回答、管家问答或向量检索；问答统一在 dsh。
@@ -400,13 +398,16 @@
   `.gitignore`，只在本机保留，不提交。
 - `browser_smoke.py` 是 legacy，仅用于失败报告测试；不要作为验收证据。
 - 旧的已移除 HTTP 路由对仓库外客户端会返回 404；清单见 `docs/DEPRECATIONS.md`。
-- 四库在插件里只读（2026-10-26 起）：新建、编辑、移动、复盘和体重/账目行都在 Obsidian 里完成，
-  插件只做浏览、搜索与跳转。
+- 四库写入边界（2026-10-30）：人生路/知识库的允许章节和人生路自定义本子可在应用内写；
+  自我档案/生活运营页面仍只读；复盘、体重/账目行、任务/习惯/身份仍走各自入口或 Obsidian。
 - 新库模板只建目录与模板文件（含 `.torch-os/vault-layout.json`），不拷贝任何旧数据；已有库不会
   自动补写这份清单或 `.obsidian` 预设——换布局仍要先备份再迁移，或新建库后把笔记搬过去。
 - 布局 v2 的搬迁只覆盖 `V1_CHAPTER_MOVES` 里的 8 个 v1 目录；已有库不会自动改名或移动，
   迁移后旧目录只做只读兜底、空目录保留。真实库这轮只搬了项目计划下的 2 个文件（见上）。
-- 首版仍不做复杂图谱、聊天页或完整 Markdown 编辑器；深度编辑交给 Obsidian。
+- 首版仍不做复杂图谱、聊天页、WYSIWYG 富文本/图片附件编辑器；Markdown 深度编辑仍以
+  Obsidian 为兜底，应用内提供全屏 Markdown 写作空间。
+- 自定义本子只支持创建/列出；删除/改名/移动请在 Obsidian 里做，避免误删目录；空本子
+  不进入 ZIP 备份，写入第一篇 Markdown 后随笔记备份。
 
 ## 验证命令
 
@@ -416,6 +417,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1
 
 # 分开跑
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q tests\test_notebooks.py
 node --experimental-vm-modules --test frontend/tests/*.test.mjs
 
 # 隔离 QA（独立库，全虚构数据；真实库不会被写入）
@@ -424,20 +426,23 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 .\.venv\Scripts\python.exe scripts\browser_pillars_probe.py --base-url http://127.0.0.1:8766 --output .test-data\pillar-probe --port 9333
 ```
 
-v1 探针检查工作台忆灵条、小组件显隐、写作保存、分享入口、忆灵面板与生活运营 4 个 AI 入口；
+v1 探针检查工作台忆灵条、小组件显隐、写作保存、分享入口、忆灵面板、生活运营 4 个 AI 入口，
+以及「新建本子 → 进入空本子 → 本子卡片可见」；
 四库探针会截图到输出目录，并打印 `report.json`，检查 `ok: true`、`help_nav`、
 `help_hidden_outside_settings`、快捷键/编辑器检查与四库 chapter/row 指标。两个探针都要
 `js_errors` 为空。输出目录需先存在。
 
 ## 下一步候选
 
-v1.0 P0–P5 代码与自动化验收已完成；发布前剩下人工步骤：
+2026-10-30 的 UI 重做与「自定义本子=文件夹」已完成自动化验收；当前工作树只剩
+`docs/STATUS.md` 交接更新未提交，发布前剩下人工步骤：
 
-1. 回归真实 dsh 主对话 iframe、`/harness/` 的 HTTP + WebSocket 与 npx 首次启动提示
+1. **提交流水线**：P0–P5 在 `4488094`，全屏编辑器/本子首页在 `5d9ecdb`，自定义本子在
+   `b5087ba`；当前只剩 `docs/STATUS.md` 交接更新未提交，需要时补一条 docs 提交即可。
+2. 回归真实 dsh 主对话 iframe、`/harness/` 的 HTTP + WebSocket 与 npx 首次启动提示
    （角色层真实模型 3 连调已于 2026-10-30 通过）。
-2. **提交流水线**：P0–P5 已在 `4488094` 提交；当前工作树是 2026-10-30 人生路/知识库交互重做
-   （本子首页/全屏编辑器/日记直写/知识库提问），需要时再单独提交。
 3. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
-4. 继续选下一组产品功能（按用户需求）。
+4. 可选下一组产品功能：自定义本子的删除/改名（带确认/回收站）、本子排序/收藏、
+   图片附件编辑器（本轮明确不做）。
 5. dsh 后续：12 个只读工具已接入（见 `docs/MCP_BRIDGE.md`）；还剩 dsh 的 OAuth 回调验证与
    模型/账号配置。dsh 升级时回归 `/harness/` 代理契约与角色层 headless 参数。
