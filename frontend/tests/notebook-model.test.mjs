@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS, buildNotebookCards, greetingForHour,
-  journalHeading, knowledgeHeroState, lifeHeroState, mergeNotesByRecency,
-  noteCards, notebookById, notebookForChapter, notebooksFor, subchaptersFor,
+  DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS,
+  buildNotebookCards, customNotebookKey, customNotebookName, customNotebookPillar,
+  defaultWriteChapter, greetingForHour, journalHeading, knowledgeHeroState,
+  lifeHeroState, mergeNotesByRecency, noteCards, notebookById, notebookForChapter,
+  notebooksFor, subchaptersFor,
 } from "../notebook-model.js";
 
 const LIFE_ROWS = [
@@ -61,6 +63,36 @@ test("custom notebooks become their own cards, not one shared 其他 card", () =
   assert.equal(notebookForChapter("life", "custom:读书摘记").title, "读书摘记");
   assert.deepEqual(subchaptersFor("life", "custom:读书摘记", customRows).map((row) => row.title),
     ["读书摘记"]);
+});
+
+test("knowledge custom notebooks use a distinct key and show their own root", () => {
+  const key = customNotebookKey("资料卡", "knowledge");
+  assert.equal(key, "custom:knowledge:资料卡");
+  assert.equal(customNotebookPillar(key), "knowledge");
+  assert.equal(customNotebookName(key), "资料卡");
+  assert.equal(customNotebookPillar("custom:读书摘记"), "life");
+  assert.equal(customNotebookName("custom:读书摘记"), "读书摘记");
+
+  const customRows = [{
+    key, title: "资料卡", path: "03_知识库/资料卡", count: 1,
+    latest: { title: "卡片 A", chapter: key, date: "2026-10-30", path: "03_知识库/资料卡/A.md" },
+  }];
+  const cards = buildNotebookCards("knowledge", [], customRows);
+  const custom = cards.find((card) => card.key === key);
+  assert.equal(custom.title, "资料卡");
+  assert.equal(custom.description, "自建本子 · 03_知识库/资料卡");
+  assert.equal(custom.pillar, "knowledge");
+  assert.equal(notebookById("knowledge", key).title, "资料卡");
+  assert.equal(notebookForChapter("knowledge", key).key, key);
+  assert.deepEqual(subchaptersFor("knowledge", key, customRows).map((row) => row.title),
+    ["资料卡"]);
+});
+
+test("the general life writing entry defaults to essay", () => {
+  assert.equal(DEFAULT_LIFE_WRITE_CHAPTER, "essay");
+  assert.equal(defaultWriteChapter("life"), "essay");
+  assert.equal(defaultWriteChapter("knowledge"), "topic");
+  assert.equal(defaultWriteChapter(""), "essay");
 });
 
 test("life hero says what to do today and counts the streak", () => {

@@ -132,6 +132,20 @@ export function isDirty(current, saved) {
   return normalizeBody(current) !== normalizeBody(saved);
 }
 
+/**
+ * 编辑已有笔记时一次“保存”可能包含两件事：写正文、移动到另一个本子。
+ * 先写正文再移动，移动失败时至少内容不丢；新建笔记不移动。
+ */
+export function savePlan({ mode = "new", dirty = false, currentChapter = "", targetChapter = "" } = {}) {
+  const editing = String(mode) === "edit";
+  const target = String(targetChapter || currentChapter || "");
+  return {
+    saveContent: editing && Boolean(dirty),
+    move: editing && Boolean(target) && target !== String(currentChapter || ""),
+    targetChapter: target,
+  };
+}
+
 export function tagsFromInput(value) {
   return String(value || "")
     .split(/[,，、\s]+/)

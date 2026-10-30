@@ -11,9 +11,10 @@ from backend.app.identity import IdentityWrite
 from backend.app import identity
 
 
-def make_client(tmp_path):
+def make_client(tmp_path, *, read_only=False):
     database = Database(tmp_path / "writing.sqlite3")
-    app = create_app(database, tmp_path / "vault", security_environ={},
+    environ = {"VAULT_READ_ONLY": "1"} if read_only else {}
+    app = create_app(database, tmp_path / "vault", security_environ=environ,
                      env_file=tmp_path / ".env", enable_dsh=False)
     client = TestClient(app)
     client.get("/")
@@ -110,3 +111,90 @@ def test_essay_is_a_journal_inbox_type(tmp_path):
         "夜里忽然想起小时候的窗，好像还能听见楼下的风。", "2026-10-29")
     assert cards and cards[0]["kind"] == "essay"
     assert cards[0]["target"] == "00_人生路/09_随笔"
+
+
+def test_notes_move_between_custom_notebooks_and_delete_into_trash(tmp_path):
+    client, database, vault = make_client(tmp_path)
+    for name in ("甲本", "乙本"):
+        assert client.post("/api/notebooks", json={"name": name}).status_code == 200
+
+    created = client.post("/api/writing/notes", json={
+        "chapter": "custom:甲本", "title": "分错的本子", "body": "正文",
+    })
+    assert created.status_code == 200, created.text
+    note = created.json()
+    assert note["path"].startswith("00_人生路/甲本/")
+
+    moved = client.post("/api/writing/notes/move", json={
+        "path": note["path"], "target_chapter": "custom:乙本",
+        "expected_revision": note["revision"],
+    })
+    assert moved.status_code == 200, moved.text
+    moved_note = moved.json()
+    assert moved_note["chapter"] == "custom:乙本"
+    assert moved_note["path"].startswith("00_人生路/乙本/")
+    assert (vault / moved_note["path"]).is_file()
+    assert not (vault / note["path"]).exists()
+
+    # 自定义本子 → 固定章节 → 另一个自定义本子，都应该走同一条移动路径。
+    back = client.post("/api/writing/notes/move", json={
+        "path": moved_note["path"], "target_chapter": "essay",
+        "expected_revision": moved_note["revision"],
+    })
+    assert back.status_code == 200, back.text
+    essay_note = back.json()
+    assert essay_note["chapter"] == "essay"
+    assert essay_note["path"].startswith("00_人生路/09_随笔/")
+    assert not (vault / moved_note["path"]).exists()
+
+    final = client.post("/api/writing/notes/move", json={
+        "path": essay_note["path"], "target_chapter": "custom:甲本",
+        "expected_revision": essay_note["revision"],
+    })
+    assert final.status_code == 200, final.text
+    final_note = final.json()
+    assert final_note["chapter"] == "custom:甲本"
+    assert final_note["path"].startswith("00_人生路/甲本/")
+
+    stale = client.post("/api/writing/notes/delete", json={
+        "path": final_note["path"], "expected_revision": note["revision"],
+    })
+    assert stale.status_code == 409
+
+    deleted = client.post("/api/writing/notes/delete", json={
+        "path": final_note["path"], "expected_revision": final_note["revision"],
+    })
+    assert deleted.status_code == 200, deleted.text
+    payload = deleted.json()
+    assert payload["deleted"] is True
+    assert payload["path"] == final_note["path"]
+    assert payload["trash_path"].startswith(".torch-os/笔记回收站/")
+    assert (vault / payload["trash_path"]).is_file()
+    assert not (vault / final_note["path"]).exists()
+
+    with database.connect() as connection:
+        events = [row["event_type"] for row in connection.execute(
+            "SELECT event_type FROM audit_events ORDER BY id")]
+    assert "note_moved" in events and "note_deleted" in events
+
+
+def test_delete_is_refused_for_journal_unknown_files_and_read_only_vault(tmp_path):
+    client, _, vault = make_client(tmp_path)
+    journal = client.post("/api/writing/notes/delete", json={
+        "path": "00_人生路/01_日记/2026-10-30.md"})
+    assert journal.status_code == 422
+
+    missing = client.post("/api/writing/notes/delete", json={
+        "path": "00_人生路/09_随笔/不存在.md"})
+    assert missing.status_code == 404
+
+    readonly_root = tmp_path / "readonly"
+    readonly_root.mkdir()
+    read_only_client, _, read_only_vault = make_client(readonly_root, read_only=True)
+    path = read_only_vault / "00_人生路" / "09_随笔" / "旧文.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("---\ntitle: 旧文\n---\n\n正文\n", encoding="utf-8")
+    refused = read_only_client.post("/api/writing/notes/delete", json={
+        "path": "00_人生路/09_随笔/旧文.md"})
+    assert refused.status_code == 409
+    assert path.is_file()

@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -20,6 +23,8 @@ from .markdown_store import guarded_write, load_note
 from .vault import clean_fragment, parse_text, safe_note_path
 
 MAX_BODY = 200_000
+# 软删除：笔记文件移进库内隐藏回收站，保留原相对路径，方便手动找回。
+NOTE_TRASH_DIR = ".torch-os/笔记回收站"
 
 
 def _relative(vault: Path, path: Path) -> str:
@@ -233,6 +238,68 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
     return read_note(vault, new_relative)
 
 
+def trash_note(vault_dir: Path | str, relative: str,
+               *, expected_revision: str = "") -> dict[str, Any]:
+    """把一篇四库笔记软删除到 `.torch-os/笔记回收站/<批次>/files/...`。
+
+    删除前同样校验 revision，避免在 Obsidian 里刚改过的内容被静默丢掉。
+    批次目录保留原始相对路径与 manifest，用户可以在文件管理器里找回；
+    应用内暂不提供恢复/清空入口。
+    """
+    vault = Path(vault_dir).resolve()
+    vault_layout.validate_target(relative)
+    source = safe_note_path(vault, relative)
+    loaded = load_note(source)
+    if not loaded["exists"]:
+        raise HTTPException(404, "笔记不存在")
+    if expected_revision and str(expected_revision) != loaded["revision"]:
+        raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再删除")
+    metadata, body = parse_text(loaded["raw"].decode("utf-8-sig"))
+
+    trash_root = vault / NOTE_TRASH_DIR
+    try:
+        trash_root.mkdir(parents=True, exist_ok=True)
+        # 与 source 一样，回收站本身也不能是链接，否则会移动到库外。
+        if not trash_root.resolve().is_relative_to(vault):
+            raise HTTPException(409, "笔记回收站目录不在库内，已停止删除")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        batch = trash_root / f"{stamp}-{secrets.token_hex(4)}"
+        parts = vault_layout.normalize_relpath(relative).split("/")
+        target = batch / "files" / Path(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, target)
+    except HTTPException:
+        raise
+    except OSError as error:
+        raise HTTPException(409, f"移入笔记回收站失败：{error}") from error
+
+    trash_path = _relative(vault, target)
+    manifest = {
+        "schema": 1,
+        "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "original_path": relative,
+        "trash_path": trash_path,
+        "title": str(metadata.get("title") or source.stem),
+        "chapter": vault_layout.chapter_key_of(relative),
+        "pillar": vault_layout.pillar_of(relative),
+        "excerpt": clean_fragment(body)[:160],
+    }
+    try:
+        (batch / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8", newline="\n")
+    except OSError:
+        # 文件已经安全移进回收站；manifest 只用于找回提示，不因它失败而谎报删除失败。
+        pass
+    return {
+        "deleted": True,
+        "path": relative,
+        "title": manifest["title"],
+        "trash_path": trash_path,
+        "trash_batch": _relative(vault, batch),
+    }
+
+
 def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[str, Any]]:
     """在四库笔记里找指向 target 的链接（wiki 全路径/文件名、相对 Markdown 链接）。"""
     vault = Path(vault_dir).resolve()
@@ -272,4 +339,5 @@ def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[
     return found
 
 
-__all__ = ["list_notes", "read_note", "create_note", "update_note", "move_note", "backlinks"]
+__all__ = ["list_notes", "read_note", "create_note", "update_note", "move_note",
+           "trash_note", "backlinks"]

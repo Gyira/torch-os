@@ -57,7 +57,19 @@
     `GET /api/notebooks`、`overview.custom_notebooks`、`/api/writing/chapters` 都包含
     自定义本子；章节 key `custom:<名字>`，本子内笔记仍走 `/api/writing/notes`。
     前端 `frontend/notebook-create.js` 负责创建对话框；名称校验/重复 409/只读 409；
-    内置本子名保留；删除/改名暂不提供。测试 `backend/tests/test_notebooks.py` 17 项。
+    内置本子名保留；本子文件夹的删除/改名暂不提供。测试 `backend/tests/test_notebooks.py` 17 项。
+  - **笔记跨本子移动与删除**：编辑器「本子」选择器保存时先写正文、再调用
+    `POST /api/writing/notes/move` 移动（固定章节 ↔ 自定义本子，同一库内）；
+    编辑页脚与阅读页新增删除入口，`POST /api/writing/notes/delete` 软删除到
+    `.torch-os/笔记回收站/<批次>/files/...`（带 revision 校验与 `note_deleted` 审计）。
+  - **「写点什么」统一写作入口**：人生路首页/页头不再分别提供「写今天的日记」「记一条反思」
+    和通用「写一条」，改为一个「写点什么」；打开后空白标题、默认分类随笔，保存前可改本子。
+    各本子页的「写一条」保留并默认指向该本子；随笔是不可删除的默认本子，固定章节保持不可删。
+  - **知识库自定义本子**：`/api/notebooks` 支持 `pillar=life|knowledge`；知识库 key
+    使用 `custom:knowledge:<名字>`，路径为 `03_知识库/<名字>/`。知识库首页「新建本子」
+    与自定义本子页「删除本子」已接入；删除整夹软删除到 `.torch-os/本子回收站`
+    （`confirm:true` + `notebook_deleted` 审计），固定章节不可删除。知识库自定义本子
+    同样出现在 `/api/writing/chapters`，可作为文档移动目标。
   - 文案/帮助同步：`README`、`FEATURE_MAP`、`WRITING_AND_KNOWLEDGE`、`WAKE_UP_START`、
     `frontend/help-content.js`。
   - 浏览器探针：v1 探针新增首页/本子/日记编辑器/知识库提问/**新建本子→进入空本子**检查；
@@ -399,7 +411,7 @@
   `.gitignore`，只在本机保留，不提交。
 - `browser_smoke.py` 是 legacy，仅用于失败报告测试；不要作为验收证据。
 - 旧的已移除 HTTP 路由对仓库外客户端会返回 404；清单见 `docs/DEPRECATIONS.md`。
-- 四库写入边界（2026-10-30）：人生路/知识库的允许章节和人生路自定义本子可在应用内写；
+- 四库写入边界（2026-10-30）：人生路/知识库的允许章节和两个库的自定义本子可在应用内写；
   自我档案/生活运营页面仍只读；复盘、体重/账目行、任务/习惯/身份仍走各自入口或 Obsidian。
 - 新库模板只建目录与模板文件（含 `.torch-os/vault-layout.json`），不拷贝任何旧数据；已有库不会
   自动补写这份清单或 `.obsidian` 预设——换布局仍要先备份再迁移，或新建库后把笔记搬过去。
@@ -407,8 +419,9 @@
   迁移后旧目录只做只读兜底、空目录保留。真实库这轮只搬了项目计划下的 2 个文件（见上）。
 - 首版仍不做复杂图谱、聊天页、WYSIWYG 富文本/图片附件编辑器；Markdown 深度编辑仍以
   Obsidian 为兜底，应用内提供全屏 Markdown 写作空间。
-- 自定义本子只支持创建/列出；删除/改名/移动请在 Obsidian 里做，避免误删目录；空本子
-  不进入 ZIP 备份，写入第一篇 Markdown 后随笔记备份。
+- 自定义本子支持创建/列出/整夹软删除（应用回收站在 `.torch-os/本子回收站`，暂不提供
+  应用内恢复/清空）；改名和跨库移动仍请在 Obsidian 里做。空本子不进入 ZIP 备份，
+  写入第一篇 Markdown 后随笔记备份。
 
 ## 验证命令
 
@@ -443,7 +456,7 @@ v1 探针检查工作台忆灵条、小组件显隐、写作保存、分享入�
 2. 回归真实 dsh 主对话 iframe、`/harness/` 的 HTTP + WebSocket 与 npx 首次启动提示
    （角色层真实模型 3 连调已于 2026-10-30 通过）。
 3. 用真实库做一次完整备份 → 恢复演练 → 视情况清理 deprecated 表（必须由用户确认）。
-4. 可选下一组产品功能：自定义本子的删除/改名（带确认/回收站）、本子排序/收藏、
+4. 可选下一组产品功能：自定义本子的改名/跨库移动、本子排序/收藏、回收站恢复界面、
    图片附件编辑器（本轮明确不做）。
 5. dsh 后续：12 个只读工具已接入（见 `docs/MCP_BRIDGE.md`）；还剩 dsh 的 OAuth 回调验证与
    模型/账号配置。dsh 升级时回归 `/harness/` 代理契约与角色层 headless 参数。

@@ -1,8 +1,19 @@
-// 人生路「新建本子」对话框（2026-10-30）。
-// 本子 = 00_人生路 下的文件夹；这里只负责收名字、调后端、刷新页面。
+// 人生路/知识库「新建本子」对话框（2026-10-30）。
+// 本子 = 库根目录下的文件夹；这里只负责收名字、调后端、刷新页面。
 import { api, toast } from "./core.js";
 
-const state = { onCreated: null, busy: false };
+const PILLAR_COPY = {
+  life: {
+    eyebrow: "人生路 · 新本子",
+    help: "会在 <code>00_人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
+  },
+  knowledge: {
+    eyebrow: "知识库 · 新本子",
+    help: "会在 <code>03_知识库/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
+  },
+};
+
+const state = { onCreated: null, busy: false, pillar: "life" };
 let initialized = false;
 
 function el(id) { return document.getElementById(id); }
@@ -47,7 +58,7 @@ export function initNotebookCreate() {
     try {
       const created = await api("/api/notebooks", {
         method: "POST",
-        body: JSON.stringify({ pillar: "life", name }),
+        body: JSON.stringify({ pillar: state.pillar, name }),
       });
       const callback = state.onCreated;
       closeDialog();
@@ -62,10 +73,16 @@ export function initNotebookCreate() {
   });
 }
 
-export function openNotebookCreateDialog(onCreated = null) {
+export function openNotebookCreateDialog(onCreated = null, { pillar = "life" } = {}) {
   initNotebookCreate();
   state.onCreated = onCreated;
   state.busy = false;
+  state.pillar = PILLAR_COPY[pillar] ? pillar : "life";
+  const copy = PILLAR_COPY[state.pillar];
+  const eyebrow = el("notebook-create-eyebrow");
+  if (eyebrow) eyebrow.textContent = copy.eyebrow;
+  const help = el("notebook-create-help");
+  if (help) help.innerHTML = copy.help;
   setStatus("");
   const input = el("notebook-create-name");
   if (input) input.value = "";

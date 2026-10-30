@@ -66,27 +66,33 @@
 ## 写作与知识库（1.0 P2）
 
 - `GET /api/writing/chapters`：应用内可写的章节清单（人生路 14 章 / 知识库 8 章）。
-- `POST /api/writing/notes`、`PUT /api/writing/notes`、`POST /api/writing/notes/move`：
-  新建/编辑/移动；只允许允许清单章节；`expected_revision` 冲突返回 409；所有写入审计；
-  `VAULT_READ_ONLY=1` 时 409。任务、习惯、身份、生活运营不在这里写。
+- `POST /api/writing/notes`、`PUT /api/writing/notes`、`POST /api/writing/notes/move`、
+  `POST /api/writing/notes/delete`：新建/编辑/移动/软删除；移动支持固定章节与自定义本子
+  （同一库内）；删除移到 `.torch-os/笔记回收站`，`expected_revision` 冲突返回 409；
+  所有写入审计；`VAULT_READ_ONLY=1` 时 409。任务、习惯、身份、生活运营不在这里写。
 - 今天的日记可直接在应用内写：`GET /api/journal/note?day=` 返回 `content` 与原始字节 `sha256`；
   `POST /api/journal/write` 带 `expected_sha` 只写今天，过去日记保持只读。
 - **人生路 / 知识库首页（2026-10-30）**：人生路首屏是「今天，写点什么？」+ 今日日记 +
   我的本子（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘）；知识库首屏是
   「今天想弄明白什么？」+ 打开 DeepSeek + 粘贴分享链接，本子网格在下方。
-- **自定义本子 = 文件夹**：`GET /api/notebooks` 列出 `00_人生路/` 下的自定义本子；
-  `POST /api/notebooks {pillar:"life", name}` 创建同名文件夹并写 `notebook_created` 审计。
-  本子章节 key 为 `custom:<文件夹名>`；`/api/pillars/life/overview` 返回
-  `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，
-  笔记仍走 `/api/writing/notes`。只允许人生路；名称不能和内置本子/章节重名；
-  删除/改名暂不提供。
+- **自定义本子 = 文件夹**：`GET /api/notebooks?pillar=life|knowledge` 列出对应库根目录
+  （`00_人生路/`、`03_知识库/`）下的自定义本子；`POST /api/notebooks {pillar,name}`
+  创建同名文件夹并写 `notebook_created` 审计。人生路 key 为 `custom:<名字>`，
+  知识库 key 为 `custom:knowledge:<名字>`；`/api/pillars/{pillar}/overview` 返回
+  `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，笔记仍走
+  `/api/writing/notes`。名称不能和内置本子/章节/库名重名；
+  笔记可在同一库的本子之间移动，也可软删除到 `.torch-os/笔记回收站`。
+  `POST /api/notebooks/delete {pillar,key,confirm:true}` 把自定义本子整夹软删除到
+  `.torch-os/本子回收站`；固定章节不能删除，本子改名/跨库移动仍不提供。
 - `POST /api/writing/classify`：AI 判类（写作伙伴/学术导师），AI 不可用时回退到
   `journal_inbox` 规则（含新增的 essay 随笔）；只返回卡片，不落盘。
 - `POST /api/writing/polish`：AI 润色，返回 `polished/changes`；前端预览后由用户点
   “应用到正文”，AI 不可用时拒绝、不改正文。
-- 前端：人生路/知识库页头「＋ 写一条」和阅读器「编辑」打开**全屏写作空间**
-  （大标题/大正文、H1–H3 与列表/引用/表格等工具栏、写作↔预览、专注模式、
-  字数/阅读时间、revision 冲突提示、在 Obsidian 打开）；今天的日记同样在这里直接写。
+- 前端：人生路首页只保留一个通用写作入口「写点什么」——空白标题、默认分类随笔，
+  保存前可改成任何本子；各本子页的「写一条」默认指向该本子。知识库页头「＋ 写一条」
+  和阅读器「编辑」同样打开**全屏写作空间**（大标题/大正文、H1–H3 与列表/引用/表格等工具栏、
+  写作↔预览、专注模式、字数/阅读时间、revision 冲突提示、在 Obsidian 打开）；
+  今天的日记仍从「今日日记」卡片进入并直接在应用内写。
 - 知识库首页把「今天想弄明白什么？」和「打开 DeepSeek 提问」「粘贴分享链接」放在第一屏；
   页头「问答」仍保留为快捷入口。
 - `POST /api/knowledge/share/preview|archive|digest`：只接受 `chat.deepseek.com/share/<id>`；

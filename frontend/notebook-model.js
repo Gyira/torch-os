@@ -70,18 +70,55 @@ export const KNOWLEDGE_NOTEBOOKS = Object.freeze([
   },
 ]);
 
+// 人生路只有一个「写点什么」入口：默认先落到随笔，写完再改本子。
+export const DEFAULT_LIFE_WRITE_CHAPTER = "essay";
+export const DEFAULT_KNOWLEDGE_WRITE_CHAPTER = "topic";
+
+export function defaultWriteChapter(pillar) {
+  return String(pillar || "") === "knowledge"
+    ? DEFAULT_KNOWLEDGE_WRITE_CHAPTER
+    : DEFAULT_LIFE_WRITE_CHAPTER;
+}
+
 const NOTEBOOKS = { life: LIFE_NOTEBOOKS, knowledge: KNOWLEDGE_NOTEBOOKS };
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export const CUSTOM_NOTEBOOK_PREFIX = "custom:";
+// 知识库使用更长的前缀，避免两个库出现同名本子时 key 冲突。
+export const KNOWLEDGE_NOTEBOOK_PREFIX = "custom:knowledge:";
+const CUSTOM_NOTEBOOK_PREFIXES = Object.freeze({
+  life: CUSTOM_NOTEBOOK_PREFIX,
+  knowledge: KNOWLEDGE_NOTEBOOK_PREFIX,
+});
 const CUSTOM_TONES = ["amber", "plum", "sage", "blue", "indigo", "rose", "slate"];
 
+/** 自定义本子 key → 所在库（life / knowledge）；不是本子 key 返回空串。 */
+export function customNotebookPillar(key) {
+  const value = String(key || "");
+  if (value.startsWith(KNOWLEDGE_NOTEBOOK_PREFIX)
+      && value.length > KNOWLEDGE_NOTEBOOK_PREFIX.length) {
+    return "knowledge";
+  }
+  if (value.startsWith(CUSTOM_NOTEBOOK_PREFIX)
+      && !value.startsWith(KNOWLEDGE_NOTEBOOK_PREFIX)
+      && value.length > CUSTOM_NOTEBOOK_PREFIX.length) {
+    return "life";
+  }
+  return "";
+}
+
 export function isCustomNotebookKey(key) {
-  return String(key || "").startsWith(CUSTOM_NOTEBOOK_PREFIX)
-    && String(key).length > CUSTOM_NOTEBOOK_PREFIX.length;
+  return Boolean(customNotebookPillar(key));
 }
 
 export function customNotebookName(key) {
-  return isCustomNotebookKey(key) ? String(key).slice(CUSTOM_NOTEBOOK_PREFIX.length) : "";
+  const pillar = customNotebookPillar(key);
+  if (!pillar) return "";
+  return String(key).slice(CUSTOM_NOTEBOOK_PREFIXES[pillar].length);
+}
+
+export function customNotebookKey(name, pillar = "life") {
+  const prefix = CUSTOM_NOTEBOOK_PREFIXES[pillar] || CUSTOM_NOTEBOOK_PREFIX;
+  return `${prefix}${String(name || "")}`;
 }
 
 function toneForName(name) {
@@ -99,16 +136,19 @@ function iconForName(name) {
 /** 自定义本子的最小定义；count/latest 由 overview 的 custom_notebooks 补齐。 */
 export function customNotebookDefinition(key) {
   const name = customNotebookName(key);
-  if (!name) return null;
+  const pillar = customNotebookPillar(key);
+  if (!name || !pillar) return null;
+  const root = pillar === "knowledge" ? "03_知识库" : "00_人生路";
   return {
     key: String(key),
     title: name,
     eyebrow: "MY NOTEBOOK",
     icon: iconForName(name),
     tone: toneForName(name),
-    description: `自建本子 · 00_人生路/${name}`,
+    description: `自建本子 · ${root}/${name}`,
     chapters: [String(key)],
     custom: true,
+    pillar,
   };
 }
 
@@ -314,8 +354,8 @@ export function lifeHeroState(overview = {}, today = "") {
     todayPath: week.find((item) => item.date === day)?.path || "",
     headline: written ? "今天已经留下一页。" : "今天，写点什么？",
     copy: written
-      ? "可以继续补充，也可以翻开一个本子。"
-      : "不必写完整。写一句今天的天气、心情，或者一件小事。",
+      ? "可以继续补今天的日记，也可以把新灵感先写进随笔。"
+      : "不必写完整。写一句今天的天气、心情，或者刚冒出的灵感。",
   };
 }
 

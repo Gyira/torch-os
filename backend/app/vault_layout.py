@@ -113,24 +113,26 @@ CHAPTER_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     ),
 }
 
-# 2026-10-30：人生路自定义本子 = 00_人生路 下的一个文件夹。
-# 固定章节仍然优先；不在固定一级目录里的直属文件夹都视为“我的本子”。
-# key 使用 `custom:<文件夹名>`，避免和固定章节 key 冲突。
+# 2026-10-30：自定义本子 = 某个库根目录下的一个文件夹。
+# 人生路使用 `custom:<文件夹名>`（兼容已有 key）；知识库使用
+# `custom:knowledge:<文件夹名>`，避免两个库出现同名本子时无法区分。
 CUSTOM_NOTEBOOK_PREFIX = "custom:"
+KNOWLEDGE_NOTEBOOK_PREFIX = f"{CUSTOM_NOTEBOOK_PREFIX}knowledge:"
 CUSTOM_NOTEBOOK_MAX_NAME = 48
+CUSTOM_NOTEBOOK_PILLARS = ("life", "knowledge")
 CUSTOM_NOTEBOOK_ROOT = PILLAR_DIRS["life"]
-LIFE_TOP_DIRS = frozenset(
-    item[3].split("/")[1] for item in CHAPTERS if item[1] == "life"
-)
+# 固定章节仍然优先；不在固定一级目录里的直属文件夹才视为“我的本子”。
+FIXED_TOP_DIRS = frozenset(item[3].split("/")[1] for item in CHAPTERS)
 _NOTEBOOK_FORBIDDEN = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
-_NOTEBOOK_FOLDED_TOP_DIRS = {name.casefold() for name in LIFE_TOP_DIRS}
-# 自定义本子不能和内置本子/章节同名，否则首页会出现两个「日记」。
-LIFE_RESERVED_NOTEBOOK_TITLES = frozenset(
-    {item[2] for item in CHAPTERS if item[1] == "life"}
-    | {group[1] for group in CHAPTER_GROUPS.get("life", ())}
+_NOTEBOOK_FOLDED_TOP_DIRS = {name.casefold() for name in FIXED_TOP_DIRS}
+# 自定义本子不能和任何内置本子/章节/库名同名，否则首页会出现两个「日记」。
+RESERVED_NOTEBOOK_TITLES = frozenset(
+    {item[2] for item in CHAPTERS}
+    | {group[1] for groups in CHAPTER_GROUPS.values() for group in groups}
+    | set(PILLAR_TITLES.values())
 )
 _NOTEBOOK_FOLDED_RESERVED_TITLES = {
-    title.casefold() for title in LIFE_RESERVED_NOTEBOOK_TITLES
+    title.casefold() for title in RESERVED_NOTEBOOK_TITLES
 }
 
 # v1 → v2 章节搬迁（只给迁移预览/执行用）：旧目录下的文件按相对子路径搬到新章节，
@@ -227,14 +229,17 @@ def chapter_key_of(relpath: str) -> str:
         if text == path or text.startswith(path + "/"):
             return item[0]
     custom = custom_notebook_name_from_relpath(normalized)
-    return custom_notebook_key(custom) if custom else ""
+    pillar = custom_notebook_pillar_of(relpath)
+    return custom_notebook_key(custom, pillar) if custom and pillar else ""
 
 
 def chapter_dir(chapter_key: str) -> str:
     value = str(chapter_key or "").strip()
-    if value.startswith(CUSTOM_NOTEBOOK_PREFIX):
+    pillar = custom_notebook_pillar(value)
+    if pillar:
+        name = custom_notebook_name(value)
         try:
-            return custom_notebook_path(value[len(CUSTOM_NOTEBOOK_PREFIX):])
+            return custom_notebook_path(name, pillar)
         except ValueError:
             return ""
     item = CHAPTER_BY_KEY.get(value)
@@ -261,7 +266,7 @@ def validate_notebook_name(value: Any) -> str:
         raise ValueError("本子名称不能包含 < > : \" / \\ | ? * # ^ [ ] 等字符")
     folded = text.casefold()
     if folded in _NOTEBOOK_FOLDED_TOP_DIRS:
-        raise ValueError("这个名称是人生路的固定章节目录，请换一个")
+        raise ValueError("这个名称是固定章节目录，请换一个")
     if folded in _NOTEBOOK_FOLDED_RESERVED_TITLES:
         raise ValueError("这个名称和内置本子/章节重名，请换一个")
     if folded in SKIP_DIRECTORIES:
@@ -271,33 +276,61 @@ def validate_notebook_name(value: Any) -> str:
     return text
 
 
-def custom_notebook_key(name: str) -> str:
-    return f"{CUSTOM_NOTEBOOK_PREFIX}{name}"
+def custom_notebook_key(name: str, pillar: str = "life") -> str:
+    """人生路沿用 `custom:<名字>`；知识库用 `custom:knowledge:<名字>`。"""
+    clean = validate_notebook_name(name)
+    if pillar == "knowledge":
+        return f"{KNOWLEDGE_NOTEBOOK_PREFIX}{clean}"
+    return f"{CUSTOM_NOTEBOOK_PREFIX}{clean}"
+
+
+def custom_notebook_pillar(chapter_key: str) -> str:
+    """自定义本子 key → life/knowledge；不是合法本子 key 返回空串。"""
+    value = str(chapter_key or "").strip()
+    if value.startswith(KNOWLEDGE_NOTEBOOK_PREFIX):
+        try:
+            validate_notebook_name(value[len(KNOWLEDGE_NOTEBOOK_PREFIX):])
+            return "knowledge"
+        except ValueError:
+            return ""
+    if value.startswith(CUSTOM_NOTEBOOK_PREFIX):
+        try:
+            validate_notebook_name(value[len(CUSTOM_NOTEBOOK_PREFIX):])
+            return "life"
+        except ValueError:
+            return ""
+    return ""
 
 
 def custom_notebook_name(chapter_key: str) -> str:
-    value = str(chapter_key or "").strip()
-    if not value.startswith(CUSTOM_NOTEBOOK_PREFIX):
+    pillar = custom_notebook_pillar(chapter_key)
+    if not pillar:
         return ""
-    try:
-        return validate_notebook_name(value[len(CUSTOM_NOTEBOOK_PREFIX):])
-    except ValueError:
-        return ""
+    prefix = KNOWLEDGE_NOTEBOOK_PREFIX if pillar == "knowledge" else CUSTOM_NOTEBOOK_PREFIX
+    return str(chapter_key).strip()[len(prefix):]
 
 
 def is_custom_notebook_key(chapter_key: str) -> bool:
-    return bool(custom_notebook_name(chapter_key))
+    return bool(custom_notebook_pillar(chapter_key))
 
 
-def custom_notebook_path(name: str) -> str:
-    return f"{CUSTOM_NOTEBOOK_ROOT}/{validate_notebook_name(name)}"
+def custom_notebook_path(name: str, pillar: str = "life") -> str:
+    if pillar not in CUSTOM_NOTEBOOK_PILLARS:
+        raise ValueError("只有人生路和知识库支持自定义本子")
+    return f"{PILLAR_DIRS[pillar]}/{validate_notebook_name(name)}"
+
+
+def custom_notebook_pillar_of(relpath: str) -> str:
+    """路径属于哪个库；只有人生路/知识库的自定义本子路径会返回 key 用的库。"""
+    pillar = pillar_of(relpath)
+    return pillar if pillar in CUSTOM_NOTEBOOK_PILLARS else ""
 
 
 def custom_notebook_name_from_relpath(relpath: str) -> str:
-    """00_人生路/<自定义文件夹>/... → 文件夹名；固定一级目录返回空串。"""
+    """<库>/<自定义文件夹>/... → 文件夹名；固定一级目录返回空串。"""
     text = normalize_relpath(relpath)
     parts = text.split("/")
-    if len(parts) < 2 or parts[0] != CUSTOM_NOTEBOOK_ROOT:
+    if len(parts) < 2 or custom_notebook_pillar_of(text) == "":
         return ""
     name = parts[1]
     if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
@@ -310,9 +343,12 @@ def custom_notebook_name_from_relpath(relpath: str) -> str:
         return ""
 
 
-def list_custom_notebooks(vault_dir: Path | str) -> list[str]:
-    """列出 00_人生路 下的自定义本子文件夹（不跟符号链接）。"""
-    root = Path(vault_dir) / CUSTOM_NOTEBOOK_ROOT
+def list_custom_notebooks(vault_dir: Path | str,
+                          pillar: str = "life") -> list[str]:
+    """列出某个库根目录下的自定义本子文件夹（不跟符号链接）。"""
+    if pillar not in CUSTOM_NOTEBOOK_PILLARS:
+        return []
+    root = Path(vault_dir) / PILLAR_DIRS[pillar]
     try:
         entries = list(root.iterdir())
     except OSError:

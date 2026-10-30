@@ -150,6 +150,20 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
     return note
 
 
+def delete_note(database: Database, vault_dir: Path | str, *, path: str,
+                expected_revision: str = "", read_only: bool = False) -> dict[str, Any]:
+    """软删除：只允许应用内可写章节；文件移进 `.torch-os/笔记回收站`。"""
+    chapter = _require_writable_path(path)
+    _ensure_custom_notebook_exists(vault_dir, chapter)
+    _ensure_write(read_only, "删除笔记")
+    result = pillar_notes.trash_note(
+        vault_dir, path, expected_revision=expected_revision)
+    database.audit("note_deleted", {"path": result.get("path", path),
+                                    "trash": result.get("trash_path", ""),
+                                    "chapter": chapter})
+    return result
+
+
 # ── AI 判类 / 润色 ────────────────────────────────────────────────────────
 
 class NoteCreateRequest(BaseModel):
@@ -179,6 +193,13 @@ class NoteMoveRequest(BaseModel):
 
     path: str = Field(min_length=1, max_length=2048)
     target_chapter: str = Field(min_length=1, max_length=120)
+    expected_revision: str = Field(default="", max_length=64)
+
+
+class NoteDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    path: str = Field(min_length=1, max_length=2048)
     expected_revision: str = Field(default="", max_length=64)
 
 
@@ -300,13 +321,16 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
             return [{"key": key, "title": CHAPTER_LABELS.get(key, key),
                      "path": vault_layout.chapter_dir(key)}
                     for key in sorted(keys)]
-        life = rows(LIFE_CHAPTERS)
-        # 自定义本子 = 00_人生路 下的文件夹；编辑器里和固定章节一样可选。
-        for name in vault_layout.list_custom_notebooks(vault_dir):
-            key = vault_layout.custom_notebook_key(name)
-            life.append({"key": key, "title": name,
-                         "path": vault_layout.chapter_dir(key), "custom": True})
-        return {"life": life, "knowledge": rows(KNOWLEDGE_CHAPTERS)}
+        result = {"life": rows(LIFE_CHAPTERS), "knowledge": rows(KNOWLEDGE_CHAPTERS)}
+        # 自定义本子 = 各库根目录下的文件夹；编辑器里和固定章节一样可作为移动目标。
+        for pillar in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
+            for name in vault_layout.list_custom_notebooks(vault_dir, pillar):
+                key = vault_layout.custom_notebook_key(name, pillar)
+                result[pillar].append({
+                    "key": key, "title": name,
+                    "path": vault_layout.chapter_dir(key), "custom": True,
+                })
+        return result
 
     @router.post("/writing/notes")
     def create(payload: NoteCreateRequest):
@@ -332,6 +356,13 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
             expected_revision=payload.expected_revision, read_only=read_only,
         )
 
+    @router.post("/writing/notes/delete")
+    def delete(payload: NoteDeleteRequest):
+        return delete_note(
+            database, vault_dir, path=payload.path,
+            expected_revision=payload.expected_revision, read_only=read_only,
+        )
+
     @router.post("/writing/classify")
     def classify(payload: ClassifyRequest):
         return classify_text(payload.text, day=payload.day, context=payload.context,
@@ -348,5 +379,5 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
 __all__ = [
     "LIFE_CHAPTERS", "KNOWLEDGE_CHAPTERS", "WRITABLE_CHAPTERS", "CHAPTER_LABELS",
     "chapter_pillar", "is_writable_chapter", "create_note", "update_note", "move_note",
-    "classify_text", "polish_text", "create_writing_router",
+    "delete_note", "classify_text", "polish_text", "create_writing_router",
 ]

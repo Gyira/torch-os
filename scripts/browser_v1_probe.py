@@ -97,6 +97,25 @@ async def run(base_url: str, port: int = 9334) -> dict:
             report["checks"]["life_home"] = life_home
             if not life_home.get("hero") or life_home.get("notebooks", 0) < 7 or not life_home.get("today_action"):
                 report["errors"].append("人生路首页主行动/本子网格不符合预期")
+
+            # 人生路统一写作入口：空白标题、默认随笔，不是日记模式。
+            await cdp.evaluate(
+                "document.querySelector('#life-view .life-hero-actions [data-editor-new=\"life\"]').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
+            write_something = await cdp.evaluate("""(() => ({
+                heading: document.querySelector('#note-editor-heading')?.textContent || '',
+                chapter: document.querySelector('#note-editor-chapter')?.value || '',
+                title: document.querySelector('#note-editor-title')?.value || '',
+                journal: document.querySelector('#note-editor-dialog')?.classList.contains('is-journal') || false,
+            }))()""")
+            report["checks"]["write_something"] = write_something
+            if (write_something.get("chapter") != "essay"
+                    or write_something.get("title")
+                    or write_something.get("journal")):
+                report["errors"].append("「写点什么」没有使用空白标题/随笔默认分类")
+            await cdp.evaluate("document.querySelector('#note-editor-close').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open !== true", timeout=10)
+
             await cdp.evaluate("document.querySelector('#life-view [data-editor-new=\"life\"][data-new-chapter=\"journal\"]').click()")
             await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
             report["checks"]["journal_editor"] = await cdp.evaluate("""(() => ({
@@ -131,6 +150,19 @@ async def run(base_url: str, port: int = 9334) -> dict:
                 title: document.querySelector('#life-view .notebook-page-heading h3')?.textContent || '',
                 write: Boolean(document.querySelector('#life-view .notebook-page [data-editor-new]')),
             }))()""")
+            # 本子里的「写一条」默认指向这个本子，而不是首页的随笔。
+            await cdp.evaluate(
+                "document.querySelector('#life-view .notebook-page [data-editor-new]').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
+            notebook_write = await cdp.evaluate("""(() => ({
+                chapter: document.querySelector('#note-editor-chapter')?.value || '',
+                title: document.querySelector('#note-editor-title')?.value || '',
+            }))()""")
+            report["checks"]["notebook_write_default"] = notebook_write
+            if notebook_name not in notebook_write.get("chapter", ""):
+                report["errors"].append("本子里的「写一条」没有默认指向该本子")
+            await cdp.evaluate("document.querySelector('#note-editor-close').click()")
+            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open !== true", timeout=10)
             await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]').click()")
             await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
             report["checks"]["notebook_card_visible"] = bool(await cdp.evaluate(
@@ -191,9 +223,11 @@ async def run(base_url: str, port: int = 9334) -> dict:
                 and report["checks"].get("widget_hidden")
                 and report["checks"].get("life_home", {}).get("hero")
                 and report["checks"].get("life_home", {}).get("notebooks", 0) >= 7
+                and report["checks"].get("write_something", {}).get("chapter") == "essay"
                 and report["checks"].get("journal_editor", {}).get("journal")
                 and report["checks"].get("notebook_page")
                 and report["checks"].get("notebook_created", {}).get("write")
+                and report["checks"].get("notebook_write_default", {}).get("chapter")
                 and report["checks"].get("notebook_card_visible")
                 and report["checks"].get("editor_saved")
                 and report["checks"].get("knowledge_home", {}).get("ask")

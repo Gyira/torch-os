@@ -38,7 +38,7 @@ const LIFE_CHAPTERS = [
 ].map(([key, title]) => ({ key, title, path: `00_人生路/${key}`, default_type: "note" }));
 
 const IMPORTS = {
-  "./core.js": ["$", "api", "escapeHtml", "formatRelativeDate", "state", "toast"],
+  "./core.js": ["$", "api", "confirmAction", "escapeHtml", "formatRelativeDate", "state", "toast"],
   "./pillar-markdown.js": ["renderMarkdownDocument"],
   "./pillar-ops.js": ["bindOpsEvents", "mountOps"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
@@ -47,14 +47,15 @@ const IMPORTS = {
   "./archive-markup.js": ["archiveMarkup"],
   "./journal-model.js": ["shanghaiDay"],
   "./journal-ritual.js": ["openJournalReview"],
-  "./note-editor.js": ["initNoteEditor", "invalidateChapterCache", "openNoteEditor"],
+  "./note-editor.js": ["deleteNoteFile", "initNoteEditor", "invalidateChapterCache", "openNoteEditor"],
   "./notebook-create.js": ["initNotebookCreate", "openNotebookCreateDialog"],
   "./share-link.js": ["initShareLink", "openDeepSeekAsk", "openShareLinkDialog"],
   "./roles.js": ["openRoleDrawer"],
   "./notebook-model.js": [
-    "buildNotebookCards", "greetingForHour", "journalHeading", "knowledgeHeroState",
-    "lifeHeroState", "mergeNotesByRecency", "noteCard", "noteCards", "notebookById",
-    "notebookForChapter", "notebookTotal", "subchaptersFor",
+    "DEFAULT_LIFE_WRITE_CHAPTER", "buildNotebookCards", "customNotebookName",
+    "customNotebookPillar", "defaultWriteChapter", "greetingForHour", "journalHeading",
+    "knowledgeHeroState", "lifeHeroState", "mergeNotesByRecency", "noteCard", "noteCards",
+    "notebookById", "notebookForChapter", "notebookTotal", "subchaptersFor",
   ],
   "./ops-ai.js": ["initOpsAI", "loadOpsAI"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],

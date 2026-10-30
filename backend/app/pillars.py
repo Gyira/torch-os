@@ -61,20 +61,21 @@ def _pillar_or_404(pillar: str) -> str:
     return key
 
 
-def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """自定义本子 = 00_人生路 下的直属文件夹；返回前端本子卡片需要的计数/最新一篇。"""
+def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
+                          pillar: str) -> list[dict[str, Any]]:
+    """自定义本子 = 库根目录下的直属文件夹；返回前端本子卡片需要的计数/最新一篇。"""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for note in notes:
         name = vault_layout.custom_notebook_name_from_relpath(str(note.get("path") or ""))
         if name:
             grouped.setdefault(name, []).append(note)
     rows: list[dict[str, Any]] = []
-    for name in vault_layout.list_custom_notebooks(vault_dir):
+    for name in vault_layout.list_custom_notebooks(vault_dir, pillar):
         mine = grouped.get(name, [])
         rows.append({
-            "key": vault_layout.custom_notebook_key(name),
+            "key": vault_layout.custom_notebook_key(name, pillar),
             "title": name,
-            "path": vault_layout.custom_notebook_path(name),
+            "path": vault_layout.custom_notebook_path(name, pillar),
             "count": len(mine),
             "latest": mine[0] if mine else None,
             "custom": True,
@@ -105,6 +106,8 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
         "recent": notes[:8],
         "count": len(notes),
     }
+    if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
+        payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
     if key == "life":
         today_date = shanghai_today()
         today = today_date.isoformat()
@@ -129,7 +132,6 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
             "habit_count": len(habits),
             "week": week,
         }
-        payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes)
     if key == "self":
         identity = read_identity(vault_dir)
         drafts = identity_inbox.list_drafts(vault_dir)

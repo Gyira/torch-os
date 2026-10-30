@@ -595,6 +595,7 @@
             <button id="note-editor-role" type="button" class="text-button">和写作伙伴聊聊</button>
           </div>
           <div class="editor-file-actions">
+            <button id="note-editor-delete" type="button" class="text-button editor-delete" hidden>删除</button>
             <button id="note-editor-obsidian" type="button" class="text-button">在 Obsidian 打开</button>
             <button id="note-editor-reload" type="button" class="text-button">重新载入</button>
           </div>
@@ -625,13 +626,13 @@
 <dialog id="notebook-create-dialog" class="notebook-create-dialog" aria-labelledby="notebook-create-title">
   <form id="notebook-create-form" class="notebook-create-form">
     <header class="notebook-create-head">
-      <div><p class="eyebrow">人生路 · 新本子</p><h2 id="notebook-create-title">新建本子</h2></div>
+      <div><p class="eyebrow" id="notebook-create-eyebrow">人生路 · 新本子</p><h2 id="notebook-create-title">新建本子</h2></div>
       <button type="button" id="notebook-create-close" class="small-button">关闭</button>
     </header>
     <div class="notebook-create-body">
       <label for="notebook-create-name">本子名称</label>
       <input id="notebook-create-name" type="text" maxlength="48" autocomplete="off" placeholder="例如：读书摘记">
-      <p class="field-help">会在 <code>00_人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。</p>
+      <p class="field-help" id="notebook-create-help">会在 <code>00_人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。</p>
       <p id="notebook-create-status" class="status-message" role="status"></p>
     </div>
     <footer class="notebook-create-foot">

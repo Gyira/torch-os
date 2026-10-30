@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   applyEditorAction, ensureJournalFrontMatter, isDirty, joinFrontMatter, normalizeBody,
-  prefixLines, splitFrontMatter, tagsFromInput, tagsToInput, wordCount, wrapSelection,
+  prefixLines, savePlan, splitFrontMatter, tagsFromInput, tagsToInput, wordCount,
+  wrapSelection,
 } from "../editor-model.js";
 
 test("bold wraps the selection and selects the inner text", () => {
@@ -68,4 +69,19 @@ test("dirty comparison normalizes CRLF and trailing spaces", () => {
 test("tag input trims separators and hashes", () => {
   assert.deepEqual(tagsFromInput(" #读书、复盘, code "), ["读书", "复盘", "code"]);
   assert.equal(tagsToInput(["读书", "复盘"]), "读书、复盘");
+});
+
+test("save plan writes content first and then moves to the selected notebook", () => {
+  assert.deepEqual(savePlan({
+    mode: "edit", dirty: true, currentChapter: "custom:甲本", targetChapter: "custom:乙本",
+  }), { saveContent: true, move: true, targetChapter: "custom:乙本" });
+  assert.deepEqual(savePlan({
+    mode: "edit", dirty: false, currentChapter: "reflection", targetChapter: "essay",
+  }), { saveContent: false, move: true, targetChapter: "essay" });
+  assert.deepEqual(savePlan({
+    mode: "edit", dirty: false, currentChapter: "essay", targetChapter: "essay",
+  }), { saveContent: false, move: false, targetChapter: "essay" });
+  assert.deepEqual(savePlan({
+    mode: "new", dirty: true, currentChapter: "", targetChapter: "essay",
+  }), { saveContent: false, move: false, targetChapter: "essay" });
 });
