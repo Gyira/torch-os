@@ -72,7 +72,7 @@ test("the three board views pick the right tasks", () => {
     ["今天的事", "逾期的事", "明天的事", "下周的事", "没日期的事"]);
   assert.deepEqual(titles(filterTasks(TASKS, "done", { today: TODAY })), ["已经做完的"]);
 
-  // 显示已完成：外部勾选后工作台里能直接看到勾上的那一行
+  // 打开「显示已完成」后，已完成任务也会留在原视图
   assert.deepEqual(titles(filterTasks(TASKS, "today", { today: TODAY, showDone: true })),
     ["今天的事", "别人清单的任务", "已经做完的"]);
   assert.deepEqual(titles(filterTasks(TASKS, "inbox", { today: TODAY, showDone: true })),
@@ -86,6 +86,28 @@ test("the three board views pick the right tasks", () => {
   assert.deepEqual(viewCounts(TASKS, { today: TODAY }), { today: 2, inbox: 5, done: 1 });
   assert.deepEqual(countBy(TASKS, "list_name"), { 收集箱: 5, 心愿清单: 1 });
   assert.deepEqual(countBy(TASKS, "tags"), { 心愿: 1 });
+});
+
+test("completed tasks leave the original view and only appear in done", () => {
+  const titles = (list) => list.map((item) => item.title);
+  const done = task({ title: "做完了", done: true, done_on: TODAY, date: TODAY });
+
+  // 默认（showDone=false）：任务从今天 / 收集箱消失，只出现在「已完成」。
+  assert.deepEqual(titles(filterTasks([done], "today", { today: TODAY })), []);
+  assert.deepEqual(titles(filterTasks([done], "inbox", { today: TODAY })), []);
+  assert.deepEqual(titles(filterTasks([done], "done", { today: TODAY })), ["做完了"]);
+  // 手动打开「显示已完成」才回到原视图。
+  assert.deepEqual(titles(filterTasks([done], "today", { today: TODAY, showDone: true })), ["做完了"]);
+
+  // 清单 / 标签视图同样默认隐藏已完成，打开开关才显示。
+  const inList = task({ title: "清单完成", list_name: "心愿清单", tags: ["学习"], done: true });
+  assert.equal(filterTasks([inList], "today", { today: TODAY, list: "心愿清单" }).length, 0);
+  assert.equal(filterTasks([inList], "today", { today: TODAY, list: "心愿清单", showDone: true }).length, 1);
+  assert.equal(filterTasks([inList], "today", { today: TODAY, tag: "学习" }).length, 0);
+  assert.equal(filterTasks([inList], "today", { today: TODAY, tag: "学习", showDone: true }).length, 1);
+
+  // 日历默认也不画已完成。
+  assert.deepEqual(tasksByDay([done], { showDone: false }), {});
 });
 
 test("grouping by time / list / tag / priority / created", () => {

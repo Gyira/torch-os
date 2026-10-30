@@ -31,8 +31,11 @@ const SIDEBAR_KEY = "torch-os:time-sidebar";
 const CAL_KEY = "torch-os:time-calendar";
 
 let board = null;          // 后端板面数据 {revision, lists, tags, tasks}
-// showDone 默认开：在 Obsidian 里勾完回到工作台，能直接看到勾上的那一行（也可以在工具栏关掉）。
-let viewState = { selection: { view: "today" }, group: "time", sort: "time", order: "old", showDone: true };
+// showDone 默认关：勾选完成后任务离开原视图，只进「已完成」；需要回看时可在工具栏打开。
+let viewState = {
+  selection: { view: "today" }, group: "time", sort: "time", order: "old",
+  showDone: false, schema: 2,
+};
 let collapsed = { views: false, lists: false, tags: false };
 let pending = { date: "", time: "", priority: "none", tags: [], list: "" };
 let calendar = {};   // 日历页：哪张视图、锚点哪天、档位、周起始、是否显示已完成（见 paintCalendar）
@@ -62,6 +65,19 @@ function writeStore(key, value) {
 
 export function initTimeModule() {
   viewState = readStore(VIEW_KEY, viewState);
+  // v2：已完成默认不在原视图里显示；旧的本机状态只迁移一次，之后仍可手动打开开关。
+  // 注意 readStore 会合并 fallback 的 schema，所以这里要单独看本机存的原始值。
+  let storedView = null;
+  try {
+    const raw = localStorage.getItem(VIEW_KEY);
+    storedView = raw ? JSON.parse(raw) : null;
+  } catch {
+    storedView = null;
+  }
+  if (!storedView || storedView.schema !== 2) {
+    viewState = { ...viewState, showDone: false, schema: 2 };
+    writeStore(VIEW_KEY, viewState);
+  }
   // 「最近 7 天」视图已取消；旧的本机状态回落到今天。
   if (viewState.selection?.view === "week") {
     viewState = { ...viewState, selection: { view: "today" } };
@@ -208,7 +224,7 @@ export function initTimeModule() {
     });
   });
 
-  // 显示已完成：默认开；在 Obsidian 里勾完回到工作台，能直接看到勾上的那一行。
+  // 显示已完成：默认关；勾完的任务离开原视图、只进「已完成」。打开后才会原位显示。
   const showDoneButton = $("#time-show-done");
   const syncShowDone = () => {
     if (!showDoneButton) return;

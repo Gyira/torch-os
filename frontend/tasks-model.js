@@ -79,10 +79,10 @@ export function relativeDay(day, today) {
 
 /**
  * 选中一个视图（或某个清单 / 标签）时，哪些任务进列表。
- * - today：今天到期（showDone 时连已完成的也留着，勾会立刻显示出来）
- * - inbox：收集箱（showDone 时含已完成）
+ * - today：今天到期（showDone 时连已完成的也留着，否则只看未完成）
+ * - inbox：收集箱（同上）
  * - done：所有已完成的
- * - list / tag：那个清单 / 标签下的全部（未完成在前，已完成也留着）
+ * - list / tag：那个清单 / 标签下的任务（默认只看未完成；showDone 时也含已完成）
  */
 export function filterTasks(tasks, view, options = {}) {
   const today = options.today || shanghaiDay();
@@ -93,10 +93,17 @@ export function filterTasks(tasks, view, options = {}) {
   const showDone = Boolean(options.showDone);
   const all = Array.isArray(tasks) ? tasks : [];
   if (goal) return all.filter((task) => task.goal === goal && (showDone || !task.done));
-  if (list) return all.filter((task) => !isHabitTask(task) && task.list_name === list);
-  if (tag) return all.filter((task) => !isHabitTask(task) && (task.tags || []).includes(tag));
+  if (list) {
+    return all.filter((task) => !isHabitTask(task) && task.list_name === list
+      && (showDone || !task.done));
+  }
+  if (tag) {
+    return all.filter((task) => !isHabitTask(task) && (task.tags || []).includes(tag)
+      && (showDone || !task.done));
+  }
   if (view === "inbox") {
-    return all.filter((task) => !isHabitTask(task) && (showDone || !task.done) && task.list_name === INBOX);
+    return all.filter((task) => !isHabitTask(task) && task.list_name === INBOX
+      && (showDone || !task.done));
   }
   if (view === "done") return all.filter((task) => task.done);
   return all.filter((task) => {
