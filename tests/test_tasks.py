@@ -467,6 +467,44 @@ def test_tags_update_notes_and_legacy_lines(tmp_path):
     assert "#要紧" not in config_file(tmp_path).read_text(encoding="utf-8")
 
 
+def test_tag_with_whitespace_is_matched_by_canonical_name(tmp_path):
+    """配置里的“工作 标签”和任务里的“工作标签”必须按同一个标签处理。
+
+    回归 2026-10-30：删除时只删了任务侧，配置侧还留着，界面提示“标签已删除”
+    但标签仍然出现。
+    """
+    client = make_client(tmp_path)
+    seed(tmp_path)
+    payload = board(client)
+    created = post(client, "/api/time/tags", {
+        "name": "工作 标签", "revision": payload["revision"]})
+    assert created.status_code == 200, created.text
+
+    payload = board(client)
+    assert next(tag for tag in payload["tags"] if tag["name"] == "工作标签")
+    task = post(client, "/api/time/tasks", {
+        "title": "空格标签任务", "tags": ["工作 标签"], "revision": payload["revision"]})
+    assert task.status_code == 200, task.text
+    payload = board(client)
+    assert find(payload, "空格标签任务")["tags"] == ["工作标签"]
+
+    # 编辑颜色时使用界面返回的规范名；配置里的旧名字也要被认出来并写回规范名。
+    updated = post(client, "/api/time/tags/update", {
+        "name": "工作标签", "color": "#ff0000", "revision": payload["revision"]})
+    assert updated.status_code == 200, updated.text
+    payload = board(client)
+    assert next(tag for tag in payload["tags"] if tag["name"] == "工作标签")["color"] == "#ff0000"
+
+    deleted = post(client, "/api/time/tags/delete", {
+        "name": "工作标签", "revision": payload["revision"]})
+    assert deleted.status_code == 200 and deleted.json()["tasks"] == 1
+    payload = board(client)
+    assert all(tag["name"] != "工作标签" for tag in payload["tags"])
+    assert find(payload, "空格标签任务")["tags"] == []
+    text = config_file(tmp_path).read_text(encoding="utf-8")
+    assert "工作 标签" not in text and "工作标签" not in text
+
+
 def test_bulk_actions_only_touch_new_notes(tmp_path):
     client = make_client(tmp_path)
     seed(tmp_path)

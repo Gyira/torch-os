@@ -298,10 +298,27 @@ def _clean_priority(value: str) -> str:
     return text
 
 
+def _tag_key(value: str) -> str:
+    """标签的规范名：不含空白、不带前导 #。
+
+    ``defined_tags`` / 任务笔记 / 旧任务行都按这个形式存标签；配置里的标签名
+    也必须用同一个规范名比较，否则“工作 标签”和“工作标签”会被当成两个标签，
+    删除时就会只删掉其中一份（2026-10-30 用户报“标签删不掉但提示已删除”）。
+    """
+    return re.sub(r"\s+", "", str(value or "")).lstrip("#").strip()
+
+
+def _clean_tag_name(value: str) -> str:
+    name = _tag_key(value)
+    if not name or len(name) > MAX_TAG_NAME or any(char in name for char in "#\n"):
+        raise HTTPException(422, f"标签名需要 1–{MAX_TAG_NAME} 个字，且不能带 #")
+    return name
+
+
 def _clean_tags(values: list[str] | None) -> list[str]:
     cleaned: list[str] = []
     for raw in values or []:
-        name = re.sub(r"\s+", "", str(raw or "")).lstrip("#").strip()
+        name = _tag_key(raw)
         if not name:
             continue
         if len(name) > MAX_TAG_NAME or any(char in name for char in "#\n"):
@@ -406,10 +423,10 @@ def defined_tags(loaded: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict):
-                name = re.sub(r"\s+", "", str(item.get("名称") or "").strip()).lstrip("#")
+                name = _tag_key(str(item.get("名称") or ""))
                 color, pinned = str(item.get("颜色") or "").strip(), item.get("置顶") is True
             else:
-                name = re.sub(r"\s+", "", str(item or "").strip()).lstrip("#")
+                name = _tag_key(str(item or ""))
                 color, pinned = "", False
             if not name or name in seen:
                 continue
@@ -627,6 +644,13 @@ def _entries(metadata: dict[str, Any], key: str) -> list[dict[str, Any]]:
 def _find_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     return next((entry for entry in entries
                  if str(entry.get("名称") or "").strip() == name), None)
+
+
+def _find_tag_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """按规范名找标签定义；兼容配置里带空格的旧名字。"""
+    key = _tag_key(name)
+    return next((entry for entry in entries
+                 if _tag_key(str(entry.get("名称") or "")) == key), None)
 
 
 def _base_metadata(loaded: dict[str, Any]) -> dict[str, Any]:
@@ -1404,10 +1428,10 @@ def create_tag(vault_dir: Path | str, payload: TagCreate, database: Database, *,
     _ensure_write(read_only, "新增标签")
     state = _read_state(vault_dir)
     _check_revision(payload.revision, state["revision"])
-    name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
+    name = _clean_tag_name(payload.name)
     metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
-    if _find_entry(entries, name):
+    if _find_tag_entry(entries, name):
         raise HTTPException(422, f"已经有叫“{name}”的标签了")
     entry: dict[str, Any] = {"名称": name}
     color = _clean_color(payload.color)
@@ -1439,18 +1463,23 @@ def update_tag(vault_dir: Path | str, payload: TagUpdate, database: Database, *,
     _ensure_write(read_only, "修改标签")
     state = _read_state(vault_dir)
     _check_revision(payload.revision, state["revision"])
-    old_name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
+    old_name = _clean_tag_name(payload.name)
     name = old_name
     metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
-    entry = _find_entry(entries, name)
+    entry = _find_tag_entry(entries, name)
     if entry is None:
         entry = {"名称": name}
         entries.append(entry)
-    new_name = _clean_name(payload.new_name, what="标签名", limit=MAX_TAG_NAME) if payload.new_name.strip() else ""
+    else:
+        # 兼容旧配置里带空白的标签名：一旦编辑就写回规范名。
+        entry["名称"] = name
+    new_name = _clean_tag_name(payload.new_name) if payload.new_name.strip() else ""
     rename = bool(new_name and new_name != old_name)
-    if rename and _find_entry(entries, new_name):
-        raise HTTPException(422, f"已经有叫“{new_name}”的标签了")
+    if rename:
+        conflict = _find_tag_entry(entries, new_name)
+        if conflict is not None and conflict is not entry:
+            raise HTTPException(422, f"已经有叫“{new_name}”的标签了")
     color = _clean_color(payload.color) if payload.color is not None else None
     renamed = 0
     if rename:
@@ -1484,12 +1513,12 @@ def delete_tag(vault_dir: Path | str, payload: NamedPayload, database: Database,
     _ensure_write(read_only, "删除标签")
     state = _read_state(vault_dir)
     _check_revision(payload.revision, state["revision"])
-    name = _clean_name(payload.name, what="标签名", limit=MAX_TAG_NAME)
+    name = _clean_tag_name(payload.name)
     metadata = _base_metadata(state["loaded"])
     entries = _entries(metadata, "标签")
-    entry = _find_entry(entries, name)
-    if entry is not None:
-        entries.remove(entry)
+    # 配置里可能有历史遗留的“工作 标签”；按规范名一并删掉，不能只删第一份。
+    entries[:] = [entry for entry in entries
+                  if _tag_key(str(entry.get("名称") or "")) != name]
     metadata["标签"] = entries
     touched = 0
     for note in state["notes"]:
