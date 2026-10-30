@@ -66,6 +66,10 @@ export function initTimeModule() {
   if (viewState.selection?.view === "week") {
     viewState = { ...viewState, selection: { view: "today" } };
   }
+  // 收集箱已从「清单管理」移到「任务看板」；旧书签若选的是收集箱清单，切回视图。
+  if (viewState.selection?.list === INBOX) {
+    viewState = { ...viewState, selection: { view: "inbox" } };
+  }
   collapsed = readStore(SIDEBAR_KEY, collapsed);
   calendar = readStore(CAL_KEY, calendar);
   // 添加栏的默认值跟着当前视图走：任务看板默认“今天”，清单/标签视图默认不带日期（照需求 ④）。

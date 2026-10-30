@@ -863,33 +863,41 @@ test("sidebar list colors use CSSOM and defined lists can be dragged into order"
   const container = getNode("#time-sidebar");
   const moves = [];
   renderTaskSidebar(container, {
-    tasks: [], folders: [], tags: [], selection: { list: "收集箱" },
+    tasks: [], folders: [], tags: [], selection: { view: "inbox" },
     lists: [
       { name: "收集箱", color: "#3b82f6", folder: "", pinned: true, synthetic: false },
-      { name: "心愿清单", color: "", folder: "", pinned: false, synthetic: false },
+      { name: "心愿清单", color: "#8b5cf6", folder: "", pinned: true, synthetic: false },
+      { name: "购物清单", color: "", folder: "", pinned: false, synthetic: false },
       { name: "自由清单", color: "", folder: "", pinned: false, synthetic: true },
     ],
     onListReorder: (payload) => moves.push(payload),
   });
+  // 收集箱是内置清单：只在任务看板里作为视图出现，不进清单管理。
+  const viewIds = walk(container)
+    .filter((node) => node.dataset.timeKind === "view")
+    .map((node) => node.dataset.timeId);
+  assert.deepEqual(viewIds, ["today", "inbox", "done"]);
   const rows = walk(container).filter((node) => node.dataset.listName);
-  assert.deepEqual(rows.map((row) => row.dataset.listName), ["收集箱", "心愿清单", "自由清单"]);
+  assert.deepEqual(rows.map((row) => row.dataset.listName), ["心愿清单", "购物清单", "自由清单"]);
 
   // 色点存在，颜色通过 CSSOM 的 style.setProperty 写入（页面 CSP 会丢弃 HTML 里的 style 属性）。
   const dots = walk(rows[0]).filter((node) => hasClass(node, "task-tag-dot"));
   assert.equal(dots.length, 1);
-  assert.equal(dots[0].style.getPropertyValue("--tag-color"), "#3b82f6");
-  // 置顶瓦片也走同一条通道，不再是灰点。
-  const pinnedDots = walk(byClass(container, "time-pinned-tile")[0])
+  assert.equal(dots[0].style.getPropertyValue("--tag-color"), "#8b5cf6");
+  // 置顶瓦片也走同一条通道，不再是灰点；收集箱不进入置顶区。
+  const pinnedTiles = byClass(container, "time-pinned-tile");
+  assert.equal(pinnedTiles.length, 1);  // 只有心愿清单；收集箱被排除
+  const pinnedDots = walk(pinnedTiles[0])
     .filter((node) => hasClass(node, "task-tag-dot"));
   assert.equal(pinnedDots.length, 1);
-  assert.equal(pinnedDots[0].style.getPropertyValue("--tag-color"), "#3b82f6");
+  assert.equal(pinnedDots[0].style.getPropertyValue("--tag-color"), "#8b5cf6");
 
   // 定义过的清单可拖；目录里捡到的合成清单不可拖，避免排序无处可写。
   assert.equal(rows[0].draggable, true);
   assert.equal(rows[1].draggable, true);
   assert.equal(Boolean(rows[2].draggable), false);
 
-  // 把「收集箱」拖到「心愿清单」上面：落点在上半部分 → before = 心愿清单。
+  // 把「心愿清单」拖到「购物清单」上面：落点在上半部分 → before = 购物清单。
   container.querySelectorAll = () => rows;
   const dragData = new Map();
   const transfer = {
@@ -900,7 +908,7 @@ test("sidebar list colors use CSSOM and defined lists can be dragged into order"
   await rows[0].emit("dragstart", { dataTransfer: transfer });
   await rows[1].emit("dragover", { dataTransfer: transfer, clientY: 10, preventDefault() {} });
   await rows[1].emit("drop", { dataTransfer: transfer, clientY: 10, preventDefault() {} });
-  assert.deepEqual(moves.map((move) => ({ ...move })), [{ name: "收集箱", before: "心愿清单" }]);
+  assert.deepEqual(moves.map((move) => ({ ...move })), [{ name: "心愿清单", before: "购物清单" }]);
   assert.equal(hasClass(rows[0], "is-list-dragging"), false);
   assert.equal(hasClass(rows[1], "is-reorder-before"), false);
 });

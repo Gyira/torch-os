@@ -232,11 +232,14 @@ export function renderTaskSidebar(container, options) {
   const listCounts = countBy(tasks, "list_name");
   const tagCounts = countBy(tasks, "tags");
   const view = selection.view || (selection.list || selection.tag ? "" : "today");
+  // 收集箱是内置清单、不能删除；它只作为「任务看板」里的收集箱视图出现，
+  // 不放进「清单管理」，避免和用户清单混在一起并暴露删除/改名操作。
+  const managedLists = lists.filter((entry) => entry.name !== INBOX);
 
   container.replaceChildren();
 
   // 置顶区（模块左上角的瓦片，点击直达；照滴答图 9）
-  const pinned = pinnedItems(lists, tags);
+  const pinned = pinnedItems(managedLists, tags);
   if (pinned.length) {
     const box = document.createElement("div");
     box.className = "time-pinned";
@@ -277,7 +280,7 @@ export function renderTaskSidebar(container, options) {
   // 二、清单管理（根级清单 + 文件夹 > 清单）
   const listBody = group(container, {
     label: "清单管理", collapsed: collapsed.lists, onToggle: () => onToggleGroup("lists"),
-    hint: `${lists.length} 个`, onAdd: onAddList, addLabel: "添加清单",
+    hint: `${managedLists.length} 个`, onAdd: onAddList, addLabel: "添加清单",
   });
   const listDrag = { current: null }; // 本次渲染共享：拖拽源与落点在两个行闭包里
   const pushList = (host, entry) => {
@@ -304,7 +307,7 @@ export function renderTaskSidebar(container, options) {
     });
     bindListDrag(container, row, entry, listDrag, { onListReorder });
   };
-  for (const tree of listTree(lists, folders)) {
+  for (const tree of listTree(managedLists, folders)) {
     if (!tree.folder) {
       for (const entry of tree.lists) pushList(listBody, entry);
       continue;
