@@ -738,44 +738,58 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-stats-label { font-size: .7em; margin-top: 4px; color: var(--p-banner-ink); letter-spacing: .02em; }
 .banner-stats-hero .banner-stats-label { margin-top: 0; }
 .banner-stats-icon { font-size: .85em; display: flex; align-items: center; color: var(--banner-accent, var(--p-banner-accent)); filter: drop-shadow(0 1px 3px var(--p-banner-shadow)); }
-.banner-stats-strip { display: flex; flex-direction: column; gap: 4px; font-size: .62em; color: var(--p-banner-dim); line-height: 1.2; }
-.banner-stats-strip-item { display: flex; align-items: center; gap: 4px; }
-.banner-stats-strip-item i { font-style: normal; font-size: 12px; opacity: .85; }
-/* 多行热力图（2026-10-31）：7 行 × 最近 14 天；每行一个维度，最后一行为总热度。 */
-.banner-heatmap { margin: 0; width: 100%; max-width: none; height: 100%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.banner-heatmap-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; font-size: .68em; color: var(--p-banner-dim); line-height: 1; }
-.banner-heatmap-legend { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; }
-.banner-heat-swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--p-banner-cell); }
-.banner-heat-swatch.level-1 { background: var(--banner-heat-color, var(--p-heat)); opacity: .35; }
-.banner-heat-swatch.level-2 { background: var(--banner-heat-color, var(--p-heat)); opacity: .55; }
-.banner-heat-swatch.level-3 { background: var(--banner-heat-color, var(--p-heat)); opacity: .78; }
-.banner-heat-swatch.level-4 { background: var(--banner-heat-color, var(--p-heat)); opacity: 1; }
-.banner-heatmap-row { flex: 1 1 0; display: grid; grid-template-columns: 60px minmax(0, 1fr); align-items: stretch; gap: 8px; min-width: 0; min-height: 0; }
-.banner-heatmap-label { display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78em; color: var(--p-banner-ink-soft); line-height: 1.05; text-align: left; }
-.banner-heatmap-row.is-total .banner-heatmap-label { color: var(--p-banner-num); font-weight: 700; }
-.banner-heatmap-cells { display: flex; align-items: stretch; justify-content: space-between; gap: 4px; min-width: 0; }
-.banner-heat-cell { flex: 1 1 0; width: auto; min-width: 3px; height: auto; align-self: stretch; border-radius: 3px; background: var(--p-banner-cell); }
-.banner-heat-cell.level-1 { background: var(--banner-heat-color, var(--p-heat)); opacity: .35; }
-.banner-heat-cell.level-2 { background: var(--banner-heat-color, var(--p-heat)); opacity: .55; }
-.banner-heat-cell.level-3 { background: var(--banner-heat-color, var(--p-heat)); opacity: .78; }
-.banner-heat-cell.level-4 { background: var(--banner-heat-color, var(--p-heat)); opacity: 1; }
+.banner-stats-strip { display: flex; flex-direction: column; gap: 5px; font-size: .7em; color: var(--p-banner-dim); line-height: 1.15; }
+.banner-stats-strip-item { display: flex; align-items: center; gap: 5px; }
+.banner-stats-strip-item i { font-style: normal; font-size: 11px; opacity: .9; }
+/* 多行热力图（2026-10-31 v2，照 GitHub 贡献日历）：一行一个维度、一格一天。
+   格子是正方形 + 固定小间距，整块按内容居中；不再把格子拉成长方形铺满。
+   列用共享网格：所有行的标签列/格子列对齐，表头的说明与图例正好压在块的左右边。 */
+.banner-heatmap {
+  --banner-heat-cell: clamp(10px, 1vw, 18px);
+  --banner-heat-gap: 3px;
+  display: grid;
+  grid-template-columns: 52px auto;
+  align-content: center;
+  justify-content: center;
+  gap: 6px 10px;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+.banner-heatmap-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 14px; font-size: 11px; letter-spacing: .01em; color: var(--p-banner-dim); line-height: 1; }
+.banner-heatmap-legend { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; white-space: nowrap; }
+.banner-heat-swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--p-banner-cell); }
+.banner-heat-swatch.level-1 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 38%, transparent); }
+.banner-heat-swatch.level-2 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 62%, transparent); }
+.banner-heat-swatch.level-3 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 84%, transparent); }
+.banner-heat-swatch.level-4 { background: var(--banner-heat-color, var(--p-heat)); }
+.banner-heatmap-row { display: contents; }
+.banner-heatmap-label { display: flex; align-items: center; justify-content: flex-end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; letter-spacing: .01em; color: var(--p-banner-dim); line-height: 1; text-align: right; }
+.banner-heatmap-row.is-total .banner-heatmap-label { color: var(--p-banner-ink); font-weight: 600; }
+.banner-heatmap-cells { display: flex; align-items: center; gap: var(--banner-heat-gap); min-width: 0; }
+.banner-heat-cell { flex: 0 0 var(--banner-heat-cell); width: var(--banner-heat-cell); height: var(--banner-heat-cell); border-radius: 2px; background: var(--p-banner-cell); transition: filter .12s ease; }
+.banner-heat-cell.level-1 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 38%, transparent); }
+.banner-heat-cell.level-2 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 62%, transparent); }
+.banner-heat-cell.level-3 { background: color-mix(in srgb, var(--banner-heat-color, var(--p-heat)) 84%, transparent); }
+.banner-heat-cell.level-4 { background: var(--banner-heat-color, var(--p-heat)); }
 .banner-heat-cell.today { box-shadow: 0 0 0 1.5px var(--p-banner-ring); }
-.banner-heat-cell.is-future { opacity: .28; }
+.banner-heat-cell.is-future { opacity: .3; }
+.banner-heat-cell:hover { filter: brightness(1.18); }
 .banner-stats-prog { display: flex; flex-direction: column; gap: 2px; }
-.banner-stats-prog-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.banner-stats-prog-title { font-size: .62em; color: var(--p-banner-ink-soft); }
-.banner-stats-prog-val { font-size: .8em; font-weight: 700; color: var(--p-banner-num); font-variant-numeric: tabular-nums; }
-.banner-stats-prog-track { height: 4px; margin-top: 1px; border-radius: 2px; background: var(--p-banner-track); overflow: hidden; }
+.banner-stats-prog-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; line-height: 1.15; }
+.banner-stats-prog-title { font-size: .7em; color: var(--p-banner-ink-soft); }
+.banner-stats-prog-val { font-size: .84em; font-weight: 700; color: var(--p-banner-num); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.banner-stats-prog-track { height: 3px; margin-top: 1px; border-radius: 2px; background: var(--p-banner-track); overflow: hidden; }
 .banner-stats-prog-fill { height: 100%; border-radius: 2px; background: var(--banner-accent, var(--p-banner-accent)); transition: width .6s ease; }
 .banner-stats-prog.is-heat .banner-stats-prog-fill { background: var(--banner-heat-color, var(--p-heat)); }
 @media (max-width: 900px) {
   .banner-stats { padding: 32px 14px 9px; }
   .banner-stats-left { flex: 0 1 142px; }
   .banner-stats-right { flex: 0 1 206px; }
-  .banner-heatmap { gap: 4px; }
-  .banner-heatmap-row { grid-template-columns: 56px minmax(0, 1fr); gap: 6px; min-height: 0; }
-  .banner-heatmap-cells { gap: 3px; }
-  .banner-heat-swatch { flex-basis: 8px; width: 8px; height: 8px; }
+  .banner-heatmap { grid-template-columns: 48px auto; gap: 6px 8px; }
+  .banner-heat-swatch { width: 9px; height: 9px; }
 }
 @media (max-width: 820px) {
   /* 中等宽度先收起左侧数字列，保证热力图有足够横向空间。 */
@@ -789,9 +803,8 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
   .banner-stats-left, .banner-stats-right { display: none; }
   .banner-stats-center { flex: 1 1 auto; }
   .banner-stats-col + .banner-stats-col::before { display: none; }
-  .banner-heatmap { gap: 4px; }
-  .banner-heatmap-row { grid-template-columns: 50px minmax(0, 1fr); gap: 5px; min-height: 0; }
-  .banner-heatmap-cells { gap: 2px; }
+  .banner-heatmap { grid-template-columns: 44px auto; gap: 6px 7px; --banner-heat-cell: clamp(9px, 2.6vw, 13px); }
+  .banner-heatmap-head { font-size: 10px; gap: 10px; }
   .banner-tool-collapse { display: none; } /* 手机端不做 4px 收起 */
 }
 /* 横幅工具条（2026-10-31）：统计/图片切换、回看、编辑、收起收进一枚半透明胶囊；
