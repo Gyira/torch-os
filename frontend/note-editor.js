@@ -841,6 +841,26 @@ function applyNote(note) {
   if (note.pillar) state.context = note.pillar === "knowledge" ? "knowledge" : "life";
 }
 
+/**
+ * 保存成功后把「编辑器里的正文」记为已保存版本。
+ * 后端会去掉正文首尾空白并补文件结尾换行，parse 回来可能比 textarea 少一个换行；
+ * 若直接拿服务端 body 当 savedBody，会立刻被 dirty() 判成未保存，返回时误弹确认框。
+ * 与任务文档保持一致：savedBody 记提交的规范化正文，不回写 textarea（避免光标跳动）。
+ */
+function applySavedNote(note, submittedBody = null) {
+  applyNote(note);
+  if (submittedBody !== null) {
+    const normalized = normalizeBody(submittedBody);
+    state.body = normalized;
+    state.savedBody = normalized;
+  }
+  const titleInput = el("note-editor-title");
+  if (titleInput && titleInput.value !== state.title) titleInput.value = state.title;
+  const tagsInput = el("note-editor-tags");
+  if (tagsInput) tagsInput.value = tagsToInput(state.tags);
+  syncChapterSelect();
+}
+
 function syncChapterSelect() {
   const select = el("note-editor-chapter");
   if (select && state.chapter) select.value = state.chapter;
@@ -1155,7 +1175,7 @@ async function saveNote() {
         };
       }
       // 先把正文落盘，再移动文件；移动失败时内容已经保存，只需要重试移动。
-      applyNote(note);
+      applySavedNote(note, body);
       if (plan.move) {
         try {
           note = await api("/api/writing/notes/move", {
@@ -1177,8 +1197,7 @@ async function saveNote() {
         }
       }
     }
-    applyNote(note);
-    syncChapterSelect();
+    applySavedNote(note, body);
     setStatus(moved ? "已保存并移动到新本子。" : "已保存。", "success");
     toast(moved ? "笔记已保存并移动。" : "笔记已保存。", "success");
     dispatchNotesChanged(note, previousPath);
