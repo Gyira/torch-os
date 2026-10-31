@@ -177,7 +177,17 @@ function heatLegendHtml() {
   return `<span class="banner-heatmap-legend" aria-hidden="true"><span>少</span>${swatches}<span>多</span></span>`;
 }
 
-/** 统计模式：左列大数字+底部小条 / 中列 7 行 × 28 天热力图 / 右列进度条。 */
+/** 按屏宽选择可见天数：格子铺满中间区域，同时保证每个格子不会细到看不清。 */
+export function heatDaysForWidth(width) {
+  const value = Number(width) || 0;
+  if (value >= 1200) return 42;
+  if (value >= 900) return 28;
+  if (value >= 700) return 24;
+  if (value >= 480) return 21;
+  return 14;
+}
+
+/** 统计模式：左列大数字+底部小条 / 中列铺满的 7 行热力图 / 右列进度条。 */
 export function statsHtml(stats, options = {}) {
   const number = (key) => {
     const value = stats ? Number(stats[key]) : NaN;
@@ -188,10 +198,8 @@ export function statsHtml(stats, options = {}) {
   const details = options.details !== false;
   const leftStat = ["notes", "memories", "open", "files"].includes(options.leftStat)
     ? options.leftStat : "notes";
-  const centerStat = options.centerStat === "percent" ? "percent" : "streak";
 
   const notes = number("notes");
-  const streak = number("journal_streak");
   const percent = number("today_percent");
   const dailyDone = number("daily_done");
   const dailyTotal = number("daily_total");
@@ -207,21 +215,18 @@ export function statsHtml(stats, options = {}) {
     open: [openTodos, "待办"],
     files: [todayDocs, "今日新增"],
   };
-  const centerMap = {
-    streak: [streak, "天 · 连续日记"],
-    percent: [percent, "% · 今日完成度"],
-  };
   const [leftValue, leftLabel] = leftMap[leftStat];
-  const [centerValue, centerLabel] = centerMap[centerStat];
 
   const heatmap = stats?.heatmap && Array.isArray(stats.heatmap.rows)
     ? stats.heatmap : null;
-  const heatDays = Math.max(1, Number(heatmap?.days) || 28);
+  const availableDays = Math.max(1, Number(heatmap?.days) || 28);
+  const requestedDays = Number(options.heatDays) || availableDays;
+  const heatDays = Math.max(1, Math.min(availableDays, requestedDays));
   const heatRows = heatmap
     ? heatmap.rows.map((row) => {
       const key = String(row.key || "");
       const label = String(row.label || HEAT_ROWS.find(([name]) => name === key)?.[1] || key);
-      const cells = (row.cells || []).map(heatCellHtml).join("");
+      const cells = (row.cells || []).slice(-heatDays).map(heatCellHtml).join("");
       return `<div class="banner-heatmap-row${key === "total" ? " is-total" : ""}">` +
         `<span class="banner-heatmap-label">${esc(label)}</span>` +
         `<div class="banner-heatmap-cells">${cells}</div></div>`;
@@ -250,9 +255,6 @@ export function statsHtml(stats, options = {}) {
       `<span class="banner-stats-strip-item"><i aria-hidden="true">${icon}</i>${esc(line)}</span>`).join("")}</div>` : "",
     "</div>",
     '<div class="banner-stats-col banner-stats-center">',
-    `<div class="banner-stats-center-head"><span class="banner-stats-icon" aria-hidden="true">✍️</span>` +
-      `<span class="banner-stats-num">${text(centerValue)}</span>` +
-      `<span class="banner-stats-label">${esc(centerLabel)}</span></div>`,
     details ? `<div class="banner-heatmap" role="img" aria-label="${esc(heatHead)}">` +
       `<div class="banner-heatmap-head"><span>${esc(heatHead)}</span>${heatLegendHtml()}</div>` +
       `${heatRows}</div>` : "",
@@ -304,7 +306,10 @@ export function applyBanner(element, payload, stats) {
   }
   if (statsBox) {
     statsBox.hidden = !showStats;
-    if (showStats) statsBox.innerHTML = statsHtml(stats, banner);
+    if (showStats) {
+      const width = typeof window !== "undefined" ? window.innerWidth : 1280;
+      statsBox.innerHTML = statsHtml(stats, { ...banner, heatDays: heatDaysForWidth(width) });
+    }
   }
   return banner;
 }

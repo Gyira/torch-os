@@ -336,6 +336,16 @@ export function initWorkbench() {
   initBannerCollapse();
   $("#workbench-banner-mode").addEventListener("click", toggleBannerMode);
   $("#workbench-banner-mode").addEventListener("dblclick", (event) => event.stopPropagation());
+  // 热力图按屏宽取最近 14–42 天铺满区域；窗口变化时只重画横幅，不重新请求。
+  let bannerResizeTimer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(bannerResizeTimer);
+    bannerResizeTimer = window.setTimeout(() => {
+      if (current && current.banner_mode === "stats") {
+        applyBanner($("#workbench-banner"), current, bannerStats);
+      }
+    }, 150);
+  });
   // 回看：数据看板弹窗（日/周/月/年）。按钮绑定在 heatmap-board.js 里。
   initHeatmapBoard();
   initVisibleWidgets();

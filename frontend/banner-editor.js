@@ -15,6 +15,9 @@ let source = null; // 最近一次 payload 里的 { revision, banner }
 // 新选的本机图片用 data URL 立即预览（CSP 允许 data:），保存后统一从 /api/identity/hero?i=N 读。
 let heroItems = [];
 let uploading = false;
+// 中间主位已从界面移除（2026-10-31 用户要求热力图铺满）；保存时保留旧值，
+// 避免一次普通保存把历史设置冲掉。
+let centerStatValue = "streak";
 
 export function setBannerSource(payload) {
   source = { revision: String(payload?.revision || ""), banner: normalizeBanner(payload) };
@@ -128,7 +131,7 @@ function fillForm(banner) {
   $("#banner-focal-y").value = String(Math.round(Number(numbers[1]) || 50));
   $("#banner-accent").value = banner.accent || "#bff038";
   $("#banner-left-stat").value = banner.leftStat;
-  $("#banner-center-stat").value = banner.centerStat;
+  centerStatValue = banner.centerStat;
   $("#banner-blur").value = String(banner.blur);
   $("#banner-darkness").value = String(banner.darkness);
   $("#banner-details").checked = banner.details;
@@ -230,7 +233,7 @@ export function initBannerEditor(onSaved) {
   $("#banner-cancel").addEventListener("click", () => dialog.close());
   ["#banner-overlay", "#banner-focal-x", "#banner-focal-y", "#banner-mottos",
    "#banner-accent", "#banner-blur", "#banner-darkness", "#banner-left-stat",
-   "#banner-center-stat", "#banner-font"].forEach((selector) => $(selector).addEventListener("input", updatePreview));
+   "#banner-font"].forEach((selector) => $(selector).addEventListener("input", updatePreview));
   $("#banner-details").addEventListener("change", updatePreview);
 
   $("#banner-hero-list").addEventListener("click", (event) => {
@@ -269,7 +272,7 @@ export function initBannerEditor(onSaved) {
         banner_blur: Number($("#banner-blur").value) || 0,
         banner_darkness: Number($("#banner-darkness").value) || 0,
         banner_left_stat: $("#banner-left-stat").value,
-        banner_center_stat: $("#banner-center-stat").value,
+        banner_center_stat: centerStatValue,
         banner_details: Boolean($("#banner-details").checked),
         banner_font: safeFont($("#banner-font").value),
         revision: source.revision,

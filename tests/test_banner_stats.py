@@ -67,8 +67,8 @@ def test_router_payload_reports_our_own_numbers(tmp_path):
     # 待办 2（今天完成 1）+ 每日必做 1（未勾）+ 日记文件存在 → 2/4 = 50%
     assert payload["today_percent"] == 50
     assert payload["memories"] == 0 and payload["notes"] == 0
-    # 热力图原料：最近 14 天，今天写了两篇日记文件里的这一篇 → activity_today ≥ 1
-    assert len(payload["activity"]) == 28
+    # 热力图原料：最近 56 天，今天写了两篇日记文件里的这一篇 → activity_today ≥ 1
+    assert len(payload["activity"]) == 56
     assert payload["activity"][-1]["day"] == TODAY
     assert payload["activity_today"] >= 1
     assert all(set(item) == {"day", "count"} for item in payload["activity"])
@@ -77,7 +77,7 @@ def test_router_payload_reports_our_own_numbers(tmp_path):
     assert [row["key"] for row in heatmap["rows"]] == [
         "life", "knowledge", "self", "todo_created", "todo_done", "habits", "total"]
     assert heatmap["rows"][0]["label"] == "人生路"
-    assert len(heatmap["rows"][0]["cells"]) == 28
+    assert len(heatmap["rows"][0]["cells"]) == 56
     assert heatmap["rows"][-1]["cells"][-1]["today"] is True
     assert payload["heatmap_storage"]["status"] in {"written", "unchanged"}
     assert (tmp_path / "vault" / ".obsidian" / "torch-os-heatmap" / "daily"

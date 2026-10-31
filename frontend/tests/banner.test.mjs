@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import {
   normalizeBanner, imageSrc, quotesHtml, statsHtml, startRotation, backdropVars,
   ROTATION_MINUTES, safeFont, firstFontName, BANNER_FONT_GROUPS,
-  parseMottos, mottoText,
+  parseMottos, mottoText, heatDaysForWidth,
 } from "../banner.js";
 
 test("normalize fills defaults, trims entries and clamps the overlay", () => {
@@ -144,7 +144,8 @@ test("stats render the seven-row heatmap, progress rows and today's total", () =
     heatmap: heatmapFixture(4),
   });
   assert.ok(html.includes("banner-stats-left") && html.includes("banner-stats-center") && html.includes("banner-stats-right"));
-  assert.ok(html.includes("连续日记") && html.includes("资料") && html.includes("今日总热度"));
+  assert.ok(html.includes("资料") && html.includes("今日总热度"));
+  assert.equal(html.includes("连续日记"), false); // 用户要求删掉中间“✍️ 连续日记”
   assert.ok(html.includes("75%"));
   assert.ok(html.includes("3/5") && html.includes("1/2"));
   assert.ok(html.includes("level-4")); // 今天那格是 100%
@@ -165,6 +166,20 @@ test("stats render the seven-row heatmap, progress rows and today's total", () =
   assert.equal(empty.includes("NaN"), false);
   assert.ok(empty.includes("banner-stats-center")); // 无数据也保持三列骨架
   assert.equal((empty.match(/banner-heatmap-row/g) || []).length, 7); // 读取中也有七行占位
+});
+
+test("heatmap fills the area by choosing recent days for the current width", () => {
+  assert.equal(heatDaysForWidth(1440), 42);
+  assert.equal(heatDaysForWidth(1024), 28);
+  assert.equal(heatDaysForWidth(768), 24);
+  assert.equal(heatDaysForWidth(520), 21);
+  assert.equal(heatDaysForWidth(390), 14);
+
+  const stats = { heatmap: heatmapFixture(4), heat_score: 0.5, activity_today: 2 };
+  const html = statsHtml(stats, { heatDays: 14 });
+  assert.equal((html.match(/banner-heat-cell/g) || []).length, 7 * 14);
+  assert.ok(html.includes("近 14 天 · 每格一天"));
+  assert.equal(html.includes("banner-stats-center-head"), false);
 });
 
 test("rotation cycles through images on the injected schedule and skips single images", () => {

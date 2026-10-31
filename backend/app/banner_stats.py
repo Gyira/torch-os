@@ -1,4 +1,4 @@
-"""横幅统计（工作台 2.0）：统计模式的大数字 + 7 行 × 28 天热力图。
+"""横幅统计（工作台 2.0）：统计模式的大数字 + 7 行热力图（后端 56 天，前端按屏宽铺满）。
 
 - 连续日记天数：从今天往回数，连续存在 `00_人生路/01_日记/YYYY-MM-DD.md` 的天数
   （上限一年；旧库自动兜底 `02-Life/journal`）；
@@ -25,7 +25,7 @@ from .journal_note import note_abspath
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_STREAK = 366
-BANNER_HEAT_DAYS = 28
+BANNER_HEAT_DAYS = 56
 
 
 def journal_streak(vault_dir: Path | str, day: str) -> int:
@@ -52,8 +52,9 @@ def collect_banner_stats(database: Database, vault_dir: Path | str,
     todos = payload.get("todos") or []
     daily = payload.get("daily") or []
 
-    # 横幅热力图：最近 28 天 × 7 行。详细版顺手把今天的文档/习惯清单存档到
-    # .obsidian/torch-os-heatmap/daily/，这样“回看”时能直接翻到当天新增了什么。
+    # 横幅热力图：最近 56 天 × 7 行；前端按可用宽度取最近的 14–42 天铺满区域。
+    # 详细版顺手把今天的文档/习惯清单存档到 .obsidian/torch-os-heatmap/daily/，
+    # 这样“回看”时能直接翻到当天新增了什么。
     end = date.fromisoformat(target)
     start = end - timedelta(days=BANNER_HEAT_DAYS - 1)
     ledger = heatmap.load_ledger(vault_dir)
