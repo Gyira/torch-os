@@ -37,6 +37,21 @@
 
 ## 已完成
 
+- **2026-10-31 工作台横幅统计模式重做 + 热力数据看板**：
+  - 统计模式改成 7 行 × 28 天热力图：人生路 / 知识库 / 自我档案 / 任务创建 / 任务完成 /
+    习惯完成 / 总热度；五档 0/25/50/75/100。计数行每 4 篇（项）满格；习惯按当天完成比例；
+    总热度取各行等权平均，没有任务或当天没有计划习惯时相应行不参与，避免单一区域顶满总分。
+  - 人生路不把习惯追踪目录（习惯定义、打卡表、生成索引）算成新增文档；今天的习惯数来自
+    `HabitService.daily_progress`，工作台每次重画都会重新取 `/api/banner/stats`，不再只取第一次。
+  - 新建 `backend/app/heatmap.py` + `GET /api/heatmap/board`（日/周/月/年），每天新建文档的
+    创建日写入 `<个人数据库>/.obsidian/torch-os-heatmap/file-created.json`，周期快照写入
+    `daily/weekly/monthly/yearly`；README 说明规则与目录。读取端不写库、只读模式跳过存档。
+  - 横幅右上角新增统一胶囊工具条：一键图片/统计切换（`POST /api/identity/banner/mode`）、
+    回看数据看板、编辑、收起；统计横幅加高到 218px，28 天热力图在 1360px 与窄屏下都不溢出。
+  - 前端新增 `heatmap-board-model.js`（纯渲染，node 直测）与 `heatmap-board.js`（弹窗/取数）；
+    看板日视图带月历与当天文档/习惯明细，周视图 7×7，月视图日历+汇总，年视图 12 个月卡。
+  - 测试：后端 `tests/test_heatmap.py`、`tests/test_banner_stats.py`、`tests/test_identity_banner.py`；
+    前端 `frontend/tests/heatmap-board-model.test.mjs`、`frontend/tests/banner.test.mjs`。
 - **2026-10-31 取消人生路「今晚复盘」**：
   - 移除 `frontend/pillars.js` 里的三处入口（首页 hero、今天也可以卡、旧「今天」卡）和
     `[data-journal-review]` 点击处理；删除 `frontend/journal-ritual.js`、

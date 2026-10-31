@@ -120,3 +120,47 @@ tags: [dsh]
 我每个新话题开一个新会话（这个工作区里），靠四库而不是聊天记录继承上下文。
 如果我说“接着上次/继续”，先跑简报、看最近归档与最近改动，再用三行确认你接上了什么；
 话题结束时，如果我愿意，可以让你把结论归档成一条反思或一篇知识笔记（仍需我确认）。
+
+## 5. 版本号与发布（改代码时）
+
+规则全文：`docs/VERSIONING.md`；下面是必须记住的部分。
+
+**格式**：`主版本 . 功能版本 . 修订版本`（`x.y.z`）。版本号只表示发布批次，
+**不表示数据兼容**；旧库能不能直接用看 `LAYOUT_VERSION` / SQLite `user_version`。
+
+**什么时候升**
+
+| 改动 | 升哪一位 |
+|---|---|
+| 新系统、新二级分区、新页面、一组新入口；一批 ≥300 行用户可见新能力 | y |
+| 已有页面内的小功能、文案、样式、可访问性、Bug 修复 | z |
+| 纯重构（行为不变）、纯测试/文档/脚本/格式化、merge | 不升 |
+| `LAYOUT_VERSION`、数据目录、DB schema、已发布 API/Markdown 字段的破坏性变更 | x |
+
+**频率上限**（按本仓库 7 次/天、1–3 个功能批次/天的节奏）：
+
+- y：**同一自然周最多 +1**；一周内多个功能共用一个 y，没赶上的并入下一周。
+- z：**同一天最多 +1**；当天已有 y 就不再发 z（z 归零）。
+- x：不按时间，只在兼容性真的破了时升；功能多不等于要升 x。
+- **不要每个 commit 都升版**；拿不准往小里升。
+
+**发布时 6 个落点必须一次对齐**（发布提交只放版本号与摘要，不夹带功能代码）：
+
+1. `backend/app/application.py` → `APP_VERSION`；
+2. `README.md` 首行 `· x.y` + `## x.y 更新摘要（日期）`；
+3. `docs/WAKE_UP_START.md` → “这份说明对应运行中的 x.y 版”与检查项 `x.y.z`；
+4. `obsidian-plugin/manifest.json` → `version`；
+5. `obsidian-plugin/main.js` 首行、`obsidian-plugin/README.md` 标题；
+6. `docs/STATUS.md` 快照（版本/测试数/能力数/章节数）；`docs/VAULT_TEMPLATE.md`
+   的 `plugin_version` 示例同步。
+
+**验证与收尾**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_docs_contract.py -q
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1
+git tag vX.Y.Z        # 建议从下一次发布开始
+```
+
+提交信息用 `chore(release): vX.Y.Z`。多天未完成的大功能可用 `x.y.0-rc.N` 只在本地/
+分支标记，不进 README 与插件 manifest；合并发布时去掉后缀。

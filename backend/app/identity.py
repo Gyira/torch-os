@@ -15,7 +15,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -261,6 +261,14 @@ def _hero_image_path(vault_dir: Path | str, relative: str) -> Path:
     return resolved
 
 
+class BannerModeWrite(BaseModel):
+    """横幅上的一键切换：只改 banner_mode，不动图片、座右铭或其它字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["quote", "stats"]
+
+
 class BannerWrite(BaseModel):
     """工作台横幅（2026-10-05）：座右铭、图片列表、遮罩深浅、焦点、模式与字体——都写回 身份（identity）.md。"""
 
@@ -358,6 +366,36 @@ def write_banner(vault_dir: Path | str, payload: BannerWrite, *,
     return read_identity(vault_dir)
 
 
+def write_banner_mode(vault_dir: Path | str, mode: str, *,
+                      read_only: bool = False) -> dict[str, Any]:
+    """只翻转 banner_mode，保留身份笔记的其它 front-matter 与正文。
+
+    横幅上的切换按钮不该要求用户先拿到 revision（那会让“一键”变成两步），
+    而它只写一个键，冲突时保留文件里其它字段的最后内容。
+    """
+    try:
+        ensure_vault_writable(read_only, "切换横幅模式")
+    except VaultReadOnlyError as error:
+        raise HTTPException(409, str(error)) from error
+    if mode not in ("quote", "stats"):
+        raise HTTPException(422, "横幅模式只能是 quote 或 stats")
+    path = _identity_path(vault_dir)
+    current = path.read_bytes() if path.is_file() else None
+    metadata, body = (_split_front_matter(current.decode("utf-8", errors="replace"))
+                      if current else ({}, ""))
+    metadata["type"] = metadata.get("type") or "identity"
+    metadata["updated_at"] = utc_now()
+    metadata["visibility"] = metadata.get("visibility") or "private"
+    metadata["banner_mode"] = mode
+    text = ("---\n" + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)
+            + "---\n\n" + (body or "\n"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+    return read_identity(vault_dir)
+
+
 def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["identity"])
 
@@ -423,6 +461,10 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
     @router.put("/identity/banner")
     def identity_banner(payload: BannerWrite):
         return write_banner(vault_dir, payload, read_only=read_only)
+
+    @router.post("/identity/banner/mode")
+    def identity_banner_mode(payload: BannerModeWrite):
+        return write_banner_mode(vault_dir, payload.mode, read_only=read_only)
 
     @router.post("/identity/banner/image")
     async def identity_banner_image(file: UploadFile = File(...)):

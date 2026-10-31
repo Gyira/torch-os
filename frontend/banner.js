@@ -139,7 +139,45 @@ export function mottoText(mottos) {
     .join("\n\n");
 }
 
-/** 统计模式（照 Apex Dashboard 的 stats banner 1:1）：左列大数字+底部小条 / 中列主位+热力图 / 右列三行进度条。 */
+const HEAT_ROWS = Object.freeze([
+  ["life", "人生路"],
+  ["knowledge", "知识库"],
+  ["self", "自我档案"],
+  ["todo_created", "任务创建"],
+  ["todo_done", "任务完成"],
+  ["habits", "习惯"],
+  ["total", "总热度"],
+]);
+
+function heatCellHtml(cell) {
+  const level = Math.max(0, Math.min(4, Number(cell?.level) || 0));
+  const classes = [
+    "banner-heat-cell",
+    level ? `level-${level}` : "is-empty",
+    cell?.today ? "today" : "",
+    cell?.future ? "is-future" : "",
+  ].filter(Boolean).join(" ");
+  const title = esc(cell?.title || cell?.date || "");
+  return `<span class="${classes}" title="${title}"></span>`;
+}
+
+function heatFallbackRows(days = 28) {
+  const cells = Array.from({ length: days }, () =>
+    '<span class="banner-heat-cell is-empty"></span>');
+  return HEAT_ROWS.map(([key, label]) =>
+    `<div class="banner-heatmap-row${key === "total" ? " is-total" : ""}">` +
+    `<span class="banner-heatmap-label">${esc(label)}</span>` +
+    `<div class="banner-heatmap-cells">${cells.join("")}</div></div>`).join("");
+}
+
+function heatLegendHtml() {
+  const swatches = [0, 1, 2, 3, 4]
+    .map((level) => `<i class="banner-heat-swatch${level ? ` level-${level}` : " is-empty"}"></i>`)
+    .join("");
+  return `<span class="banner-heatmap-legend" aria-hidden="true"><span>少</span>${swatches}<span>多</span></span>`;
+}
+
+/** 统计模式：左列大数字+底部小条 / 中列 7 行 × 28 天热力图 / 右列进度条。 */
 export function statsHtml(stats, options = {}) {
   const number = (key) => {
     const value = stats ? Number(stats[key]) : NaN;
@@ -160,13 +198,14 @@ export function statsHtml(stats, options = {}) {
   const habitDone = number("habits_done");
   const habitTotal = number("habits_total");
   const openTodos = number("open_todos");
-  const todayFiles = number("activity_today");
+  const todayDocs = number("activity_today");
+  const heatScore = Math.max(0, Math.min(100, Math.round((Number(stats?.heat_score) || 0) * 100)));
 
   const leftMap = {
     notes: [notes, "资料"],
     memories: [number("memories"), "记忆"],
     open: [openTodos, "待办"],
-    files: [todayFiles, "今日文件"],
+    files: [todayDocs, "今日新增"],
   };
   const centerMap = {
     streak: [streak, "天 · 连续日记"],
@@ -175,27 +214,30 @@ export function statsHtml(stats, options = {}) {
   const [leftValue, leftLabel] = leftMap[leftStat];
   const [centerValue, centerLabel] = centerMap[centerStat];
 
-  // 热力图：最近 14 天的活动量分 4 级（0 = 空），今天描边。
-  const activity = Array.isArray(stats?.activity) ? stats.activity : [];
-  const counts = activity.map((item) => Number(item.count) || 0);
-  const max = Math.max(1, ...counts);
-  const level = (count) => (count <= 0 ? 0
-    : count <= max * 0.25 ? 1 : count <= max * 0.5 ? 2 : count <= max * 0.75 ? 3 : 4);
-  const today = String(stats?.day || "");
-  const heatmap = activity.map((item) => {
-    const count = Number(item.count) || 0;
-    const rank = level(count);
-    const classes = ["banner-heat-cell", rank ? `level-${rank}` : "", item.day === today ? "today" : ""]
-      .filter(Boolean).join(" ");
-    return `<div class="${classes}"></div>`;
-  }).join("");
+  const heatmap = stats?.heatmap && Array.isArray(stats.heatmap.rows)
+    ? stats.heatmap : null;
+  const heatDays = Math.max(1, Number(heatmap?.days) || 28);
+  const heatRows = heatmap
+    ? heatmap.rows.map((row) => {
+      const key = String(row.key || "");
+      const label = String(row.label || HEAT_ROWS.find(([name]) => name === key)?.[1] || key);
+      const cells = (row.cells || []).map(heatCellHtml).join("");
+      return `<div class="banner-heatmap-row${key === "total" ? " is-total" : ""}">` +
+        `<span class="banner-heatmap-label">${esc(label)}</span>` +
+        `<div class="banner-heatmap-cells">${cells}</div></div>`;
+    }).join("")
+    : heatFallbackRows(heatDays);
+  const heatHead = heatmap
+    ? `近 ${heatDays} 天 · 每格一天${heatmap.truncated ? " · 部分数据" : ""}`
+    : "热力图读取中";
 
   const strip = [
-    ["📄", `今天动过 ${text(todayFiles ?? 0)} 个文件`],
+    ["📄", `今天新增 ${text(todayDocs ?? 0)} 篇`],
     ["✅", `待办还差 ${text(openTodos ?? 0)} 项`],
     ["🔥", `每日必做 ${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`],
   ];
   const progress = [
+    ["今日总热度", `${text(heatScore)}%`, heatScore],
     ["今日完成度", `${text(percent ?? 0)}%`, percent ?? 0],
     ["每日必做", `${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`, pct(dailyDone ?? 0, dailyTotal ?? 0)],
     ["习惯打卡", `${text(habitDone ?? 0)}/${text(habitTotal ?? 0)}`, pct(habitDone ?? 0, habitTotal ?? 0)],
@@ -208,9 +250,12 @@ export function statsHtml(stats, options = {}) {
       `<span class="banner-stats-strip-item"><i aria-hidden="true">${icon}</i>${esc(line)}</span>`).join("")}</div>` : "",
     "</div>",
     '<div class="banner-stats-col banner-stats-center">',
-    `<div class="banner-stats-hero"><span class="banner-stats-icon" aria-hidden="true">✍️</span><span class="banner-stats-num">${text(centerValue)}</span><span class="banner-stats-label">${esc(centerLabel)}</span></div>`,
-    details ? `<div class="banner-stats-sub">今日完成度 ${text(percent ?? 0)}% · 记忆 ${text(number("memories"))} 条</div>` +
-      `<div class="banner-heatmap">${heatmap}</div>` : "",
+    `<div class="banner-stats-center-head"><span class="banner-stats-icon" aria-hidden="true">✍️</span>` +
+      `<span class="banner-stats-num">${text(centerValue)}</span>` +
+      `<span class="banner-stats-label">${esc(centerLabel)}</span></div>`,
+    details ? `<div class="banner-heatmap" role="img" aria-label="${esc(heatHead)}">` +
+      `<div class="banner-heatmap-head"><span>${esc(heatHead)}</span>${heatLegendHtml()}</div>` +
+      `${heatRows}</div>` : "",
     "</div>",
     '<div class="banner-stats-col banner-stats-right">',
     progress.map(([label, value, fill]) =>
@@ -243,6 +288,16 @@ export function applyBanner(element, payload, stats) {
   element.style.setProperty("--banner-scrim-alpha", backdrop.scrim);
   const showStats = banner.mode === "stats";
   element.classList.toggle("banner-stats-mode", showStats);
+  element.dataset.bannerMode = showStats ? "stats" : "quote";
+  const modeButton = element.querySelector("#workbench-banner-mode");
+  if (modeButton) {
+    modeButton.dataset.mode = showStats ? "stats" : "quote";
+    modeButton.setAttribute("aria-pressed", String(showStats));
+    modeButton.setAttribute("aria-label", showStats ? "切换到图片模式" : "切换到统计模式");
+    modeButton.title = showStats ? "切回图片模式" : "切换到统计模式";
+    const label = modeButton.querySelector(".banner-tool-text");
+    if (label) label.textContent = showStats ? "图片" : "统计";
+  }
   if (quotes) {
     quotes.hidden = showStats;
     quotes.innerHTML = quotesHtml(banner.mottos);

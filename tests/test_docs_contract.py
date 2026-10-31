@@ -1,5 +1,6 @@
 """Documentation cannot drift: the handbook, capability list and version labels are checked."""
 
+import json
 import re
 from pathlib import Path
 
@@ -35,6 +36,12 @@ def test_release_documents_name_the_running_version():
     assert readme.strip() == f'# 薪火OS（Torch OS）· {series}', readme
     wake = (ROOT / 'docs' / 'WAKE_UP_START.md').read_text(encoding='utf-8')
     assert f'这份说明对应运行中的 {series} 版' in wake
+
+
+def test_plugin_manifest_matches_the_running_version():
+    """发布清单第 4 个落点：插件 manifest 与 APP_VERSION 必须一致。"""
+    manifest = json.loads((ROOT / 'obsidian-plugin' / 'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['version'] == APP_VERSION, manifest['version']
 
 
 def test_restore_drill_document_keeps_its_evidence_shape():

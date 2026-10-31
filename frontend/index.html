@@ -40,8 +40,23 @@
           <div class="banner-overlay" aria-hidden="true"></div>
           <div id="workbench-mottos" class="banner-quote"></div>
           <div id="workbench-banner-stats" class="banner-stats" hidden></div>
-          <button id="workbench-banner-edit" class="banner-edit-btn" type="button" aria-label="编辑横幅">✎</button>
-          <button id="workbench-banner-collapse" class="banner-collapse-btn" type="button" aria-label="收起或展开横幅" aria-expanded="true">▾</button>
+          <div class="banner-tools" role="group" aria-label="横幅工具">
+            <button id="workbench-banner-mode" class="banner-tool banner-tool-mode" type="button" aria-label="切换到统计模式" aria-pressed="false" title="切换到统计模式" data-mode="quote">
+              <svg class="banner-tool-icon icon-mode-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/></svg>
+              <svg class="banner-tool-icon icon-mode-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 18 5.2-5.2a2 2 0 0 1 2.8 0L20 20"/></svg>
+              <span class="banner-tool-text">统计</span>
+            </button>
+            <button id="workbench-banner-review" class="banner-tool banner-tool-review" type="button" aria-label="回看数据看板" aria-haspopup="dialog" aria-controls="heatmap-dialog" title="回看数据看板">
+              <svg class="banner-tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>
+              <span class="banner-tool-text">回看</span>
+            </button>
+            <button id="workbench-banner-edit" class="banner-tool banner-tool-icon-only" type="button" aria-label="编辑横幅" title="编辑横幅">
+              <svg class="banner-tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L20 8l-4-4L4 16v4Z"/><path d="m14 6 4 4"/></svg>
+            </button>
+            <button id="workbench-banner-collapse" class="banner-tool banner-tool-icon-only banner-tool-collapse" type="button" aria-label="收起或展开横幅" aria-expanded="true" title="收起或展开横幅">
+              <svg class="banner-tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </div>
         </section>
         <div class="workbench-head-row">
           <!-- 左侧小组件栏：默认放天气、倒计时、纪念日与值班；和右侧一样可拖拽，也可以整卡拖到另一栏。 -->
@@ -556,10 +571,10 @@
       <div class="field"><label for="banner-focal-y">焦点纵向 %</label><input id="banner-focal-y" type="range" min="0" max="100" step="1" value="50" /></div>
       <div class="field"><label for="banner-accent">强调色（默认荧光绿）</label><input id="banner-accent" type="color" value="#bff038" /></div>
     </div>
-    <fieldset class="banner-mode-field"><legend>横幅模式</legend><label class="check-label"><input type="radio" name="banner-mode" value="quote" checked />引言（座右铭）</label><label class="check-label"><input type="radio" name="banner-mode" value="stats" />统计（连续日记 / 完成度 / 记忆）</label></fieldset>
+    <fieldset class="banner-mode-field"><legend>横幅模式</legend><label class="check-label"><input type="radio" name="banner-mode" value="quote" checked />引言（座右铭）</label><label class="check-label"><input type="radio" name="banner-mode" value="stats" />统计（七行热力图 / 习惯 / 总热度）</label></fieldset>
     <fieldset class="banner-mode-field"><legend>统计设置（只在统计模式生效）</legend>
       <div class="form-grid">
-        <div class="field"><label for="banner-left-stat">左侧数字</label><select id="banner-left-stat"><option value="notes">资料数</option><option value="memories">记忆数</option><option value="open">待办数</option><option value="files">今日动过文件</option></select></div>
+        <div class="field"><label for="banner-left-stat">左侧数字</label><select id="banner-left-stat"><option value="notes">资料数</option><option value="memories">记忆数</option><option value="open">待办数</option><option value="files">今日新增文档</option></select></div>
         <div class="field"><label for="banner-center-stat">中间主位</label><select id="banner-center-stat"><option value="streak">连续日记</option><option value="percent">今日完成度</option></select></div>
       </div>
       <div class="form-grid">
@@ -570,6 +585,33 @@
     </fieldset>
     <div class="form-actions"><span id="banner-feedback" class="status-message" role="status" aria-live="polite"></span><button id="banner-cancel" class="button secondary" type="button">取消</button><button id="banner-save" class="button primary" type="submit">保存</button></div>
   </form>
+</dialog>
+<dialog id="heatmap-dialog" class="heatmap-dialog" aria-labelledby="heatmap-dialog-title">
+  <header class="heatmap-dialog-head">
+    <div>
+      <p class="eyebrow">DATA · REVIEW</p>
+      <h2 id="heatmap-dialog-title">数据看板</h2>
+      <p class="field-help">写作热力图 · 一天一格；颜色越深，完成度越高。</p>
+    </div>
+    <button id="heatmap-close" class="small-button" type="button">关闭</button>
+  </header>
+  <div class="heatmap-toolbar">
+    <div class="heatmap-tabs" role="tablist" aria-label="看板视图">
+      <button type="button" data-heatmap-view="day" role="tab" aria-selected="true" class="is-active">日</button>
+      <button type="button" data-heatmap-view="week" role="tab" aria-selected="false">周</button>
+      <button type="button" data-heatmap-view="month" role="tab" aria-selected="false">月</button>
+      <button type="button" data-heatmap-view="year" role="tab" aria-selected="false">年</button>
+    </div>
+    <div class="heatmap-nav">
+      <button id="heatmap-prev" class="heatmap-nav-btn" type="button" aria-label="上一段">‹</button>
+      <span id="heatmap-period" class="heatmap-period" role="status">正在读取…</span>
+      <button id="heatmap-next" class="heatmap-nav-btn" type="button" aria-label="下一段">›</button>
+      <button id="heatmap-today" class="text-button" type="button">回到今天</button>
+    </div>
+  </div>
+  <p id="heatmap-status" class="status-message" role="status" hidden></p>
+  <div id="heatmap-content" class="heatmap-content" aria-live="polite"></div>
+  <footer id="heatmap-foot" class="heatmap-foot"></footer>
 </dialog>
 <aside id="role-drawer" class="role-drawer" hidden aria-label="AI 角色对话">
   <div class="role-drawer-head">

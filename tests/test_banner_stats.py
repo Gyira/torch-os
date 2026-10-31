@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.app.application import create_app
 from backend.app.banner_stats import journal_streak
 from backend.app.db import Database
+from backend.app.habits import HabitCreate, HabitService, HabitToggle
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TODAY = datetime.now(SHANGHAI).date().isoformat()
@@ -23,9 +24,10 @@ def make_client(tmp_path):
 
 
 def write_note(tmp_path, day):
-    path = tmp_path / "vault" / "02-Life" / "journal" / f"{day}.md"
+    path = tmp_path / "vault" / "00_人生路" / "01_日记" / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"# {day}\n", encoding="utf-8")
+    path.write_text(
+        f"---\ncreated: {day}T10:00:00+08:00\n---\n\n# {day}\n", encoding="utf-8")
 
 
 def shift(day: str, offset: int) -> str:
@@ -66,7 +68,39 @@ def test_router_payload_reports_our_own_numbers(tmp_path):
     assert payload["today_percent"] == 50
     assert payload["memories"] == 0 and payload["notes"] == 0
     # 热力图原料：最近 14 天，今天写了两篇日记文件里的这一篇 → activity_today ≥ 1
-    assert len(payload["activity"]) == 14
+    assert len(payload["activity"]) == 28
     assert payload["activity"][-1]["day"] == TODAY
     assert payload["activity_today"] >= 1
     assert all(set(item) == {"day", "count"} for item in payload["activity"])
+    # 7 行热力图：人生路 / 知识库 / 自我档案 / 任务创建 / 任务完成 / 习惯 / 总热度。
+    heatmap = payload["heatmap"]
+    assert [row["key"] for row in heatmap["rows"]] == [
+        "life", "knowledge", "self", "todo_created", "todo_done", "habits", "total"]
+    assert heatmap["rows"][0]["label"] == "人生路"
+    assert len(heatmap["rows"][0]["cells"]) == 28
+    assert heatmap["rows"][-1]["cells"][-1]["today"] is True
+    assert payload["heatmap_storage"]["status"] in {"written", "unchanged"}
+    assert (tmp_path / "vault" / ".obsidian" / "torch-os-heatmap" / "daily"
+            / TODAY[:4] / f"{TODAY}.json").is_file()
+
+
+def test_banner_counts_habit_checkins_and_refreshes_today(tmp_path):
+    client = make_client(tmp_path)
+    write_note(tmp_path, TODAY)
+    database = Database(tmp_path / "stats.sqlite3")
+    service = HabitService(database, tmp_path / "vault")
+    habit = service.create(HabitCreate(title="阅读", start_date=TODAY))
+    service.toggle_entry(habit["id"], HabitToggle(done=True))
+
+    payload = client.get("/api/banner/stats").json()
+    assert payload["habits_total"] == 1
+    assert payload["habits_done"] == 1
+    habits_cells = payload["heatmap"]["rows"][5]["cells"]
+    assert habits_cells[-1]["level"] == 4
+    assert "习惯 1/1" in habits_cells[-1]["title"]
+
+    # 取消打卡后再取一次，不能还显示旧缓存。
+    service.toggle_entry(habit["id"], HabitToggle(done=False, revision=1))
+    refreshed = client.get("/api/banner/stats").json()
+    assert refreshed["habits_done"] == 0
+    assert refreshed["heatmap"]["rows"][5]["cells"][-1]["level"] == 0

@@ -174,6 +174,18 @@
   选中的图片由 `POST /api/identity/banner/image` 复制到当前个人数据库的 `.torch-os/横幅背景/`，
   返回库内相对路径写回 `身份（identity）.md` 的 `heroes`；仍支持追加 https 链接、列表移除与
   每半小时轮换。
+- **横幅统计模式（2026-10-31，用户定义规则）**：7 行 × 最近 28 天热力图，五档颜色
+  0 / 25 / 50 / 75 / 100。行依次是人生路、知识库、自我档案（当天新建 Markdown 文档数，
+  每 4 篇满格；人生路排除习惯追踪目录）、任务创建（待办根下新建任务数）、任务完成
+  （`已完成/` 里完成于当天的任务数）、习惯完成（当天计划内习惯完成比例，主动休息不进分母）、
+  总热度（其余各行得分的等权平均，无任务/无计划习惯时不参与）。计数来源是
+  `backend/app/heatmap.py`；每天新建文档的创建日记录在
+  `<个人数据库>/.obsidian/torch-os-heatmap/file-created.json`，原子写入不会把“编辑”误算成“新增”。
+  横幅右上角有一键图片/统计切换（`POST /api/identity/banner/mode`，只改 `banner_mode`）与
+  「回看」按钮：`GET /api/heatmap/board?view=day|week|month|year&day=YYYY-MM-DD` 返回日/周/月/年
+  看板；快照按 `daily/YYYY/YYYY-MM-DD.json`、`weekly/YYYY/YYYY-Www.json`、
+  `monthly/YYYY/YYYY-MM.json`、`yearly/YYYY.json` 写入 `.obsidian/torch-os-heatmap/`。
+  前端纯渲染在 `frontend/heatmap-board-model.js`，弹窗控制与取数在 `frontend/heatmap-board.js`。
 - 天气卡与倒计时/DeepSeek 卡同高，只显示时钟、年月日/星期、城市与今日天气（含高低温）；
   每次打开系统自动刷新。点卡片打开详情浮窗：5 日预报、体感/湿度/降水/风向/风速/气压/日出/日落，
   以及常用城市的搜索添加、切换与删除（城市列表存 `.torch-os/personal-data.json`；

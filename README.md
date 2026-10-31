@@ -28,7 +28,10 @@ DeepSeek Harness（dsh）提供，角色只拿后端拼好的只读上下文；�
 
 - **工作台**：问候语 + 横幅（座右铭/统计；座右铭空行分隔多句、同一句内可换行；可在编辑器里直接选
   本机图片，图片会复制到当前个人数据库的 `.torch-os/横幅背景/`）+ 紧凑天气卡
-  （时钟、年月日/星期、城市与今日天气）+ 黄历；
+  （时钟、年月日/星期、城市与今日天气）+ 黄历；统计模式是 **7 行 × 28 天热力图**
+  （人生路 / 知识库 / 自我档案 / 任务创建 / 任务完成 / 习惯 / 总热度），右上角可一键
+  切换图片/统计模式，或打开**数据看板**（日 / 周 / 月 / 年）；热力快照按用户要求放在
+  `<个人数据库>/.obsidian/torch-os-heatmap/`（README、创建日清单、daily/weekly/monthly/yearly）；
   问候语右侧是**网页书签栏**：点书签用系统默认浏览器打开，齿轮可增删改排序（最多 24 个、
   同一网址去重）；首次预置 DeepSeek 网页版，数据跟着当前个人数据库走。
   顶部另有两条状态条：**待确认中枢**（有积压时出现；草稿 / 事实 / 收件箱 / 恋爱记忆，
@@ -393,7 +396,8 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 [`docs/MEMORY_HUB.md`](docs/MEMORY_HUB.md)、写作与本子
 [`docs/WRITING_AND_KNOWLEDGE.md`](docs/WRITING_AND_KNOWLEDGE.md)、生活运营 AI
 [`docs/LIFE_SYSTEMS.md`](docs/LIFE_SYSTEMS.md)、健康系统
-[`docs/HEALTH_SYSTEM.md`](docs/HEALTH_SYSTEM.md)、数据与隐私
+[`docs/HEALTH_SYSTEM.md`](docs/HEALTH_SYSTEM.md)、版本与发布
+[`docs/VERSIONING.md`](docs/VERSIONING.md)、数据与隐私
 [`docs/DATA_HANDBOOK.md`](docs/DATA_HANDBOOK.md)。
 
 想要一个**隔离验收环境**（独立库、全虚构数据，随便折腾）：
@@ -437,9 +441,12 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 
 四库当前共 47 章（`pillars-v2`）；健康系统新增 4 章是纯增量，旧路径不做迁移。
 
-四库只放 Markdown 正文；应用自己的东西全部在库根的 `.torch-os/`：
+四库只放 Markdown 正文；应用自己的东西默认在库根的 `.torch-os/`。
+热力图快照是唯一例外：按用户要求放在 `.obsidian/torch-os-heatmap/`（Obsidian 配置目录，
+不进四库扫描、不进备份；需要长期备份时单独复制这个目录）：
 
 ```text
+.obsidian/torch-os-heatmap/       # 热力快照：README / file-created.json / daily / weekly / monthly / yearly
 .torch-os/torch_os.sqlite3        # 索引、记忆、审计、签到、AI 会话/提案、忆灵综合记录
 .torch-os/personal-data.json      # 小组件偏好/显隐、书签、常用城市、排序、导航顺序等
 .torch-os/忆灵/                    # 画像/画像历史/复盘卡/事件状态
@@ -458,6 +465,7 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 
 这是顶层设计：除四库里的 Markdown 正文外，**所有系统个性化数据和小组件用户个性化数据都必须
 放在当前个人数据库的 `.torch-os/`**，不要写进仓库 `data/`、`%LOCALAPPDATA%` 或只留在浏览器里。
+热力快照按用户要求写入 `.obsidian/torch-os-heatmap/`，是这条规则唯一有意的例外。
 localStorage 只作为当前窗口的缓存：启动时从 `.torch-os/personal-data.json` 灌入，修改后防抖回写。
 
 任务目录内部：

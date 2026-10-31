@@ -243,3 +243,32 @@ def test_banner_image_upload_sanitizes_the_name_and_respects_read_only(tmp_path)
     blocked = read_only_client.post("/api/identity/banner/image",
                                     files={"file": ("b.png", PNG, "image/png")})
     assert blocked.status_code == 409
+
+
+def test_banner_mode_endpoint_toggles_one_key_and_preserves_the_rest(tmp_path):
+    """横幅上的一键切换不需要 revision，只改 banner_mode，不碰其它字段。"""
+    client = make_client(tmp_path)
+    seed_identity(tmp_path)
+
+    saved = client.post("/api/identity/banner/mode", json={"mode": "stats"})
+    assert saved.status_code == 200, saved.text
+    payload = saved.json()
+    assert payload["banner_mode"] == "stats"
+    assert payload["name"] == "林小舟"
+    assert payload["mottos"] == ["旧座右铭"]
+    assert payload["heroes"] == ["image/old.png"]
+    assert "这里是正文。" in identity_path(tmp_path).read_text(encoding="utf-8")
+
+    back = client.post("/api/identity/banner/mode", json={"mode": "quote"})
+    assert back.status_code == 200 and back.json()["banner_mode"] == "quote"
+    assert client.post("/api/identity/banner/mode", json={"mode": "hack"}).status_code == 422
+
+
+def test_banner_mode_endpoint_respects_read_only(tmp_path):
+    app = create_app(
+        Database(tmp_path / "ro-banner.sqlite3"), tmp_path / "vault",
+        security_environ={"VAULT_READ_ONLY": "1"}, env_file=tmp_path / ".env")
+    client = TestClient(app)
+    client.get("/")
+    blocked = client.post("/api/identity/banner/mode", json={"mode": "stats"})
+    assert blocked.status_code == 409

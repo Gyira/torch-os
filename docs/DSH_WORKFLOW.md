@@ -20,6 +20,11 @@
    先报「标题 + 章节 + 摘要」等确认，再按分类表落盘，`来源` 写那条链接。
 4. **边界**：不移动、不删除、不批量改；迁移与清理必须用户确认。
 5. **会话方式**：一个话题一个会话；跨会话靠四库，不靠聊天记录；说“接着上次”时先跑简报。
+6. **版本号（2026-10-31）**：改代码后按 [`VERSIONING.md`](VERSIONING.md) 判断升哪一位——
+   新系统/新入口 → y（同一自然周最多一次），修复 → z（同一天最多一次），
+   破坏兼容 → x；纯重构/文档不升版。发布时 6 个落点（`APP_VERSION`、README 首行与摘要、
+   `WAKE_UP_START`、插件 `manifest.json`/`main.js`/README、`STATUS`/`VAULT_TEMPLATE`）
+   必须一次对齐，并跑 `tests/test_docs_contract.py` 与 `scripts/check_all.ps1`。
 
 ## 网页版分享链接
 

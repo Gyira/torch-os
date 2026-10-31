@@ -62,6 +62,7 @@ from .identity import create_identity_router
 from .personal_data import create_personal_data_router
 from .activity import create_activity_router
 from .banner_stats import create_banner_stats_router
+from .heatmap import create_heatmap_router
 from .fortune import create_fortune_router
 from .journal_note import create_journal_note_router
 from .journal_chat import create_journal_chat_router
@@ -925,9 +926,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # 记录模块：今天动过的保险库文件（真实 mtime），日记预填的原料。
     app.include_router(create_activity_router(database, vault_dir),
                        dependencies=[Depends(journal_data_guard)])
-    # 横幅统计：连续日记天数 / 今日完成度 / 记忆与资料计数。
-    app.include_router(create_banner_stats_router(database, vault_dir),
-                       dependencies=[Depends(journal_data_guard)])
+    # 横幅统计：连续日记天数 / 今日完成度 / 记忆与资料计数 + 7 行热力图。
+    app.include_router(create_banner_stats_router(
+        database, vault_dir, read_only=vault_read_only),
+        dependencies=[Depends(journal_data_guard)])
+    # 数据看板：日/周/月/年热力详情；快照落在 <Vault>/.obsidian/torch-os-heatmap/。
+    app.include_router(create_heatmap_router(
+        database, vault_dir, read_only=vault_read_only),
+        dependencies=[Depends(journal_data_guard)])
     # 工作区（多人/多数据库）：切换写入 .env，重启后生效；QA 环境只读。
     workspace_options = {} if workspace_registry is None else {'registry_path': workspace_registry}
     app.include_router(create_workspaces_router(

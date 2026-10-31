@@ -2,7 +2,7 @@
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
 // 待办在生活运营的 02_生活运营/00_待办事项/_系统/待办（todos）.md；日记仍在人生路，
 // 每日必做勾在当天日记，习惯在本地库。
-import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
+import { $, state, api, escapeHtml, jsonBody, setStatus, toast } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
 import { initAlmanacWidget, renderAlmanac } from "./almanac-widget.js";
@@ -21,9 +21,11 @@ import { loadPendingStrip } from "./pending.js";
 import { initMemoryStrip, loadMemoryStrip } from "./memory-strip.js";
 import { initBookmarks } from "./bookmarks.js";
 import { initTasksAI } from "./tasks-ai.js";
+import { initHeatmapBoard } from "./heatmap-board.js";
 
 let current = null;
 let bannerStats = null;
+let bannerStatsRequest = 0;
 let rotationSignature = "";
 let rotationGeneration = 0;
 
@@ -63,7 +65,9 @@ export function renderWorkbench(payload) {
         background.style.backgroundImage = `url("${imageSrc(banner.heroes[safe], safe).replace(/"/g, "%22")}")`;
       }, (fn, ms) => window.setTimeout(fn, ms));
     }
-    if (banner.mode === "stats" && !bannerStats) loadBannerStats();
+    // 每次工作台重画都重取一次统计：习惯打卡/待办勾选后横幅数字要跟着变，
+    // 不能只在第一次进入统计模式时取一次（旧实现会一直显示 0）。
+    if (banner.mode === "stats") loadBannerStats();
   }
 
   // 今日完成度那条进度条搬进了时间管理模块顶部（2026-10-08），这里只把数据喂过去。
@@ -199,12 +203,52 @@ async function syncDailyIfNeeded(payload) {
 }
 
 async function loadBannerStats() {
+  const request = ++bannerStatsRequest;
+  let stats = null;
   try {
-    bannerStats = await api("/api/banner/stats");
+    stats = await api("/api/banner/stats", { timeoutMs: 60000 });
   } catch (error) {
-    bannerStats = null; // 占位符由 statsHtml 兜底
+    // 暂时取不到时保留上一次的数字，避免瞬间闪回全 0 占位；首次加载才用占位。
+    stats = bannerStats;
   }
+  if (request !== bannerStatsRequest || !current) return;
+  bannerStats = stats;
   applyBanner($("#workbench-banner"), current, bannerStats);
+}
+
+/** 只在本页应用模式；统计模式需要补取一次热力数据。 */
+async function applyBannerMode(mode) {
+  current = { ...current, banner_mode: mode === "stats" ? "stats" : "quote" };
+  bannerStatsRequest += 1; // 丢掉旧模式还没回来的请求
+  if (current.banner_mode === "stats") {
+    await loadBannerStats();
+  } else {
+    applyBanner($("#workbench-banner"), current, bannerStats);
+  }
+}
+
+/** 横幅上的一键切换：只改 banner_mode，图片、座右铭与其它设置原样保留。 */
+async function toggleBannerMode(event) {
+  event.stopPropagation();
+  const button = event.currentTarget;
+  if (!current || button.disabled) return;
+  const next = current.banner_mode === "stats" ? "quote" : "stats";
+  button.disabled = true;
+  try {
+    const saved = await api("/api/identity/banner/mode", jsonBody("POST", { mode: next }));
+    await applyBannerMode(saved?.banner_mode === "stats" ? "stats" : "quote");
+    toast(current.banner_mode === "stats" ? "已切换到统计模式。" : "已切换到图片模式。", "success");
+  } catch (error) {
+    if (error.status === 409) {
+      // 只读模式：不写身份笔记，但当前页面仍可临时切换查看。
+      await applyBannerMode(next);
+      toast("只读模式：已临时切换，未写入身份笔记。", "warning");
+    } else {
+      toast(`切换失败：${error.message}`, "error");
+    }
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function toggleDaily(key, title, done) {
@@ -225,7 +269,8 @@ function initBannerCollapse() {
   const apply = (value) => {
     banner.classList.toggle("banner-collapsed", value);
     button.setAttribute("aria-expanded", String(!value));
-    button.textContent = value ? "▸" : "▾";
+    button.setAttribute("aria-label", value ? "展开横幅" : "收起横幅");
+    button.title = value ? "展开横幅" : "收起横幅";
   };
   let collapsed = false;
   try {
@@ -289,6 +334,10 @@ export function initWorkbench() {
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());
   initBannerCollapse();
+  $("#workbench-banner-mode").addEventListener("click", toggleBannerMode);
+  $("#workbench-banner-mode").addEventListener("dblclick", (event) => event.stopPropagation());
+  // 回看：数据看板弹窗（日/周/月/年）。按钮绑定在 heatmap-board.js 里。
+  initHeatmapBoard();
   initVisibleWidgets();
   initWidgetDrag();
   initTimeModule();

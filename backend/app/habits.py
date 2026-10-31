@@ -1712,6 +1712,46 @@ class HabitService:
             })
         return result
 
+    def daily_progress(self, first: date, last: date) -> dict[str, dict[str, Any]]:
+        """Per-day habit completion for the heatmap (counts plus titles).
+
+        ``scheduled`` counts active habits planned that day.  ``skipped`` is an
+        explicit rest, so callers can keep it out of the completion denominator;
+        ``missed`` is everything still unrecorded when the day closes.
+        """
+        self.sync()
+        with self.database.connect() as connection:
+            rows = [dict(row) for row in connection.execute(
+                "SELECT * FROM habit_definitions WHERE deleted=0 AND missing=0 "
+                "AND status='active' ORDER BY sort_order,id").fetchall()]
+        habits = [self._row_to_habit(row) for row in rows]
+        entries_by_habit = self._all_entries([habit["id"] for habit in habits])
+        result: dict[str, dict[str, Any]] = {}
+        for day in (first + timedelta(days=offset)
+                    for offset in range((last - first).days + 1)):
+            done: list[str] = []
+            skipped: list[str] = []
+            missed: list[str] = []
+            for habit in habits:
+                if not habit_schedule.scheduled_on(habit, day):
+                    continue
+                entry = entries_by_habit.get(habit["id"], {}).get(day.isoformat())
+                status = habit_stats._status(entry)
+                title = str(habit["title"])
+                if status == "done":
+                    done.append(title)
+                elif status == "skipped":
+                    skipped.append(title)
+                else:
+                    missed.append(title)
+            result[day.isoformat()] = {
+                "scheduled": len(done) + len(skipped) + len(missed),
+                "done": len(done), "skipped": len(skipped), "missed": len(missed),
+                "done_titles": done, "skipped_titles": skipped,
+                "missed_titles": missed,
+            }
+        return result
+
     def range_counts(self, first: date, last: date) -> dict[str, int]:
         self.sync()
         with self.database.connect() as connection:

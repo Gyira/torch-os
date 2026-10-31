@@ -51,11 +51,32 @@ test("backdrop converts darkness into brightness and scrim like apex", () => {
   assert.equal(backdropVars(NaN, NaN).blur, "6px");
 });
 
+function isoDay(offset) {
+  const date = new Date(Date.UTC(2026, 9, 31));
+  date.setUTCDate(date.getUTCDate() - offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function heatmapFixture(level = 0) {
+  const cells = Array.from({ length: 28 }, (_, index) => ({
+    date: isoDay(27 - index),
+    level: index === 27 ? level : 0,
+    today: index === 27,
+    title: `第 ${index + 1} 天`,
+  }));
+  const rows = [
+    ["life", "人生路"], ["knowledge", "知识库"], ["self", "自我档案"],
+    ["todo_created", "任务创建"], ["todo_done", "任务完成"], ["habits", "习惯"],
+    ["total", "总热度"],
+  ].map(([key, label]) => ({ key, label, cells }));
+  return { days: 28, start: "2026-10-04", today: "2026-10-31", rows };
+}
+
 test("stats respect the left/center picks and the details switch", () => {
   const stats = {
-    day: "2026-10-05", journal_streak: 4, today_percent: 62, memories: 98, notes: 12,
+    day: "2026-10-31", journal_streak: 4, today_percent: 62, memories: 98, notes: 12,
     daily_done: 3, daily_total: 5, habits_done: 1, habits_total: 2, open_todos: 2,
-    activity_today: 6, activity: [{ day: "2026-10-05", count: 6 }],
+    activity_today: 6, heat_score: 0.62, heat_level: 3, heatmap: heatmapFixture(4),
   };
   const custom = statsHtml(stats, { leftStat: "memories", centerStat: "percent", details: false });
   assert.ok(custom.includes("记忆") && custom.includes("98"));
@@ -65,7 +86,7 @@ test("stats respect the left/center picks and the details switch", () => {
   assert.equal(custom.includes("banner-stats-prog-track"), false);
 
   const filesPick = statsHtml(stats, { leftStat: "files" });
-  assert.ok(filesPick.includes("今日文件") && filesPick.includes("6"));
+  assert.ok(filesPick.includes("今日新增") && filesPick.includes("6"));
 });
 
 test("font keeps a real family stack and drops everything else", () => {
@@ -114,28 +135,36 @@ test("a motto keeps explicit line breaks; blank lines separate mottos", () => {
   assert.equal(normalizeBanner({ mottos: ["甲\n乙"] }).mottos[0], "甲\n乙");
 });
 
-test("stats render the three-column layout with heatmap and progress rows", () => {
+test("stats render the seven-row heatmap, progress rows and today's total", () => {
   const html = statsHtml({
-    day: "2026-10-05",
+    day: "2026-10-31",
     journal_streak: 4, today_percent: 62, memories: 98, notes: 12,
     daily_done: 3, daily_total: 5, habits_done: 1, habits_total: 2,
-    open_todos: 2, activity_today: 6,
-    activity: [{ day: "2026-10-04", count: 0 }, { day: "2026-10-05", count: 6 }],
+    open_todos: 2, activity_today: 6, heat_score: 0.75, heat_level: 3,
+    heatmap: heatmapFixture(4),
   });
   assert.ok(html.includes("banner-stats-left") && html.includes("banner-stats-center") && html.includes("banner-stats-right"));
-  assert.ok(html.includes("连续日记") && html.includes("资料") && html.includes("今日完成度"));
-  assert.ok(html.includes("62%"));
+  assert.ok(html.includes("连续日记") && html.includes("资料") && html.includes("今日总热度"));
+  assert.ok(html.includes("75%"));
   assert.ok(html.includes("3/5") && html.includes("1/2"));
-  assert.ok(html.includes("level-4")); // 6 是最大值 → 最深一级
+  assert.ok(html.includes("level-4")); // 今天那格是 100%
   assert.ok(html.includes("today")); // 今天那格描边
+  assert.ok(html.includes("width:75%")); // 今日总热度
   assert.ok(html.includes("width:60%")); // 每日必做 3/5
   assert.ok(html.includes("width:50%")); // 习惯 1/2
   assert.ok(html.includes("待办还差 2 项"));
+  assert.ok(html.includes("今天新增 6 篇"));
+  assert.equal((html.match(/banner-heatmap-row/g) || []).length, 7);
+  assert.equal((html.match(/banner-heat-cell/g) || []).length, 7 * 28);
+  for (const label of ["人生路", "知识库", "自我档案", "任务创建", "任务完成", "习惯", "总热度"]) {
+    assert.ok(html.includes(`banner-heatmap-label">${label}`));
+  }
 
   const empty = statsHtml(null);
   assert.ok(empty.includes("—"));
   assert.equal(empty.includes("NaN"), false);
   assert.ok(empty.includes("banner-stats-center")); // 无数据也保持三列骨架
+  assert.equal((empty.match(/banner-heatmap-row/g) || []).length, 7); // 读取中也有七行占位
 });
 
 test("rotation cycles through images on the injected schedule and skips single images", () => {
@@ -170,4 +199,19 @@ test("the editor exposes a file picker and uploads into the database .torch-os f
   assert.match(editor, /\/api\/identity\/banner\/image/);
   assert.match(editor, /data-banner-hero-remove/);
   assert.match(editor, /FormData/);
+});
+
+test("the banner exposes a one-click mode switch and a review board", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /id="workbench-banner-mode"/);
+  assert.match(html, /id="workbench-banner-review"/);
+  assert.match(html, /data-mode="quote"/);
+  assert.match(html, /icon-mode-chart/);
+  assert.match(html, /icon-mode-image/);
+  assert.match(html, /id="heatmap-dialog"/);
+  for (const view of ["day", "week", "month", "year"]) {
+    assert.match(html, new RegExp(`data-heatmap-view="${view}"`));
+  }
+  assert.match(html, /id="heatmap-content"/);
+  assert.match(html, /id="heatmap-foot"/);
 });
