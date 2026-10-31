@@ -6,7 +6,7 @@
 |---|---|---|
 | `draft` | `inbox_items`（早报/晚报/周报） | 标记已读 / 丢弃（只打标记） |
 | `fact` | `memories.status='candidate'` + `.torch-os/身份待确认/` | 采纳（写四库）/ 拒绝（不动四库） |
-| `triage` | `03_知识库/00_收件箱` | 按建议或自选章节，真的移过去 |
+| `triage` | `03_知识库/00_收件箱` | 自选章节，真的移过去 |
 | `love` | `.torch-os/love/love_analysis.db` 的 `memory_drafts` | 写入四库 / 丢弃（由恋爱系统的接口执行） |
 
 统一结构固定为 `{kind, id, title, preview, lines, source, created, actions}`，
@@ -23,7 +23,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import identity_inbox, pillar_notes, steward_policy, vault_layout
+from . import identity_inbox, pillar_notes, vault_layout
 from .db import Database
 from .love_storage import DB_NAME as LOVE_DB_NAME
 from .scheduler import SchedulerService
@@ -145,30 +145,18 @@ def triage_chapters() -> list[dict[str, str]]:
 
 
 def triage(vault_dir: Path | str, limit: int = 50) -> list[dict[str, Any]]:
-    """收件箱待分流：带上本地规则的章节建议，一键真的搬过去。"""
+    """收件箱待分流：列出未归类的知识笔记，由用户手动选章节后搬过去。"""
     items: list[dict[str, Any]] = []
     for note in pillar_notes.list_notes(vault_dir, chapter="inbox", limit=max(1, min(limit, 200))):
-        suggestion = steward_policy.suggestion_for_note(note)
-        chapter = suggestion["chapter"]
-        confidence = {"high": "高置信", "medium": "可参考"}.get(str(suggestion.get("confidence")), "低置信")
-        lines = [f"建议：{suggestion['chapter_title']}（{confidence}）"]
-        if suggestion.get("reason"):
-            lines.append(str(suggestion["reason"]))
         items.append({
             "kind": "triage",
             "id": str(note.get("path") or ""),
             "title": str(note.get("title") or "未命名"),
             "preview": str(note.get("excerpt") or "")[:120],
-            "lines": lines,
+            "lines": [],
             "source": "03_知识库/00_收件箱",
             "created": str(note.get("date") or ""),
             "actions": ["move"],
-            "suggest": {
-                "chapter": chapter,
-                "title": suggestion["chapter_title"],
-                "confidence": str(suggestion.get("confidence") or ""),
-                "reason": str(suggestion.get("reason") or ""),
-            },
         })
     return items
 

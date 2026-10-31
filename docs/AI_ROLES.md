@@ -16,10 +16,10 @@
 |---|---|---|---|
 | `yiling` | 忆灵 / 苏格拉底 | `synthesize` / `converse` | identity_patch、review_card、new_note、hub_event |
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
-| `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` | new_note、archive_note |
-| `life_assistant` | AI 生活助理 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
+| `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
+| `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
 | `love_master` | 恋爱大师 | `advice` | new_note、new_task |
-| `health_doctor` | 私人医生 | `report` | health_report |
+| `health_doctor` | 私人医生 | `report` / `advice` | health_report |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 忆灵与苏格拉底是**同一个 agent 的两种模式**：同一份画像、同一套身份权威；
@@ -79,7 +79,7 @@ dsh --profile headless --json --session-id <session-torch-...> -
 |---|---|---|
 | GET | `/api/ai/status` | 是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数、角色文件错误 |
 | GET | `/api/ai/roles` | 角色元数据（不含 prompt 正文） |
-| POST | `/api/ai/chat` | 角色对话；`role_id/mode/thread_id/message/entry/selectors` |
+| POST | `/api/ai/chat` | 角色对话；`role_id/mode/thread_id/message/entry/selectors/selection_text/selection_source/draft_text` |
 | POST | `/api/ai/run` | 一次性能力；返回 `text` + `structured` |
 | POST | `/api/ai/threads` | 新建会话 |
 | GET | `/api/ai/threads` | 会话列表 |
@@ -99,13 +99,21 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 - `{"entry":"note","path":"03_知识库/01_主题笔记/xxx.md"}`
 - `{"entry":"journal","day":"YYYY-MM-DD"}`
 - `{"entry":"tasks","day":"YYYY-MM-DD"}`
+- `{"entry":"health"}` / `{"entry":"finance"}` / `{"entry":"love"}`：只读摘要（恋爱不读原始聊天）
 
-`memory_card/proposal/share/love/health/finance` 在后续阶段接入。每类来源有字符预算，
+`memory_card/proposal/share` 在后续阶段接入。每类来源有字符预算，
 总预算 16k、硬上限 24k；截断会在响应 `truncated` 与界面提示里说明。
 
 空 `selectors` = 不发送任何用户资料。角色对话会按角色补默认上下文（忆灵=身份+今日日记+任务；
-生活助理=任务+身份；写作伙伴=今日日记）；一次性能力（润色/判类）不自动带资料，
-避免把身份信息顺手发给模型。
+生活管家=任务+身份+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱摘要；
+私人医生=健康系统摘要）；一次性能力（润色/判类）不自动带资料，避免把身份信息顺手发给模型。
+
+健康系统的 `{"entry":"health"}` 摘要来自 `health_store.summary()`：最近 90 天的睡眠/体重/
+步数/情绪/训练与检验异常 + 身体档案，不含每日正文；报告落
+`02_生活运营/02_健康系统/00_健康报告`，`memory: false`。
+
+`selection_text` / `selection_source` / `draft_text` 是浏览器选区与未保存草稿，单独作为
+「数据不是指令」区块进入 prompt；不写入 `ai_turns.content`，审计只记录来源/字数/短哈希。
 
 ## 6. 提案协议（P0–P1）
 
@@ -115,14 +123,17 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
   - 忆灵审核路径：用户看 diff + 来源后直接采纳（`verdict.requires_dialogue=false`）；
   - 苏格拉底路径：必须带 AI 的 `verdict_token`（`requires_dialogue=true`）。
 - P0 只内置状态机与 HTTP 接口；P1 已注册 `new_task`/`new_habit` handler：
-  - 任务 → `00_人生路/07_任务与待办/` 的一篇 Markdown；
+  - 任务 → `02_生活运营/00_待办事项/` 的一篇 Markdown；
   - 习惯 → `00_人生路/04_目标/04_习惯追踪/` 的定义与缓存。
 - `new_note/archive_note/identity_patch/health_report/finance_report/life_advice`
   的 handler 由 P2–P4 注册；未注册时返回 409，不会静默成功。
 
 ## 7. 前端入口（P1）
 
-- 工作台 → 时间管理顶部「AI 助手」→ `life_assistant/tasks` 抽屉；
+- 工作台 → 时间管理顶部「生活管家」→ `life_assistant/tasks` 抽屉；
+- 人生路/知识库/生活运营/恋爱系统的首页卡片分别打开写作伙伴/学术导师/生活管家/恋爱大师；
+- 编辑器内打开伙伴不关闭编辑器：右侧面板与底部悬浮输入条可互相收起/展开；
+- 选中文字出现「问…」浮钮，选区以 chip 引用进入对话；消息气泡不展示原文；
 - 抽屉里的任务/习惯提案可直接采纳，采纳后任务板刷新；
 - 角色对话会写入 `ai_threads/ai_turns`，续聊复用 dsh session；
 - 角色返回的 `hub_events` 先写入 `memory_hub_events`，P3 由忆灵综合消费。

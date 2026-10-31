@@ -13,11 +13,14 @@ const deletedModules = [
   "share-import.js", "library.js", "second-brain.js", "journal-review.js",
   "journal-ritual.js", "journal-ritual-model.js",
   "journal-calendar.js", "vault-audit.js", "agent-chat.js", "harness-bridge.js",
+  "pillar-steward.js", "ops-ai.js", "pillar-ops.js",
 ];
 
 const retiredEndpoints = [
   "/api/bazi", "/api/profile", "/api/suggestions", "/api/chat", "/api/agent/cancel",
-  "/api/config/model-key", "/api/steward/ask", "/api/workbench/summarize", "/api/imports/share",
+  "/api/config/model-key", "/api/steward/ask", "/api/steward/health",
+  "/api/steward/proposals", "/api/steward/inbox-suggestions", "/api/steward/suggest",
+  "/api/workbench/summarize", "/api/imports/share",
 ];
 
 async function liveSources() {
@@ -76,8 +79,6 @@ test("four-library UI stays read-only and only jumps to Obsidian", async () => {
   const pillars = await readFile(path.join(frontend, "pillars.js"), "utf8");
   assert.ok(pillars.includes("createObsidianNote"), "四库应通过 Obsidian 跳转新建笔记");
   assert.ok(pillars.includes("在 Obsidian 新建"));
-  const steward = await readFile(path.join(frontend, "pillar-steward.js"), "utf8");
-  assert.equal(steward.includes("/apply"), false, "管家不能再执行提案");
 });
 
 test("the tonight journal review entry stays retired", async () => {

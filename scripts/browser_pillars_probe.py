@@ -323,27 +323,48 @@ def seed_markdown(day: date) -> dict[str, str]:
         ]),
         note_id="qa-seed-topic-exam", created=stamp)
 
-    # 当月健康表：生活运营页面只读渲染的权威来源（日期都在当月，不带健康评价）。
-    samples = (("9f1c2a3b4d5e", 66.6, 420, 30), ("9f1c2a3b4d5f", 66.4, 400, 45))
-    rows = ["| ID | 日期 | 体重kg | 睡眠min | 运动min | 备注 |",
-            "| --- | --- | --- | --- | --- | --- |"]
-    for index, when in enumerate(dict.fromkeys((first, day))):
-        row_id, weight, sleep, exercise = samples[index]
-        rows.append(f"| {row_id} | {when.isoformat()} | {weight} | {sleep} | {exercise} | QA 探针样例 |")
-    files[f"02_生活运营/01_健康与体重/{month}.md"] = "\n".join([
+    # 当日健康记录：健康系统页面（02_健康系统/01_每日健康）的权威来源。
+    # 只放事实，不写健康评价；数值与真实记录同构，探针才能走通录入与图表。
+    files[f"02_生活运营/02_健康系统/01_每日健康/{day.isoformat()}.md"] = "\n".join([
         "---",
-        "type: health_month",
-        f"title: 健康与体重 {month}",
-        f"month: {month}",
-        "schema: health-v1",
+        "type: health_day",
+        f"title: {day.isoformat()} 健康记录",
+        f"date: {day.isoformat()}",
+        "schema: health-day-v1",
         "pillar: ops",
-        "chapter: health",
-        "status: active",
+        "chapter: health_daily",
         f"created: {first.isoformat()}",
         f"updated: {first.isoformat()}",
+        "score: 76",
+        "sleep:",
+        "  duration_min: 420",
+        "  quality: 3",
+        "body:",
+        "  weight_kg: 66.6",
+        "activity:",
+        "  steps: 7800",
+        "mind:",
+        "  mood: 4",
+        "  stress: 2",
+        "note: QA 探针样例",
         "---",
         "",
-        *rows,
+        f"# {day.isoformat()} 健康记录",
+        "",
+        "> 健康指数 **76** · 睡眠 78 · 活动 74",
+        "",
+        "## 睡眠",
+        "- 时长 420 分钟，主观质量 3/5",
+        "",
+        "## 身体",
+        "- 体重 66.6 kg",
+        "",
+        "## 活动",
+        "- 步数 7800",
+        "",
+        "## 备注",
+        "",
+        "QA 探针样例",
         "",
     ])
     return files
@@ -537,14 +558,14 @@ async def run(base_url: str, output: Path, port: int,
                     if task_chapter:
                         await cdp.evaluate("document.querySelector('#life-view [data-pillar-chapter=\"life\"][data-chapter=\"task\"]').click()")
                         await cdp.wait_for(
-                            "document.querySelector('#life-view .notebook-page-heading h3')?.textContent === '任务与待办'",
+                            "document.querySelector('#ops-view .notebook-page-heading h3')?.textContent === '待办事项'",
                             timeout=20)
                         await asyncio.sleep(0.4)
                         await shot(cdp, output, report, "task-chapter.png")
                     report["task_chapter_rows"] = await cdp.evaluate(
-                        "document.querySelectorAll('#life-view .pillar-note-row[data-note-path], #life-view .note-card[data-note-path]').length")
+                        "document.querySelectorAll('#ops-view .pillar-note-row[data-note-path], #ops-view .note-card[data-note-path]').length")
                     if report["task_chapter_rows"]:
-                        await cdp.evaluate("document.querySelector('#life-view .note-card[data-note-path], #life-view .pillar-note-row[data-note-path]').click()")
+                        await cdp.evaluate("document.querySelector('#ops-view .note-card[data-note-path], #ops-view .pillar-note-row[data-note-path]').click()")
                         await cdp.wait_for("document.querySelector('.pillar-reader')", timeout=20)
                         report["note_dialog"] = await cdp.evaluate(READ_NOTE_DIALOG)
                         await cdp.evaluate("document.querySelector('.pillar-reader [data-reader-back]')?.click()")

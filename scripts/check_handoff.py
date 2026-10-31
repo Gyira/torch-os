@@ -74,8 +74,8 @@ def main() -> int:
     line(vault.is_dir(), "Vault 目录存在")
     for name in ("00_人生路", "01_自我档案", "02_生活运营", "03_知识库"):
         line((vault / name).is_dir(), f"四库目录：{name}")
-    task_root = vault / "00_人生路" / "07_任务与待办"
-    line(task_root.is_dir(), "任务与待办目录")
+    task_root = vault / "02_生活运营" / "00_待办事项"
+    line(task_root.is_dir(), "待办事项目录")
     line((task_root / "收集箱").is_dir(), "任务收集箱目录")
     line((task_root / "已完成").is_dir(), "任务已完成目录")
     line((task_root / "回收站").is_dir(), "任务回收站目录")

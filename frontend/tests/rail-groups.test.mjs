@@ -20,7 +20,6 @@ const LIFE_GROUPS = [
 // 与 /api/pillars 的 life 章节顺序一致；只测排序，不关心 path/type。
 const LIFE_CHAPTERS = [
   ["journal", "日记"],
-  ["task", "任务与待办"],
   ["reflection", "反思"],
   ["insight_life", "生活心得"],
   ["insight_work", "工作心得"],
@@ -38,14 +37,15 @@ const LIFE_CHAPTERS = [
 ].map(([key, title]) => ({ key, title, path: `00_人生路/${key}`, default_type: "note" }));
 
 const IMPORTS = {
-  "./core.js": ["$", "api", "confirmAction", "escapeHtml", "formatRelativeDate", "state", "toast"],
+  "./core.js": ["$", "api", "confirmAction", "escapeHtml", "formatRelativeDate", "openDialog", "state", "toast"],
   "./pillar-markdown.js": ["renderMarkdownDocument"],
-  "./pillar-ops.js": ["bindOpsEvents", "mountOps"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
-  "./pillar-steward.js": ["openSteward"],
   "./identity-inbox.js": ["identityInboxMarkup"],
   "./archive-markup.js": ["archiveMarkup"],
+  "./ai-companions.js": ["companionForView"],
+  "./ops-model.js": ["opsHomeState"],
   "./journal-model.js": ["shanghaiDay"],
+  "./journal-heatmap.js": ["buildJournalHeatmap", "journalHeatmapMarkup"],
   "./note-editor.js": ["deleteNoteFile", "initNoteEditor", "invalidateChapterCache", "openNoteEditor"],
   "./notebook-create.js": ["initNotebookCreate", "openNotebookCreateDialog"],
   "./share-link.js": ["initShareLink", "openDeepSeekAsk", "openShareLinkDialog"],
@@ -58,7 +58,6 @@ const IMPORTS = {
     "noteCards", "notebookById", "notebookForChapter", "notebookTotal",
     "notebooksFor", "subchaptersFor",
   ],
-  "./ops-ai.js": ["initOpsAI", "loadOpsAI"],
   "./task-open.js": ["createObsidianNote", "isObsidianHost", "obsidianOpenUri", "openNoteMessage", "openTaskDocument"],
 };
 
@@ -97,7 +96,6 @@ test("life groups appear where their first chapter appears and chapter order is 
 
   assert.deepEqual(itemKeys(rail.items), [
     "chapter:journal",
-    "chapter:task",
     "group:review",
     "group:insight",
     "group:goal",
@@ -116,7 +114,7 @@ test("life groups appear where their first chapter appears and chapter order is 
   assert.deepEqual(chapterKeys(groups.get("goal")), ["goal_year", "goal_quarter", "goal_month"]);
   assert.deepEqual(chapterKeys(groups.get("project")), ["project_plan", "work_review_project"]);
   // 分组内章节不重复出现在一级。
-  assert.equal(rail.items.filter((item) => item.type === "chapter").length, 5);
+  assert.equal(rail.items.filter((item) => item.type === "chapter").length, 4);
   assert.equal(rail.items.filter((item) => item.type === "group").length, 4);
 });
 

@@ -1,6 +1,7 @@
 // 工作台 2.0（2026-10-05）：今日待办（左清单 / 右每日勾选）；与神对话由 dsh-pane.js 加载完整的 DeepSeek Harness。
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
-// 待办在 00_人生路/07_任务与待办/_系统/待办（todos）.md，每日必做勾在当天日记，习惯在本地库。
+// 待办在生活运营的 02_生活运营/00_待办事项/_系统/待办（todos）.md；日记仍在人生路，
+// 每日必做勾在当天日记，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
@@ -159,10 +160,10 @@ function renderDaily(payload) {
   } else {
     $("#time-daily-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
   }
-  $("#time-daily-hint").textContent = "每日必做在 00_人生路/07_任务与待办/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记。";
+  $("#time-daily-hint").textContent = "每日必做在 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记。";
   $("#time-daily-list").innerHTML = rows.length
     ? rows.map((row) => `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
-    : '<li class="empty-state">还没有每日必做——去 00_人生路/07_任务与待办/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
+    : '<li class="empty-state">还没有每日必做——去 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
 }
 
 export async function loadWorkbench() {

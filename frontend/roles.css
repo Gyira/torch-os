@@ -285,8 +285,250 @@
 .widget-settings-list small { color: var(--p-ink-faint); line-height: 1.5; }
 .widget-settings-list label { flex: none; display: inline-flex; align-items: center; gap: 6px; }
 
+/* ── 2026-10-31：Claudian 式编辑器宿主 / 选区 chip ─────────────── */
+
+.role-drawer-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.role-drawer-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  background: var(--p-accent-soft);
+  color: var(--p-accent);
+  font-family: var(--p-font-display);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.role-drawer[data-layer="life"] .role-drawer-avatar {
+  background: color-mix(in srgb, var(--p-pillar-life, var(--p-accent)) 14%, transparent);
+  color: var(--p-pillar-life, var(--p-accent));
+}
+
+.role-drawer[data-layer="knowledge"] .role-drawer-avatar {
+  background: color-mix(in srgb, var(--p-pillar-knowledge, var(--p-accent)) 14%, transparent);
+  color: var(--p-pillar-knowledge, var(--p-accent));
+}
+
+.role-drawer[data-layer="ops"] .role-drawer-avatar {
+  background: color-mix(in srgb, var(--p-pillar-ops, var(--p-accent)) 14%, transparent);
+  color: var(--p-pillar-ops, var(--p-accent));
+}
+
+.role-drawer[data-layer="love"] .role-drawer-avatar {
+  background: color-mix(in srgb, var(--p-love-danger, var(--p-accent)) 16%, transparent);
+  color: var(--p-love-danger, var(--p-accent));
+}
+
+.role-drawer-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-drawer-preview {
+  margin: 0;
+  padding: 0 20px 6px;
+  overflow: hidden;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 20px 8px;
+}
+
+.role-context-row[hidden] { display: none; }
+
+.role-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--p-accent-soft);
+  border-radius: 999px;
+  padding: 4px 6px 4px 11px;
+  background: var(--p-accent-soft);
+  color: var(--p-ink-2);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.role-context-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-context-clear {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--p-ink-faint);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.role-context-clear:hover { background: var(--p-hover); color: var(--p-ink); }
+
+.role-message-quote {
+  display: inline-flex;
+  margin: 0 0 6px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-faint);
+  font-size: 11px;
+}
+
+.role-message-quote + .role-message-body { margin-top: 2px; }
+
+/* 编辑器内右侧面板：不改变 dialog 外层的 fixed 全局抽屉。 */
+.role-drawer.is-embedded {
+  position: static;
+  inset: auto;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-left: 0;
+  box-shadow: none;
+}
+
+.role-drawer.is-embedded .role-drawer-messages {
+  min-height: 0;
+}
+
+/* 编辑器内底部悬浮输入条。 */
+.role-drawer.is-docked {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 18px;
+  left: 50%;
+  width: min(720px, calc(100vw - 32px));
+  height: auto;
+  max-height: min(52vh, 420px);
+  transform: translateX(-50%);
+  border: 1px solid var(--p-line);
+  border-radius: 18px;
+  background: var(--p-surface);
+  box-shadow: 0 22px 70px -36px var(--p-shadow);
+}
+
+.role-drawer.is-docked .role-drawer-head {
+  padding: 10px 16px 4px;
+}
+
+.role-drawer.is-docked .role-drawer-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.role-drawer.is-docked .role-drawer-head h2 {
+  font-size: 17px;
+}
+
+.role-drawer.is-docked .role-drawer-head p,
+.role-drawer.is-docked #role-drawer-status,
+.role-drawer.is-docked .role-drawer-messages,
+.role-drawer.is-docked .role-drawer-chips {
+  display: none;
+}
+
+.role-drawer.is-docked .role-drawer-preview:not([hidden]) {
+  display: block;
+  padding: 0 16px 4px;
+}
+
+.role-drawer.is-docked .role-context-row {
+  padding: 0 16px 4px;
+}
+
+.role-drawer.is-docked .role-drawer-form {
+  padding: 6px 16px 12px;
+  border-top: 0;
+}
+
+.role-drawer.is-docked .role-drawer-form textarea {
+  min-height: 48px;
+  max-height: 120px;
+}
+
+/* 选中文字后的浮动提问按钮。 */
+.selection-ask {
+  position: fixed;
+  z-index: 120;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: var(--p-surface);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow: 0 12px 32px -18px var(--p-shadow);
+  cursor: pointer;
+}
+
+.selection-ask:hover,
+.selection-ask:focus-visible {
+  border-color: var(--p-accent);
+  color: var(--p-accent);
+}
+
+.selection-ask[hidden] { display: none; }
+
+.selection-ask-mark { color: var(--p-accent); }
+
+@media (max-width: 900px) {
+  .role-drawer.is-embedded {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: min(62vh, 560px);
+    border-top: 1px solid var(--p-line);
+    border-radius: 18px 18px 0 0;
+  }
+
+  .role-drawer.is-docked {
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: calc(100vw - 20px);
+  }
+}
+
 @media (max-width: 640px) {
-  .role-drawer {
+  .role-drawer:not(.is-embedded):not(.is-docked) {
     top: auto;
     left: 0;
     width: 100%;

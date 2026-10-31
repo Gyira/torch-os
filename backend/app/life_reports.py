@@ -1,4 +1,4 @@
-"""生活运营 AI（v1.0 P4）：健康/理财/恋爱/生活助理的只读上下文与报告。
+"""生活运营 AI（v1.0 P4）：健康/理财/恋爱/生活管家的只读上下文与报告。
 
 - 只读来源：`02_生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
   工作台未完成任务/今日习惯；
@@ -36,7 +36,7 @@ REPORT_TITLE = {
     "health": "健康报告",
     "finance": "财务报告",
     "love": "恋爱大师建议",
-    "life": "生活助理建议",
+    "life": "生活管家建议",
 }
 ROLE = {
     "health": ("health_doctor", "report"),
@@ -79,6 +79,14 @@ def _month_rows(vault_dir: Path | str, dataset: str, months: int = 6) -> list[di
 
 
 def health_context(vault_dir: Path | str, months: int = 6) -> tuple[str, dict[str, Any]]:
+    """健康系统的结构化摘要；旧库没有每日记录时回退到旧月度表。"""
+    try:
+        from . import health_store
+        text, stats = health_store.summary(vault_dir, days=min(90, max(7, months * 30)))
+        if stats.get("days") or stats.get("labs"):
+            return text, stats
+    except Exception:
+        pass
     rows = _month_rows(vault_dir, "health", months)
     lines: list[str] = []
     weights = [(_money(row.get("weight_kg")), row.get("date")) for row in rows]
@@ -258,7 +266,7 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
         "health": "请按私人医生模式评估最近 6 个月的健康数据，输出约定的报告 JSON。",
         "finance": "请按理财专家模式评估最近 6 个月的收支数据，输出约定的报告 JSON。",
         "love": "请按恋爱大师模式给出关系建议；只基于摘要，不要假装读过原始聊天。",
-        "life": "请按生活助理模式汇总健康/财务/恋爱与任务，给最多三条可执行建议，并输出约定 JSON。",
+        "life": "请按生活管家模式汇总健康/财务/恋爱与任务，给最多三条可执行建议，并输出约定 JSON。",
     }[domain]
     try:
         result = role_service.run(role_id, mode, context_text=context, user_text=user_text)

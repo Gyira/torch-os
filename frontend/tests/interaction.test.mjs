@@ -868,7 +868,7 @@ test("double-clicking anywhere on a task row starts inline title rename", async 
     onRename: (task, title) => renamed.push([task.key, title]),
   };
   const row = taskRow(calendarTask({
-    key: "row", path: "00_人生路/07_任务与待办/收集箱/写方案.md", title: "写方案",
+    key: "row", path: "02_生活运营/00_待办事项/收集箱/写方案.md", title: "写方案",
   }), options);
   await row.emit("dblclick");                      // 点在行本身，不是标题文字
   const input = byClass(row, "task-rename")[0];
@@ -900,13 +900,38 @@ test("double-clicking anywhere on a task row starts inline title rename", async 
   assert.equal(byClass(legacy, "task-rename").length, 0);
 });
 
+test("clicking a task row hands the row back so selection can skip the board re-render", async () => {
+  const { load } = await harness();
+  const { taskRow } = (await load("tasks.js")).namespace;
+  const picked = [];
+  const renamed = [];
+  const options = {
+    today: "2026-10-11", lists: [], actions: {},
+    onOpenDocument: () => {},
+    onPick: (task, row) => picked.push([task.key, row]),
+    onRename: (task, title) => renamed.push([task.key, title]),
+  };
+  const row = taskRow(calendarTask({ key: "pick", title: "选我" }), options);
+  await row.emit("click", { target: { closest: () => null } });
+  // 调用方拿到行本身，才能只改这一行的选中态；整板重画会在两次单击之间换掉 DOM。
+  assert.deepEqual(picked.map(([key]) => key), ["pick"]);
+  assert.equal(picked[0][1], row);
+  // 节点还在，紧接着的双击仍然能进入改名。
+  await row.emit("dblclick");
+  const input = byClass(row, "task-rename")[0];
+  assert.ok(input);
+  input.value = "选我 v2";
+  await input.emit("keydown", { key: "Enter" });
+  assert.deepEqual(renamed, [["pick", "选我 v2"]]);
+});
+
 test("task documents use the in-app editor and save with the document revision", async () => {
   const { load, getNode, setResponse, requests } = await harness();
   const { openNoteEditor } = (await load("note-editor.js")).namespace;
   const keyA = "a".repeat(64);
   const keyB = "b".repeat(64);
   const doc = {
-    key: keyA, path: "00_人生路/07_任务与待办/收集箱/写方案.md",
+    key: keyA, path: "02_生活运营/00_待办事项/收集箱/写方案.md",
     revision: "r1", title: "写方案", body: "初始正文\n",
     list_name: "收集箱", done: false,
   };
@@ -916,7 +941,7 @@ test("task documents use the in-app editor and save with the document revision",
       const payload = JSON.parse(options.body);
       return {
         ...doc, key: keyB,
-        path: "00_人生路/07_任务与待办/收集箱/写方案 v2.md",
+        path: "02_生活运营/00_待办事项/收集箱/写方案 v2.md",
         revision: "r2", title: payload.title, body: payload.body,
       };
     }

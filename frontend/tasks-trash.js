@@ -1,4 +1,4 @@
-// 任务回收站：列出 00_人生路/07_任务与待办/回收站 里的任务文件与清单文件夹；
+// 任务回收站：列出 02_生活运营/00_待办事项/回收站 里的任务文件与清单文件夹；
 // 可恢复到原位置，也可彻底删除。
 import { $, api, escapeHtml, formatDate, jsonBody, setStatus, toast, confirmAction, changed, state } from "./core.js";
 import { trashItemSummary, trashDidaIds } from "./tasks-model.js";

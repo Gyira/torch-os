@@ -1,6 +1,6 @@
 // 时间管理模块外壳（2026-10-08，替换「今日待办」）：
 // 左侧按钮栏（任务 / 日历 / 习惯打卡 / 四象限）+ 任务页（二级侧边栏 + 添加栏 + 任务板）。
-// 数据来自 /api/time/*（Markdown 本体 `00_人生路/07_任务与待办/`）；写操作一律「POST → 重载 → 提示」，
+// 数据来自 /api/time/*（Markdown 本体 `02_生活运营/00_待办事项/`）；写操作一律「POST → 重载 → 提示」，
 // 与 workbench.js 里待办/习惯那套写法保持一致。日历页与四象限页在第 3 轮接上（照滴答实测规格），
 // 2026-10-11 第 4 轮把日历扩成七种视图（状态：视图/锚点/档位/显示设置，全存本机）。
 import { $, state, api, jsonBody, toast, setStatus, confirmAction, changed } from "./core.js";
@@ -116,7 +116,11 @@ export function initTimeModule() {
     }
   });
   $("#time-add").addEventListener("focusout", (event) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) $("#time-add-tools").hidden = true;
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    // 焦点交给任务行时先不收工具栏：收起会让整块任务板向上跳约 50px，
+    // 正在进行的双击会因此落到别的元素上（2026-10-31 用户报双击改名没反应）。
+    if (event.relatedTarget?.closest?.(".time-task")) return;
+    $("#time-add-tools").hidden = true;
   });
   $("#time-add-submit").addEventListener("click", () => createTask());
   $("#time-tool-date").addEventListener("click", () => {
@@ -213,7 +217,7 @@ export function initTimeModule() {
   $("#time-bulk-delete").addEventListener("click", () => {
     confirmDialog({
       title: `把选中的 ${picked.size} 项任务移到回收站？`,
-      message: "文件会先移到 00_人生路/07_任务与待办/回收站；如果开启了滴答回写，已同步任务会在下一次推送时从滴答删除。",
+      message: "文件会先移到 02_生活运营/00_待办事项/回收站；如果开启了滴答回写，已同步任务会在下一次推送时从滴答删除。",
       onConfirm: () => bulkAction("delete", {}, (count) => `已把 ${count} 项移到回收站。`),
     });
   });
@@ -362,7 +366,7 @@ function paintVaultNote() {
   const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
   const bits = [
     `${source}：${board.vault_name || "当前库"}`,
-    `新任务保存为 ${board.inbox_dir || board.task_dir || "00_人生路/07_任务与待办/收集箱"}/…md`,
+    `新任务保存为 ${board.inbox_dir || board.task_dir || "02_生活运营/00_待办事项/收集箱"}/…md`,
   ];
   if (board.habit_board_revision) {
     bits.push("习惯在 00_人生路/04_目标/04_习惯追踪/习惯/…md");
@@ -684,7 +688,7 @@ function listAction(action, entry) {
   if (action === "delete") {
     confirmDialog({
       title: `删除清单「${entry.name}」？`,
-      message: "整个清单文件夹会移到 00_人生路/07_任务与待办/回收站，"
+      message: "整个清单文件夹会移到 02_生活运营/00_待办事项/回收站，"
         + "这个清单里的已完成任务也会一起移过去；配置同时备份。可以在回收站页面恢复。",
       danger: true,
       onConfirm: async () => {
@@ -806,11 +810,11 @@ function taskOptions(selection, options = {}) {
         if (task.legacy || habitGuard(task)) return;
         const ok = await confirmAction({
           title: `把任务“${task.title}”移到回收站？`,
-          message: "只会移入 00_人生路/07_任务与待办/回收站，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
+          message: "只会移入 02_生活运营/00_待办事项/回收站，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
           confirmLabel: "移到回收站",
         });
         if (!ok) return;
-        post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站（07_任务与待办/回收站）。");
+        post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站（00_待办事项/回收站）。");
       },
     },
   };
@@ -960,15 +964,34 @@ function paintQuadrant() {
 }
 
 /** 单击一行：多选模式下是加/取消，普通模式下是「选中这一条」（再点一次取消）。 */
-function onPickTask(task) {
+function onPickTask(task, row) {
   if (task.legacy || isHabitTask(task)) return;   // 旧任务/习惯行不参与选中/批量
+  let selected;
   if (multi) {
     if (picked.has(task.key)) picked.delete(task.key);
     else picked.add(task.key);
+    selected = picked.has(task.key);
   } else {
     activeKey = activeKey === task.key ? "" : task.key;
+    selected = activeKey === task.key;
+    // 单人选中：先清掉上一条，纯改类名，不重画整板。
+    for (const node of document.querySelectorAll("#time-board .time-task.is-selected")) {
+      node.classList.remove("is-selected");
+      node.removeAttribute("aria-selected");
+      const box = node.querySelector?.(".task-select");
+      if (box) box.checked = false;
+    }
   }
-  paintBoardPicked();
+  // 只改这一行的选中态，不重画整板：重画会在两次单击之间换掉 DOM，浏览器就不再
+  // 把第二次单击算成双击，双击改名永远进不去（2026-10-31 用户报“双击没反应”）。
+  if (row && row.dataset?.taskKey === task.key) {
+    row.classList.toggle("is-selected", selected);
+    if (selected) row.setAttribute("aria-selected", "true");
+    else row.removeAttribute("aria-selected");
+    const select = row.querySelector?.(".task-select");
+    if (select) select.checked = selected;
+  }
+  paintBulkBar();
 }
 
 /** 只重画任务板 + 批量条（不重新拉数据）。 */

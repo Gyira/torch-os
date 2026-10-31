@@ -13,13 +13,16 @@
 - `/api/journal/{day}`、`/api/journal/{day}/review`、`/api/journal/{day}/next-task`、
   `/api/journal/{day}/export`、`/api/journal/monthly-review`：旧 SQLite 结构化日记。
 - `/api/learning/*`：旧学习科目、学习记录与周统计。
-- `/api/body/*`：旧 SQLite 身体记录；身体数据现在只读「健康与体重」月度 Markdown 表。
+- `/api/body/*`：旧 SQLite 身体记录；身体数据现在读健康系统的每日 Markdown
+  （`02_生活运营/02_健康系统/01_每日健康`），旧库回退到健康月度表。
 - `/api/goals` 的写接口与 `/api/tasks/*` 旧接口：目标写转人生路目标笔记，任务只用
-  `00_人生路/07_任务与待办/**` 的 Markdown 笔记（`GET /api/goals` 保留，返回目标笔记）。
+  `02_生活运营/00_待办事项/**` 的 Markdown 笔记（`GET /api/goals` 保留，返回目标笔记）。
 - `/api/daily-plan/draft`：旧目标任务的今日计划草稿；时间管理页已替代。
 - `/api/chat`、`/api/chat/stream`、`/api/agent/cancel`：旧 torch 自建对话与 ACP 会话。
 - `/api/config/model-key`：旧模型密钥写入接口；torch 不再保存模型凭据。
-- `/api/steward/ask` 与 `/api/steward/status`：旧管家问答；问答统一交给 dsh。
+- `/api/steward/ask`、`/api/steward/status`、`/api/steward/health`、`/api/steward/proposals`、
+  `/api/steward/inbox-suggestions`、`/api/steward/suggest`：旧管家问答/提案/健康检查；
+  2026-10-31 起「薪火管家」前后端整体移除，问答由生活管家/各角色抽屉承担。
 - `/api/workbench/summarize`：旧模型润色接口；`/api/workbench/draft` 仍保留。
 - `/api/conversations`、`/api/conversations/{id}`：旧对话读取；历史数据仍可通过导出接口读取。
 - **2026-10-26 四库只读**（旧写接口；手动写入先改为在 Obsidian 原生编辑器里做）：

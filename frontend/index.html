@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -18,6 +18,7 @@
       <div class="nav-sublist" id="nav-sub-ops" data-sublist="ops" role="group" aria-label="生活运营分区" hidden>
         <button type="button" class="nav-subitem active" data-pane="ops-view" aria-current="true">生活运营</button>
         <button type="button" class="nav-subitem" data-pane="love-view" aria-current="false">恋爱系统</button>
+        <button type="button" class="nav-subitem" data-pane="health-view" aria-current="false">健康系统</button>
       </div>
       <button class="nav-item" data-view="knowledge"><span aria-hidden="true">知</span>知识库</button>
       <button class="nav-item" data-view="settings" aria-expanded="false"><span aria-hidden="true">⚙</span>设置与状态</button>
@@ -144,7 +145,7 @@
                 <div class="habit-card-column">
                   <section class="habit-daily-block" aria-labelledby="habit-daily-title">
                     <header class="habit-daily-head"><h4 id="habit-daily-title">每日必做</h4><span id="time-daily-count" class="meta" role="status"></span></header>
-                    <p id="time-daily-hint" class="field-help">每日必做在 Obsidian 的 <code>00_人生路/07_任务与待办/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。</p>
+                    <p id="time-daily-hint" class="field-help">每日必做在 Obsidian 的 <code>02_生活运营/00_待办事项/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。</p>
                     <ul id="time-daily-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
                   </section>
                   <label class="habit-group-filter-label">分组<select id="habit-group-filter" aria-label="按分组筛选习惯"></select></label>
@@ -157,7 +158,7 @@
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
             <section class="time-page" id="time-trash-page" role="tabpanel" aria-labelledby="time-tab-trash" hidden aria-label="回收站">
               <header class="time-head"><h3>回收站</h3><span id="time-trash-count" class="meta" role="status"></span><button type="button" id="time-trash-refresh" class="text-button">刷新</button></header>
-              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>00_人生路/07_任务与待办/回收站</code>），包括滴答清单远端删除的任务。只有这里的“彻底删除”才会真正删除 md 文件。</p>
+              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>02_生活运营/00_待办事项/回收站</code>），包括滴答清单远端删除的任务。只有这里的“彻底删除”才会真正删除 md 文件。</p>
               <p id="time-trash-status" class="status-message" role="status"></p>
               <div id="time-trash-list"></div>
             </section>
@@ -253,6 +254,7 @@
             <div class="love-head-actions">
               <label class="visually-hidden" for="love-project-select">选择项目</label>
               <select id="love-project-select" class="love-project-select" aria-label="选择恋爱项目"></select>
+              <button id="love-master-open" class="button secondary" type="button">恋爱大师</button>
               <button id="love-refresh" class="small-button" type="button">刷新</button>
             </div>
           </header>
@@ -271,6 +273,45 @@
               </ul>
               <button id="love-consent-accept" class="button primary" type="button">我已了解，进入恋爱系统</button>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="health-view" class="pane ops-health" data-module="ops" data-pane-label="健康系统" aria-label="健康系统" hidden>
+      <div class="health-shell" id="health-shell">
+        <aside class="health-menu" aria-label="健康系统分区">
+          <div class="health-menu-brand"><span class="health-mark" aria-hidden="true">健</span><div><strong>健康系统</strong><small>只在本机 · 不是诊断</small></div></div>
+          <nav class="health-nav" id="health-nav" aria-label="健康系统页面">
+            <button type="button" class="health-nav-item active" data-health-page="dashboard" aria-current="page"><span>01</span>今日总览</button>
+            <button type="button" class="health-nav-item" data-health-page="body"><span>02</span>身体与体征</button>
+            <button type="button" class="health-nav-item" data-health-page="sleep"><span>03</span>睡眠</button>
+            <button type="button" class="health-nav-item" data-health-page="nutrition"><span>04</span>饮食营养</button>
+            <button type="button" class="health-nav-item" data-health-page="activity"><span>05</span>日常活动</button>
+            <button type="button" class="health-nav-item" data-health-page="mind"><span>06</span>心理健康</button>
+            <button type="button" class="health-nav-item" data-health-page="training"><span>07</span>训练</button>
+            <button type="button" class="health-nav-item" data-health-page="medical"><span>08</span>体检与医疗</button>
+            <button type="button" class="health-nav-item" data-health-page="trends"><span>09</span>趋势看板</button>
+            <button type="button" class="health-nav-item" data-health-page="insights"><span>10</span>关联洞察</button>
+            <button type="button" class="health-nav-item" data-health-page="reports"><span>11</span>健康报告</button>
+            <button type="button" class="health-nav-item" data-health-page="settings"><span>12</span>设置</button>
+          </nav>
+          <p class="health-menu-foot" id="health-menu-status">正在读取本机数据…</p>
+        </aside>
+        <div class="health-main">
+          <header class="health-head">
+            <div><span class="eyebrow">HEALTH</span><h2 id="health-title">今日总览</h2></div>
+            <div class="health-head-actions">
+              <button id="health-prev-day" class="small-button" type="button" aria-label="前一天">‹</button>
+              <label class="visually-hidden" for="health-day">选择日期</label>
+              <input id="health-day" class="health-day-input" type="date" aria-label="选择日期" />
+              <button id="health-next-day" class="small-button" type="button" aria-label="后一天">›</button>
+              <button id="health-today" class="small-button" type="button">今天</button>
+              <button id="health-doctor" class="button secondary" type="button">私人医生</button>
+              <button id="health-refresh" class="small-button" type="button">刷新</button>
+            </div>
+          </header>
+          <div id="health-content" class="health-content" role="region" aria-live="polite">
+            <div class="state-message"><strong>正在读取健康系统…</strong><p>记录只保存在当前个人数据库，不会上传。</p></div>
           </div>
         </div>
       </div>
@@ -532,12 +573,20 @@
 </dialog>
 <aside id="role-drawer" class="role-drawer" hidden aria-label="AI 角色对话">
   <div class="role-drawer-head">
-    <div><span class="eyebrow" id="role-drawer-eyebrow">AI 角色</span><h2 id="role-drawer-title">AI 角色</h2><p id="role-drawer-subtitle" class="field-help"></p></div>
-    <button id="role-drawer-close" class="small-button" type="button" aria-label="关闭角色对话">关闭</button>
+    <div class="role-drawer-identity">
+      <span id="role-drawer-avatar" class="role-drawer-avatar" aria-hidden="true">AI</span>
+      <div><span class="eyebrow" id="role-drawer-eyebrow">AI 角色</span><h2 id="role-drawer-title">AI 角色</h2><p id="role-drawer-subtitle" class="field-help"></p></div>
+    </div>
+    <div class="role-drawer-head-actions">
+      <button id="role-drawer-dock" class="small-button" type="button" aria-expanded="true" hidden>收起</button>
+      <button id="role-drawer-close" class="small-button" type="button" aria-label="关闭角色对话">关闭</button>
+    </div>
   </div>
   <p id="role-drawer-status" class="field-help" role="status"></p>
+  <p id="role-drawer-preview" class="role-drawer-preview" hidden></p>
   <div id="role-drawer-messages" class="role-drawer-messages" aria-live="polite"></div>
   <div id="role-drawer-chips" class="role-drawer-chips"></div>
+  <div id="role-drawer-context" class="role-context-row" hidden></div>
   <form id="role-drawer-form" class="role-drawer-form">
     <label class="visually-hidden" for="role-drawer-input">给角色发消息</label>
     <textarea id="role-drawer-input" rows="3" maxlength="8000" placeholder="想聊什么？"></textarea>
@@ -561,6 +610,7 @@
         <button id="note-editor-save" type="button" class="button primary">保存</button>
       </div>
     </header>
+    <div class="editor-room-body">
     <div class="editor-stage">
       <div class="editor-paper" id="note-editor-paper">
         <div class="editor-paper-head">
@@ -614,6 +664,8 @@
           </div>
         </footer>
       </div>
+    </div>
+    <aside id="note-editor-companion-slot" class="editor-companion-slot" hidden aria-label="AI 伙伴"></aside>
     </div>
   </div>
   <div id="note-editor-template-sheet" class="template-sheet" hidden>
@@ -718,6 +770,10 @@
   <p id="share-link-status" class="status-message" role="status"></p>
   <div id="share-link-result" class="share-link-result"></div>
 </dialog>
+<button id="selection-ask" class="selection-ask" type="button" hidden aria-label="向 AI 提问选中的文字">
+  <span class="selection-ask-mark" aria-hidden="true">✦</span>
+  <span id="selection-ask-label">问 AI</span>
+</button>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script type="module" src="/assets/app.js"></script>
 </body></html>

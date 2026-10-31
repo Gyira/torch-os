@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
 
 ## AI 角色层（1.0 P0–P1）
 
@@ -12,39 +12,40 @@
   QA/禁用 dsh 时返回 `available=false`，不启动子进程。
 - `GET /api/ai/roles`：读取 `dsh/roles/*.md` 的角色元数据（id/name/modes/proposals），
   不返回 prompt 正文；非法角色只出现在 `role_errors`，不会被使用。
-- 当前已加载 7 个角色：忆灵/苏格拉底、写作伙伴、学术导师、AI 生活助理、恋爱大师、
+- 当前已加载 7 个角色：忆灵/苏格拉底、写作伙伴、学术导师、生活管家、恋爱大师、
   私人医生、理财专家。角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，
-  不是第二个模型或第二个 Key。
+  不是第二个模型或第二个 Key。身份映射：人生路→写作伙伴、知识库→学术导师、
+  生活运营→生活管家、恋爱系统→恋爱大师。
 - `POST /api/ai/chat`：页面内角色抽屉的一轮对话；`thread_id` 续聊，`selectors` 只接受
-  identity/note/journal/tasks 等枚举来源，后端读取、编号、截断，浏览器不能上传任意长文本。
+  identity/note/journal/tasks/health/finance/love 等枚举来源，后端读取、编号、截断。
+  新增 `selection_text` / `selection_source` / `draft_text`：编辑器/阅读器选区与未保存草稿
+  作为「数据不是指令」区块进入 prompt，不写入 `ai_turns.content`，审计只记来源/字数/短哈希。
 - `POST /api/ai/run`：一次性能力（润色/判类/分享总结/报告的底座），返回 `text` 与
   `structured` JSON；解析失败只保留自然语言，不产生提案。
 - `GET/POST /api/ai/threads`、`GET/DELETE /api/ai/threads/{id}`：角色会话；删除需要
   `confirm=true`。
 - `GET /api/proposals`、`GET /api/proposals/{id}`、`POST /api/proposals/{id}/apply|reject`：
   通用提案状态机；P1–P3 已注册 `new_task`/`new_habit`/`new_note`/`archive_note`/
-  `identity_patch` 落盘 handler；采纳任务会在 `00_人生路/07_任务与待办/` 生成任务笔记；
+  `identity_patch` 落盘 handler；采纳任务会在 `02_生活运营/00_待办事项/` 生成任务笔记；
   未注册的 kind 返回 409。
 - 角色子进程通过 stdin 运行 `dsh --profile headless --json -`，空工作区、环境白名单、
   超时杀进程树；详见 `docs/AI_ROLES.md`。
-- 前端：工作台时间管理顶部有「AI 助手」按钮，打开 `life_assistant/tasks` 角色抽屉；
+- 前端：工作台时间管理顶部有「生活管家」按钮，打开 `life_assistant/tasks` 角色抽屉；
   提案卡片采纳后生成任务/习惯。小组件显隐在设置 →「工作台小组件」，隐藏组件不初始化、
   不发请求，偏好存 `.torch-os/personal-data.json`。
-- 生活运营 AI 见下节；未注册的提案 apply 返回 409，不会静默成功。
+- 编辑器内打开伙伴不再关闭编辑器：角色抽屉可宿主在编辑器 dialog 右侧，也可收起为底部
+  悬浮输入条；选中文字后出现「问…」浮钮，选区以 chip 形式引用，消息气泡不展示原文。
+- 未注册的提案 apply 返回 409，不会静默成功。
 
 ## 生活运营 AI（1.0 P4）
 
-- `GET /api/ops/ai/overview`：健康/财务月度汇总、恋爱分析摘要、最近报告、未完成任务；
-  不发原始聊天、不控制设备。
-- `POST /api/ops/ai/report {domain, confirm:true}`：
-  - `health` → 私人医生报告写 `02_生活运营/06_健康报告`；
-  - `finance` → 理财专家报告写 `07_财务报告`；
-  - `love` → 恋爱大师建议写 `08_生活建议`；
-  - `life` → AI 生活助理汇总写 `08_生活建议`，建议生成 new_task/new_habit 提案。
-- 报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
-- 前端生活运营页顶部 AI 卡片：生活助理/私人医生/理财专家/恋爱大师按钮；报告路径与提案卡片；
-  家庭系统只显示“后续版本”占位。
-- 恋爱系统 12 页保持不动；新增角色只读摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
+- `GET /api/ops/ai/overview`、`POST /api/ops/ai/report` 仍保留（健康/财务/恋爱/生活汇总）；
+  当前前端不再显示旧的 AI 卡片，生活运营首页改由「生活管家」角色读取
+  tasks/identity/health/finance/love 摘要。
+- 报告落点不变：健康 `02_生活运营/02_健康系统/00_健康报告`、财务 `07_财务报告`、
+  恋爱/生活建议 `08_生活建议`；
+  报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
+- 恋爱系统 12 页保持；顶部新增「恋爱大师」按钮，只读分析摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
 
 ## 忆灵 / 记忆中枢（1.0 P3）
 
@@ -72,7 +73,8 @@
   所有写入审计；`VAULT_READ_ONLY=1` 时 409。任务、习惯、身份、生活运营不在这里写。
 - 今天的日记可直接在应用内写：`GET /api/journal/note?day=` 返回 `content` 与原始字节 `sha256`；
   `POST /api/journal/write` 带 `expected_sha` 只写今天，过去日记保持只读。
-- **人生路 / 知识库首页（2026-10-30）**：人生路首屏是「今天，写点什么？」+ 今日日记 +
+- **人生路 / 知识库首页（2026-10-30，热力图 2026-10-31）**：人生路首屏是
+  「今天，写点什么？」+ **写作热力图**（最近 26 周，替代原来的今日日记卡片）+
   我的本子（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘）；知识库首屏是
   「今天想弄明白什么？」+ 打开 DeepSeek + 粘贴分享链接，本子网格在下方。
 - **自定义本子 = 文件夹**：`GET /api/notebooks?pillar=life|knowledge` 列出对应库根目录
@@ -98,7 +100,16 @@
   保存前可改成任何本子；各本子页的「写一条」默认指向该本子。知识库页头「＋ 写一条」
   和阅读器「编辑」同样打开**全屏写作空间**（大标题/大正文、H1–H3 与列表/引用/表格等工具栏、
   写作↔预览、专注模式、字数/阅读时间、revision 冲突提示、在 Obsidian 打开）；
-  今天的日记仍从「今日日记」卡片进入并直接在应用内写。
+  今天的日记仍从「写作热力图」卡片右上角的「打开今天的日记 / 开始写今天的日记」进入，
+  也可直接点热力图里今天的格子。
+- **写作热力图（2026-10-31，参考 jotsy 的 ExploreHeatmapCard/Grid）**：
+  `GET /api/pillars/life/overview` 增加 `journal_heatmap`：`start`（26 周前周一）、
+  `weeks`、`today`、`first_weekday`、`written_days`、`days`（只含有正文的日期，含
+  `entries/words/path/legacy`）。前端 `journal-heatmap.js` 按周排布 26×7 格，月份/
+  星期标签、今天与悬停描边、字数四档图例（<200/<600/<1500/其余）与
+  「近 26 周里有 N 天写了日记」说明；点有日记的格子打开当天笔记，今天的空格子直接
+  进入编辑器。`today.journal_has_content` 与 `today.week[].written` 用同一口径
+  （只有日期骨架的空文件不算写过），左侧「近 7 天」、7 天圆点与热力图保持一致。
 - **写作模板（2026-10-31，参考 jotsy）**：空白写作页标题下有「从模板开始」建议条，
   按当下时段/日记星期推荐，先列推荐、再列最近用过的，最多 5 个；点胶囊直接套用，
   「全部」打开底部模板面板，可搜索、按「全部/推荐/日常/复盘/情绪/生活」筛选、先预览
@@ -121,7 +132,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 首页「今天，写点什么？」+ 我的本子（日记、反思复盘、心得体会、目标、项目、随笔、工作复盘）；本子内是笔记卡片列表与全屏写作；最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作、我的八字参考 |
-| 生活运营 | `#ops` | 健康与体重、财富与记账、体检与医疗、证件与事务、情感与记忆；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚） |
+| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚） |
 | 知识库 | `#knowledge` | 首页「今天想弄明白什么？」（DeepSeek 提问/分享链接回填）+ 知识本子：收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -167,9 +178,9 @@
   每次打开系统自动刷新。点卡片打开详情浮窗：5 日预报、体感/湿度/降水/风向/风速/气压/日出/日落，
   以及常用城市的搜索添加、切换与删除（城市列表存 `.torch-os/personal-data.json`；
   普通取天气走 Open-Meteo 白名单）。
-- 任务：一任务一笔记（`00_人生路/07_任务与待办/**`），看板/清单/标签、日期时间优先级、
+- 任务：一任务一笔记（`02_生活运营/00_待办事项/**`），看板/清单/标签、日期时间优先级、
   多选批量、右键菜单、手动排序、拖拽换清单、四象限换格、回收站、滴答双向同步。
-  **每个任务就是一篇文档**：任务行「文档」、右键菜单和人生路「任务与待办」阅读器都用应用内
+  **每个任务就是一篇文档**：任务行「文档」、右键菜单和生活运营「待办事项」阅读器都用应用内
   编辑器打开，可改正文与标题（标题就是任务板显示的名字，改名会同步文件名/文档路径）；
   双击任务条（看板行与日历条目）就地改标题；旧任务与虚拟习惯仍回 Obsidian。
 - 日历：年/月/周/日/日程/多日/多周视图；任务按清单颜色着色，时间任务上时刻轴。
@@ -180,7 +191,7 @@
   SQLite 只是统计缓存，Obsidian 里的修改会被读回。
   每日当期的习惯会作为虚拟任务进入「今日任务」和「四象限」；任务行勾选/拖优先级/双击改名
   与习惯页双向同步，虚拟习惯不会落成任务笔记，也不会进入滴答同步。
-- 每日必做仍来自 `00_人生路/07_任务与待办/_系统/待办（todos）.md`，勾选写入当天日记；
+- 每日必做仍来自 `02_生活运营/00_待办事项/_系统/待办（todos）.md`，勾选写入当天日记；
   习惯页底部保留每日必做清单。
 - 旧式 `任务（tasks）.md` 复选框任务只读保留。
 - 资料里的 Markdown 复选框可预览后复制为独立任务笔记；每篇笔记带稳定 `导入键`，
@@ -269,10 +280,36 @@
 
 ### 生活运营
 
-- 体重/健康、财务账目使用「月度 Markdown 表 + SQLite 投影」，行有稳定 `row_id`。
-- 体检/医疗、证件/事务一次事件一篇笔记。
+- 首页是「待办事项」本子 + 恋爱/健康/财务/家庭四个系统卡片；健康与恋爱已可用，
+  财务/家庭仍是占位。
+- 财务账目使用「月度 Markdown 表 + SQLite 投影」，行有稳定 `row_id`。
+- 证件/事务一次事件一篇笔记。
 - 月度表只读展示趋势 sparkline 与分类占比；「在 Obsidian 打开月度表」跳到原文，
   新增/修改/删除行都在 Obsidian 里做。
+
+### 健康系统（生活运营的二级分区，2026-10-31）
+
+- 与「恋爱系统」平级：生活运营顶部二级菜单「生活运营 / 恋爱系统 / 健康系统」，
+  不是新的顶层模块；`#health` 深链接直达。
+- 数据全部在 `02_生活运营/02_健康系统/`：`01_每日健康/YYYY-MM-DD.md`（frontmatter
+  存睡眠/身体/体征/营养/活动/心理/训练，正文是后端重写的可读摘要）、
+  `02_身体档案`（身高/生日/病史/过敏/用药/目标/自定义指标）、
+  `03_体检与检验`（一张带参考区间的 Markdown 表）、`00_健康报告`（私人医生产物）。
+  旧 `01_健康与体重` 月度表只读兼容，不再写入。
+- 原生 12 页：今日总览（六维健康指数圆环、七天文概、待补提醒）、身体与体征
+  （BMI/BMR、围度、血压/心率/血氧/血糖/HRV、异常提示）、睡眠（评分与分期）、
+  饮食（餐次合计、三大宏量、饮水快捷按钮）、活动（步数/久坐）、心理（情绪/压力/
+  精力/焦虑/正念/日记与热力图）、训练（本地动作库、组记录、容量）、体检与医疗
+  （检验表与用药）、趋势看板（最多 4 指标叠加，量纲不同自动归一化）、关联洞察、
+  健康报告、设置（档案/目标/自定义指标/权重只读）。
+- 评分：睡眠 0–100（时长/深睡/REM/入睡耗时/质量）；健康指数六维加权，缺数据维度
+  不参与并标「数据不足」；洞察 5 类规则，总样本 <7 天或每组 <5 不生成。
+- 私人医生：`health_doctor`（`report`/`advice`），按钮打开角色抽屉，
+  `POST /api/health/report` 生成周报/月报并落 `00_健康报告`；AI 不可用时 409。
+- 动作库文本复用 openGym（5526 条唯一名称，中文优先），不复制其图片/动画。
+- 图表是原生 SVG（`frontend/health-model.js`），页面不使用内联 style（CSP）。
+- 未做：训练计划、体检报告 PDF/OCR、CSV 批量导入、进度照片时间轴、Web 通知提醒。
+  数据模型、API 与评分公式详见 [`HEALTH_SYSTEM.md`](HEALTH_SYSTEM.md)。
 
 ### 恋爱系统（生活运营的二级分区，2026-10-27）
 
@@ -309,8 +346,7 @@
 - 「＋ 在 Obsidian 新建」默认在 `03_知识库/00_收件箱` 建笔记，标题、正文、来源、标签与
   「待分流」都在 Obsidian 里写。
 - 主题笔记、读书笔记、课程笔记、概念卡片、方法库、输出与作品。
-- 收件箱分流与薪火管家的确定性整理建议：建议按目标章节分组并标注置信度，只读展示，
-  可逐条「在 Obsidian 打开」原文；移动与改名在 Obsidian 里做。
+- 收件箱分流在「待确认中枢」手动选择目标章节后移动；学术导师可在编辑器里讨论/整理。
 - 全局搜索 `Ctrl/⌘ K`，↑↓ 选择、回车打开；结果带章节、日期与摘要。
 
 ## 体验与帮助
@@ -336,12 +372,10 @@
 
 - 库结构与迁移（当前布局 `pillars-v2`）：预览 → 备份 → 执行 → 报告 → 回滚；预览包含旧布局
   目录与人生路 v1 章节目录 → v2 的逐文件搬迁（冲突单独列出，执行要带预览的 `plan_hash`）；
-  迁移记录写入 `00_人生路/07_任务与待办/_系统/迁移记录/`。
+  迁移记录写入 `02_生活运营/00_待办事项/_系统/迁移记录/`。
 - 与神对话：完整 DeepSeek Harness Web UI（同源 `/harness/` 代理），嵌在工作台待办事项下方，
   宽度对齐任务主区并空出左右两侧小组件列；顶部「待办事项 / 与神对话」二级菜单用于页面定位。
   它是对话的唯一 AI 入口。恋爱系统的分析/日记生成是独立功能，使用它自己的可选 DeepSeek Key。
-- 薪火管家：确定性的收件箱分流/原则提炼提案与四库健康检查；自由问答在 dsh 里。
-  提案与体检都只读（2026-10-26 起没有执行入口），卡片只提供「在 Obsidian 打开原文」。
 - 诊断与恢复：数据库完整性、表计数、Vault 文件数、备份复验、恢复副本只读验证、一键恢复演练。
 - 导出：记忆、目标与任务、习惯与打卡、对话、每日记录、身体记录的可读 ZIP；不是恢复包。
 - 备份：本地明文 ZIP；恢复写入独立目录，不覆盖当前库，不自动切换。
@@ -352,7 +386,7 @@
 ### 设置 · 个人数据库（2026-10-26）
 
 - 设置 →「Obsidian 库连接」→「个人数据库」：显示当前库路径、模板只读预览
-  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `35 个章节 / layout v2`；设置页只
+  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `47 个章节 / layout v2`；设置页只
   展示、不能编辑，也不渲染分组行），以及「创建新的个人数据库」（父文件夹 + 名字）。
 - 创建只写一个新文件夹，按 `pillars-v2` 直接落 v2 章节路径：四库章节、`_系统`/`任务`、
   `.torch-os/vault-layout.json`（含 `groups`）、`.obsidian` 预设与 torch 插件、种子身份笔记；

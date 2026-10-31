@@ -157,7 +157,7 @@ def test_bad_yaml_is_not_editable(tmp_path):
 def test_trash_note_and_list_folder_safety(tmp_path):
     note = create_task_note(tmp_path, "", "先扔这里", fields())
     batch = trash_note(tmp_path, note)
-    assert batch.startswith("00_人生路/07_任务与待办/回收站/")
+    assert batch.startswith("02_生活运营/00_待办事项/回收站/")
     assert not note["path"].exists()
 
     listed = create_task_note(tmp_path, "工作", "清单任务", fields())

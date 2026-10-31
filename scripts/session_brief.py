@@ -137,7 +137,7 @@ def _load_front_matter(path: Path) -> dict[str, Any]:
 
 def _open_tasks(vault: Path) -> list[tuple[str, str, str]]:
     tasks: list[tuple[str, str, str]] = []
-    for path in _markdown_files(vault / "00_人生路/07_任务与待办"):
+    for path in _markdown_files(vault / "02_生活运营/00_待办事项"):
         meta, body = _front_matter(path)
         if _truthy(meta.get("完成", "")) or _truthy(meta.get("done", "")):
             continue

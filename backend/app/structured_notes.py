@@ -23,7 +23,9 @@ DATASETS = {
     "health": {
         "chapter": "health",
         "type": "health_month",
-        "title": "健康与体重",
+        # 2026-10-31 起健康数据改由健康系统（02_生活运营/02_健康系统）的每日记录承载；
+        # 这里只保留旧月度表 API 的兼容读取，新库不会生成 YYYY-MM.md。
+        "title": "健康系统（旧月度表）",
         "columns": [("row_id", "ID"), ("date", "日期"), ("weight_kg", "体重kg"),
                     ("sleep_minutes", "睡眠min"), ("exercise_minutes", "运动min"),
                     ("note", "备注")],
@@ -56,9 +58,18 @@ def _month(value: str) -> str:
     return text
 
 
+LEGACY_HEALTH_DIR = "02_生活运营/01_健康与体重"
+
+
 def month_path(vault_dir: Path | str, dataset: str, month: str) -> str:
     item = _dataset(dataset)
     return f"{vault_layout.chapter_dir(item['chapter'])}/{_month(month)}.md"
+
+
+def _legacy_health_path(vault_dir: Path | str, month: str) -> Path | None:
+    """健康系统上线前的 `01_健康与体重/YYYY-MM.md`：只读兜底，不写。"""
+    path = safe_note_path(Path(vault_dir), f"{LEGACY_HEALTH_DIR}/{_month(month)}.md")
+    return path if path.is_file() else None
 
 
 def _clean(value: Any, limit: int = 500) -> str:
@@ -128,6 +139,11 @@ def read_month(vault_dir: Path | str, dataset: str, month: str) -> dict[str, Any
     month = _month(month)
     relative = month_path(vault_dir, dataset, month)
     path = safe_note_path(Path(vault_dir), relative)
+    if not path.is_file() and dataset == "health":
+        legacy = _legacy_health_path(vault_dir, month)
+        if legacy is not None:
+            path = legacy
+            relative = legacy.relative_to(Path(vault_dir).resolve()).as_posix()
     if not path.is_file():
         return {"dataset": dataset, "month": month, "path": relative, "exists": False,
                 "rows": [], "revision": "", "columns": item["columns"]}
@@ -211,15 +227,21 @@ def restore_row(vault_dir: Path | str, dataset: str, month: str, values: dict[st
 
 def summary(vault_dir: Path | str, dataset: str, months: int = 12) -> dict[str, Any]:
     item = _dataset(dataset)
-    root = Path(vault_dir) / vault_layout.chapter_dir(item["chapter"])
+    roots = [Path(vault_dir) / vault_layout.chapter_dir(item["chapter"])]
+    if dataset == "health":
+        roots.append(Path(vault_dir) / LEGACY_HEALTH_DIR)
+    stems: list[str] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.glob("*.md"):
+            if MONTH_RE.fullmatch(path.stem) and path.stem not in stems:
+                stems.append(path.stem)
     found: list[dict[str, Any]] = []
-    if root.is_dir():
-        for path in sorted(root.glob("*.md"), reverse=True)[:max(1, min(60, months))]:
-            if not MONTH_RE.fullmatch(path.stem):
-                continue
-            result = read_month(vault_dir, dataset, path.stem)
-            if result["exists"]:
-                found.append(result)
+    for stem in sorted(stems, reverse=True)[:max(1, min(60, months))]:
+        result = read_month(vault_dir, dataset, stem)
+        if result["exists"]:
+            found.append(result)
     return {"dataset": dataset, "months": found, "columns": item["columns"]}
 
 

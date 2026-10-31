@@ -172,7 +172,7 @@ def test_triage_lists_the_inbox_but_only_offers_a_jump(tmp_path: Path) -> None:
 
     assert [item["title"] for item in items] == ["待分类的一条"]
     assert items[0]["actions"] == ["move"]
-    assert items[0]["suggest"]["chapter"], "分流要带本地规则的建议章节"
+    assert "suggest" not in items[0], "分流不再依赖已删除的管家建议"
 
 
 def test_triage_offers_only_real_chapters(tmp_path: Path) -> None:

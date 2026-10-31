@@ -51,6 +51,10 @@ def test_retired_four_library_write_routes_return_404(tmp_path):
         ('delete', '/api/ops/health/months/2026-10/rows/abcdef123456', None),
         ('post', '/api/ops/health/months/2026-10/rows/abcdef123456/restore',
          {'date': '2026-10-21', 'weight_kg': '68.1'}),
+        ('get', '/api/steward/health', None),
+        ('get', '/api/steward/proposals', None),
+        ('get', '/api/steward/inbox-suggestions', None),
+        ('post', '/api/steward/suggest', {'title': '一条灵感', 'body': '正文'}),
         ('post', '/api/steward/proposals/apply', {'proposal_id': 'st-missing', 'confirm': True}),
         ('post', '/api/steward/proposals/apply-batch',
          {'proposal_ids': ['st-missing'], 'confirm': True}),
@@ -66,7 +70,7 @@ def test_retired_capabilities_are_not_advertised(tmp_path):
     capabilities = client.get('/api/config/status').json()['capabilities']
     for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions', 'agent', 'harness_reset', 'model_key_write', 'semantic_search', 'workbench_polish'):
         assert key not in capabilities, key
-    assert len(capabilities) == 54
+    assert len(capabilities) == 55  # 2026-10-31 健康系统新增 health
 
 
 def test_legacy_tables_survive_and_have_no_writers(tmp_path):

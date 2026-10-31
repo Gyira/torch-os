@@ -42,6 +42,9 @@ def test_registry_loads_all_role_cards_without_errors():
     assert yiling.tools == "none"
     manifest = yiling.manifest()
     assert "prompt" not in manifest and manifest["name"] == "忆灵"
+    assert registry.get("life_assistant").name == "生活管家"
+    assert "discuss" in registry.get("academic_mentor").modes
+    assert registry.get("love_master").name == "恋爱大师"
 
 
 def test_registry_reports_invalid_role_instead_of_using_it(tmp_path):

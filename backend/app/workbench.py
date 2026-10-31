@@ -1,7 +1,7 @@
 """Workbench: one read of everything today, plus a deterministic local draft.
 
 The workbench is the product's daily loop: greeting and motto from the identity
-note, the day's todo list (Markdown: `00_人生路/07_任务与待办/_系统/待办（todos）.md`), the 每日必做 checklist
+note, the day's todo list (Markdown: `02_生活运营/00_待办事项/_系统/待办（todos）.md`), the 每日必做 checklist
 (today's journal note), the habits planned for today, and whether the journal was
 written. Progress is the plain average of those items (every item counts the
 same), so finishing nine of ten shows 90%.

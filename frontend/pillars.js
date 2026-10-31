@@ -2,15 +2,16 @@
 // 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
 // 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
 import {
-  $, api, confirmAction, escapeHtml, formatRelativeDate, state as appState, toast,
+  $, api, confirmAction, escapeHtml, formatRelativeDate, openDialog,
+  state as appState, toast,
 } from "./core.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
-import { bindOpsEvents, mountOps } from "./pillar-ops.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
-import { initOpsAI, loadOpsAI } from "./ops-ai.js";
-import { openSteward } from "./pillar-steward.js";
 import { archiveMarkup } from "./archive-markup.js";
+import { companionForView } from "./ai-companions.js";
+import { opsHomeState } from "./ops-model.js";
 import { shanghaiDay } from "./journal-model.js";
+import { buildJournalHeatmap, journalHeatmapMarkup } from "./journal-heatmap.js";
 import {
   deleteNoteFile, initNoteEditor, invalidateChapterCache, openNoteEditor,
 } from "./note-editor.js";
@@ -87,15 +88,11 @@ const PILLAR_META = {
   },
   ops: {
     title: "生活运营",
-    subtitle: "把身体、钱、事务照顾好，不让它们占用注意力。",
-    emptyHint: "例如：今天的体重，或一笔午餐支出。",
+    subtitle: "把身体、关系、钱和家照顾好，不让它们占用注意力。",
+    emptyHint: "生活运营的入口在首页：待办事项与四个生活系统。",
     icon: "生",
-    defaultChapter: "affairs",
-    quick: [
-      { label: "记体重", ops: "health" },
-      { label: "记一笔", ops: "finance" },
-      { label: "添加医疗记录", chapter: "medical", type: "medical" },
-    ],
+    defaultChapter: "task",
+    quick: [],
   },
   knowledge: {
     title: "知识库",
@@ -160,8 +157,12 @@ function chapterTitle(view, key) {
 
 function notebookCardsFor(view) {
   const overview = state.overviews[view] || {};
+  // 生活运营首页只展示受保护的「待办事项」本子；健康/财务等章节不进入本子网格。
+  const chapters = view === "ops"
+    ? (overview.chapters || []).filter((chapter) => chapter.key === "task")
+    : (overview.chapters || []);
   return buildNotebookCards(
-    view, overview.chapters || [], overview.custom_notebooks || [],
+    view, chapters, overview.custom_notebooks || [],
     overview.deleted_notebooks || []);
 }
 
@@ -350,7 +351,7 @@ function readerMarkup(view, reading, railItems) {
   const linkedTasks = Array.isArray(reading.linkedTasks) ? reading.linkedTasks : [];
   const openLinkedCount = linkedTasks.filter((task) => !task.done).length;
   // 任务文档走任务专用接口（标题就是任务板标题）；其他章节仍由写作接口管理。
-  const taskDocument = view === "life" && note.chapter === "task"
+  const taskDocument = note.chapter === "task"
     && String(note.type || "").toLowerCase() === "task";
   const canWrite = canWriteChapter(view, note.chapter) || isTodayJournal(note)
     || taskDocument;
@@ -401,7 +402,7 @@ function readerMarkup(view, reading, railItems) {
           </div>
         </div>
         <div class="pillar-reader-grid">
-          <article class="pillar-reader-article">
+          <article class="pillar-reader-article" data-reader-view="${escapeHtml(view)}" data-reader-chapter="${escapeHtml(note.chapter || "")}" data-reader-path="${escapeHtml(note.path || "")}">
             <header class="pillar-reader-head">
               <p class="eyebrow">${escapeHtml(chapterTitle(view, note.chapter))}</p>
               <h1 tabindex="-1">${escapeHtml(displayTitle)}</h1>
@@ -427,9 +428,12 @@ function weekMarkup(week, today) {
   const days = Array.isArray(week) ? week : [];
   if (!days.length) return "";
   return `<div class="pillar-week life-week" role="group" aria-label="最近 7 天日记">
-    ${days.map((day) => `<button type="button" class="pillar-week-day${day.exists ? " is-done" : ""}${day.date === today ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${day.exists ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${day.exists ? "已写日记" : "未写日记"}`)}">
+    ${days.map((day) => {
+      const done = day.written ?? day.exists;
+      return `<button type="button" class="pillar-week-day${done ? " is-done" : ""}${day.date === today ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${done ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${done ? "已写日记" : "未写日记"}`)}">
       <span>${escapeHtml(String(day.weekday || "").replace("周", ""))}</span><i aria-hidden="true"></i>
-    </button>`).join("")}
+    </button>`;
+    }).join("")}
   </div>`;
 }
 
@@ -473,25 +477,29 @@ function notebookCardMarkup(view, notebook) {
     </span>
     <span class="notebook-title">${escapeHtml(notebook.title)}</span>
     <span class="notebook-desc">${escapeHtml(notebook.description || "")}</span>
-    <span class="notebook-latest">${latest ? `最近：${escapeHtml(latest.title)}` : "还没有记录，打开写下第一篇"}</span>
+    <span class="notebook-latest">${latest ? `最近：${escapeHtml(latest.title)}` : (notebook.key === "task" ? "还没有任务文档" : "还没有记录，打开写下第一篇")}</span>
     <span class="notebook-open">打开本子 <i aria-hidden="true">→</i></span>
   </button>`;
 }
 
-function companionCardMarkup(view) {
-  const knowledge = view === "knowledge";
-  const roleId = knowledge ? "academic_mentor" : "journal_companion";
-  const mode = knowledge ? "tutor" : "discuss";
-  const entry = knowledge ? "knowledge.editor" : "life.editor";
-  const title = knowledge ? "学术导师" : "写作伙伴";
-  const copy = knowledge
+function companionCardMarkup(view, { task = false } = {}) {
+  const companion = view === "ops" && task
+    ? companionForView("ops", { chapter: "task" })
+    : companionForView(view);
+  if (!companion) return "";
+  const copy = view === "knowledge"
     ? "把一篇回答拆成能学的路径，或者指出你还没想清楚的地方。"
-    : "写不出来时，先聊两句。它读得到你最近写的东西。";
-  return `<section class="pillar-card home-companion">
-    <p class="eyebrow">AI · ${escapeHtml(title)}</p>
-    <p class="home-card-title">${knowledge ? "让回答变成能用的笔记。" : "先聊两句，再动笔。"}</p>
+    : view === "ops"
+      ? "把任务、恋爱、健康、财务放在一起看，指出这周最值得做的一件事。"
+      : "写不出来时，先聊两句。它读得到你最近写的东西。";
+  const headline = view === "knowledge"
+    ? "让回答变成能用的笔记。"
+    : view === "ops" ? "把生活放在一张桌上。" : "先聊两句，再动笔。";
+  return `<section class="pillar-card home-companion" data-companion-layer="${escapeHtml(companion.layer)}">
+    <p class="eyebrow">AI · ${escapeHtml(companion.title)}</p>
+    <p class="home-card-title">${escapeHtml(headline)}</p>
     <p class="field-help">${escapeHtml(copy)}</p>
-    <button type="button" class="pillar-quick-button" data-role-open="${escapeHtml(roleId)}" data-role-mode="${escapeHtml(mode)}" data-role-entry="${escapeHtml(entry)}" data-role-title="${escapeHtml(title)}">打开${escapeHtml(title)}</button>
+    <button type="button" class="pillar-quick-button" data-role-open="${escapeHtml(companion.roleId)}" data-role-mode="${escapeHtml(companion.mode)}" data-role-entry="${escapeHtml(companion.entry)}" data-role-title="${escapeHtml(companion.title)}">打开${escapeHtml(companion.title)}</button>
   </section>`;
 }
 
@@ -499,13 +507,60 @@ function lifeToolsCard(hero, { journalEnabled = true } = {}) {
   return `<section class="pillar-card home-tools">
     <p class="eyebrow">今天也可以</p>
     <div class="pillar-quick">
-      <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="task">任务与待办</button>
       <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="habit">习惯追踪</button>
     </div>
     <p class="field-help">${journalEnabled
       ? (hero.written ? "今天已经写过一页，剩下的交给时间。" : "先写一句，今天就有了落点。")
       : "灵感来了就写点什么，写完再分类。"}</p>
   </section>`;
+}
+
+function bindLifeHeatmap(root) {
+  const grid = root?.querySelector?.("[data-life-heatmap]");
+  const caption = root?.querySelector?.("#life-heatmap-caption");
+  if (!grid || !caption) return;
+  const summary = grid.dataset?.heatmapSummary || caption.textContent || "";
+  let focused = null;
+  const reset = () => {
+    focused?.classList?.remove("is-focused");
+    focused = null;
+    caption.textContent = summary;
+  };
+  const focusCell = (cell) => {
+    if (!cell || cell === focused) return;
+    focused?.classList?.remove("is-focused");
+    focused = cell;
+    cell.classList?.add("is-focused");
+    caption.textContent = cell.dataset?.heatCaption || summary;
+  };
+  grid.addEventListener?.("pointerover", (event) => {
+    const cell = event.target.closest?.("[data-heat-date]");
+    if (cell && grid.contains(cell)) focusCell(cell);
+  });
+  grid.addEventListener?.("pointerleave", reset);
+  grid.addEventListener?.("focusin", (event) => {
+    const cell = event.target.closest?.("[data-heat-date]");
+    if (cell && grid.contains(cell)) focusCell(cell);
+  });
+  grid.addEventListener?.("focusout", (event) => {
+    if (!grid.contains(event.relatedTarget)) reset();
+  });
+  const scroller = grid.querySelector?.(".life-heatmap-scroll");
+  if (scroller) scroller.scrollLeft = scroller.scrollWidth;
+}
+
+function lifeTodayCardMarkup(hero) {
+  return `<div class="life-today-card">
+        <div class="life-today-head">
+          <div><p class="eyebrow">今日日记</p><p class="life-today-state">${hero.written ? "已写" : "还没写"}</p></div>
+          <span class="life-today-dot${hero.written ? " is-done" : ""}" aria-hidden="true"></span>
+        </div>
+        <p class="field-help">${hero.written ? `最近更新 ${escapeHtml(formatRelativeDate(hero.updatedAt))}` : "写一句今天的天气、心情，或者一件小事。"}</p>
+        ${weekMarkup(hero.week, hero.day)}
+        ${hero.todayPath
+          ? `<button type="button" class="pillar-quick-button" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
+          : `<button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
+      </div>`;
 }
 
 function lifeHomeMarkup() {
@@ -518,6 +573,12 @@ function lifeHomeMarkup() {
     .filter((note) => !["task", "habit"].includes(note.chapter))
     .slice(0, 6);
   const greeting = greetingForHour(new Date().getHours());
+  const heatmap = hero.heatmap ? buildJournalHeatmap(hero.heatmap, hero.day) : null;
+  const heatmapAction = hero.written
+    ? (hero.todayPath
+      ? `<button type="button" class="life-heatmap-action" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
+      : `<button type="button" class="life-heatmap-action" data-editor-new="life" data-new-chapter="journal">继续写今天的日记</button>`)
+    : `<button type="button" class="life-heatmap-action" data-editor-new="life" data-new-chapter="journal">开始写今天的日记</button>`;
   return `<div class="pillar-home life-home">
     <section class="life-hero${journalEnabled ? "" : " is-solo"}" aria-labelledby="life-hero-title">
       <div class="life-hero-main">
@@ -529,17 +590,11 @@ function lifeHomeMarkup() {
         </div>
         ${journalEnabled ? `<p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>` : ""}
       </div>
-      ${journalEnabled ? `<div class="life-today-card">
-        <div class="life-today-head">
-          <div><p class="eyebrow">今日日记</p><p class="life-today-state">${hero.written ? "已写" : "还没写"}</p></div>
-          <span class="life-today-dot${hero.written ? " is-done" : ""}" aria-hidden="true"></span>
-        </div>
-        <p class="field-help">${hero.written ? `最近更新 ${escapeHtml(formatRelativeDate(hero.updatedAt))}` : "写一句今天的天气、心情，或者一件小事。"}</p>
-        ${weekMarkup(hero.week, hero.day)}
-        ${hero.todayPath
-          ? `<button type="button" class="pillar-quick-button" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
-          : `<button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
-      </div>` : ""}
+      ${journalEnabled
+        ? (heatmap
+          ? journalHeatmapMarkup(heatmap, { action: heatmapAction })
+          : lifeTodayCardMarkup(hero))
+        : ""}
     </section>
     <div class="pillar-home-body">
       <main class="pillar-home-main">
@@ -649,6 +704,84 @@ function knowledgeHomeMarkup() {
   </div>`;
 }
 
+function opsSystemCardMarkup(card) {
+  const ready = card.status === "ready";
+  return `<button type="button" class="ops-system-card tone-${escapeHtml(card.key)}${ready ? " is-ready" : " is-soon"}" data-ops-system="${escapeHtml(card.key)}">
+    <span class="ops-system-top">
+      <span class="ops-system-icon" aria-hidden="true">${escapeHtml(card.icon || "·")}</span>
+      <span class="ops-system-badge">${escapeHtml(card.statusLabel || "")}</span>
+    </span>
+    <span class="ops-system-title">${escapeHtml(card.title)}</span>
+    <span class="ops-system-desc">${escapeHtml(card.description)}</span>
+    <span class="ops-system-open">${ready ? "进入系统 <i aria-hidden=\"true\">→</i>" : "尚未开发"}</span>
+  </button>`;
+}
+
+function opsHomeMarkup() {
+  const overview = state.overviews.ops || {};
+  const home = opsHomeState(overview);
+  const taskCard = home.taskCard;
+  const summary = home.summary;
+  return `<div class="pillar-home ops-home">
+    <section class="ops-hero" aria-labelledby="ops-hero-title">
+      <div class="ops-hero-main">
+        <p class="eyebrow">LIFE OPS</p>
+        <h3 id="ops-hero-title">把生活放在一张桌上。</h3>
+        <p class="ops-hero-copy">待办事项已经迁到生活运营；看板仍由工作台管理。身体、关系、钱和家，从这里进入各自的系统。</p>
+        <div class="ops-hero-actions">
+          <button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>
+        </div>
+        <p class="ops-hero-stats">${summary.open} 件未完成${summary.overdue ? ` · ${summary.overdue} 件逾期` : ""}${summary.dueToday ? ` · ${summary.dueToday} 件今天到期` : ""}</p>
+      </div>
+      <div class="ops-hero-card" aria-hidden="true">
+        <span class="ops-hero-word">生</span>
+        <span class="ops-hero-meta">TODAY</span>
+      </div>
+    </section>
+    <div class="pillar-home-body">
+      <main class="pillar-home-main">
+        <section class="notebook-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">NOTEBOOKS</p><h3>生活本子</h3></div>
+            <div class="notebook-section-actions">
+              <span class="meta">${taskCard ? `${Number(taskCard.count) || 0} 篇任务文档` : "0 篇任务文档"}</span>
+            </div>
+          </div>
+          <div class="notebook-grid ops-notebook-grid">
+            ${taskCard
+              ? notebookCardMarkup("ops", taskCard)
+              : `<div class="pillar-home-empty"><p>待办事项本子还没准备好。</p><p class="field-help">工作台仍可直接创建任务。</p></div>`}
+          </div>
+        </section>
+        <section class="ops-system-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">SYSTEMS</p><h3>生活系统</h3></div>
+            <span class="meta">恋爱已开发；其余先留入口</span>
+          </div>
+          <div class="ops-system-grid">${home.systems.map(opsSystemCardMarkup).join("")}</div>
+        </section>
+        <section class="recent-section">
+          <div class="notebook-section-head">
+            <div><p class="eyebrow">RECENT</p><h3>最近任务</h3></div>
+          </div>
+          ${home.recent.length
+            ? `<div class="note-card-grid">${home.recent.map((note) => noteCardMarkup("ops", note)).join("")}</div>`
+            : `<div class="pillar-home-empty"><p>还没有任务文档。</p><p class="field-help">去工作台任务板创建第一条待办。</p><button type="button" class="button primary" data-ops-nav="workbench">打开任务板</button></div>`}
+        </section>
+      </main>
+      <aside class="pillar-home-aside">
+        ${companionCardMarkup("ops")}
+        <section class="pillar-card home-stats">
+          <p class="eyebrow">待办事项</p>
+          <p class="home-card-stat">${summary.open}<small> 件未完成</small></p>
+          <p class="field-help">逾期 ${summary.overdue} · 今天到期 ${summary.dueToday}。</p>
+          <button type="button" class="pillar-quick-button" data-ops-nav="workbench">打开任务板</button>
+        </section>
+      </aside>
+    </div>
+  </div>`;
+}
+
 function notebookPageMarkup(view) {
   const overview = state.overviews[view] || {};
   const chapter = state.chapter[view] || "";
@@ -676,11 +809,13 @@ function notebookPageMarkup(view) {
   const total = notebookCard?.count ?? notes.length;
   const newChapter = chapter || defaultChapterForNotebook(notebook)
     || defaultWriteChapter(view);
-  const unit = view === "life" ? "人生路" : "知识库";
+  const unit = view === "life" ? "人生路" : view === "ops" ? "生活运营" : "知识库";
   const direct = !notebook && Boolean(chapter);
   const isHabit = view === "life" && chapter === "habit";
-  const isTask = view === "life" && chapter === "task";
-  const isUtility = isHabit || isTask;
+  const isTask = view === "ops" && (chapter === "task" || notebook?.key === "task");
+  // 生活运营的非待办章节不在新首页提供写入口；只作为只读旧数据保留。
+  const opsLegacyReadOnly = view === "ops" && !isTask;
+  const isUtility = isHabit || isTask || opsLegacyReadOnly;
   const isInbox = view === "knowledge" && (chapter === "inbox" || notebook?.key === "inbox");
   const isJournal = notebook?.key === "journal";
   const hero = view === "life" ? lifeHeroState(overview, shanghaiDay()) : null;
@@ -700,7 +835,9 @@ function notebookPageMarkup(view) {
             </div>
           </div>
           <div class="notebook-page-actions">
-            ${isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
+            ${isTask
+              ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>`
+              : isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
             <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>
             ${canDeleteNotebook(view, notebook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(notebook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除本子</button>` : ""}`}
           </div>
@@ -713,15 +850,17 @@ function notebookPageMarkup(view) {
           <div><p class="eyebrow">TODAY</p><h3>${escapeHtml(journalHeading(shanghaiDay()))}</h3><p class="field-help">${hero.written ? "今天已经写过一页，可以继续补充。" : "今天还没写。先写一句，今天就有了落点。"}</p></div>
           <button type="button" class="button primary" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "写今天的日记"}</button>
         </section>` : ""}
-        ${direct && chapter === "task" ? `<p class="notebook-hint">任务由工作台管理；点开任务后可以应用内编辑文档，标题就是任务板上的名字；排期与完成请回工作台。旧任务仍在 Obsidian。</p>` : ""}
-        ${isInbox ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
+        ${isTask ? `<section class="notebook-task-banner">
+          <div><p class="eyebrow">TASKS</p><h3>任务文档在这里，看板在工作台。</h3><p class="field-help">数据层已迁到 02_生活运营/00_待办事项；点开任务可以应用内编辑正文，排期与完成仍在工作台。</p></div>
+          <button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>
+        </section>` : ""}
         ${isHabit ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
         ${isHabit ? "" : (notes.length
           ? `<div class="note-card-grid notebook-note-grid">${notes.map((note) => noteCardMarkup(view, note)).join("")}</div>`
-          : `<div class="pillar-home-empty notebook-empty"><p>${searching ? "没有匹配的记录。" : isTask ? "任务由工作台管理。" : "这个本子还没有记录。"}</p><p class="field-help">${searching ? "换个关键词，或清空搜索看看全部。" : isTask ? "这里浏览任务笔记；打开任务后可在应用内编辑文档。" : "写下第一篇，本子就开始有自己的样子。"}</p>${searching || isTask ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">写第一篇</button>`}</div>`)}
+          : `<div class="pillar-home-empty notebook-empty"><p>${searching ? "没有匹配的记录。" : isTask ? "还没有任务文档。" : opsLegacyReadOnly ? "这个旧章节不在新首页提供入口。" : "这个本子还没有记录。"}</p><p class="field-help">${searching ? "换个关键词，或清空搜索看看全部。" : isTask ? "去工作台任务板创建第一条待办；任务文档会自动出现在这里。" : opsLegacyReadOnly ? "旧健康/财务等章节仍可在 Obsidian 查看。" : "写下第一篇，本子就开始有自己的样子。"}</p>${searching || opsLegacyReadOnly ? "" : isTask ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>` : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">写第一篇</button>`}</div>`)}
       </main>
       <aside class="pillar-home-aside">
-        ${companionCardMarkup(view)}
+        ${companionCardMarkup(view, { task: isTask })}
         ${view === "life" ? lifeToolsCard(hero, {
           journalEnabled: lifeJournalEnabled,
         }) : ""}
@@ -756,7 +895,11 @@ function renderShell(view) {
   const notes = state.notes[view] || overview?.recent || [];
   const searching = Boolean(state.search[view]?.trim());
   const week = overview?.today?.week || [];
-  const rail = buildRailItems(chapters, pillarGroups(view));
+  // 生活运营的章节轨只保留待办事项；健康/财务等旧章节只通过搜索阅读，不提供入口。
+  const railChapters = view === "ops"
+    ? chapters.filter((chapter) => chapter.key === "task")
+    : chapters;
+  const rail = buildRailItems(railChapters, pillarGroups(view));
   const collapsedGroups = readCollapsedRailGroups(view);
   const activeGroupKey = chapter ? (rail.chapterGroupKeys[chapter] || "") : "";
   // 当前章节永远不能藏在折叠分组里：加载任意视图/章节时自动展开它的分组。
@@ -776,7 +919,8 @@ function renderShell(view) {
   const headWriteTitle = lifeHome
     ? "记下灵感；默认先放随笔，保存前也可以改本子"
     : "应用内写一条（Markdown 工具栏+预览）";
-  const headUtility = view === "life" && ["task", "habit"].includes(chapter);
+  const headUtility = (view === "life" && ["task", "habit"].includes(chapter))
+    || (view === "ops" && chapter === "task");
   const headHtml = `
     <header class="pillar-head">
       <div class="pillar-head-main">
@@ -792,11 +936,12 @@ function renderShell(view) {
           <input type="search" data-pillar-search="${view}" value="${escapeHtml(state.search[view] || "")}" placeholder="搜索标题、正文、标签">
         </label>
         ${view === "knowledge" ? `<button type="button" class="button secondary" data-share-link title="DeepSeek 问答：外链打开，分享链接取回归档">问答</button>` : ""}
-        <button type="button" class="button secondary" data-steward-open="${view}" title="提案与健康检查（只读）">管家</button>
-        ${view === "life" || view === "knowledge"
-          ? (headUtility ? "" : `<button type="button" class="button primary" data-editor-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="${escapeHtml(headWriteTitle)}" aria-keyshortcuts="N">${escapeHtml(headWriteLabel)}</button>
+        ${view === "ops"
+          ? `<button type="button" class="button secondary" data-ops-nav="workbench">任务板</button>`
+          : (view === "life" || view === "knowledge"
+            ? (headUtility ? "" : `<button type="button" class="button primary" data-editor-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="${escapeHtml(headWriteTitle)}" aria-keyshortcuts="N">${escapeHtml(headWriteLabel)}</button>
              <button type="button" class="text-button" data-pillar-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="在 Obsidian 新建笔记">Obsidian</button>`)
-          : `<button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>`}
+            : `<button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>`)}
       </div>
     </header>`;
   const reading = state.reading[view];
@@ -814,14 +959,13 @@ function renderShell(view) {
     }
     return root;
   }
-  if (view === "life" || view === "knowledge") {
+  if (view === "life" || view === "knowledge" || view === "ops") {
     const home = !activeNotebook && !chapter && !searching;
-    root.innerHTML = `${headHtml}${home
-      ? (view === "life" ? lifeHomeMarkup() : knowledgeHomeMarkup())
-      : notebookPageMarkup(view)}`;
-    if (view === "knowledge" && (chapter === "inbox" || activeNotebook?.key === "inbox")) {
-      mountInboxSuggestions().catch((error) => toast(error.message, "error"));
-    }
+    const homeMarkup = view === "life"
+      ? lifeHomeMarkup()
+      : view === "knowledge" ? knowledgeHomeMarkup() : opsHomeMarkup();
+    root.innerHTML = `${headHtml}${home ? homeMarkup : notebookPageMarkup(view)}`;
+    if (view === "life" && home) bindLifeHeatmap(root);
     if (view === "life" && chapter === "habit") {
       mountHabits().catch((error) => toast(error.message, "error"));
     }
@@ -829,11 +973,8 @@ function renderShell(view) {
   }
   // 自我档案总览不是「一堆笔记的最近列表」，而是一份档案：封面 / 目录 / 时间线。
   const archiveView = view === "self" && !chapter && !searching;
-  const hideList = (view === "ops" && !chapter && !notes.length && !searching)
-    || (view === "ops" && (chapter === "health" || chapter === "finance") && !notes.length && !searching)
-    || (view === "life" && chapter === "habit" && !notes.length && !searching);
+  const hideList = (view === "life" && chapter === "habit" && !notes.length && !searching);
   root.innerHTML = `${headHtml}
-    ${view === "ops" ? `<div class="ops-ai-slot" data-ops-ai></div>` : ""}
     <div class="pillar-layout">
       <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
         <button type="button" class="pillar-rail-item${chapter ? "" : " is-active"}" data-pillar-chapter="${view}" data-chapter="">总览
@@ -848,10 +989,6 @@ function renderShell(view) {
           </div>
           ${chapter ? `<button type="button" class="text-button" data-pillar-chapter="${view}" data-chapter="">返回总览</button>` : ""}
         </div>
-        ${view === "ops" ? (chapter === "health" || chapter === "finance"
-          ? `<div class="pillar-ops-slot" data-ops-table="${chapter}"></div>`
-          : `<div class="pillar-ops-slot" data-ops-dashboard></div>`) : ""}
-        ${view === "knowledge" && chapter === "inbox" ? `<div class="pillar-suggestions" data-inbox-suggestions></div>` : ""}
         ${view === "life" && chapter === "habit" ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
         ${archiveView ? archiveMarkup({
           identity: overview?.identity || {},
@@ -872,11 +1009,9 @@ function renderShell(view) {
         <section class="pillar-card">
           <p class="eyebrow">${view === "life" || view === "knowledge" ? "写一条" : "在 Obsidian 写"}</p>
           <div class="pillar-quick">
-            ${meta.quick.map((item) => item.ops
-              ? `<button type="button" class="pillar-quick-button" data-ops-open="${escapeHtml(item.ops)}">${escapeHtml(item.label)}</button>`
-              : (view === "life" || view === "knowledge") && !["journal", "habit"].includes(item.chapter)
-                ? `<button type="button" class="pillar-quick-button" data-editor-new="${view}" data-new-chapter="${escapeHtml(item.chapter)}" data-new-type="${escapeHtml(item.type)}">${escapeHtml(item.label)}</button>`
-                : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
+            ${meta.quick.map((item) => (view === "life" || view === "knowledge") && !["journal", "habit"].includes(item.chapter)
+              ? `<button type="button" class="pillar-quick-button" data-editor-new="${view}" data-new-chapter="${escapeHtml(item.chapter)}" data-new-type="${escapeHtml(item.type)}">${escapeHtml(item.label)}</button>`
+              : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
           </div>
           <p class="field-help">${view === "life" || view === "knowledge"
             ? "应用内可直接写允许章节；任务、习惯、日记和身份仍走各自的专用入口。"
@@ -891,8 +1026,8 @@ function renderShell(view) {
         </section>` : ""}
         ${view === "life" && overview?.today ? `<section class="pillar-card">
           <p class="eyebrow">今天</p>
-          <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
-          <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
+          <p class="pillar-stat">${(overview.today.journal_has_content ?? overview.today.journal_written) ? "日记已写" : "日记还没写"}</p>
+          <p class="field-help">${(overview.today.journal_has_content ?? overview.today.journal_written) ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
             <button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button>
             <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
@@ -902,11 +1037,14 @@ function renderShell(view) {
         ${view === "life" && week.length ? `<section class="pillar-card">
           <p class="eyebrow">最近 7 天</p>
           <div class="pillar-week" role="group" aria-label="最近 7 天日记">
-            ${week.map((day) => `<button type="button" class="pillar-week-day${day.exists ? " is-done" : ""}${day.date === overview?.today?.date ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${day.exists ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${day.exists ? "已写日记" : "未写日记"}`)}">
+            ${week.map((day) => {
+              const done = day.written ?? day.exists;
+              return `<button type="button" class="pillar-week-day${done ? " is-done" : ""}${day.date === overview?.today?.date ? " is-today" : ""}" data-journal-day="${escapeHtml(day.date)}" data-journal-path="${escapeHtml(day.path || "")}" data-journal-legacy="${day.legacy ? "1" : "0"}" title="${escapeHtml(`${day.date} ${day.weekday}${done ? " · 已写" : " · 未写"}`)}" aria-label="${escapeHtml(`${day.date} ${day.weekday}，${done ? "已写日记" : "未写日记"}`)}">
               <span>${escapeHtml(String(day.weekday || "").replace("周", ""))}</span><i aria-hidden="true"></i>
-            </button>`).join("")}
+            </button>`;
+            }).join("")}
           </div>
-          <p class="field-help">近 7 天写了 ${week.filter((day) => day.exists).length} 天；点有记录的日期打开当天日记。</p>
+          <p class="field-help">近 7 天写了 ${week.filter((day) => day.written ?? day.exists).length} 天；点有记录的日期打开当天日记。</p>
         </section>` : ""}
         ${view === "knowledge" ? `<section class="pillar-card">
           <p class="eyebrow">DeepSeek 问答</p>
@@ -926,61 +1064,10 @@ function renderShell(view) {
         </section>
       </aside>
     </div>`;
-  if (view === "ops") {
-    mountOps(view).catch((error) => toast(error.message, "error"));
-    loadOpsAI();
-  }
-  if (view === "knowledge" && chapter === "inbox") {
-    mountInboxSuggestions().catch((error) => toast(error.message, "error"));
-  }
   if (view === "life" && chapter === "habit") {
     mountHabits().catch((error) => toast(error.message, "error"));
   }
   return root;
-}
-
-const CONFIDENCE_LABEL = { high: "高置信", medium: "可参考", low: "低置信" };
-
-async function mountInboxSuggestions() {
-  const host = document.querySelector("#knowledge-view [data-inbox-suggestions]");
-  if (!host) return;
-  const payload = await api("/api/steward/inbox-suggestions");
-  const items = (payload.items || []).filter((item) => item.chapter !== "inbox");
-  if (!items.length) { host.innerHTML = ""; return; }
-  const highCount = items.filter((item) => item.confidence === "high").length;
-  const groups = new Map();
-  for (const item of items) {
-    const target = `${item.pillar_title} / ${item.chapter_title}`;
-    if (!groups.has(target)) groups.set(target, []);
-    groups.get(target).push(item);
-  }
-  host.innerHTML = `<section class="pillar-suggestion-card">
-    <div class="pillar-suggestion-head">
-      <div>
-        <p class="eyebrow">整理建议 · ${items.length} 条</p>
-        <p class="field-help">这里只读：建议只是提示，移动/改名请到 Obsidian 里做。</p>
-      </div>
-    </div>
-    ${[...groups.entries()].map(([target, group]) => `<div class="pillar-suggestion-group">
-      <p class="pillar-suggestion-group-title"><span>${escapeHtml(target)}</span><span>${group.length} 条</span></p>
-      ${group.map((item) => `<div class="pillar-suggestion-row" data-inbox-row="${escapeHtml(item.proposal_id)}" data-inbox-target="${escapeHtml(target)}" data-confidence="${escapeHtml(item.confidence)}">
-        <div>
-          <p class="pillar-suggestion-title"><strong>${escapeHtml(item.title)}</strong><span class="pillar-confidence ${escapeHtml(item.confidence)}">${escapeHtml(CONFIDENCE_LABEL[item.confidence] || item.confidence)}</span></p>
-          <p class="field-help">${escapeHtml(item.reason)}</p>
-        </div>
-        <div class="pillar-suggestion-actions">
-          <button type="button" class="small-button" data-obsidian-note-path="${escapeHtml(item.path)}" data-obsidian-pillar="knowledge">在 Obsidian 打开</button>
-        </div>
-      </div>`).join("")}
-    </div>`).join("")}
-  </section>`;
-  // 已进入建议卡的条目不再在下方列表重复出现；想读原文用「打开」。
-  const suggestedPaths = new Set(items.map((item) => item.path));
-  document.querySelectorAll("#knowledge-view .pillar-note-row[data-note-path], #knowledge-view .note-card[data-note-path]").forEach((row) => {
-    if (!suggestedPaths.has(row.dataset.notePath)) return;
-    // 笔记卡片外面多了一层 .note-card-wrap（为了放「移动」按钮），隐藏时要连壳一起藏。
-    (row.closest?.(".note-card-wrap") || row).hidden = true;
-  });
 }
 
 async function loadPillar(view, { keepChapter = false } = {}) {
@@ -1294,23 +1381,34 @@ function bindPillarEvents() {
       openVaultNote(state.overviews[view]?.vault_name || "", obsidianNote.dataset.obsidianNotePath);
       return;
     }
-    const steward = event.target.closest?.("[data-steward-open]");
-    if (steward) {
-      const stewardView = steward.dataset.stewardOpen;
-      openSteward(stewardView, {
-        onOpenNote: (path) => openNote(path),
-        onOpenObsidian: (path) => openVaultNote(vaultNameFor(stewardView), path),
-      });
-      return;
-    }
     const retry = event.target.closest?.("[data-pillar-retry]");
     if (retry) {
       loadPillarModule(retry.dataset.pillarRetry);
       return;
     }
-    const opsQuick = event.target.closest?.("[data-ops-open]");
-    if (opsQuick) {
-      openOpsTable(opsQuick.dataset.opsOpen);
+    const opsNav = event.target.closest?.("[data-ops-nav]");
+    if (opsNav) {
+      document.dispatchEvent(new CustomEvent("torch:show-pane", {
+        detail: {
+          view: "workbench", pane: "workbench-view", focus: "#workbench-time",
+        },
+      }));
+      return;
+    }
+    const opsSystem = event.target.closest?.("[data-ops-system]");
+    if (opsSystem) {
+      const key = opsSystem.dataset.opsSystem || "";
+      if (key === "love" || key === "health") {
+        document.dispatchEvent(new CustomEvent("torch:show-pane", {
+          detail: { view: "ops", pane: key === "love" ? "love-view" : "health-view" },
+        }));
+        return;
+      }
+      const titles = {
+        finance: "财务系统", family: "家庭系统",
+      };
+      openDialog("尚未开发", `<p><strong>${escapeHtml(titles[key] || "这个系统")}</strong>还没有开发。</p>
+        <p class="field-help">恋爱系统与健康系统已经可用；财务与家庭系统会在后续版本开放入口；数据仍可在 Obsidian 里查看。</p>`);
       return;
     }
     const createNotebook = event.target.closest?.("[data-notebook-create]");
@@ -1412,16 +1510,20 @@ function bindPillarEvents() {
     }
     const roleButton = event.target.closest?.("[data-role-open]");
     if (roleButton) {
-      const knowledge = roleButton.dataset.roleOpen === "academic_mentor";
+      const roleId = roleButton.dataset.roleOpen || "";
+      const knowledge = roleId === "academic_mentor";
+      const life = roleId === "life_assistant";
       openRoleDrawer({
-        roleId: roleButton.dataset.roleOpen,
+        roleId,
         mode: roleButton.dataset.roleMode || undefined,
         entry: roleButton.dataset.roleEntry || undefined,
         title: roleButton.dataset.roleTitle || undefined,
-        selectors: knowledge ? [] : [{ entry: "journal" }],
+        selectors: life ? [] : knowledge ? [] : [{ entry: "journal" }],
         prompt: knowledge
           ? "帮我看看这篇回答可以怎么学，先问我一个关键问题。"
-          : "看看我最近写的东西，问我一个我没写出来的问题。",
+          : life
+            ? "把任务、健康、财务和恋爱放在一起看，指出这周最值得做的一件事。"
+            : "看看我最近写的东西，问我一个我没写出来的问题。",
       });
       return;
     }
@@ -1448,7 +1550,7 @@ function bindPillarEvents() {
       const reading = state.reading[view];
       if (reading?.note) {
         // 任务文档：编辑器走任务专用接口，标题直接改任务板上的名字。
-        const open = view === "life" && reading.note.chapter === "task"
+        const open = reading.note.chapter === "task"
           ? openNoteEditor({ task: { path: reading.note.path } })
           : openNoteEditor({ note: reading.note });
         open.catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
@@ -1762,22 +1864,6 @@ function openNewNote(view, chapter = "", type = "") {
   }
 }
 
-/** 体重/账目：直接打开 Obsidian 里的当月表，插件里只读。 */
-async function openOpsTable(dataset) {
-  const entry = chapterEntry("ops", dataset);
-  if (!entry) return;
-  const now = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const target = `${entry.path}/${month}.md`;
-  try {
-    await api(`/api/notes?path=${encodeURIComponent(target)}`);
-  } catch {
-    toast(`这个月还没有表。在 Obsidian 里复制上个月的文件，改名成 ${month} 即可。`, "warning");
-    return;
-  }
-  openVaultNote(vaultNameFor("ops"), target);
-}
-
 function isoWeek(date) {
   const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = target.getUTCDay() || 7;
@@ -1842,18 +1928,16 @@ async function openTodayJournal() {
 
 export function initPillars() {
   bindPillarEvents();
-  bindOpsEvents();
   bindHabitEvents();
   initNoteEditor();
   initNoteMoveDialog();
   initNotebookCreate();
   initShareLink();
-  initOpsAI();
   // 编辑器保存/移动/删除后刷新列表；正在阅读同一篇时保持阅读位置但重读最新内容。
   document.addEventListener("torch:notes-changed", (event) => {
     const detail = event.detail || {};
     const view = detail.pillar || appState.view;
-    if (!["life", "knowledge"].includes(view) || appState.view !== view) return;
+    if (!["life", "knowledge", "ops"].includes(view) || appState.view !== view) return;
     const reading = state.reading[view];
     const matchesReading = reading?.note && detail.path
       && (reading.note.path === detail.path

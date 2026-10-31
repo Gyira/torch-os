@@ -95,7 +95,7 @@ def test_disposable_qa_workspace_gets_readonly_fixtures(monkeypatch, tmp_path):
     assert f"00_人生路/01_日记/{day.isoformat()}.md" in written
     assert "03_知识库/00_收件箱/QA 整理收件箱五步法.md" in written
     assert "03_知识库/01_主题笔记/考研规划.md" in written
-    assert f"02_生活运营/01_健康与体重/{day.strftime('%Y-%m')}.md" in written
+    assert f"02_生活运营/02_健康系统/01_每日健康/{day.isoformat()}.md" in written
     assert len(written) == 6
     posted = [call[1] for call in client.calls if call[0] == "POST"]
     assert posted[0] == "/api/vault/scan"

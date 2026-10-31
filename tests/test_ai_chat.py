@@ -94,6 +94,53 @@ def test_chat_stores_thread_turns_and_creates_a_task_proposal(tmp_path, monkeypa
     assert len(client.get("/api/ai/threads").json()["items"]) == 1
 
 
+def test_chat_labels_selection_and_draft_context_without_storing_raw_text(tmp_path, monkeypatch):
+    client, database, _, seen = make_client(tmp_path, monkeypatch)
+    response = client.post("/api/ai/chat", json={
+        "role_id": "journal_companion", "mode": "discuss",
+        "message": "这段说明了什么？", "entry": "life.editor",
+        "selection_text": "我今天把项目收尾了，但心里并不轻松。",
+        "selection_source": "life.editor",
+        "draft_text": "还没保存的正文，只有一句。",
+    })
+    assert response.status_code == 200, response.text
+    prompt = str(seen["prompt"])
+    assert "用户引用的选区" in prompt
+    assert "life.editor" in prompt
+    assert "我今天把项目收尾了" in prompt
+    assert "用户当前草稿" in prompt
+    assert "还没保存的正文" in prompt
+
+    thread_id = response.json()["thread_id"]
+    detail = client.get(f"/api/ai/threads/{thread_id}").json()
+    user_turn = detail["turns"][0]
+    assert user_turn["content"] == "这段说明了什么？"
+    context = user_turn["structured"]["context"]
+    assert context["selection"]["source"] == "life.editor"
+    assert context["selection"]["chars"] > 0
+    assert context["draft"]["chars"] > 0
+    assert "我今天把项目收尾了" not in json.dumps(detail, ensure_ascii=False)
+
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT detail_json FROM audit_events WHERE event_type='ai_turn_completed' "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+    audit = json.loads(row[0])
+    assert audit["selection_chars"] > 0
+    assert audit["selection_source"] == "life.editor"
+    assert audit["draft_chars"] > 0
+    assert "我今天把项目收尾了" not in row[0]
+
+
+def test_chat_rejects_oversized_selection(tmp_path, monkeypatch):
+    client, _, _, _ = make_client(tmp_path, monkeypatch)
+    response = client.post("/api/ai/chat", json={
+        "role_id": "journal_companion", "mode": "discuss",
+        "message": "太长", "selection_text": "字" * 4001,
+    })
+    assert response.status_code == 422
+
+
 def test_continue_thread_reuses_the_dsh_session(tmp_path, monkeypatch):
     client, _, _, seen = make_client(tmp_path, monkeypatch)
     first = client.post("/api/ai/chat", json={

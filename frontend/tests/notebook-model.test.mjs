@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS,
+  DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS, OPS_NOTEBOOKS,
   buildMoveTargetGroups, buildNotebookCards, canDeleteNotebook, customNotebookKey,
   customNotebookName, customNotebookPillar, defaultWriteChapter, greetingForHour,
   isProtectedNotebook, journalHeading, knowledgeHeroState, lifeHeroState,
@@ -157,6 +157,17 @@ test("life hero says what to do today and counts the streak", () => {
   const empty = lifeHeroState({ today: { date: "2026-10-30", journal_written: false, week } }, "2026-10-30");
   assert.equal(empty.streak, 0);
   assert.match(empty.headline, /写点什么/);
+
+  // 只有日期骨架的日记文件不算「写过」；旧接口没有新字段时仍按 exists 兼容。
+  const skeleton = lifeHeroState({
+    today: {
+      date: "2026-10-30", journal_written: true, journal_has_content: false,
+      week: [{ date: "2026-10-30", exists: true, written: false }],
+    },
+  }, "2026-10-30");
+  assert.equal(skeleton.written, false);
+  assert.equal(skeleton.weekDone, 0);
+  assert.equal(skeleton.streak, 0);
 });
 
 test("knowledge hero surfaces the inbox backlog", () => {
@@ -189,8 +200,24 @@ test("recent notes merge by date without duplicates", () => {
 test("definitions stay readable and cover the expected notebooks", () => {
   assert.ok(LIFE_NOTEBOOKS.some((item) => item.daily));
   assert.ok(KNOWLEDGE_NOTEBOOKS.some((item) => item.primary));
+  assert.ok(OPS_NOTEBOOKS.some((item) => item.primary));
   assert.equal(notebooksFor("life").length, LIFE_NOTEBOOKS.length);
+  assert.equal(notebooksFor("ops").length, OPS_NOTEBOOKS.length);
   assert.equal(notebooksFor("unknown").length, 0);
   assert.equal(greetingForHour(9), "早上好");
   assert.equal(greetingForHour(21), "晚上好");
+});
+
+test("ops exposes one protected task notebook and never counts other chapters", () => {
+  assert.equal(defaultWriteChapter("ops"), "task");
+  assert.equal(notebookForChapter("ops", "task").key, "task");
+  assert.equal(notebookById("ops", "task").title, "待办事项");
+  assert.equal(isProtectedNotebook("ops", "task"), true);
+  assert.equal(canDeleteNotebook("ops", notebookById("ops", "task")), false);
+  const cards = buildNotebookCards("ops", [
+    { key: "task", title: "待办事项", count: 3, latest: null },
+    { key: "health", title: "健康与体重", count: 8, latest: null },
+  ]);
+  assert.deepEqual(cards.map((card) => card.key), ["task"]);
+  assert.equal(cards[0].count, 3);
 });

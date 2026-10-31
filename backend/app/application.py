@@ -72,6 +72,7 @@ from .tasks import TaskCreate, create_task, create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
+from .health import create_health_router
 from .love_schedule import create_schedule_router
 from .love_storage import (
     DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
@@ -99,7 +100,6 @@ from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_
 from .migration_api import create_migration_router
 from .ops import create_ops_router
 from .pillars import create_pillars_router
-from .steward import create_steward_router
 from .vault_audit import create_vault_audit_router
 from .wolai_import import WolaiImportError, preview_wolai_archive, import_selected_notes
 from .wolai_import import preview_import_states
@@ -251,7 +251,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     if runtime_label == "personal" and not provided_paths and not vault_read_only:
         try:
             from .task_layout_bootstrap import ensure_task_data_layout
-            task_layout_state = ensure_task_data_layout(vault_dir, database=database)
+            task_layout_state = ensure_task_data_layout(
+                vault_dir, database=database, read_only=vault_read_only)
         except Exception as error:  # 迁移失败不能阻止服务启动
             task_layout_state = {"status": "error", "error": type(error).__name__}
     data_lock = asyncio.Lock()
@@ -573,6 +574,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'diagnostics':True,'dida_sync':runtime_label == 'personal',
                     'dsh_web':getattr(dsh_runtime, 'enabled', False),
                     'export_bundle':True,'growth_export':True,'habits':True,
+                    'health':True,
                     'history_cleanup_preview':True,'history_restore':True,'identity':True,
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'life_assistant':ai_enabled,'life_reports':True,
@@ -893,6 +895,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             love_data_dir.mkdir(parents=True, exist_ok=True)
             (love_data_dir / LOVE_EXCEL_DIR_NAME).mkdir(parents=True, exist_ok=True)
         app.state.love_settings = love_settings
+        # 角色层按需读取恋爱系统的只读摘要；在 love_settings 建好后回填。
+        ai_service.love_settings = love_settings
         app.include_router(create_love_router(
             settings=love_settings, vault_dir=vault_dir,
             database=database, read_only=vault_read_only,
@@ -903,10 +907,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             love_settings.target_name,
             read_only=vault_read_only,
         ), dependencies=[Depends(journal_data_guard)])
-    # v1.0 生活运营 AI：健康/财务/恋爱/生活助理；报告落 06–08 章，建议只生成提案。
+    # v1.0 生活运营 AI：健康/财务/恋爱/生活管家；报告落 06–08 章，建议只生成提案。
     app.include_router(life_reports.create_life_ai_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
         love_settings=love_settings, read_only=vault_read_only))
+    # 健康系统（2026-10-31）：与恋爱系统平级的「生活运营」二级分区。
+    # 私人数据全部在 02_生活运营/02_健康系统；应用状态在 <数据目录>/health/。
+    app.include_router(create_health_router(
+        database, vault_dir, role_service=ai_service, read_only=vault_read_only))
     # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
     # 12306 同步只在用户点击时发生；QA 模式禁用同步，但仍可导入本地时刻表。
     app.include_router(create_train_tracker_router(
@@ -952,9 +960,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database, vault_dir, app.state.data_lock, read_only=vault_read_only))
     # 四库只读浏览：新建、修改与捕获都在 Obsidian 里完成。
     app.include_router(create_pillars_router(
-        database, vault_dir, read_only=vault_read_only))
-    # 薪火管家：确定性提案与健康检查。
-    app.include_router(create_steward_router(
         database, vault_dir, read_only=vault_read_only))
     # 生活运营：体重/账目月度 Markdown 表。
     app.include_router(create_ops_router(vault_dir, read_only=vault_read_only))

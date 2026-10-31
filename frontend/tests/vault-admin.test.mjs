@@ -91,8 +91,8 @@ function templateFixture() {
     chapters: built.flatMap((pillar) => pillar.chapters.map((chapter) => ({ ...chapter, pillar: pillar.key }))),
     directories: built.flatMap((pillar) => pillar.chapters.map((chapter) => chapter.path)),
     extra_directories: [
-      "00_人生路/07_任务与待办/收集箱", "00_人生路/07_任务与待办/已完成",
-      "00_人生路/07_任务与待办/回收站", "00_人生路/07_任务与待办/_系统",
+      "02_生活运营/00_待办事项/收集箱", "02_生活运营/00_待办事项/已完成",
+      "02_生活运营/00_待办事项/回收站", "02_生活运营/00_待办事项/_系统",
       ".obsidian/plugins/torch", ".torch-os",
     ],
     seed_files: ["01_自我档案/01_内核与三观/身份（identity）.md"],

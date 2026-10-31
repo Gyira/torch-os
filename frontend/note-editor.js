@@ -19,7 +19,10 @@ import {
   templateEmptyMarkup, templateFilterMarkup, templateFilters, templateRowMarkup,
   templateStripMarkup, templateVariables,
 } from "./journal-templates.js";
-import { openRoleDrawer } from "./roles.js";
+import {
+  closeRoleDrawer, isRoleDrawerEmbedded, isRoleDrawerOpen, openRoleDrawer,
+} from "./roles.js";
+import { companionForEditor } from "./ai-companions.js";
 import { openObsidianNote } from "./task-open.js";
 
 const state = {
@@ -87,6 +90,10 @@ export function initNoteEditor() {
   el("note-editor-polish-apply")?.addEventListener("click", () => applyPolish());
   el("note-editor-polish-cancel")?.addEventListener("click", () => hidePolish());
   el("note-editor-role")?.addEventListener("click", () => openCompanion());
+  document.addEventListener("torch:editor-selection-ask", (event) => {
+    if (!el("note-editor-dialog")?.open) return;
+    openCompanion(event.detail?.selection || null);
+  });
   el("note-editor-obsidian")?.addEventListener("click", () => openInObsidian());
   el("note-editor-preview-toggle")?.addEventListener("click", () => setPreviewMode(!state.preview));
   el("note-editor-focus-toggle")?.addEventListener("click", () => setFocusMode(!state.focus));
@@ -197,7 +204,8 @@ export function initNoteEditor() {
     // 模板面板只收起自己；没有面板时走带“放弃修改”确认的正常关闭。
     event.preventDefault();
     event.stopPropagation();
-    if (isTemplateSheetOpen()) closeTemplateSheet();
+    if (isRoleDrawerOpen() && isRoleDrawerEmbedded()) closeRoleDrawer();
+    else if (isTemplateSheetOpen()) closeTemplateSheet();
     else closeEditor();
   }, true);
   el("note-editor-toolbar")?.addEventListener("click", (event) => {
@@ -667,6 +675,8 @@ function resetTemplateSession() {
 export async function openNoteEditor(options = {}) {
   if (openingTaskDocument) return;
   initNoteEditor();
+  if (isRoleDrawerOpen()) closeRoleDrawer();
+  document.dispatchEvent(new CustomEvent("torch:editor-opened"));
   resetTemplateSession();
   const note = options.note || null;
   const task = options.task || null;
@@ -683,7 +693,7 @@ export async function openNoteEditor(options = {}) {
   polish = null;
   hidePolish();
   if (state.task) {
-    state.context = "life";
+    state.context = "ops";
     state.chapter = "";
     state.tags = [];
     state.frontmatter = "";
@@ -749,7 +759,7 @@ export async function openNoteEditor(options = {}) {
   const eyebrow = el("note-editor-eyebrow");
   if (eyebrow) eyebrow.textContent = state.journal
     ? `人生路 · ${state.journalDay}`
-    : state.task ? "人生路 · 任务文档"
+    : state.task ? "生活运营 · 待办事项 · 任务文档"
       : (state.context === "knowledge" ? "知识库 · 写作" : "人生路 · 写作");
   el("note-editor-title").value = state.title;
   el("note-editor-tags").value = tagsToInput(state.tags);
@@ -763,6 +773,7 @@ export async function openNoteEditor(options = {}) {
     : "");
   updatePreview();
   refreshTemplateStrip();
+  syncCompanionUi();
   const dialog = el("note-editor-dialog");
   if (dialog && !dialog.open) {
     try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
@@ -914,11 +925,13 @@ async function closeEditor({ force = false } = {}) {
     });
     if (!leave) return;
   }
+  if (isRoleDrawerOpen() && isRoleDrawerEmbedded()) closeRoleDrawer();
   resetTemplateSession();
   const dialog = el("note-editor-dialog");
   if (dialog?.open) dialog.close();
   else dialog?.removeAttribute("open");
   state.open = false;
+  document.dispatchEvent(new CustomEvent("torch:editor-closed"));
 }
 
 function setStatus(message, tone = "") {
@@ -1072,7 +1085,7 @@ async function saveTaskDocument(body) {
     toast("任务文档已保存。", "success");
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
     dispatchNotesChanged(
-      { path: state.path, chapter: "task", pillar: "life" }, previousPath);
+      { path: state.path, chapter: "task", pillar: "ops" }, previousPath);
     updatePreview();
     return true;
   } catch (error) {
@@ -1349,24 +1362,66 @@ function hidePolish() {
   if (panel) panel.hidden = true;
 }
 
-function openCompanion() {
-  if (dirty()) {
-    toast("先把当前修改保存，写作伙伴才能读到全文。", "warning");
-    return;
-  }
-  // <dialog> 在浏览器顶层（top layer），固定定位的角色抽屉会被它盖住；
-  // 已保存时先收起编辑器，再打开角色抽屉。
+function syncCompanionUi() {
   const dialog = el("note-editor-dialog");
-  if (dialog?.open) dialog.close();
-  state.open = false;
+  if (dialog) dialog.dataset.editorContext = state.context || "life";
+  const companion = companionForEditor(state.context);
+  const button = el("note-editor-role");
+  if (button) {
+    const label = `和${companion.title}聊聊`;
+    button.textContent = label;
+    button.setAttribute("aria-label", label);
+    button.dataset.roleTitle = companion.title;
+  }
+  // 任务文档不做话题判类/润色；它们是任务板上的文档，不是散文。
+  const classify = el("note-editor-classify");
+  const polishButton = el("note-editor-polish-btn");
+  if (classify) classify.hidden = Boolean(state.journal || state.task);
+  if (polishButton) polishButton.hidden = Boolean(state.task);
+  if (state.task) hidePolish();
+}
+
+function openCompanion(selection = null) {
+  if (!selection) {
+    const textarea = el("note-editor-text");
+    const start = Number(textarea?.selectionStart);
+    const end = Number(textarea?.selectionEnd);
+    if (textarea && !textarea.hidden && Number.isFinite(start) && end > start) {
+      const text = String(textarea.value || "").slice(start, end).trim();
+      if (text) {
+        selection = { text: text.slice(0, 4000), source: `${state.context}.editor` };
+      }
+    }
+  }
+  const companion = companionForEditor(state.context);
+  const changed = dirty();
+  const selectorsForCompanion = () => {
+    const list = [];
+    if (dirty()) return list;
+    if (state.journal && state.journalDay) {
+      list.push({ entry: "journal", day: state.journalDay });
+    } else if (state.path) {
+      list.push({ entry: "note", path: state.path });
+    }
+    return list;
+  };
+  const selectors = selectorsForCompanion();
+  const quote = selection && String(selection.text || "").trim() ? selection : null;
   openRoleDrawer({
-    roleId: "journal_companion", mode: "discuss",
-    entry: state.context === "knowledge" ? "knowledge.editor" : "life.editor",
-    title: state.context === "knowledge" ? "学术导师 · 聊聊" : "写作伙伴",
-    selectors: state.journal
-      ? [{ entry: "journal" }]
-      : (state.path ? [{ entry: "note", path: state.path }] : [{ entry: "journal" }]),
-    prompt: "看看我写的这段，问我一个我没写出来的问题。",
+    roleId: companion.roleId,
+    mode: companion.mode,
+    entry: companion.entry,
+    title: companion.title,
+    host: "editor",
+    selectors,
+    getSelectors: selectorsForCompanion,
+    getDraftText: () => (dirty() ? currentBody() : ""),
+    selection: quote,
+    prompt: quote ? "帮我看看这段。" : "",
+    hint: changed
+      ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
+      : "AI 只提议，采纳后才写入。",
+    onError: (message) => setStatus(message, "error"),
   });
 }
 

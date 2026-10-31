@@ -38,7 +38,7 @@ export function taskRow(task, options) {
     select.className = "task-select";
     select.checked = selectedKeys.has(task.key);
     select.setAttribute("aria-label", `选择：${task.title}`);
-    select.addEventListener("change", () => options.onPick?.(task));
+    select.addEventListener("change", () => options.onPick?.(task, row));
     row.append(select);
   }
 
@@ -176,9 +176,11 @@ export function taskRow(task, options) {
   }
 
   // 单击整行 = 选中它（多选模式下是加/取消）；点到勾选框、按钮、标签这些交互件时不动选中态。
+  // 回调把这一行一起交出去：调用方只改这一行的选中态，不重画整板——整板重画会在两次
+  // 单击之间换掉 DOM，浏览器就不再把第二击算成双击（双击改名会因此永远打不开）。
   row.addEventListener("click", (event) => {
     if (event.target.closest("input, button, a")) return;
-    options.onPick?.(task);
+    options.onPick?.(task, row);
   });
   // 整行双击都能改名（2026-10-31）：不必精确点在标题文字上；交互控件除外。
   row.addEventListener("dblclick", (event) => {
@@ -562,7 +564,7 @@ function taskItem(task, options, shape) {
     if (event.target?.closest?.("input, button, a")) return;
     // 日历条目住在格子 / 列里：点条目本身不能顺带触发「切到日视图 / 那一刻加任务」
     event.stopPropagation?.();
-    options.onPick?.(task);
+    options.onPick?.(task, item);
   });
   return item;
 }

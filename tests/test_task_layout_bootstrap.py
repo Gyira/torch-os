@@ -8,7 +8,8 @@ from pathlib import Path
 from backend.app import dida_sync, task_layout_bootstrap, task_notes, task_trash, tasks
 from backend.app.db import Database
 
-TASK_ROOT = "00_人生路/07_任务与待办"
+TASK_ROOT = "02_生活运营/00_待办事项"
+OLD_TASK_ROOT = "00_人生路/07_任务与待办"
 CONFIG = """---
 type: tasks
 清单:
@@ -159,3 +160,56 @@ def test_bootstrap_returns_already_done_for_clean_vault(tmp_path):
     result = task_layout_bootstrap.ensure_task_data_layout(vault)
 
     assert result.get("already_done") is True
+
+
+def test_bootstrap_moves_previous_root_into_ops(tmp_path):
+    vault = tmp_path / "vault"
+    old = vault / OLD_TASK_ROOT
+    (old / "收集箱").mkdir(parents=True)
+    (old / "收集箱" / "旧任务.md").write_text(_task("旧任务"), encoding="utf-8")
+    (old / "_系统").mkdir()
+    (old / "_系统" / "任务（tasks）.md").write_text(CONFIG, encoding="utf-8")
+
+    result = task_layout_bootstrap.ensure_task_data_layout(vault)
+
+    assert result["status"] == "done"
+    assert result["schema"] == 2
+    new = vault / TASK_ROOT
+    assert (new / "收集箱" / "旧任务.md").is_file()
+    assert (new / "_系统" / "任务（tasks）.md").is_file()
+    assert not old.exists()
+    backup = vault / result["backup_dir"]
+    assert (backup / OLD_TASK_ROOT / "收集箱" / "旧任务.md").is_file()
+    assert task_notes.task_root(vault) == new
+
+
+def test_bootstrap_merges_08_and_keeps_duplicate_names(tmp_path):
+    vault = tmp_path / "vault"
+    old08 = vault / "00_人生路" / "08_任务与待办" / "任务" / "收集箱"
+    old08.mkdir(parents=True)
+    (old08 / "同名任务.md").write_text(_task("08 任务"), encoding="utf-8")
+    new = vault / TASK_ROOT
+    (new / "收集箱").mkdir(parents=True)
+    (new / "收集箱" / "同名任务.md").write_text(_task("07 任务"), encoding="utf-8")
+
+    task_layout_bootstrap.ensure_task_data_layout(vault)
+
+    names = sorted(path.name for path in (new / "收集箱").glob("同名任务*.md"))
+    assert names == ["同名任务 2.md", "同名任务.md"]
+    bodies = [(new / "收集箱" / name).read_text(encoding="utf-8") for name in names]
+    assert any("08 任务" in body for body in bodies)
+    assert any("07 任务" in body for body in bodies)
+
+
+def test_bootstrap_skips_read_only_without_writing(tmp_path):
+    vault = tmp_path / "vault"
+    old = vault / OLD_TASK_ROOT
+    (old / "收集箱").mkdir(parents=True)
+    (old / "收集箱" / "只读任务.md").write_text(_task("只读任务"), encoding="utf-8")
+
+    result = task_layout_bootstrap.ensure_task_data_layout(vault, read_only=True)
+
+    assert result["status"] == "skipped"
+    assert result["reason"] == "read_only"
+    assert not (vault / TASK_ROOT).exists()
+    assert task_notes.task_root(vault) == old

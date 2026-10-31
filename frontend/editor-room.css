@@ -113,11 +113,49 @@
   100% { transform: none; opacity: 1; }
 }
 
+.editor-room-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .editor-stage {
   flex: 1 1 auto;
+  min-width: 0;
   overflow-y: auto;
   padding: clamp(18px, 4vh, 46px) clamp(14px, 4vw, 40px) 80px;
   scroll-behavior: smooth;
+}
+
+.editor-companion-slot {
+  display: flex;
+  flex: none;
+  width: min(420px, 38vw);
+  min-width: 320px;
+  min-height: 0;
+  border-left: 1px solid var(--p-line);
+  background: var(--p-surface);
+}
+
+.editor-companion-slot[hidden] { display: none; }
+
+#note-editor-dialog.has-companion-dock .editor-stage {
+  padding-bottom: 210px;
+}
+
+#note-editor-dialog.has-companion-dock .editor-companion-slot {
+  width: 0;
+  min-width: 0;
+  border-left: 0;
+}
+
+@media (max-width: 900px) {
+  .editor-room-body { display: block; }
+  .editor-companion-slot {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+  }
 }
 
 .editor-paper {

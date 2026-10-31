@@ -1,9 +1,9 @@
-"""任务数据层启动迁移（2026-10-30）。
+"""任务数据层启动迁移（schema 2，2026-10-31）。
 
 把旧布局一次性、幂等地整理成：
 
 ```
-00_人生路/07_任务与待办/
+02_生活运营/00_待办事项/
   收集箱/ 已完成/ 回收站/ _系统/ <清单>...
 ```
 
@@ -11,14 +11,16 @@
 
 - `07_工作复盘` → `06_工作复盘`
 - `06_目标与计划/04_习惯追踪` → `04_目标/04_习惯追踪`
-- `08_任务与待办` → `07_任务与待办`
-- 展开 `07_任务与待办/任务/`：清单文件夹上移，散落任务进收集箱
+- `08_任务与待办` → `07_任务与待办`（旧布局）
+- `00_人生路/07_任务与待办` → `02_生活运营/00_待办事项`
+- 展开根下 `任务/`：清单文件夹上移，散落任务进收集箱
 - done 任务统一进 `已完成/`，并写 frontmatter `清单`
 - 旧 `.torch-os/task-trash` 批次搬进新回收站
 - 同步 `dida_task_links.relpath`，避免第一次同步误判成本地编辑
 
 迁移前会把相关目录复制到 `.torch-os/backups/task-layout/<stamp>/`；任何一步
-失败都保留原文件，不覆盖、不删除非空目录。
+失败都保留原文件，不覆盖、不删除非空目录。同名文件会改名保留（`名称 2.md`），
+不会用后到的文件覆盖先到的文件。
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from typing import Any
 from . import task_notes, task_trash_store, vault_layout
 
 MARKER_REL = Path(".torch-os", "task-layout.json")
+MARKER_SCHEMA = 2
 BACKUP_ROOT_REL = Path(".torch-os", "backups", "task-layout")
 LOG_ROOT_REL = Path(".torch-os", "migrations")
 
@@ -41,6 +44,7 @@ _RENAME_PAIRS = (
     ("00_人生路/07_工作复盘", "00_人生路/06_工作复盘"),
     ("00_人生路/06_目标与计划/04_习惯追踪", "00_人生路/04_目标/04_习惯追踪"),
     ("00_人生路/08_任务与待办", "00_人生路/07_任务与待办"),
+    ("00_人生路/07_任务与待办", vault_layout.TASK_ROOT),
 )
 _BACKUP_DIRS = (
     "00_人生路/04_目标",
@@ -49,6 +53,11 @@ _BACKUP_DIRS = (
     "00_人生路/07_工作复盘",
     "00_人生路/07_任务与待办",
     "00_人生路/08_任务与待办",
+    "02_生活运营/00_待办事项",
+    "00-System/任务",
+    "00-System/任务（tasks）.md",
+    "00-System/待办（todos）.md",
+    "00-System/待办.md",
     ".torch-os/task-trash",
 )
 
@@ -66,7 +75,7 @@ def _remove_empty(path: Path) -> None:
 
 def _move_or_merge(source: Path, target: Path, moves: list[dict[str, str]],
                    conflicts: list[str]) -> None:
-    """目录/文件移动；目标已存在时合并，绝不覆盖文件。"""
+    """目录/文件移动；目录合并，文件同名时改名保留，绝不覆盖。"""
     if not source.exists():
         return
     if not target.exists():
@@ -81,6 +90,14 @@ def _move_or_merge(source: Path, target: Path, moves: list[dict[str, str]],
         for child in list(source.iterdir()):
             _move_or_merge(child, target / child.name, moves, conflicts)
         _remove_empty(source)
+        return
+    if source.is_file() and target.is_file():
+        unique = _unique_file(target)
+        try:
+            os.replace(source, unique)
+            moves.append({"source": str(source), "target": str(unique)})
+        except OSError:
+            conflicts.append(f"{source} -> {unique}")
         return
     conflicts.append(f"{source} -> {target}")
 
@@ -292,7 +309,7 @@ def plan_task_layout(vault_dir: Path | str) -> dict[str, Any]:
     for source, target in _RENAME_PAIRS:
         if (vault / source).exists():
             actions.append(f"{source} -> {target}")
-    root = task_notes.task_root(vault)
+    root = vault / vault_layout.TASK_ROOT
     if (root / task_notes.LEGACY_INNER_DIR_NAME).is_dir():
         actions.append(f"展开 {root / task_notes.LEGACY_INNER_DIR_NAME}")
     for relative in vault_layout.TASK_SPECIAL_DIRS:
@@ -317,10 +334,12 @@ def plan_task_layout(vault_dir: Path | str) -> dict[str, Any]:
 
 
 def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
-                            dry_run: bool = False) -> dict[str, Any]:
+                            dry_run: bool = False, read_only: bool = False) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     if dry_run:
         return plan_task_layout(vault)
+    if read_only:
+        return {"status": "skipped", "reason": "read_only", "moved": 0}
     if not vault.is_dir():
         return {"status": "skipped", "reason": "vault_missing", "moved": 0}
 
@@ -344,7 +363,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
     except Exception as error:
         errors.append(f"ensure_layout:{type(error).__name__}")
 
-    root = task_notes.task_root(vault)
+    root = vault / vault_layout.TASK_ROOT
     _flatten_inner_task_dir(vault, root, moves, conflicts)
     _move_loose_root_tasks(vault, root, moves, conflicts)
     list_folders = _ensure_list_folders(vault)
@@ -356,7 +375,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
 
     finished = datetime.now(timezone.utc).isoformat()
     marker = {
-        "schema": 1,
+        "schema": MARKER_SCHEMA,
         "status": "done",
         "run_id": stamp,
         "started_at": stamp,
@@ -387,7 +406,8 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
                 connection.execute(
                     "INSERT INTO audit_events(event_type, detail_json, created_at) VALUES (?, ?, ?)",
                     ("task_layout_bootstrapped",
-                     json.dumps({"moved": len(moves), "done": done_moved,
+                     json.dumps({"schema": MARKER_SCHEMA,
+                                 "moved": len(moves), "done": done_moved,
                                  "lists": list_folders, "adopted": lists_adopted,
                                  "trash": trash_moved,
                                  "dida": db_updated, "conflicts": len(conflicts)},

@@ -161,6 +161,8 @@ def test_v1_writes_are_audited_without_bodies_or_secrets(tmp_path):
     assert set(details["journal_saved"]) == {"day", "bytes", "created"}
     assert set(details["ai_turn_completed"]) == {
         "role", "mode", "thread_id", "chars", "seconds", "proposals", "events", "structured",
+        "selection_chars", "selection_source", "selection_sha256",
+        "draft_chars", "draft_sha256",
     }
     assert set(details["ai_run_completed"]) == {
         "role", "mode", "chars", "seconds", "structured",

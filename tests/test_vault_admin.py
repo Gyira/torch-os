@@ -75,9 +75,9 @@ def test_create_builds_the_full_template_and_registers_it(tmp_path, desktop):
         assert (target / chapter[3]).is_dir(), chapter[3]
     assert (target / "00_人生路" / "02_反思复盘" / "01_反思").is_dir()
     assert (target / "00_人生路" / "05_项目" / "02_项目复盘").is_dir()
-    assert (target / "00_人生路" / "07_任务与待办" / "收集箱").is_dir()
-    assert (target / "00_人生路" / "07_任务与待办" / "已完成").is_dir()
-    assert (target / "00_人生路" / "07_任务与待办" / "回收站").is_dir()
+    assert (target / "02_生活运营" / "00_待办事项" / "收集箱").is_dir()
+    assert (target / "02_生活运营" / "00_待办事项" / "已完成").is_dir()
+    assert (target / "02_生活运营" / "00_待办事项" / "回收站").is_dir()
 
     # .obsidian 预设与插件。
     obsidian = target / ".obsidian"

@@ -24,8 +24,8 @@ from .journal_shared import shanghai_today, validate_day
 MAX_SELECTORS = 8
 MAX_TOTAL_CHARS = 24_000
 DEFAULT_TOTAL_CHARS = 16_000
-SUPPORTED_ENTRIES = {"identity", "note", "journal", "tasks"}
-FUTURE_ENTRIES = {"memory_card", "proposal", "share", "love", "health", "finance"}
+SUPPORTED_ENTRIES = {"identity", "note", "journal", "tasks", "health", "finance", "love"}
+FUTURE_ENTRIES = {"memory_card", "proposal", "share"}
 
 IDENTITY_LABELS = {
     "name": "称呼",
@@ -161,8 +161,37 @@ def _tasks_context(database: Database, vault_dir: Path | str, selector: Mapping[
     return _source(source_id, "tasks", f"{day} 任务与习惯", "", "\n".join(lines), 3_000)
 
 
+def _health_context(vault_dir: Path | str, source_id: str) -> tuple[dict[str, Any], str, bool]:
+    from . import life_reports
+    try:
+        body, _stats = life_reports.health_context(vault_dir)
+    except Exception as exc:
+        body = f"健康摘要暂时读不到：{exc}"
+    return _source(source_id, "health", "健康系统摘要", "", body, 4_000)
+
+
+def _finance_context(vault_dir: Path | str, source_id: str) -> tuple[dict[str, Any], str, bool]:
+    from . import life_reports
+    try:
+        body, _stats = life_reports.finance_context(vault_dir)
+    except Exception as exc:
+        body = f"财务摘要暂时读不到：{exc}"
+    return _source(source_id, "finance", "财富与记账摘要", "", body, 4_000)
+
+
+def _love_context(source_id: str, love_settings: Any = None) -> tuple[dict[str, Any], str, bool]:
+    if love_settings is None:
+        return _source(source_id, "love", "恋爱摘要", "", "还没有启用恋爱数据。", 1_000)
+    from . import life_reports
+    try:
+        body, _stats = life_reports.love_context(love_settings)
+    except Exception as exc:
+        body = f"恋爱摘要暂时读不到：{exc}"
+    return _source(source_id, "love", "恋爱分析摘要", "", body, 4_000)
+
+
 def _build_one(database: Database, vault_dir: Path | str, selector: Any,
-               source_id: str) -> tuple[dict[str, Any], str, bool]:
+               source_id: str, love_settings: Any = None) -> tuple[dict[str, Any], str, bool]:
     if not isinstance(selector, Mapping):
         raise ContextError("选择器必须是对象")
     entry = str(selector.get("entry") or "").strip()
@@ -178,12 +207,19 @@ def _build_one(database: Database, vault_dir: Path | str, selector: Any,
         return _note_context(vault_dir, selector, source_id)
     if entry == "journal":
         return _journal_context(vault_dir, selector, source_id)
+    if entry == "health":
+        return _health_context(vault_dir, source_id)
+    if entry == "finance":
+        return _finance_context(vault_dir, source_id)
+    if entry == "love":
+        return _love_context(source_id, love_settings)
     return _tasks_context(database, vault_dir, selector, source_id)
 
 
 def assemble(database: Database, vault_dir: Path | str, *,
              selectors: Iterable[Any] | None = None,
-             entry: str = "", max_chars: int = DEFAULT_TOTAL_CHARS) -> ContextBundle:
+             entry: str = "", max_chars: int = DEFAULT_TOTAL_CHARS,
+             love_settings: Any = None) -> ContextBundle:
     """Read the selected sources and return numbered, budget-limited text.
 
     Empty selectors fall back to the role's entry defaults (identity + tasks for
@@ -203,7 +239,8 @@ def assemble(database: Database, vault_dir: Path | str, *,
     truncated = False
     used = 0
     for index, selector in enumerate(items, start=1):
-        meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}")
+        meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}",
+                                      love_settings=love_settings)
         truncated = truncated or cut
         remaining = budget - used
         if remaining <= 0:

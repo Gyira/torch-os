@@ -1,4 +1,4 @@
-// 人生路/知识库「本子」数据层（2026-10-30）。
+// 人生路/知识库/生活运营「本子」数据层（2026-10-31）。
 // 纯函数，不碰 DOM、不读 localStorage：把后端章节清单聚合成用户能理解的本子，
 // 让首页先回答“我现在要做什么”，而不是把章节摊成一列小字。
 //
@@ -70,20 +70,32 @@ export const KNOWLEDGE_NOTEBOOKS = Object.freeze([
   },
 ]);
 
+// 生活运营只有一个受保护的本子：待办事项。看板仍在工作台。
+export const OPS_NOTEBOOKS = Object.freeze([
+  {
+    key: "task", title: "待办事项", eyebrow: "TODO", icon: "办", tone: "sage",
+    description: "收集箱、清单与已完成；看板仍在工作台。",
+    chapters: ["task"], primary: true,
+  },
+]);
+
 // 人生路只有一个「写点什么」入口：默认先落到随笔，写完再改本子。
 export const DEFAULT_LIFE_WRITE_CHAPTER = "essay";
 export const DEFAULT_KNOWLEDGE_WRITE_CHAPTER = "topic";
+export const DEFAULT_OPS_WRITE_CHAPTER = "task";
 
 export function defaultWriteChapter(pillar) {
-  return String(pillar || "") === "knowledge"
-    ? DEFAULT_KNOWLEDGE_WRITE_CHAPTER
-    : DEFAULT_LIFE_WRITE_CHAPTER;
+  const value = String(pillar || "");
+  if (value === "knowledge") return DEFAULT_KNOWLEDGE_WRITE_CHAPTER;
+  if (value === "ops") return DEFAULT_OPS_WRITE_CHAPTER;
+  return DEFAULT_LIFE_WRITE_CHAPTER;
 }
 
-// 用户明确保留的默认内置本子：人生路随笔、知识库收件箱。
+// 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项。
 export const PROTECTED_NOTEBOOK_KEYS = Object.freeze({
   life: Object.freeze(["essay"]),
   knowledge: Object.freeze(["inbox"]),
+  ops: Object.freeze(["task"]),
 });
 
 export function isProtectedNotebook(pillar, key) {
@@ -91,7 +103,7 @@ export function isProtectedNotebook(pillar, key) {
     .includes(String(key || ""));
 }
 
-/** 自建本子都可删；内置本子除随笔/收件箱外都可删。 */
+/** 自建本子都可删；内置本子除随笔/收件箱/待办事项外都可删。 */
 export function canDeleteNotebook(pillar, notebook) {
   if (!notebook?.key) return false;
   if (notebook.custom) return true;
@@ -99,7 +111,11 @@ export function canDeleteNotebook(pillar, notebook) {
     && !isProtectedNotebook(pillar, notebook.key);
 }
 
-const NOTEBOOKS = { life: LIFE_NOTEBOOKS, knowledge: KNOWLEDGE_NOTEBOOKS };
+const NOTEBOOKS = {
+  life: LIFE_NOTEBOOKS,
+  knowledge: KNOWLEDGE_NOTEBOOKS,
+  ops: OPS_NOTEBOOKS,
+};
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export const CUSTOM_NOTEBOOK_PREFIX = "custom:";
 // 知识库使用更长的前缀，避免两个库出现同名本子时 key 冲突。
@@ -278,7 +294,8 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
   for (const key of hiddenChapters) known.add(key);
   // 清单里新增但还没登记到本子的章节，放进“其他”，避免内容在首页消失。
   const customKeys = new Set(customCards.map((card) => card.key));
-  const leftovers = rows.filter((row) => row && !known.has(row.key)
+  // 生活运营只把 task 当本子；健康/财务等章节由系统卡片进入，不生成「其他」。
+  const leftovers = String(pillar || "") === "ops" ? [] : rows.filter((row) => row && !known.has(row.key)
     && !customKeys.has(row.key) && !isCustomNotebookKey(row.key)
     && !["task", "habit"].includes(row.key));
   if (leftovers.length) {
@@ -388,11 +405,11 @@ export function lifeHeroState(overview = {}, today = "") {
   const current = overview?.today || {};
   const week = Array.isArray(current.week) ? current.week : [];
   const day = String(today || current.date || "");
-  const written = Boolean(current.journal_written);
+  const written = Boolean(current.journal_has_content ?? current.journal_written);
   let streak = 0;
   if (written) {
     for (let index = week.length - 1; index >= 0; index -= 1) {
-      if (!week[index]?.exists) break;
+      if (!(week[index]?.written ?? week[index]?.exists)) break;
       streak += 1;
     }
   }
@@ -402,9 +419,11 @@ export function lifeHeroState(overview = {}, today = "") {
     written,
     streak,
     week,
-    weekDone: week.filter((item) => item.exists).length,
+    weekDone: week.filter((item) => item.written ?? item.exists).length,
     updatedAt: current.journal_updated_at || "",
     todayPath: week.find((item) => item.date === day)?.path || "",
+    heatmap: overview?.journal_heatmap && typeof overview.journal_heatmap === "object"
+      ? overview.journal_heatmap : null,
     headline: written ? "今天已经留下一页。" : "今天，写点什么？",
     copy: written
       ? "可以继续补今天的日记，也可以把新灵感先写进随笔。"

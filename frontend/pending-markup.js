@@ -34,13 +34,11 @@ export function pendingStripMarkup(summary) {
 
 function chapterSelectMarkup(item, chapters) {
   if (!Array.isArray(chapters) || !chapters.length) return "";
-  const chosen = String(item.suggest?.chapter || "");
   const options = chapters.map((chapter) => {
     const label = [chapter.pillar, chapter.title].filter(Boolean).join(" / ");
-    const selected = chapter.key === chosen ? " selected" : "";
-    return `<option value="${escape(chapter.key)}"${selected}>${escape(label)}</option>`;
+    return `<option value="${escape(chapter.key)}">${escape(label)}</option>`;
   }).join("");
-  return `<select class="pending-chapter-select" data-pending-chapter aria-label="搬到哪个章节">${options}</select>`;
+  return `<select class="pending-chapter-select" data-pending-chapter aria-label="搬到哪个章节"><option value="">选择章节…</option>${options}</select>`;
 }
 
 export function pendingItemMarkup(item, options = {}) {
@@ -50,7 +48,7 @@ export function pendingItemMarkup(item, options = {}) {
   }).join("");
   const lines = (item.lines || []).slice(0, 6).map((line) => `<li>${escape(line)}</li>`).join("");
   const select = item.kind === "triage" ? chapterSelectMarkup(item, options.chapters) : "";
-  return `<article class="pending-item" data-pending-item data-pending-kind="${escape(item.kind)}" data-pending-id="${escape(item.id)}"${item.suggest?.chapter ? ` data-pending-suggest="${escape(item.suggest.chapter)}"` : ""}>
+  return `<article class="pending-item" data-pending-item data-pending-kind="${escape(item.kind)}" data-pending-id="${escape(item.id)}">
       <p class="eyebrow">${escape(item.source || "")}</p>
       <h3 class="pending-item-title">${escape(item.title || "")}</h3>
       ${item.preview ? `<p class="pending-item-preview">${escape(item.preview)}</p>` : ""}

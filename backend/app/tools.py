@@ -272,7 +272,7 @@ class ToolService:
             'recorded_days': len(rows),
             'sleep_minutes_total': sum(int(row.get('sleep_minutes') or 0) for row in rows),
             'exercise_minutes_total': sum(int(row.get('exercise_minutes') or 0) for row in rows),
-            'note': '来自「健康与体重」月度 Markdown 表；只统计记录过的天数与分钟合计，不含体重数值，也不做健康评价。',
+            'note': '来自健康系统每日记录（旧库回退到健康月度表）；只统计记录过的天数与分钟合计，不含体重数值，也不做健康评价。',
         }
 
     def documents_summary(self, limit: int = 5) -> dict[str, Any]:

@@ -61,7 +61,7 @@ def build_bundle(database: Database, vault_dir) -> tuple[bytes, dict[str, Any]]:
         "exported_at": generated_at,
         "total": len(body_rows),
         "entries": body_rows,
-        "note": "来自健康与体重月度 Markdown 表；每天多行时睡眠/运动相加、体重取最后一条。",
+        "note": "来自健康系统每日记录（旧库回退到健康月度表）；每天一条，睡眠/训练分钟相加、体重取当天值。",
     }
 
     members: dict[str, str] = {

@@ -73,12 +73,11 @@ test("listed items keep their order", () => {
   assert.ok(html.indexOf("今日复盘草稿") < html.indexOf("今日规划草稿"));
 });
 
-test("triage cards carry the suggest engine's chapter as the default choice", () => {
+test("triage cards require an explicit chapter choice now that steward is gone", () => {
   const TRIAGE = {
     kind: "triage", id: "03_知识库/00_收件箱/待分类.md", title: "待分类的一条",
-    preview: "随手记下的东西", lines: ["建议：生活心得（可参考）", "出现“心情”，更像生活心得。"],
+    preview: "随手记下的东西", lines: [],
     source: "03_知识库/00_收件箱", created: "2026-10-27", actions: ["move"],
-    suggest: { chapter: "insight_life", title: "生活心得", confidence: "medium", reason: "出现“心情”" },
   };
   const chapters = [
     { key: "inbox", title: "收件箱", pillar: "知识库" },
@@ -87,7 +86,8 @@ test("triage cards carry the suggest engine's chapter as the default choice", ()
   const html = pendingItemMarkup(TRIAGE, { chapters });
 
   assert.match(html, /data-pending-chapter/);
-  assert.match(html, /value="insight_life" selected/);
+  assert.match(html, /<option value="">选择章节…<\/option>/);
+  assert.doesNotMatch(html, / selected/);
   assert.match(html, /data-pending-action="move"/);
   assert.match(html, /人生路 \/ 生活心得/);
 });

@@ -62,7 +62,7 @@ def make_client(tmp_path, *, read_only=False):
 
 
 def config_file(tmp_path):
-    return tmp_path / "vault" / "00_人生路" / "07_任务与待办" / "_系统" / "任务（tasks）.md"
+    return tmp_path / "vault" / "02_生活运营" / "00_待办事项" / "_系统" / "任务（tasks）.md"
 
 
 def legacy_file(tmp_path):
@@ -70,7 +70,7 @@ def legacy_file(tmp_path):
 
 
 def note_dir(tmp_path):
-    return tmp_path / "vault" / "00_人生路" / "07_任务与待办"
+    return tmp_path / "vault" / "02_生活运营" / "00_待办事项"
 
 
 def inbox_dir(tmp_path):
@@ -108,11 +108,11 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     payload = board(client)
 
     assert payload["legacy_tasks"] == 4
-    assert payload["path"] == "00_人生路/07_任务与待办/_系统/任务（tasks）.md"
+    assert payload["path"] == "02_生活运营/00_待办事项/_系统/任务（tasks）.md"
     assert payload["vault_name"] == "vault"
-    assert payload["task_dir"] == "00_人生路/07_任务与待办"
+    assert payload["task_dir"] == "02_生活运营/00_待办事项"
     shopping = find(payload, "买菜", legacy=True)
-    assert shopping["path"] == "00_人生路/07_任务与待办/_系统/任务（tasks）.md"
+    assert shopping["path"] == "02_生活运营/00_待办事项/_系统/任务（tasks）.md"
     assert shopping["list_name"] == "收集箱" and shopping["date"] == "2026-10-06"
     assert shopping["priority"] == "high" and shopping["tags"] == ["重要"]
     assert find(payload, "写周报", legacy=True)["done"] is True
@@ -123,7 +123,7 @@ def test_read_merges_legacy_readonly_and_new_notes(tmp_path):
     assert created.status_code == 200, created.text
     body = created.json()["task"]
     assert body["legacy"] is False
-    assert body["path"] == "00_人生路/07_任务与待办/收集箱/写方案.md"
+    assert body["path"] == "02_生活运营/00_待办事项/收集箱/写方案.md"
     assert (inbox_dir(tmp_path) / "写方案.md").is_file()
 
     payload = board(client)
@@ -165,7 +165,7 @@ def test_create_notes_folders_and_validation(tmp_path):
     assert len(duplicates) == 2
     # 文件名因重名带编号时，人生路阅读器仍显示 frontmatter 里的文档标题。
     second_doc = client.get("/api/notes", params={
-        "path": "00_人生路/07_任务与待办/收集箱/第一条任务 2.md"})
+        "path": "02_生活运营/00_待办事项/收集箱/第一条任务 2.md"})
     assert second_doc.status_code == 200, second_doc.text
     assert second_doc.json()["title"] == "第一条任务"
 
@@ -280,7 +280,7 @@ def test_task_document_read_save_and_title_rename(tmp_path):
     reading_note = reading.json()
     assert reading_note["chapter"] == "task" and reading_note["type"] == "task"
     assert reading_note["title"] == "写方案"
-    listed = client.get("/api/pillars/life/notes", params={"chapter": "task", "limit": 500})
+    listed = client.get("/api/pillars/ops/notes", params={"chapter": "task", "limit": 500})
     assert listed.status_code == 200, listed.text
     assert any(item["path"] == task["path"] for item in listed.json()["items"])
 
@@ -361,7 +361,7 @@ def test_task_document_keeps_done_state_and_rejects_legacy_or_read_only(tmp_path
 
     # 只读库：能读文档，不能写文档。
     readonly_vault = tmp_path / "readonly"
-    note = readonly_vault / "vault" / "00_人生路" / "07_任务与待办" / "收集箱" / "只读文档.md"
+    note = readonly_vault / "vault" / "02_生活运营" / "00_待办事项" / "收集箱" / "只读文档.md"
     note.parent.mkdir(parents=True)
     original = "---\ntype: task\n标题: 只读文档\n---\n\n正文\n"
     note.write_text(original, encoding="utf-8")
@@ -394,7 +394,7 @@ def test_duplicate_and_delete_are_soft(tmp_path):
     payload = board(client)
     assert find(payload, "写方案", legacy=False)["created"] == TODAY
 
-    copy = next(item for item in payload["tasks"] if item["path"] == "00_人生路/07_任务与待办/收集箱/写方案 2.md")
+    copy = next(item for item in payload["tasks"] if item["path"] == "02_生活运营/00_待办事项/收集箱/写方案 2.md")
     removed = post(client, "/api/time/tasks/delete", {
         "key": copy["key"], "revision": payload["revision"]})
     assert removed.status_code == 200, removed.text
@@ -522,7 +522,7 @@ def test_delete_list_trashes_tasks_backs_up_config_and_protects_files(tmp_path):
         "name": "临时清单", "revision": payload["revision"]})
     assert removed.status_code == 200, removed.text
     data = removed.json()
-    assert data["tasks"] == 1 and data["trash"].startswith("00_人生路/07_任务与待办/回收站/")
+    assert data["tasks"] == 1 and data["trash"].startswith("02_生活运营/00_待办事项/回收站/")
     assert not folder.exists()
     payload = board(client)
     assert all(item["name"] != "临时清单" for item in payload["lists"])

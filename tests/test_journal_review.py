@@ -34,7 +34,7 @@ def client(tmp_path, monkeypatch):
 
 def add_task(vault: Path, title: str, *, due: str | None = None,
              done_on: str | None = None) -> Path:
-    root = vault / "00_人生路" / "07_任务与待办"
+    root = vault / "02_生活运营" / "00_待办事项"
     folder = root / ("已完成" if done_on else "收集箱")
     folder.mkdir(parents=True, exist_ok=True)
     lines = ["---", "type: task", f"清单: {INBOX}"]

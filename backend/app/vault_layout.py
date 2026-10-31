@@ -4,8 +4,8 @@
 - 人生路 v2 把反思复盘、目标、项目收进分组目录（`02_反思复盘`、`04_目标`、`05_项目`），
   侧边栏分组见 `CHAPTER_GROUPS`；v1 的旧章节目录只由迁移搬到新路径
   （见 `V1_CHAPTER_MOVES`），运行时不再写入；
-- 工作台任务与待办在 `00_人生路/07_任务与待办`（任务根 + 收集箱/已完成/回收站）；
-  旧 08_任务与待办、00-System 只做只读兜底；
+- 工作台任务与待办在 `02_生活运营/00_待办事项`（任务根 + 收集箱/已完成/回收站）；
+  旧 00_人生路/07_任务与待办、08_任务与待办、00-System 只做只读兜底与迁移；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
 
 所有路径都以创建目录（Vault 根）为基准，使用 POSIX 相对路径字符串，
@@ -40,8 +40,8 @@ PILLAR_DIRS = {
 }
 PILLAR_ORDER = ("life", "self", "ops", "knowledge")
 
-# 任务数据层（2026-10-30）：任务根下面直接是收集箱/已完成/回收站/各清单文件夹。
-TASK_ROOT = "00_人生路/07_任务与待办"
+# 任务数据层（2026-10-31）：落在生活运营下，根目录直接是收集箱/已完成/回收站/各清单文件夹。
+TASK_ROOT = "02_生活运营/00_待办事项"
 TASK_INBOX_DIR = f"{TASK_ROOT}/收集箱"
 TASK_DONE_DIR = f"{TASK_ROOT}/已完成"
 TASK_TRASH_DIR = f"{TASK_ROOT}/回收站"
@@ -52,7 +52,6 @@ TASK_SPECIAL_DIRS = (TASK_INBOX_DIR, TASK_DONE_DIR, TASK_TRASH_DIR, TASK_SYSTEM_
 CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     # 00_人生路
     ("journal", "life", "日记", "00_人生路/01_日记", "journal"),
-    ("task", "life", "任务与待办", TASK_ROOT, "task"),
     ("reflection", "life", "反思", "00_人生路/02_反思复盘/01_反思", "reflection"),
     ("insight_life", "life", "生活心得", "00_人生路/03_心得体会/01_生活心得", "insight"),
     ("insight_work", "life", "工作心得", "00_人生路/03_心得体会/02_工作心得", "insight"),
@@ -82,14 +81,21 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     # v1.0 忆灵观察：AI 画像快照与观察报告，只追加不覆盖；memory: false，避免再次进入候选池。
     ("yiling", "self", "忆灵观察", "01_自我档案/08_忆灵观察", "observation"),
     # 02_生活运营
-    ("health", "ops", "健康与体重", "02_生活运营/01_健康与体重", "health_month"),
+    ("task", "ops", "待办事项", TASK_ROOT, "task"),
+    # 健康系统（2026-10-31）：与恋爱系统平级的生活运营二级分区，数据全部在
+    # `02_健康系统/`；旧 `01_健康与体重` 月度表只做只读兜底，不再写入。
+    ("health", "ops", "健康系统", "02_生活运营/02_健康系统", "health_day"),
+    ("health_daily", "ops", "每日健康", "02_生活运营/02_健康系统/01_每日健康", "health_day"),
+    ("health_profile", "ops", "身体档案", "02_生活运营/02_健康系统/02_身体档案", "health_profile"),
+    ("health_lab", "ops", "体检与检验", "02_生活运营/02_健康系统/03_体检与检验", "health_lab"),
+    ("health_train", "ops", "训练记录", "02_生活运营/02_健康系统/04_训练记录", "health_train"),
     ("finance", "ops", "财富与记账", "02_生活运营/02_财富与记账", "finance_month"),
     ("medical", "ops", "体检与医疗", "02_生活运营/03_体检与医疗", "medical"),
     ("affairs", "ops", "证件与事务", "02_生活运营/04_证件与事务", "document"),
     # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
     ("love_memory", "ops", "情感与记忆", "02_生活运营/05_情感与记忆", "memory"),
     # v1.0 生活运营 AI 报告：专家角色生成的可读产物，落数据层；家庭是占位章节。
-    ("health_report", "ops", "健康报告", "02_生活运营/06_健康报告", "report"),
+    ("health_report", "ops", "健康报告", "02_生活运营/02_健康系统/00_健康报告", "report"),
     ("finance_report", "ops", "财务报告", "02_生活运营/07_财务报告", "report"),
     ("life_advice", "ops", "生活建议", "02_生活运营/08_生活建议", "advice"),
     ("family", "ops", "家庭与智能家居", "02_生活运营/09_家庭与智能家居", "family"),
@@ -143,11 +149,15 @@ BUILTIN_NOTEBOOKS: dict[str, dict[str, tuple[str, tuple[str, ...]]]] = {
         "method": ("方法库", ("method_work", "method_general")),
         "output": ("输出与作品", ("output",)),
     },
+    "ops": {
+        "task": ("待办事项", ("task",)),
+    },
 }
-# 用户明确保留的两个默认内置本子：人生路的随笔、知识库的收件箱。
+# 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项。
 PROTECTED_NOTEBOOK_KEYS: dict[str, frozenset[str]] = {
     "life": frozenset({"essay"}),
     "knowledge": frozenset({"inbox"}),
+    "ops": frozenset({"task"}),
 }
 DELETED_NOTEBOOKS_REL = Path(".torch-os") / "deleted-notebooks.json"
 # 固定章节仍然优先；不在固定一级目录里的直属文件夹才视为“我的本子”。

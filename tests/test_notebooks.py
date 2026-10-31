@@ -337,3 +337,14 @@ def test_read_only_vault_refuses_notebook_creation_and_deletion(tmp_path):
         "pillar": "knowledge", "key": "custom:knowledge:不该创建",
         "confirm": True})
     assert delete.status_code == 409
+
+
+def test_ops_task_notebook_is_a_protected_builtin(tmp_path):
+    assert vault_layout.builtin_notebook_title("ops", "task") == "待办事项"
+    assert vault_layout.builtin_notebook_chapters("ops", "task") == ("task",)
+    assert vault_layout.is_protected_notebook("ops", "task") is True
+    assert vault_layout.can_delete_builtin_notebook("ops", "task") is False
+    client, _, _ = make_client(tmp_path)
+    response = client.post("/api/notebooks/delete", json={
+        "pillar": "ops", "key": "task", "confirm": True})
+    assert response.status_code == 422

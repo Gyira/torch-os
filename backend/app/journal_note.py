@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -124,6 +124,89 @@ def render_skeleton(vault_dir: Path | str, day: str) -> str:
                   .replace("{{week}}", str(parsed.isocalendar()[1]))
                   .replace("{{weekday}}", weekday))
     return f"---\ntype: journal\ndate: {day}\n---\n\n{filled}\n"
+
+
+_HEAT_CN = re.compile(r"[\u4e00-\u9fff]")
+_HEAT_WORD = re.compile(r"[A-Za-z0-9_]+")
+_HEAT_DATE_HEADING = re.compile(r"^#\s+\d{4}[-.]\d{2}[-.]\d{2}(.*)$")
+HEATMAP_WEEKS = 26
+
+
+def journal_word_count(text: str) -> int:
+    """与前端 editor-model.wordCount 同口径：汉字算 1 字，英文/数字按词。"""
+    value = str(text or "")
+    chinese = len(_HEAT_CN.findall(value))
+    words = len(_HEAT_WORD.findall(_HEAT_CN.sub(" ", value)))
+    return chinese + words
+
+
+def _journal_heat_words(content: str) -> int:
+    """日记正文的实际字数；只有当天日期骨架标题的薄模板不算写过。"""
+    body = _strip_front_matter(str(content or ""))
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return 0
+    if len(lines) == 1:
+        match = _HEAT_DATE_HEADING.match(lines[0])
+        if match:
+            rest = match.group(1).strip()
+            if not rest or re.match(r"^[（(]第\d+周", rest):
+                return 0
+    return journal_word_count(body)
+
+
+def journal_has_content(content: str) -> bool:
+    """正文有实际内容（只有日期骨架标题的薄模板返回 False）。"""
+    return _journal_heat_words(content) > 0
+
+
+def journal_heatmap(vault_dir: Path | str, today: date | str,
+                    weeks: int = HEATMAP_WEEKS) -> dict[str, Any]:
+    """最近 N 周（含本周，周一起）的写作热力图数据；只返回有正文的日子。
+
+    与前台「今日日记」一样以 Markdown 文件为准；不返回正文，只返回每天的字数
+    和一个可打开的路径。薄模板（只有 `# 2026.10.31（第N周…）`）不计入。
+    """
+    if isinstance(today, datetime):
+        current = today.date()
+    elif isinstance(today, date):
+        current = today
+    else:
+        current = date.fromisoformat(str(today))
+    span = max(1, min(53, int(weeks or HEATMAP_WEEKS)))
+    start = current - timedelta(days=current.weekday() + 7 * (span - 1))
+    days: dict[str, dict[str, Any]] = {}
+    for offset in range(span * 7):
+        day = start + timedelta(days=offset)
+        if day > current:
+            break
+        stamp = day.isoformat()
+        try:
+            entry = read_note(vault_dir, stamp)
+        except Exception:
+            # 单篇日记读不了不该拖垮整个首页；它最多缺席一格。
+            continue
+        if not entry.get("exists"):
+            continue
+        words = _journal_heat_words(str(entry.get("content") or ""))
+        if words <= 0:
+            continue
+        relpath = str(entry.get("relpath") or "")
+        standard = relpath.startswith("00_人生路/")
+        days[stamp] = {
+            "entries": 1,
+            "words": words,
+            "path": relpath if standard else "",
+            "legacy": bool(relpath) and not standard,
+        }
+    return {
+        "start": start.isoformat(),
+        "weeks": span,
+        "today": current.isoformat(),
+        "first_weekday": 1,
+        "written_days": len(days),
+        "days": days,
+    }
 
 
 def create_journal_note_router(

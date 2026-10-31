@@ -40,6 +40,10 @@ def test_manifest_lists_four_pillars(tmp_path):
     assert project["path"] == "00_人生路/05_项目/01_项目计划"
     assert all(pillar["groups"] == [] for pillar in payload["pillars"]
                if pillar["key"] != "life")
+    ops = next(pillar for pillar in payload["pillars"] if pillar["key"] == "ops")
+    task = next(chapter for chapter in ops["chapters"] if chapter["key"] == "task")
+    assert task["title"] == "待办事项"
+    assert task["path"] == "02_生活运营/00_待办事项"
 
 
 def test_inbox_note_is_listed_in_chapter_and_overview(tmp_path):
@@ -101,19 +105,22 @@ def test_create_note_does_not_overwrite_same_title(tmp_path):
     assert (vault / first["path"]).is_file() and (vault / second["path"]).is_file()
 
 
-def test_steward_suggestions_are_deterministic_and_inbox_is_listed(tmp_path):
-    from backend.app.steward_policy import suggest
-    assert suggest("整理收件箱五步法", "第一步……第二步……")["chapter"] == "method_general"
-    assert suggest("读书笔记：原则", "作者说……")["chapter"] == "reading"
-    assert suggest("一个想法", "我觉得这件事很触动我")["chapter"] == "idea"
-    assert suggest("随手记", "")["chapter"] == "inbox"
+def test_ops_overview_carries_task_summary_and_task_notebook_listing(tmp_path):
+    from backend.app import task_notes
+    from backend.app.habits import shanghai_today
 
     client, vault = make_client(tmp_path)
-    note = pillar_notes.create_note(
-        vault, title="整理收件箱五步法", body="第一步：列清单；第二步：分类。")
-    items = client.get("/api/steward/inbox-suggestions").json()["items"]
-    assert items and items[0]["path"] == note["path"]
-    assert items[0]["chapter"] == "method_general"
+    today = shanghai_today().isoformat()
+    task_notes.create_task_note(vault, "收集箱", "今天做", {"date": today})
+    task_notes.create_task_note(vault, "收集箱", "以后做", {})
+    task_notes.create_task_note(vault, "收集箱", "已经做完", {"done": True})
+
+    overview = client.get("/api/pillars/ops/overview").json()
+    assert overview["task_summary"] == {"open": 2, "overdue": 0, "due_today": 1}
+    task_chapter = next(chapter for chapter in overview["chapters"] if chapter["key"] == "task")
+    assert task_chapter["count"] == 3
+    listed = client.get("/api/pillars/ops/notes?chapter=task").json()["items"]
+    assert {item["title"] for item in listed} == {"今天做", "以后做", "已经做完"}
 
 
 def test_life_overview_marks_the_last_seven_days(tmp_path):
@@ -130,6 +137,8 @@ def test_life_overview_marks_the_last_seven_days(tmp_path):
     assert len(week) == 7
     assert week[-1]["date"] == today
     assert week[-1]["exists"] is True
+    assert week[-1]["written"] is True
+    assert overview["today"]["journal_has_content"] is True
     assert week[-1]["path"] == f"00_人生路/01_日记/{today}.md"
     assert week[0]["date"] < today
 
@@ -181,3 +190,43 @@ def test_self_overview_carries_the_archive_cover_and_timeline(tmp_path):
     chapters = {chapter["key"]: chapter["count"] for chapter in overview["chapters"]}
     assert chapters["memory"] == 2
     assert chapters["core_values"] == 1
+
+
+def test_life_overview_heatmap_counts_real_journal_bodies_only(tmp_path):
+    from datetime import date, timedelta
+
+    from backend.app.habits import shanghai_today
+
+    client, vault = make_client(tmp_path)
+    today = shanghai_today()
+    journal_dir = vault / "00_人生路" / "01_日记"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    written = today - timedelta(days=2)
+    (journal_dir / f"{written.isoformat()}.md").write_text(
+        f"---\ntype: journal\ndate: {written.isoformat()}\n---\n\n今天写了三件事。\n",
+        encoding="utf-8")
+    skeleton = today - timedelta(days=1)
+    (journal_dir / f"{skeleton.isoformat()}.md").write_text(
+        f"---\ntype: journal\ndate: {skeleton.isoformat()}\n---\n\n"
+        f"# {skeleton.isoformat().replace('-', '.')}（第1周，周五）\n",
+        encoding="utf-8")
+
+    overview = client.get("/api/pillars/life/overview").json()
+    heatmap = overview["journal_heatmap"]
+
+    assert heatmap["weeks"] == 26
+    assert heatmap["today"] == today.isoformat()
+    assert heatmap["first_weekday"] == 1
+    start = date.fromisoformat(heatmap["start"])
+    assert start.weekday() == 0
+    assert start <= written
+    assert heatmap["written_days"] == 1
+    day = heatmap["days"][written.isoformat()]
+    assert day["entries"] == 1
+    assert day["words"] == 7
+    assert day["path"] == f"00_人生路/01_日记/{written.isoformat()}.md"
+    assert skeleton.isoformat() not in heatmap["days"]
+    week = {item["date"]: item for item in overview["today"]["week"]}
+    assert week[written.isoformat()]["written"] is True
+    assert week[skeleton.isoformat()]["exists"] is True
+    assert week[skeleton.isoformat()]["written"] is False

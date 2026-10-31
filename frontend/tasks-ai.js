@@ -14,7 +14,7 @@ export function initTasksAI() {
       roleId: "life_assistant",
       mode: "tasks",
       entry: "workbench.tasks",
-      title: "待办 AI 助手",
+      title: "生活管家",
       selectors: [{ entry: "tasks" }, { entry: "identity" }],
       prompt: "帮我理一下今天的任务，先指出真正的瓶颈。",
     }).catch((error) => toast(`打不开 AI 助手：${error.message}`, "error"));

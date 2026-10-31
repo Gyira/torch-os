@@ -33,6 +33,15 @@ export function sourceMarkup(sources) {
   return items ? `<ul class="role-sources" aria-label="本轮参考来源">${items}</ul>` : "";
 }
 
+export function quoteMarkup(context) {
+  const selection = context?.selection;
+  if (!selection) return "";
+  const chars = Number(selection.chars) || 0;
+  const label = chars ? `引用了选文 · ${chars} 字` : "引用了选文";
+  const source = selection.source ? ` data-quote-source="${escapeRoleText(selection.source)}"` : "";
+  return `<span class="role-message-quote"${source}>${escapeRoleText(label)}</span>`;
+}
+
 export function messageMarkup(message) {
   const role = message?.role === "user" ? "user" : "assistant";
   const label = role === "user" ? "你" : "AI";
@@ -41,6 +50,7 @@ export function messageMarkup(message) {
     : `<p>${escapeRoleText(message?.content || "")}</p>`;
   return `<article class="role-message role-message-${role}" data-role-message="${role}">
     <div class="role-message-label">${label}</div>
+    ${role === "user" ? quoteMarkup(message?.context) : ""}
     <div class="role-message-body">${content}</div>
     ${sourceMarkup(message?.sources)}
   </article>`;
@@ -63,6 +73,15 @@ export function quickChips(roleId, mode) {
   }
   if (roleId === "academic_mentor" && mode === "tutor") {
     return ["我理解得浅在哪？", "下一步读什么？"];
+  }
+  if (roleId === "academic_mentor" && mode === "discuss") {
+    return ["这段里哪个概念我没说清？", "帮我找一个反例", "下一步怎么验证？"];
+  }
+  if (roleId === "life_assistant" && mode === "overview") {
+    return ["这周最值得做的一件事", "任务和身体状态怎么平衡？", "我现在最该停掉什么？"];
+  }
+  if (roleId === "love_master" && mode === "advice") {
+    return ["给我三条今天能做的建议", "我是不是在回避沟通？", "怎么设边界？"];
   }
   if (roleId === "yiling" && mode === "converse") {
     return ["我最近在纠结什么？", "我为什么总是这样？", "我想改变自己的……"];

@@ -8,9 +8,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
 
-from . import goal_notes, identity_inbox, journal_note, pillar_notes, steward, steward_policy, vault_layout
+from . import goal_notes, identity_inbox, journal_note, pillar_notes, task_reports, vault_layout
 from .db import Database
 from .habits import HabitService, shanghai_today
 from .identity import read_identity
@@ -43,15 +42,6 @@ ASSET_TYPES = {
     '.png': 'image/png',
     '.webp': 'image/webp',
 }
-
-
-class SuggestRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    title: str = Field(default="", max_length=200)
-    body: str = Field(default="", max_length=50_000)
-    source: str = Field(default="", max_length=500)
-    tags: list[str] = Field(default_factory=list, max_length=24)
 
 
 def _pillar_or_404(pillar: str) -> str:
@@ -107,10 +97,11 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
         "recent": notes[:8],
         "count": len(notes),
     }
-    if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
-        payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
+    if key in vault_layout.BUILTIN_NOTEBOOKS:
         payload["deleted_notebooks"] = sorted(
             vault_layout.deleted_notebook_keys(vault_dir).get(key, set()))
+    if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
+        payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
     if key == "life":
         today_date = shanghai_today()
         today = today_date.isoformat()
@@ -125,16 +116,20 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
                 "date": day,
                 "weekday": journal_note.WEEKDAYS[date.fromisoformat(day).weekday()],
                 "exists": bool(entry.get("exists")),
+                "written": bool(entry.get("exists"))
+                and journal_note.journal_has_content(str(entry.get("content") or "")),
                 "path": relpath if relpath.startswith("00_人生路/") else "",
                 "legacy": bool(entry.get("exists")) and not relpath.startswith("00_人生路/"),
             })
         payload["today"] = {
             "date": today,
             "journal_written": bool(journal.get("exists")),
+            "journal_has_content": journal_note.journal_has_content(str(journal.get("content") or "")),
             "journal_updated_at": journal.get("updated_at"),
             "habit_count": len(habits),
             "week": week,
         }
+        payload["journal_heatmap"] = journal_note.journal_heatmap(vault_dir, today_date)
     if key == "self":
         identity = read_identity(vault_dir)
         drafts = identity_inbox.list_drafts(vault_dir)
@@ -165,6 +160,18 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
     if key == "knowledge":
         inbox = [note for note in notes if note["chapter"] == "inbox"]
         payload["inbox_count"] = len(inbox)
+    if key == "ops":
+        try:
+            open_tasks = task_reports.open_tasks(vault_dir)
+        except Exception:
+            open_tasks = []
+        today = shanghai_today().isoformat()
+        payload["task_summary"] = {
+            "open": len(open_tasks),
+            "overdue": sum(1 for task in open_tasks
+                           if str(task.get("date") or "") and str(task.get("date")) < today),
+            "due_today": sum(1 for task in open_tasks if str(task.get("date") or "") == today),
+        }
     return payload
 
 
@@ -225,40 +232,6 @@ def create_pillars_router(database: Database, vault_dir: Path | str, *,
             _pillar_or_404(pillar)
         return {"query": q, "items": pillar_notes.list_notes(
             vault_dir, pillar=pillar, query=q, limit=limit)}
-
-    @router.get("/steward/inbox-suggestions")
-    def inbox_suggestions(limit: int = Query(default=50, ge=1, le=200)):
-        # 直接复用管家提案，确保界面上的 id 与只读提案一致；已删除的本子不再建议。
-        hidden = vault_layout.hidden_chapters(vault_dir)
-        items = []
-        for proposal in steward.inbox_proposals(vault_dir):
-            if proposal["target_chapter"] in hidden:
-                continue
-            items.append({
-                "proposal_id": proposal["id"],
-                "path": proposal["path"],
-                "title": proposal["title"],
-                "chapter": proposal["target_chapter"],
-                "pillar": proposal["target_pillar"],
-                "reason": proposal["reason"],
-                "confidence": proposal["confidence"],
-                "matched": "",
-                "chapter_title": proposal["target_title"],
-                "pillar_title": proposal["target_pillar_title"],
-            })
-            if len(items) >= limit:
-                break
-        return {"items": items, "count": len(items)}
-
-    @router.post("/steward/suggest")
-    def suggest_target(payload: SuggestRequest):
-        result = steward_policy.suggest(payload.title, payload.body,
-                                        payload.source, payload.tags)
-        result["chapter_title"] = steward_policy.CHAPTER_TITLES.get(
-            result["chapter"], result["chapter"])
-        result["pillar_title"] = vault_layout.PILLAR_TITLES.get(
-            result["pillar"], result["pillar"])
-        return result
 
     return router
 

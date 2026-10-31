@@ -46,3 +46,20 @@ test("source markup ignores empty entries", () => {
   assert.equal(sourceMarkup([{ id: "", title: "x" }]), "");
   assert.ok(sourceMarkup([{ id: "S2", kind: "journal" }]).includes("S2"));
 });
+
+test("user messages show a quote chip and never the selected text", () => {
+  const markup = messageMarkup({
+    role: "user",
+    content: "这段怎么改？",
+    context: { selection: { source: "life.editor", chars: 12 } },
+  });
+  assert.ok(markup.includes("引用了选文 · 12 字"));
+  assert.ok(markup.includes("这段怎么改？"));
+  assert.ok(!markup.includes("原始选中文字"));
+});
+
+test("new companion modes have scoped quick chips", () => {
+  assert.ok(quickChips("academic_mentor", "discuss").some((text) => text.includes("反例")));
+  assert.ok(quickChips("life_assistant", "overview").some((text) => text.includes("一件事")));
+  assert.ok(quickChips("love_master", "advice").some((text) => text.includes("边界")));
+});

@@ -35,7 +35,7 @@ test("恋爱系统挂在生活运营的二级菜单里，不在工作台", async
   assert.equal(labels.includes("恋爱系统"), false, "顶层导航不应新增独立恋爱模块");
 
   const app = await source("app.js");
-  assert.match(app, /ops: \{ stacked: false, panes: \[\["ops-view", "生活运营"\], \["love-view", "恋爱系统"\]\] \}/);
+  assert.match(app, /ops: \{ stacked: false, panes: \[\["ops-view", "生活运营"\], \["love-view", "恋爱系统"\](, \["health-view", "健康系统"\])?\] \}/);
   const workbenchBlock = app.slice(app.indexOf("workbench: {"), app.indexOf("life: {"));
   assert.equal(workbenchBlock.includes("love-view"), false,
     "工作台的二级菜单不应再出现恋爱系统");

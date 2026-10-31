@@ -2,6 +2,7 @@ import { $, state, api, escapeHtml } from "./core.js";
 import { initSettings, loadSettings } from "./settings.js";
 import { initDshPane, loadDshPane } from "./dsh-pane.js";
 import { initLovePane, loadLovePane } from "./love.js";
+import { initHealthPane, loadHealthPane } from "./health.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
@@ -21,6 +22,7 @@ import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
+import { initSelectionAsk } from "./selection-ask.js";
 
 const titles = NAV_LABELS;
 
@@ -35,8 +37,8 @@ const MODULES = {
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
   life: { panes: [], ownNav: true },
   self: { panes: [], ownNav: true },
-  // 生活运营保留自己的章节轨，同时在模块顶部多一个「恋爱系统」二级分区。
-  ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"]] },
+  // 生活运营保留自己的章节轨，同时在模块顶部多「恋爱系统 / 健康系统」两个二级分区。
+  ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"], ["health-view", "健康系统"]] },
   knowledge: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
 };
@@ -46,6 +48,7 @@ const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": () => { initDshPane(); loadDshPane(); },
   "love-view": () => { initLovePane(); loadLovePane(); },
+  "health-view": () => { initHealthPane(); loadHealthPane(); },
   "life-view": () => loadPillarModule("life"),
   "self-view": () => { loadPillarModule("self"); loadSelfHub(); },
   "ops-view": () => loadPillarModule("ops"),
@@ -141,6 +144,7 @@ const GO_TARGETS = {
   identity: ["self", ""], self: ["self", ""], profile: ["self", ""], memory: ["self", ""],
   bazi: ["self", ""], goals: ["life", ""], habits: ["life", ""],
   life: ["life", ""], ops: ["ops", ""],
+  health: ["ops", "health-view"], love: ["ops", "love-view"],
   brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
   notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
 };
@@ -391,6 +395,7 @@ initSettings(); initInbox();
 initWorkbench(); initPillars(); initPending();
 initMemoryHub();
 initRoleDrawer();
+initSelectionAsk();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
 initHelp();
@@ -407,6 +412,15 @@ document.addEventListener("click", async (event) => {
   const navigation = event.target.closest("[data-view], [data-go-view]");
   if (navigation) {
     await goTo(navigation.dataset.view || navigation.dataset.goView);
+  }
+});
+// 生活运营等页面不直接 import app.js（避免循环依赖），用事件请求切换模块内分区。
+document.addEventListener("torch:show-pane", async (event) => {
+  const detail = event.detail || {};
+  if (!detail.view || !detail.pane) return;
+  const ok = await showPane(detail.view, detail.pane);
+  if (ok && detail.focus) {
+    document.querySelector(detail.focus)?.scrollIntoView({ behavior: "auto", block: "start" });
   }
 });
 // 滴答同步完成后（可能在设置页触发）让工作台任务立即重读一次。

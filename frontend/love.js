@@ -2,6 +2,8 @@
 // 数据来自原有 love_analysis.db，由 torch 后端直接读写；这里只做界面与交互。
 // 不在前端保存任何聊天内容：所有渲染都来自本机 API，页面刷新后重新读取。
 import { $, api, escapeHtml, jsonBody, openDialog, confirmAction, toast } from "./core.js";
+import { openRoleDrawer } from "./roles.js";
+import { COMPANIONS } from "./ai-companions.js";
 
 const PAGE_TITLES = {
   dashboard: "总览",
@@ -258,6 +260,13 @@ export function initLovePane() {
     renderLovePage();
   });
   node("love-refresh")?.addEventListener("click", () => reloadLove({ quiet: true }));
+  node("love-master-open")?.addEventListener("click", () => {
+    openRoleDrawer({
+      ...COMPANIONS.love,
+      selectors: [{ entry: "love" }],
+      prompt: "基于最近的恋爱分析摘要，给我三条今天能做的建议。",
+    });
+  });
   node("love-consent-accept")?.addEventListener("click", () => {
     love.consent = true;
     writeStorage(CONSENT_KEY, "accepted");
