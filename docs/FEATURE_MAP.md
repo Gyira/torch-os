@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_cycle`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
 
 ## AI 角色层（1.0 P0–P1）
 
@@ -45,7 +45,7 @@
 - 报告落点不变：健康 `02_生活运营/02_健康系统/00_健康报告`、财务 `07_财务报告`、
   恋爱/生活建议 `08_生活建议`；
   报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
-- 恋爱系统 12 页保持；顶部新增「恋爱大师」按钮，只读分析摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
+- 恋爱系统 13 页保持（2026-10-31 新增「经期关怀」）；顶部新增「恋爱大师」按钮，只读分析摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
 
 ## 忆灵 / 记忆中枢（1.0 P3）
 
@@ -137,7 +137,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 首页「今天，写点什么？」+ 我的本子（日记、反思复盘、心得体会、目标、项目、随笔、工作复盘）；本子内是笔记卡片列表与全屏写作；最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作、我的八字参考 |
-| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚） |
+| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚、经期关怀） |
 | 知识库 | `#knowledge` | 首页「今天想弄明白什么？」（DeepSeek 提问/分享链接回填）+ 知识本子：收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -334,17 +334,23 @@
 ### 恋爱系统（生活运营的二级分区，2026-10-27）
 
 - 位于「生活运营」模块的二级菜单（顶部「生活运营 / 恋爱系统」标签），不是新的顶层模块；不再启动原「恋爱分析助手」的 Electron/FastAPI 服务。
-- 数据统一放在当前个人数据库的 `.torch-os/love/`：`love_analysis.db`、AES 加密 Key、
-  排班表 `xlsx/`、`schedule-notes.json` 值班备注和停用词。首次启动会把旧版
+- 数据统一放在当前个人数据库的 `.torch-os/love/`：`love_analysis.db`、`cycle.db`（经期关怀，
+  首次保存时创建）、AES 加密 Key、排班表 `xlsx/`、`schedule-notes.json` 值班备注和停用词。
+  首次启动会把旧版
   `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的数据复制过来，
   原文件保留；已有项目、消息、画像、分析记录和日志继续可用。车次时刻表不在这里，
   已独立到 `.torch-os/train-tracker/`。
-- 原生页面：总览、导入聊天（TXT/编码识别）、**微信同步**、统计（趋势/回复间隔/媒体/高频词）、
+- 原生页面：总览、**经期关怀**（经期记录、预测、月历、每日身体状态与护理提示）、
+  导入聊天（TXT/编码识别）、**微信同步**、统计（趋势/回复间隔/媒体/高频词）、
   AI 深度分析、画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、**每日记忆**、
   HTML 报告（独立文档预览与打印）、**值班日历**（月历显示上班/休息，并从排班表单元格
   自动带出当天值乘车次；点日期弹窗可追加交接备注）、**八字合婚**（只读渲染
   `.torch-os/love/bazi.json`：双人命盘、三条依据、口径说明、关键年份与相处建议）、
   设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
+- **经期关怀（2026-10-31）**：恋爱系统二级页面；经期记录、下次经期/排卵/易孕期预测、
+  月历、每日身体状态（疼痛/情绪/睡眠/饮水/精力/症状/备注）、阶段护理与伴侣关怀提示、
+  趋势统计。数据在 `.torch-os/love/cycle.db`，读取不建文件、首次保存才创建；纯本地计算，
+  不接 AI；预测不是诊断，也不能作为避孕依据；只读模式拒绝写入。
 - **微信同步（WeFlow 本地 API，2026-10-27）**：WeFlow 负责读取本机已登录微信，
   torch 只访问 `http://127.0.0.1:<端口>`（默认 5031）并只拉取用户选中的一个单聊。
   Token 用 AES-256-GCM 加密存在 `.torch-os/love/`，不回显、不写日志；群聊、公众号和
@@ -359,7 +365,7 @@
 - AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
   Key 使用 AES-256-GCM 加密保存在同一目录，不上传；`.torch-os` 不参与普通 Vault 扫描和
   工作台备份快照，拷贝整个个人数据库文件夹时会一起带走。
-- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库；微信同步与每日记忆只在个人模式出现。
+- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库；微信同步、每日记忆与经期关怀只在个人模式出现。
 
 ### 知识库
 

@@ -120,8 +120,10 @@ def test_qa_has_no_chat_or_model_surface(project):
     # 恋爱系统属于个人真实数据：QA 必须连路由都不存在。
     assert client.get('/api/love/status').status_code == 404
     assert client.get('/api/love/schedule/status').status_code == 404
+    assert client.get('/api/love/cycle/overview').status_code == 404
     status = client.get('/api/config/status').json()
     assert status['capabilities']['love'] is False
+    assert status['capabilities']['love_cycle'] is False
     assert status['capabilities']['love_schedule'] is False
     assert app.state.dsh_runtime.status()['state'] == 'disabled'
 

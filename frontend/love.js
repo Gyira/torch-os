@@ -4,9 +4,11 @@
 import { $, api, escapeHtml, jsonBody, openDialog, confirmAction, toast } from "./core.js";
 import { openRoleDrawer } from "./roles.js";
 import { COMPANIONS } from "./ai-companions.js";
+import { renderLoveCycle, handleLoveCycleAction, cycleDashboardMarkup } from "./love-cycle.js";
 
 const PAGE_TITLES = {
   dashboard: "总览",
+  cycle: "经期关怀",
   import: "导入聊天",
   wechat: "微信同步",
   stats: "统计分析",
@@ -19,7 +21,7 @@ const PAGE_TITLES = {
   bazi: "八字合婚",
   settings: "设置",
 };
-const CONSENT_KEY = "torch-os:love-consent-v1";
+const CONSENT_KEY = "torch-os:love-consent-v2";
 const PROJECT_KEY = "torch-os:love-project";
 const MOODS = [
   ["happy", "开心", "😊"], ["love", "心动", "❤️"], ["miss", "想念", "💭"],
@@ -596,17 +598,19 @@ async function renderDashboard(content) {
   if (!project) {
     content.innerHTML = card("恋爱系统", emptyBox(
       "还没有聊天项目",
-      "导入一份微信聊天记录，就能开始统计、画像、AI 分析和恋爱日志。数据会保存在本机原有数据库里。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天记录</button>',
+      "导入一份微信聊天记录，就能开始统计、画像、AI 分析和恋爱日志。经期关怀不需要聊天项目，也可以单独使用；数据都保存在本机。",
+      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天记录</button>'
+      + '<button class="button secondary" type="button" data-love-action="goto" data-page="cycle">经期关怀</button>',
     ), {
       eyebrow: "RELATIONSHIP OS",
       subtitle: "原有项目会直接出现在这里；新导入的数据继续写入同一份本机数据库。",
     });
     return;
   }
-  const [overview, latest] = await Promise.all([
+  const [overview, latest, cycleOverview] = await Promise.all([
     loveApi(projectQuery("/stats/overview"), { timeoutMs: 45000 }),
     loveApi(projectQuery("/analysis/latest"), { timeoutMs: 45000 }),
+    loveApi("/api/love/cycle/overview", { timeoutMs: 20000 }).catch(() => null),
   ]);
   if (love.page !== "dashboard") return;
   const analysis = latest?.result || null;
@@ -641,6 +645,7 @@ async function renderDashboard(content) {
       <article class="love-stat"><span>${escapeHtml(overview.sender_b.name)}</span><strong>${formatInt(overview.sender_b.messages)}</strong><small>${percent(overview.sender_b.ratio, 1)} 的消息</small></article>
       <article class="love-stat"><span>恋爱日志</span><strong>${formatInt(latestJournal)}</strong><small>${analysisBadge}</small></article>
     </div>
+    ${cycleDashboardMarkup(cycleOverview, card)}
     <div class="love-dashboard-grid">
       ${card("这段关系", `
         <dl class="love-facts">
@@ -2594,6 +2599,10 @@ async function handleLoveAction(event) {
   const button = event.target.closest("[data-love-action]");
   if (!button) return;
   const action = button.dataset.loveAction;
+  if (action.startsWith("cycle-")) {
+    await handleLoveCycleAction(event, { rerender: renderLovePage });
+    return;
+  }
   switch (action) {
     case "goto":
       setLovePage(button.dataset.page);
@@ -2766,6 +2775,11 @@ async function handleLoveAction(event) {
 
 const PAGE_RENDERERS = {
   dashboard: renderDashboard,
+  cycle: (content) => renderLoveCycle(content, {
+    card,
+    isActive: () => love.page === "cycle",
+    rerender: renderLovePage,
+  }),
   import: renderImport,
   wechat: renderWechat,
   stats: renderStats,

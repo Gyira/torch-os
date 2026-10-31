@@ -20,7 +20,7 @@
 | `.torch-os/ai-runtime/` | 角色子进程的空工作区与临时文件；不是 Vault，不承载用户资料 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
 | `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
-| `.torch-os/love/` | 恋爱系统数据库、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词、`bazi.json`（八字合婚页只读数据） |
+| `.torch-os/love/` | 恋爱系统数据库、`cycle.db`（经期关怀，首次保存时创建）、AES Key（DeepSeek Key 与 WeFlow Token）、排班表 Excel、值班备注、停用词、`bazi.json`（八字合婚页只读数据） |
 | `.torch-os/love/backups/` | 微信同步写入前自动生成的恋爱数据库备份 |
 | `.torch-os/vault-layout.json` | 建库时的四库/章节布局快照 |
 | `.torch-os/backups/`、`logs/`、`diagnostics/`、`migrations/`、`restored/` | 备份、日志、诊断与迁移记录 |
@@ -161,6 +161,8 @@ AI 角色会话与提案、每日记录、身体记录。它是阅读/迁移用�
 - 所有 AI 对话由本地 DeepSeek Harness 发起；是否联网、用哪个模型、发送哪些上下文，
   都由 dsh 自己的设置与权限决定。
 - 恋爱系统的数据库、加密 Key、排班表和值班备注放在当前个人数据库的 `.torch-os/love/`；
+  经期关怀另有 `cycle.db`（首次保存时创建），只在本机计算周期、排卵与易孕期，不接 AI，
+  预测不是诊断，也不能作为避孕依据。
   `.torch-os` 不参与普通 Vault 扫描和工作台备份快照，但拷贝整个个人数据库文件夹时会一起带走。
   首次启动会把旧版 `%LOCALAPPDATA%` / `data/love` / 原项目目录里的数据复制过来，原文件保留。
 - 微信同步只访问本机 `http://127.0.0.1:<WeFlow端口>`（默认 5031），不访问 WeFlow 云端或

@@ -34,6 +34,21 @@ def test_love_data_is_stored_inside_the_selected_personal_database(tmp_path: Pat
     assert (expected / "love_analysis.db").is_file()  # /status 会确保表结构
     assert payload["migration"] == {}
 
+    # 经期关怀与聊天数据同目录；读取不建文件，首次保存时创建 cycle.db。
+    assert (expected / "cycle.db").exists() is False
+    overview = client.get(
+        "/api/love/cycle/overview", headers={"x-api-token": "test-token"},
+    )
+    assert overview.status_code == 200, overview.text
+    assert (expected / "cycle.db").exists() is False
+    saved = client.put(
+        "/api/love/cycle/profile",
+        json={"partner_name": "她"},
+        headers={"x-api-token": "test-token"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (expected / "cycle.db").is_file()
+
 
 def test_injected_temp_database_does_not_touch_the_real_love_database(tmp_path: Path) -> None:
     """测试/QA 的临时库不能因为默认路径去读写用户的真实恋爱数据。"""

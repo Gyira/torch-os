@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -264,17 +264,18 @@
           <div class="love-menu-brand"><span class="love-heart" aria-hidden="true">♥</span><div><strong>恋爱系统</strong><small>本机数据 · DeepSeek</small></div></div>
           <nav class="love-nav" id="love-nav" aria-label="恋爱系统页面">
             <button type="button" class="love-nav-item active" data-love-page="dashboard" aria-current="page"><span>01</span>总览</button>
-            <button type="button" class="love-nav-item" data-love-page="import"><span>02</span>导入聊天</button>
-            <button type="button" class="love-nav-item" data-love-page="wechat"><span>03</span>微信同步</button>
-            <button type="button" class="love-nav-item" data-love-page="stats"><span>04</span>统计分析</button>
-            <button type="button" class="love-nav-item" data-love-page="analysis"><span>05</span>AI 深度分析</button>
-            <button type="button" class="love-nav-item" data-love-page="profile"><span>06</span>画像</button>
-            <button type="button" class="love-nav-item" data-love-page="journal"><span>07</span>恋爱日志</button>
-            <button type="button" class="love-nav-item" data-love-page="memory"><span>08</span>每日记忆</button>
-            <button type="button" class="love-nav-item" data-love-page="report"><span>09</span>报告</button>
-            <button type="button" class="love-nav-item" data-love-page="schedule"><span>10</span>值班日历</button>
-            <button type="button" class="love-nav-item" data-love-page="bazi"><span>11</span>八字合婚</button>
-            <button type="button" class="love-nav-item" data-love-page="settings"><span>12</span>设置</button>
+            <button type="button" class="love-nav-item" data-love-page="cycle"><span>02</span>经期关怀</button>
+            <button type="button" class="love-nav-item" data-love-page="import"><span>03</span>导入聊天</button>
+            <button type="button" class="love-nav-item" data-love-page="wechat"><span>04</span>微信同步</button>
+            <button type="button" class="love-nav-item" data-love-page="stats"><span>05</span>统计分析</button>
+            <button type="button" class="love-nav-item" data-love-page="analysis"><span>06</span>AI 深度分析</button>
+            <button type="button" class="love-nav-item" data-love-page="profile"><span>07</span>画像</button>
+            <button type="button" class="love-nav-item" data-love-page="journal"><span>08</span>恋爱日志</button>
+            <button type="button" class="love-nav-item" data-love-page="memory"><span>09</span>每日记忆</button>
+            <button type="button" class="love-nav-item" data-love-page="report"><span>10</span>报告</button>
+            <button type="button" class="love-nav-item" data-love-page="schedule"><span>11</span>值班日历</button>
+            <button type="button" class="love-nav-item" data-love-page="bazi"><span>12</span>八字合婚</button>
+            <button type="button" class="love-nav-item" data-love-page="settings"><span>13</span>设置</button>
           </nav>
           <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>
         </aside>
@@ -295,8 +296,9 @@
             <div class="love-consent-card">
               <span class="eyebrow">PRIVACY</span>
               <h3>先把数据边界说清楚</h3>
-              <p>聊天记录、画像和日志只保存在当前个人数据库的 <code>.torch-os/love/</code> 里；它们不参与普通扫描和备份快照，拷贝整个个人数据库可一起带走，也不上传到任何服务器。</p>
+              <p>聊天记录、画像、日志和经期/身体记录只保存在当前个人数据库的 <code>.torch-os/love/</code> 里；它们不参与普通扫描和备份快照，拷贝整个个人数据库可一起带走，也不上传到任何服务器。</p>
               <ul>
+                <li>经期与身体记录只在本机计算和保存，不会发送给 AI 或任何外部服务；周期预测只是估算，不是诊断，也不能作为避孕依据。</li>
                 <li>只有点击「开始分析」或「AI 生成日记」时，脱敏后的聊天内容才会发送给你配置的 DeepSeek 接口。</li>
                 <li>发送前会隐藏姓名、电话、证件号、邮箱、链接和银行卡号；原始记录不会发送。</li>
                 <li>AI 结论只是参考，不替代真实沟通，也不构成任何关系决策建议。</li>

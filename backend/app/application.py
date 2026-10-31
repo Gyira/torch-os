@@ -75,6 +75,7 @@ from .weather import create_weather_router
 from .love import LoveSettings, create_love_router
 from .health import create_health_router
 from .love_schedule import create_schedule_router
+from .love_cycle import create_cycle_router
 from .love_storage import (
     DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
     STOPWORDS_NAME as LOVE_STOPWORDS_NAME, migrate_love_data,
@@ -580,6 +581,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'life_assistant':ai_enabled,'life_reports':True,
                     'love': runtime_label == 'personal',
+                    'love_cycle': runtime_label == 'personal',
                     'love_memory': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
@@ -909,6 +911,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             love_settings.excel_dir,
             love_data_dir / 'schedule-notes.json',
             love_settings.target_name,
+            read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+        # 经期关怀：纯本地计算，数据在 .torch-os/love/cycle.db；首次保存时才创建文件。
+        app.include_router(create_cycle_router(
+            love_data_dir / 'cycle.db',
             read_only=vault_read_only,
         ), dependencies=[Depends(journal_data_guard)])
     # v1.0 生活运营 AI：健康/财务/恋爱/生活管家；报告落 06–08 章，建议只生成提案。

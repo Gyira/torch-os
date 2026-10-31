@@ -70,7 +70,7 @@ def test_retired_capabilities_are_not_advertised(tmp_path):
     capabilities = client.get('/api/config/status').json()['capabilities']
     for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions', 'agent', 'harness_reset', 'model_key_write', 'semantic_search', 'workbench_polish'):
         assert key not in capabilities, key
-    assert len(capabilities) == 55  # 2026-10-31 健康系统新增 health
+    assert len(capabilities) == 56  # 2026-10-31 健康系统 health + 恋爱经期关怀 love_cycle
 
 
 def test_legacy_tables_survive_and_have_no_writers(tmp_path):

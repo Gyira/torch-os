@@ -13,7 +13,7 @@ test("恋爱系统有独立的八字合婚页", async () => {
   const js = await source("love.js");
   const css = await source("styles.css");
 
-  assert.match(html, /data-love-page="bazi"><span>11<\/span>八字合婚/);
+  assert.match(html, /data-love-page="bazi"><span>12<\/span>八字合婚/);
   assert.match(js, /bazi: "八字合婚"/);
   assert.match(js, /bazi: renderBazi/);
   assert.match(js, /\/api\/love\/bazi/);

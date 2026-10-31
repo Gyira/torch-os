@@ -20,6 +20,7 @@ test("恋爱系统挂在生活运营的二级菜单里，不在工作台", async
   assert.match(html, /id="love-view"/);
   assert.match(html, /data-module="ops"[^>]*data-pane-label="恋爱系统"|data-pane-label="恋爱系统"/);
   assert.match(html, /data-love-page="dashboard"/);
+  assert.match(html, /data-love-page="cycle"><span>02<\/span>经期关怀/);
   assert.match(html, /data-love-page="settings"/);
 
   // 二级入口必须在生活运营的 nav-sublist 里，而不是工作台的。
@@ -78,7 +79,7 @@ test("恋爱系统只调用本机原生 API", async () => {
 test("排班页是值班日历，不再包含车次时刻表/沿线天气", async () => {
   const html = await source("index.html");
   const js = await source("love.js");
-  assert.match(html, /data-love-page="schedule"><span>10<\/span>值班日历/);
+  assert.match(html, /data-love-page="schedule"><span>11<\/span>值班日历/);
   assert.match(js, /schedule: "值班日历"/);
   assert.match(js, /\/api\/love\/schedule\/month/);
   assert.match(js, /\/api\/love\/schedule\/note/);
@@ -96,8 +97,8 @@ test("排班页是值班日历，不再包含车次时刻表/沿线天气", asyn
 test("微信同步与每日记忆入口和接口齐全", async () => {
   const html = await source("index.html");
   const js = await source("love.js");
-  assert.match(html, /data-love-page="wechat"><span>03<\/span>微信同步/);
-  assert.match(html, /data-love-page="memory"><span>08<\/span>每日记忆/);
+  assert.match(html, /data-love-page="wechat"><span>04<\/span>微信同步/);
+  assert.match(html, /data-love-page="memory"><span>09<\/span>每日记忆/);
   assert.match(js, /wechat: "微信同步"/);
   assert.match(js, /memory: "每日记忆"/);
   for (const endpoint of [

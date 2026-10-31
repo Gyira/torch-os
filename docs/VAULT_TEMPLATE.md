@@ -169,7 +169,7 @@
 .torch-os/personal-data.json      # 小组件偏好、常用城市、排序等（首次修改小组件时创建）
 .torch-os/横幅背景/                # 工作台横幅图片（首次在横幅编辑器选图时创建）
 .torch-os/train-tracker/          # 列车追踪时刻表（导入或从 12306 手动同步时创建）
-.torch-os/love/                   # 恋爱系统数据库、加密 Key、排班表、值班备注（首次使用恋爱系统时创建）
+.torch-os/love/                   # 恋爱系统数据库、经期关怀 cycle.db、加密 Key、排班表、值班备注（首次使用恋爱系统时创建）
 ```
 
 `任务/` 与 `_系统/` 在「待办事项」章节内部，章节本身也在 `CHAPTERS` 里。创建时还会
@@ -177,6 +177,7 @@
 是章节路径的父目录，随章节一起出现。`.torch-os/personal-data.json`、`.torch-os/横幅背景/`
 与 `.torch-os/train-tracker/` 按需创建，不预先放空文件。恋爱系统第一次打开时会在
 `.torch-os/love/` 下创建 `love_analysis.db`、`xlsx/`，值班备注在首次写备注时创建；
+经期关怀的 `cycle.db` 在第一次保存经期或身体状态时才创建，读取不会产生文件。
 旧版数据会从原位置复制过来，原文件保留。车次时刻表不在 `love/` 下，已独立到
 `.torch-os/train-tracker/timetable.json`。
 

@@ -1,0 +1,251 @@
+/* 恋爱系统 · 经期关怀。弹窗在 #detail-dialog（.ops-love 之外），
+   所以表单/胶囊等共用控件用全局 love-cycle-* 前缀；页面布局再包 .ops-love。 */
+
+.love-cycle-form,
+.love-cycle-dialog-form { display: grid; gap: 14px; }
+.love-cycle-form-grid,
+.love-cycle-dialog-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+}
+.love-cycle-field { display: grid; gap: 5px; min-width: 0; }
+.love-cycle-field > label,
+.love-cycle-field > span:first-child {
+  color: var(--p-ink-3); font-size: 12px; font-weight: 600;
+}
+.love-cycle-field input,
+.love-cycle-field select,
+.love-cycle-field textarea { width: 100%; min-width: 0; }
+.love-cycle-help { margin: 0; color: var(--p-ink-5); font-size: 11px; line-height: 1.6; }
+.love-cycle-inline-check { display: inline-flex; gap: 7px; align-items: center; color: var(--p-ink-3); font-size: 12px; }
+.love-cycle-inline-check input { width: auto; }
+.love-cycle-form-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.love-cycle-dialog-section { display: grid; gap: 8px; }
+.love-cycle-dialog-section h4 { margin: 0; color: var(--p-ink-2); font-size: 13px; }
+.love-cycle-day-facts { display: grid; gap: 8px; margin: 0; }
+.love-cycle-day-facts > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.love-cycle-day-facts dt { color: var(--p-ink-5); font-size: 12px; }
+.love-cycle-day-facts dd { margin: 0; color: var(--p-ink-2); font-size: 13px; overflow-wrap: anywhere; }
+
+.love-cycle-chips,
+.love-cycle-dialog-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.love-cycle-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 5px 10px; border: 1px solid var(--p-line-strong); border-radius: 999px;
+  background: var(--p-surface); color: var(--p-ink-3); font-size: 12px; line-height: 1.5;
+  cursor: pointer;
+}
+.love-cycle-chip:hover { border-color: var(--p-love-accent-line); background: var(--p-love-accent-soft); }
+.love-cycle-chip.is-active,
+.love-cycle-chip[aria-pressed="true"] {
+  border-color: var(--p-love-accent); background: var(--p-love-accent-soft);
+  color: var(--p-love-accent-strong); font-weight: 700;
+}
+
+/* 页面 */
+.ops-love .love-cycle-page { display: grid; gap: 14px; min-width: 0; }
+.ops-love .love-cycle-hero {
+  padding: 18px 20px; border: 1px solid var(--p-love-accent-line);
+  border-radius: 16px; background: radial-gradient(120% 160% at 0% 0%,
+    color-mix(in srgb, var(--p-love-accent) 10%, transparent), transparent 58%), var(--p-surface);
+}
+.ops-love .love-cycle-hero-top {
+  display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: flex-start;
+}
+.ops-love .love-cycle-hero-main { min-width: 0; display: grid; gap: 5px; }
+.ops-love .love-cycle-phase {
+  display: inline-flex; align-items: center; gap: 7px; color: var(--p-love-accent-strong);
+  font-size: 12px; font-weight: 700; letter-spacing: .04em;
+}
+.ops-love .love-cycle-phase::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--p-love-accent);
+}
+.ops-love .love-cycle-hero h3 {
+  margin: 0; color: var(--p-ink-strong); font-family: var(--p-font-display);
+  font-size: 27px; line-height: 1.25;
+}
+.ops-love .love-cycle-hero-summary { max-width: 58ch; margin: 0; color: var(--p-ink-4); font-size: 13px; line-height: 1.7; }
+.ops-love .love-cycle-countdown {
+  flex: none; min-width: 150px; padding: 14px 16px; border: 1px solid var(--p-love-accent-line);
+  border-radius: 12px; background: color-mix(in srgb, var(--p-love-accent-soft) 76%, transparent);
+  text-align: right;
+}
+.ops-love .love-cycle-countdown strong { display: block; color: var(--p-love-accent-strong); font-size: 24px; line-height: 1.25; }
+.ops-love .love-cycle-countdown small { color: var(--p-ink-4); font-size: 11px; }
+.ops-love .love-cycle-progress {
+  display: block; width: 100%; height: 9px; margin: 14px 0 4px;
+  accent-color: var(--p-love-accent);
+}
+.ops-love .love-cycle-progress-note { margin: 0 0 12px; color: var(--p-ink-5); font-size: 11px; }
+.ops-love .love-cycle-facts {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+  margin: 0; padding: 0;
+}
+.ops-love .love-cycle-facts > div {
+  min-width: 0; padding: 9px 11px; border: 1px solid var(--p-line);
+  border-radius: 9px; background: var(--p-surface-2);
+}
+.ops-love .love-cycle-facts dt { color: var(--p-ink-5); font-size: 10.5px; font-weight: 600; }
+.ops-love .love-cycle-facts dd { margin: 2px 0 0; color: var(--p-ink-2); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.ops-love .love-cycle-hero-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+.ops-love .love-cycle-alerts { display: grid; gap: 7px; }
+.ops-love .love-cycle-alert {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2);
+  color: var(--p-ink-3); font-size: 12px; line-height: 1.65;
+}
+.ops-love .love-cycle-alert strong { flex: none; color: var(--p-ink-2); }
+.ops-love .love-cycle-alert.info { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.ops-love .love-cycle-alert.warn { border-color: var(--p-warn-line, var(--p-warn-soft)); background: var(--p-warn-soft); }
+.ops-love .love-cycle-alert.warn strong { color: var(--p-warn-ink); }
+
+.ops-love .love-cycle-care-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.ops-love .love-cycle-care-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.ops-love .love-cycle-care-list li {
+  position: relative; padding-left: 19px; color: var(--p-ink-3); font-size: 13px; line-height: 1.7;
+}
+.ops-love .love-cycle-care-list li::before {
+  content: "✓"; position: absolute; left: 0; top: 0; color: var(--p-love-accent); font-weight: 800;
+}
+.ops-love .love-cycle-partner-list li::before { content: "♡"; font-size: 15px; top: -1px; }
+.ops-love .love-cycle-disclaimer {
+  display: flex; gap: 9px; padding: 12px 14px; border: 1px solid var(--p-line);
+  border-left: 3px solid var(--p-love-accent); border-radius: 10px;
+  background: var(--p-surface-2); color: var(--p-ink-4); font-size: 11.5px; line-height: 1.7;
+}
+.ops-love .love-cycle-disclaimer strong { flex: none; color: var(--p-ink-2); }
+.ops-love .love-cycle-dashboard { display: grid; gap: 8px; }
+.ops-love .love-cycle-dashboard-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ops-love .love-cycle-dashboard-head strong { color: var(--p-ink-strong); font-size: 18px; }
+.ops-love .love-cycle-dashboard-meta { margin: 0; color: var(--p-ink-4); font-size: 12px; }
+
+/* 月历 */
+.ops-love .love-cycle-toolbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  flex-wrap: wrap; margin: 0 0 12px;
+}
+.ops-love .love-cycle-month-nav { display: flex; align-items: center; gap: 7px; }
+.ops-love .love-cycle-month-nav strong { min-width: 92px; text-align: center; color: var(--p-ink-2); font-size: 14px; }
+.ops-love .love-cycle-weekdays {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px;
+  padding: 0 4px 6px; color: var(--p-ink-5); font-size: 10px; text-align: center;
+}
+.ops-love .love-cycle-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 4px; }
+.ops-love .lc-day {
+  position: relative; display: grid; align-content: start; gap: 3px; min-width: 0;
+  min-height: 78px; padding: 7px 8px; border: 1px solid var(--p-line);
+  border-radius: 9px; background: var(--p-surface); color: var(--p-ink);
+  text-align: left; cursor: pointer;
+}
+.ops-love .lc-day:hover { border-color: var(--p-love-accent-line); }
+.ops-love .lc-day.is-empty { visibility: hidden; }
+.ops-love .lc-day.is-future { background: var(--p-surface-2); color: var(--p-ink-4); }
+.ops-love .lc-day.is-period {
+  border-color: var(--p-love-accent-line);
+  background: color-mix(in srgb, var(--p-love-accent) 14%, var(--p-surface));
+}
+.ops-love .lc-day.is-predicted {
+  border-style: dashed; border-color: var(--p-love-accent-line);
+  background: color-mix(in srgb, var(--p-love-accent-soft) 72%, var(--p-surface));
+}
+.ops-love .lc-day.is-fertile { box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--p-love-accent) 34%, transparent); }
+.ops-love .lc-day.is-ovulation { border-color: var(--p-love-accent); }
+.ops-love .lc-day.is-today { box-shadow: inset 0 0 0 2px var(--p-focus-ring); }
+.ops-love .lc-day.has-log::after {
+  content: ""; position: absolute; top: 8px; right: 8px; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--p-accent);
+}
+.ops-love .lc-day-number { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ops-love .lc-day-markers { display: flex; flex-wrap: wrap; gap: 2px; }
+.ops-love .lc-day-marker {
+  padding: 1px 4px; border-radius: 999px; background: var(--p-chip);
+  color: var(--p-ink-4); font-size: 8.5px; font-weight: 700; line-height: 1.5; white-space: nowrap;
+}
+.ops-love .lc-day-marker.period { background: var(--p-love-accent-soft); color: var(--p-love-accent-strong); }
+.ops-love .lc-day-marker.predicted { background: var(--p-warn-soft); color: var(--p-warn-ink); }
+.ops-love .lc-day-marker.fertile,
+.ops-love .lc-day-marker.ovulation { background: var(--p-accent-soft); color: var(--p-accent-strong, var(--p-warn-ink)); }
+.ops-love .lc-day-marker.log { background: var(--p-chip); color: var(--p-ink-4); }
+.ops-love .love-cycle-legend {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 9px; color: var(--p-ink-4); font-size: 10px;
+}
+.ops-love .love-cycle-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ops-love .love-cycle-legend i {
+  display: inline-block; width: 10px; height: 10px; border: 1px solid transparent; border-radius: 3px;
+}
+.ops-love .love-cycle-legend i.period { background: color-mix(in srgb, var(--p-love-accent) 22%, var(--p-surface)); border-color: var(--p-love-accent-line); }
+.ops-love .love-cycle-legend i.predicted { border-style: dashed; border-color: var(--p-love-accent-line); background: var(--p-love-accent-soft); }
+.ops-love .love-cycle-legend i.fertile { box-shadow: inset 0 -3px 0 var(--p-love-accent-line); background: var(--p-surface); }
+.ops-love .love-cycle-legend i.ovulation { border-color: var(--p-love-accent); background: var(--p-surface); }
+.ops-love .love-cycle-legend i.log { background: var(--p-accent); border-color: var(--p-accent); border-radius: 50%; }
+.ops-love .love-cycle-legend i.today { box-shadow: inset 0 0 0 2px var(--p-focus-ring); background: var(--p-surface); }
+
+/* 今日状态与统计 */
+.ops-love .love-cycle-today-note { margin: 0 0 12px; color: var(--p-ink-4); font-size: 12px; }
+.ops-love .love-cycle-trend { margin-top: 12px; }
+.ops-love .love-cycle-trend-note { margin: 4px 0 0; color: var(--p-ink-5); font-size: 11px; }
+.ops-love .lc-chart { display: block; width: 100%; height: auto; overflow: visible; }
+.lc-chart-band { fill: color-mix(in srgb, var(--p-love-accent) 9%, transparent); }
+.lc-chart-grid { stroke: var(--p-line); stroke-width: 1; }
+.lc-chart-grid.is-ref { stroke: var(--p-love-accent-line); stroke-dasharray: 4 4; }
+.lc-chart-line { fill: none; stroke: var(--p-love-accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.lc-chart-dot { fill: var(--p-love-accent); }
+.lc-chart-text { fill: var(--p-ink-5); font-size: 9px; }
+.lc-chart-value { fill: var(--p-ink-3); font-size: 9px; font-weight: 700; }
+
+.ops-love .love-cycle-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.ops-love .love-cycle-metric {
+  min-width: 0; padding: 9px 10px; border: 1px solid var(--p-line);
+  border-radius: 9px; background: var(--p-surface-2);
+}
+.ops-love .love-cycle-metric span { display: block; color: var(--p-ink-5); font-size: 10.5px; }
+.ops-love .love-cycle-metric strong { display: block; margin-top: 2px; color: var(--p-ink-2); font-size: 16px; }
+.ops-love .love-cycle-freq-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.ops-love .love-cycle-freq-list { display: grid; gap: 8px; margin: 12px 0 0; }
+.ops-love .love-cycle-freq-row {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) 34px; gap: 8px;
+  align-items: center; color: var(--p-ink-3); font-size: 12px;
+}
+.ops-love .love-cycle-freq-row progress { width: 100%; height: 7px; accent-color: var(--p-love-accent); }
+.ops-love .love-cycle-freq-row small { color: var(--p-ink-5); text-align: right; }
+
+/* 历史 */
+.ops-love .love-cycle-history { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ops-love .love-cycle-history-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 11px 12px;
+  border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2);
+}
+.ops-love .love-cycle-history-main { min-width: 0; display: grid; gap: 4px; }
+.ops-love .love-cycle-history-title { color: var(--p-ink-2); font-size: 13px; font-weight: 700; }
+.ops-love .love-cycle-history-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; color: var(--p-ink-4); font-size: 11px; }
+.ops-love .love-cycle-history-notes { margin: 0; color: var(--p-ink-4); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.ops-love .love-cycle-history-actions { display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0; }
+.ops-love .love-cycle-empty {
+  padding: 18px 16px; border: 1px dashed var(--p-line-strong); border-radius: 10px;
+  background: var(--p-surface-2); color: var(--p-ink-4); font-size: 12px; line-height: 1.7; text-align: center;
+}
+.ops-love .love-cycle-empty strong { display: block; color: var(--p-ink-2); font-size: 13px; }
+.ops-love .love-cycle-empty p { margin: 5px auto 0; max-width: 54ch; }
+
+@media (max-width: 1100px) {
+  .ops-love .love-cycle-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-love .love-cycle-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .ops-love .love-cycle-care-grid,
+  .ops-love .love-cycle-freq-grid { grid-template-columns: minmax(0, 1fr); }
+  .love-cycle-form-grid, .love-cycle-dialog-grid { grid-template-columns: minmax(0, 1fr); }
+  .ops-love .love-cycle-hero { padding: 15px 16px; }
+  .ops-love .love-cycle-hero h3 { font-size: 23px; }
+  .ops-love .love-cycle-countdown { min-width: 0; width: 100%; text-align: left; }
+  .ops-love .love-cycle-history-row { flex-direction: column; }
+  .ops-love .love-cycle-history-actions { align-self: flex-end; }
+}
+@media (max-width: 640px) {
+  .ops-love .lc-day { min-height: 58px; padding: 4px 5px; }
+  .ops-love .lc-day-number { font-size: 12px; }
+  .ops-love .lc-day-marker { padding: 0 3px; font-size: 7.5px; }
+  .ops-love .love-cycle-facts { grid-template-columns: minmax(0, 1fr); }
+  .ops-love .love-cycle-legend { gap: 8px; }
+}
