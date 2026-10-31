@@ -36,6 +36,15 @@
 
 ## 已完成
 
+- **2026-10-31 取消人生路「今晚复盘」**：
+  - 移除 `frontend/pillars.js` 里的三处入口（首页 hero、今天也可以卡、旧「今天」卡）和
+    `[data-journal-review]` 点击处理；删除 `frontend/journal-ritual.js`、
+    `frontend/journal-ritual-model.js` 与对应前端测试。
+  - 保留「今日日记」直接写作和「打开本周复盘 / 打开本月复盘」；后端 `journal_review`
+    的生成能力仍被日记/收件箱使用，`/api/journal/review|compose|distill|chat` 路由暂时保留，
+    但应用内不再有「今晚复盘」入口（设计文档已标注）。
+  - 前端全量 **411 passed**（移除原 journal-ritual 的 8 项，新增 1 项“入口保持退役”守卫）；
+    模块面与文本/结构检查通过。
 - **2026-10-31 文档直接移动到其他本子（人生路 / 知识库）**：
   - 后端原有 `POST /api/writing/notes/move`：`pillar_notes.move_note` 用 `os.replace`
     真正把 Markdown 从原文件夹移到目标章节文件夹，更新 frontmatter `chapter`/`pillar`/`updated`，

@@ -11,6 +11,7 @@ const deletedModules = [
   "identity.js", "profile.js", "memories.js", "memory-text.js", "goals.js",
   "task-view.js", "bazi.js", "body-records.js", "habits.js", "imports.js",
   "share-import.js", "library.js", "second-brain.js", "journal-review.js",
+  "journal-ritual.js", "journal-ritual-model.js",
   "journal-calendar.js", "vault-audit.js", "agent-chat.js", "harness-bridge.js",
 ];
 
@@ -77,6 +78,14 @@ test("four-library UI stays read-only and only jumps to Obsidian", async () => {
   assert.ok(pillars.includes("在 Obsidian 新建"));
   const steward = await readFile(path.join(frontend, "pillar-steward.js"), "utf8");
   assert.equal(steward.includes("/apply"), false, "管家不能再执行提案");
+});
+
+test("the tonight journal review entry stays retired", async () => {
+  const sources = await liveSources();
+  for (const { name, text } of sources) {
+    assert.equal(text.includes("data-journal-review"), false, `${name} still renders the tonight review entry`);
+    assert.equal(text.includes("今晚复盘"), false, `${name} still mentions 今晚复盘`);
+  }
 });
 
 test("referenced docs exist and the tool count is 12", async () => {

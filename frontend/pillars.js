@@ -11,7 +11,6 @@ import { initOpsAI, loadOpsAI } from "./ops-ai.js";
 import { openSteward } from "./pillar-steward.js";
 import { archiveMarkup } from "./archive-markup.js";
 import { shanghaiDay } from "./journal-model.js";
-import { openJournalReview } from "./journal-ritual.js";
 import {
   deleteNoteFile, initNoteEditor, invalidateChapterCache, openNoteEditor,
 } from "./note-editor.js";
@@ -496,13 +495,12 @@ function companionCardMarkup(view) {
   </section>`;
 }
 
-function lifeToolsCard(hero, { journalEnabled = true, reviewEnabled = true } = {}) {
+function lifeToolsCard(hero, { journalEnabled = true } = {}) {
   return `<section class="pillar-card home-tools">
     <p class="eyebrow">今天也可以</p>
     <div class="pillar-quick">
       <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="task">任务与待办</button>
       <button type="button" class="pillar-quick-button" data-pillar-chapter="life" data-chapter="habit">习惯追踪</button>
-      ${reviewEnabled ? `<button type="button" class="pillar-quick-button" data-journal-review>今晚复盘 · 8 分钟</button>` : ""}
     </div>
     <p class="field-help">${journalEnabled
       ? (hero.written ? "今天已经写过一页，剩下的交给时间。" : "先写一句，今天就有了落点。")
@@ -515,7 +513,6 @@ function lifeHomeMarkup() {
   const hero = lifeHeroState(overview, shanghaiDay());
   const deleted = deletedNotebooksFor("life");
   const journalEnabled = !deleted.has("journal");
-  const reviewEnabled = journalEnabled && !deleted.has("reflection");
   const cards = notebookCardsFor("life");
   const recent = (overview.recent || [])
     .filter((note) => !["task", "habit"].includes(note.chapter))
@@ -529,7 +526,6 @@ function lifeHomeMarkup() {
         <p class="life-hero-copy">${escapeHtml(hero.copy)}</p>
         <div class="life-hero-actions">
           <button type="button" class="button primary hero-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">✍ 写点什么</button>
-          ${reviewEnabled ? `<button type="button" class="text-button" data-journal-review>今晚复盘</button>` : ""}
         </div>
         ${journalEnabled ? `<p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>` : ""}
       </div>
@@ -575,7 +571,7 @@ function lifeHomeMarkup() {
       </main>
       <aside class="pillar-home-aside">
         ${companionCardMarkup("life")}
-        ${lifeToolsCard(hero, { journalEnabled, reviewEnabled })}
+        ${lifeToolsCard(hero, { journalEnabled })}
       </aside>
     </div>
   </div>`;
@@ -690,7 +686,6 @@ function notebookPageMarkup(view) {
   const hero = view === "life" ? lifeHeroState(overview, shanghaiDay()) : null;
   const lifeDeleted = deletedNotebooksFor("life");
   const lifeJournalEnabled = !lifeDeleted.has("journal");
-  const lifeReviewEnabled = lifeJournalEnabled && !lifeDeleted.has("reflection");
   return `<div class="pillar-home notebook-page">
     <div class="pillar-home-body">
       <main class="pillar-home-main notebook-main">
@@ -729,7 +724,6 @@ function notebookPageMarkup(view) {
         ${companionCardMarkup(view)}
         ${view === "life" ? lifeToolsCard(hero, {
           journalEnabled: lifeJournalEnabled,
-          reviewEnabled: lifeReviewEnabled,
         }) : ""}
         <section class="pillar-card home-stats">
           <p class="eyebrow">本子</p>
@@ -900,7 +894,6 @@ function renderShell(view) {
           <p class="pillar-stat">${overview.today.journal_written ? "日记已写" : "日记还没写"}</p>
           <p class="field-help">${overview.today.journal_written ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
-            <button type="button" class="pillar-quick-button" data-journal-review>今晚复盘（8 分钟）</button>
             <button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button>
             <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">打开本月复盘</button>
@@ -1518,16 +1511,6 @@ function bindPillarEvents() {
     const identity = event.target.closest?.("[data-open-identity]");
     if (identity) {
       openIdentityCard();
-      return;
-    }
-    const reviewButton = event.target.closest?.("[data-journal-review]");
-    if (reviewButton) {
-      reviewButton.disabled = true;
-      try {
-        await openJournalReview();
-      } finally {
-        reviewButton.disabled = false;
-      }
       return;
     }
     const journalDay = event.target.closest?.("[data-journal-day]");
