@@ -97,6 +97,7 @@ async function harness() {
     }
     return nodes.get(selector);
   };
+  const documentListeners = new Map();
   const document = {
     activeElement: null,
     body: new NodeDouble(),
@@ -107,9 +108,17 @@ async function harness() {
     createElement: () => { const node = new NodeDouble(); node.querySelector = getNode; node.querySelectorAll = () => []; return node; },
     // 时间管理模块的单选字段会在标签后拼一段文字节点（2026-10-08 起）
     createTextNode: (value) => { const node = new NodeDouble(); node.textContent = String(value); return node; },
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent() {},
+    addEventListener(type, callback) {
+      if (!documentListeners.has(type)) documentListeners.set(type, []);
+      documentListeners.get(type).push(callback);
+    },
+    removeEventListener(type, callback) {
+      documentListeners.set(type, (documentListeners.get(type) || []).filter((item) => item !== callback));
+    },
+    async dispatchEvent(event) {
+      for (const callback of [...(documentListeners.get(event?.type) || [])]) await callback(event);
+      return true;
+    },
   };
   const requests = [];
   const location = { hash: "#workbench" };
@@ -119,7 +128,7 @@ async function harness() {
   }
   let respond = (url) => url === "/api/conversations" ? [] : { answer: "测试回答", conversation_id: 1, citations: [], mode: "local" };
   const context = vm.createContext({
-    document, AbortController, TypeError, Intl, Date, console, CustomEvent: class { constructor(type) { this.type = type; } },
+    document, AbortController, TypeError, Intl, Date, console, CustomEvent: class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
     TextDecoder, TextEncoder,
     location,
     history: { pushState(_state, _title, hash) { location.hash = hash; }, replaceState(_state, _title, hash) { location.hash = hash; } },
@@ -1212,6 +1221,48 @@ test("task rows show the linked goal and can filter the board by it", async () =
   assert.match(chip.title, /只看这个目标/);
   await chip.emit("click");
   assert.deepEqual(selected, ["00_人生路/06_目标与计划/01_年度目标/学习.md"]);
+});
+
+test("saving a note refreshes the pillar list cache before the reader is reopened", async () => {
+  const { load, setResponse, context, core } = await harness();
+  const pillars = (await load("pillars.js")).namespace;
+  pillars.initPillars();
+  const state = pillars.currentPillar();
+  const path = "03_知识库/01_主题笔记/旧标题.md";
+  core.state.view = "knowledge";
+  state.overviews.knowledge = {
+    chapters: [], custom_notebooks: [], recent: [], count: 1, vault_name: "知识库",
+  };
+  state.notes.knowledge = [{ path, title: "旧标题", chapter: "topic", excerpt: "正文" }];
+  state.reading.knowledge = {
+    note: { path, title: "旧标题", chapter: "topic", pillar: "knowledge", body: "正文" },
+    backlinks: [], linkedTasks: [], focusPending: false,
+  };
+  setResponse((url) => {
+    if (url === "/api/pillars") return { pillars: [] };
+    if (url === "/api/pillars/knowledge/overview") {
+      return {
+        chapters: [], custom_notebooks: [], count: 1,
+        recent: [{ path, title: "新标题", chapter: "topic", excerpt: "正文" }],
+      };
+    }
+    if (url.startsWith("/api/notes?")) {
+      return { path, title: "新标题", chapter: "topic", pillar: "knowledge", body: "正文" };
+    }
+    if (url.startsWith("/api/notes/backlinks")) return { items: [] };
+    return {};
+  });
+  await context.document.dispatchEvent(new context.CustomEvent("torch:notes-changed", {
+    detail: { path, pillar: "knowledge" },
+  }));
+  // 监听器先重读列表、再重开阅读器；这段异步链在真实浏览器里不阻塞事件派发。
+  for (let i = 0; i < 50 && state.reading.knowledge?.note?.title !== "新标题"; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  // 阅读器已换成新标题，同时列表缓存也已更新；返回列表时不会再显示旧标题。
+  assert.equal(state.reading.knowledge.note.title, "新标题");
+  assert.equal(state.notes.knowledge[0].title, "新标题");
+  assert.equal(state.overviews.knowledge.recent[0].title, "新标题");
 });
 
 test("habit rows read entry_status and expose the habit badge and rest state", async () => {

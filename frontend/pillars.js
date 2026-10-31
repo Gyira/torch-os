@@ -1947,7 +1947,16 @@ export function initPillars() {
         state.reading[view] = null;
         loadPillarModule(view);
       } else if (detail.path) {
-        openNote(detail.path);
+        // 阅读器和列表各缓存一份笔记：保存标题/正文后必须连列表一起重读，
+        // 否则“返回列表”直接用旧缓存重绘，仍显示保存前的标题。
+        const readingPath = reading?.note?.path || "";
+        loadPillarModule(view).then(() => {
+          // 等待期间用户可能已经返回列表或换了一篇，别把他们拉回旧阅读器。
+          const current = state.reading[view]?.note?.path || "";
+          if (current && (current === detail.path || current === readingPath)) {
+            openNote(detail.path);
+          }
+        });
       }
       return;
     }
