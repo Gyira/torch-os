@@ -887,14 +887,16 @@ function dispatchNotesChanged(note, previousPath = "", deleted = false) {
 
 /** 删除确认 + 软删除请求；调用方负责刷新页面和处理错误。 */
 export async function deleteNoteFile(note, { dirtyNote = false } = {}) {
-  const title = String(note?.title || "这篇笔记");
+  // 过去的日记走日记专用接口（只校验这一天的文件），其余笔记走写作接口。
+  const journal = note?.chapter === "journal";
+  const title = String(note?.title || (journal ? "这篇日记" : "这篇笔记"));
   const ok = await confirmAction({
-    title: "删除这篇笔记？",
-    message: `《${title}》会移入应用回收站（.torch-os/笔记回收站），之后仍可在文件管理器里找回。${dirtyNote ? "当前未保存的修改也会一起丢弃。" : ""}`,
+    title: journal ? "删除这篇日记？" : "删除这篇笔记？",
+    message: `《${title}》会移入应用回收站（.torch-os/笔记回收站），之后可在「工作台 → 回收中心」恢复，也可在文件管理器里找回。${dirtyNote ? "当前未保存的修改也会一起丢弃。" : ""}`,
     confirmLabel: "删除", danger: true,
   });
   if (!ok) return null;
-  return api("/api/writing/notes/delete", {
+  return api(journal ? "/api/journal/delete" : "/api/writing/notes/delete", {
     method: "POST",
     body: JSON.stringify({ path: note.path, expected_revision: note.revision || "" }),
     timeoutMs: 60000,
@@ -921,7 +923,7 @@ async function deleteCurrentNote() {
     await closeEditor({ force: true });
     dispatchNotesChanged(
       { path: deletedPath, chapter, pillar }, deletedPath, true);
-    toast("已删除，可在 .torch-os/笔记回收站 找回。", "success", { timeout: 8000 });
+    toast("已删除，可在「工作台 → 回收中心」恢复。", "success", { timeout: 8000 });
   } catch (error) {
     if (error.status === 409) {
       setStatus("这篇笔记已在别处修改，未删除。请重新载入核对后再试。", "error");

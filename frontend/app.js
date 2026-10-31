@@ -5,7 +5,7 @@ import { initLovePane, loadLovePane } from "./love.js";
 import { initHealthPane, loadHealthPane } from "./health.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
 import { initHelp } from "./help.js";
-import { NAV_LABELS, applyNavOrder, currentNavOrder } from "./nav-order.js";
+import { NAV_LABELS, applyNavOrder, currentNavOrder, visiblePaneIds } from "./nav-order.js";
 import { initThemeBridge } from "./theme-bridge.js";
 import { initVaultConnection } from "./vault-connection.js";
 import { initVaultAdmin } from "./vault-admin.js";
@@ -23,16 +23,18 @@ import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
 import { initSelectionAsk } from "./selection-ask.js";
+import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 
 const titles = NAV_LABELS;
 
-// 五大模块（工作台内含「与神对话」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
-// 工作台的两个分区同页上下排列：待办事项在上，完整的 dsh 界面在下；二级菜单只做滚动定位。
+// 五大模块（工作台内含「与神对话」「回收中心」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
+// 工作台的待办事项与 dsh 界面同页上下排列，二级菜单只做滚动定位；回收中心是独立页面。
 const MODULES = {
-  // 待办事项和与神对话现在同页上下排列；二级菜单不再切页，只做滚动定位。
+  // 待办事项和与神对话同页上下排列，二级菜单只做滚动定位；回收中心是独立页面。
   workbench: {
     stacked: true,
-    panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"]],
+    pagePanes: ["recycle-view"],
+    panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"], ["recycle-view", "回收中心"]],
   },
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
   life: { panes: [], ownNav: true },
@@ -47,6 +49,7 @@ const PANE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": () => { initDshPane(); loadDshPane(); },
+  "recycle-view": () => { initRecycleCenter(); loadRecycleCenter(); },
   "love-view": () => { initLovePane(); loadLovePane(); },
   "health-view": () => { initHealthPane(); loadHealthPane(); },
   "life-view": () => loadPillarModule("life"),
@@ -147,6 +150,7 @@ const GO_TARGETS = {
   health: ["ops", "health-view"], love: ["ops", "love-view"],
   brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
   notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
+  recycle: ["workbench", "recycle-view"],
 };
 
 export async function showPane(view, paneId, updateHash = true) {
@@ -195,7 +199,7 @@ export async function switchView(view, updateHash = true) {
   } else if (!(paneChoice[view] && panes.some(([id]) => id === paneChoice[view]))) {
     paneChoice[view] = panes[0]?.[0] || "";
   }
-  const wanted = module?.stacked ? panes.map(([id]) => id) : [paneChoice[view]].filter(Boolean);
+  const wanted = visiblePaneIds(module, paneChoice[view]);
   document.querySelectorAll(".view, .pane").forEach((section) => {
     const shown = wanted.includes(section.id);
     // 模块根也是某个分区时（工作台的 #workbench-view），只有它被选中才显示；
@@ -228,9 +232,7 @@ export async function switchView(view, updateHash = true) {
 function visiblePanesOf(view) {
   const module = MODULES[view];
   if (!module) return [];
-  if (module.stacked) return module.panes.map(([id]) => id);
-  const chosen = paneChoice[view] || module.panes[0]?.[0] || "";
-  return chosen ? [chosen] : [];
+  return visiblePaneIds(module, paneChoice[view] || module.panes[0]?.[0] || "");
 }
 
 /** 离开可见分区前先问一次未保存的草稿（日记、习惯）。 */
@@ -305,10 +307,27 @@ export async function activatePane(view, paneId, { scroll = true } = {}) {
   const module = MODULES[view];
   if (!module || !module.panes.some(([id]) => id === paneId)) return false;
   if (module.stacked) {
+    const wasPage = (module.pagePanes || []).includes(paneChoice[view]);
+    const isPage = (module.pagePanes || []).includes(paneId);
     paneChoice[view] = paneId;
     renderSidebarState(view);
-    syncModuleNavActive(view);
-    if (scroll) document.getElementById(paneId)?.scrollIntoView({ behavior: "auto", block: "start" });
+    renderModuleNav(view);
+    const ids = visiblePaneIds(module, paneId);
+    // 工作台根是 .view：切到独立的回收中心时根和对话区一起隐藏，切回时再一起显示。
+    document.querySelectorAll(`[data-module="${view}"], #${view}-view`).forEach((pane) => {
+      const on = ids.includes(pane.id);
+      pane.hidden = !on;
+      if (pane.classList?.contains("view")) pane.classList.toggle("active-view", on);
+    });
+    // 两个同页分区之间只滚动定位；只有进出独立页面时才重新加载分区数据。
+    if (wasPage || isPage) runModuleLoaders(view, ids);
+    if (scroll) {
+      if (module.pagePanes?.includes(paneId)) {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      } else {
+        document.getElementById(paneId)?.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    }
     return true;
   }
   if (paneId !== paneChoice[view] && !(await confirmLeaving(view))) return false;
@@ -363,6 +382,8 @@ function syncWorkbenchAnchor() {
   const module = MODULES.workbench;
   const panes = module?.panes || [];
   if (!module?.stacked || !panes.length) return;
+  // 回收中心是独立页面，不参与工作台的滚动高亮。
+  if ((module.pagePanes || []).includes(paneChoice.workbench)) return;
   const nav = document.getElementById("module-nav");
   const navBottom = nav?.getBoundingClientRect?.().bottom || 0;
   const viewport = Number(window.innerHeight) || 900;

@@ -1265,6 +1265,224 @@ test("saving a note refreshes the pillar list cache before the reader is reopene
   assert.equal(state.overviews.knowledge.recent[0].title, "新标题");
 });
 
+test("a journal reader still exposes delete and uses the journal delete endpoint", async () => {
+  const { load, context, setResponse, getNode, requests, core } = await harness();
+  const pillars = (await load("pillars.js")).namespace;
+  const state = pillars.currentPillar();
+  const path = "00_人生路/01_日记/2020-01-01.md";
+  core.state.view = "life";
+  state.overviews.life = { chapters: [], custom_notebooks: [], recent: [], count: 1 };
+  setResponse((url) => {
+    if (url.startsWith("/api/notes?")) {
+      return {
+        path, title: "2020-01-01", chapter: "journal", pillar: "life",
+        type: "journal", date: "2020-01-01", tags: [], revision: "r1",
+        body: "# 2020-01-01\n\n过去的正文\n",
+      };
+    }
+    if (url.startsWith("/api/notes/backlinks")) return { items: [] };
+    if (url === "/api/journal/delete") return { deleted: true };
+    return {};
+  });
+  await pillars.openNote(path);
+  const shell = context.document.querySelector("#life-view .pillar-shell");
+  assert.match(shell.innerHTML, /data-reader-delete="life"/);
+
+  // 删除确认通过后必须走 /api/journal/delete，而不是写作接口。
+  const { deleteNoteFile } = (await load("note-editor.js")).namespace;
+  const pending = deleteNoteFile({ path, revision: "r1", chapter: "journal", title: "2020-01-01" });
+  assert.equal(getNode("#confirm-dialog").open, true);
+  assert.equal(getNode("#confirm-title").textContent, "删除这篇日记？");
+  await getNode("#confirm-accept").emit("click");
+  assert.deepEqual(await pending, { deleted: true });
+  const request = requests.find(({ url }) => url === "/api/journal/delete");
+  assert.ok(request);
+  assert.deepEqual(JSON.parse(request.options.body), {
+    path, expected_revision: "r1",
+  });
+  assert.equal(requests.some(({ url }) => url === "/api/writing/notes/delete"), false);
+});
+
+test("task readers keep deletion on the task board instead of the reader", async () => {
+  const { load, context, setResponse, core } = await harness();
+  const pillars = (await load("pillars.js")).namespace;
+  const state = pillars.currentPillar();
+  const path = "02_生活运营/00_待办事项/收集箱/写方案.md";
+  core.state.view = "ops";
+  state.overviews.ops = { chapters: [], custom_notebooks: [], recent: [], count: 1 };
+  setResponse((url) => {
+    if (url.startsWith("/api/notes?")) {
+      return {
+        path, title: "写方案", chapter: "task", pillar: "ops",
+        type: "task", date: "", tags: [], revision: "r1", body: "正文\n",
+      };
+    }
+    if (url.startsWith("/api/notes/backlinks")) return { items: [] };
+    return {};
+  });
+  await pillars.openNote(path);
+  // 任务文档的删除要进任务回收站，阅读器不提供删除按钮。
+  const shell = context.document.querySelector("#ops-view .pillar-shell");
+  assert.doesNotMatch(shell.innerHTML, /data-reader-delete="ops"/);
+});
+
+test("the recycle center groups deleted documents by pillar and restores them", async () => {
+  const { load, context, setResponse, getNode, requests } = await harness();
+  const { initRecycleCenter, loadRecycleCenter } = (await load("recycle-center.js")).namespace;
+  initRecycleCenter();
+  const journal = {
+    source: "notes", kind: "journal", title: "日记 · 10月30日", excerpt: "",
+    original_path: "00_人生路/01_日记/2026-10-30.md",
+    trash_path: ".torch-os/笔记回收站/b1/files/00_人生路/01_日记/2026-10-30.md",
+    deleted_at: "2026-10-31T10:00:00+08:00", bytes: 120, restorable: true,
+  };
+  const task = {
+    source: "tasks", kind: "task", title: "写方案", excerpt: "收集箱",
+    original_path: "02_生活运营/00_待办事项/收集箱/写方案.md",
+    trash_path: "02_生活运营/00_待办事项/回收站/b2/files/收集箱/写方案.md",
+    deleted_at: "2026-10-31T11:00:00+08:00", bytes: 80, restorable: true,
+    list_name: "收集箱", done: false,
+  };
+  const groups = [
+    { key: "life", title: "人生路", count: 1, items: [journal] },
+    { key: "self", title: "自我档案", count: 0, items: [] },
+    { key: "ops", title: "生活运营", count: 1, items: [task] },
+    { key: "knowledge", title: "知识库", count: 0, items: [] },
+  ];
+  let restored = false;
+  setResponse((url) => {
+    if (url === "/api/recycle") {
+      return restored
+        ? { total: 0, groups: groups.map((group) => ({ ...group, count: 0, items: [] })) }
+        : { total: 2, groups };
+    }
+    if (url === "/api/recycle/restore") {
+      restored = true;
+      return { restored: 1, lists_restored: 0, skipped: [], errors: [] };
+    }
+    return {};
+  });
+
+  await loadRecycleCenter();
+  const host = getNode("#recycle-groups");
+  assert.match(host.innerHTML, /人生路/);
+  assert.match(host.innerHTML, /自我档案/);
+  assert.match(host.innerHTML, /日记 · 10月30日/);
+  assert.match(host.innerHTML, /写方案/);
+  assert.match(host.innerHTML, /这一库没有删除的文档/);
+  assert.match(host.innerHTML, new RegExp(`data-recycle-restore="${journal.trash_path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+
+  const button = {
+    dataset: { recycleRestore: journal.trash_path },
+    closest: (selector) => selector.includes("data-recycle-restore") ? button : null,
+  };
+  await context.document.dispatchEvent({ type: "click", target: button });
+  for (let index = 0; index < 30 && !/回收中心是空的/.test(host.innerHTML); index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const request = requests.find(({ url }) => url === "/api/recycle/restore");
+  assert.ok(request);
+  assert.deepEqual(JSON.parse(request.options.body), { paths: [journal.trash_path] });
+  assert.match(host.innerHTML, /回收中心是空的/);
+});
+
+test("the recycle center permanently deletes a document only after confirmation", async () => {
+  const { load, context, setResponse, getNode, requests } = await harness();
+  const { initRecycleCenter, loadRecycleCenter } = (await load("recycle-center.js")).namespace;
+  initRecycleCenter();
+  const item = {
+    source: "notes", kind: "note", title: "要清掉的笔记", excerpt: "正文",
+    original_path: "03_知识库/01_主题笔记/要清掉的笔记.md",
+    trash_path: ".torch-os/笔记回收站/b3/files/03_知识库/01_主题笔记/要清掉的笔记.md",
+    deleted_at: "2026-10-31T12:00:00+08:00", bytes: 30, restorable: true,
+  };
+  let purged = false;
+  setResponse((url) => {
+    if (url === "/api/recycle") {
+      return purged
+        ? { total: 0, groups: [{ key: "knowledge", title: "知识库", count: 0, items: [] }] }
+        : { total: 1, groups: [{ key: "knowledge", title: "知识库", count: 1, items: [item] }] };
+    }
+    if (url === "/api/recycle/purge") {
+      purged = true;
+      return { deleted: 1, skipped: [], errors: [] };
+    }
+    return {};
+  });
+
+  await loadRecycleCenter();
+  assert.match(getNode("#recycle-groups").innerHTML, /要清掉的笔记/);
+  const button = {
+    dataset: { recyclePurge: item.trash_path },
+    closest: (selector) => selector.includes("data-recycle-purge") ? button : null,
+  };
+  await context.document.dispatchEvent({ type: "click", target: button });
+  assert.equal(getNode("#confirm-dialog").open, true);
+  assert.match(getNode("#confirm-message").textContent, /无法恢复/);
+  await getNode("#confirm-accept").emit("click");
+  for (let index = 0; index < 30 && !/回收中心是空的/.test(getNode("#recycle-groups").innerHTML); index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const request = requests.find(({ url }) => url === "/api/recycle/purge");
+  assert.ok(request);
+  assert.deepEqual(JSON.parse(request.options.body), { paths: [item.trash_path] });
+  assert.match(getNode("#recycle-groups").innerHTML, /回收中心是空的/);
+});
+
+test("the recycle center is a standalone workbench pane", async () => {
+  const { load, setResponse, requests, core } = await harness();
+  setResponse((url) => {
+    if (url === "/api/health") return { status: "ok", version: "0.0.0-test" };
+    if (url === "/api/config/status") return { model_configured: false, capabilities: {} };
+    if (url === "/api/recycle") return { total: 0, groups: [] };
+    return {};
+  });
+  const app = (await load("app.js")).namespace;
+  for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await app.showPane("workbench", "recycle-view"), true);
+  for (let index = 0; index < 20; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(core.state.view, "workbench");
+  assert.ok(requests.some(({ url }) => url === "/api/recycle"),
+    "进入回收中心分区时要加载 /api/recycle");
+});
+
+test("the recycle pane hides the stacked workbench sections and coming back restores them", async () => {
+  const { load, getNode, context, setResponse } = await harness();
+  const workbench = getNode("#workbench-view");
+  const agent = getNode("#agent-view");
+  const recycle = getNode("#recycle-view");
+  // 假 DOM 用选择器作 id；这里恢复成真实元素的 id，导航按钮才会按 id 匹配分区。
+  workbench.id = "workbench-view";
+  agent.id = "agent-view";
+  recycle.id = "recycle-view";
+  for (const node of [workbench, agent, recycle]) node.dataset.module = "workbench";
+  const sections = [workbench, agent, recycle];
+  context.document.querySelectorAll = (selector) => {
+    if (selector.includes('[data-module="workbench"]')) return sections;
+    if (selector === ".view, .pane") return sections;
+    return [];
+  };
+  setResponse((url) => {
+    if (url === "/api/health") return { status: "ok", version: "0.0.0-test" };
+    if (url === "/api/config/status") return { model_configured: false, capabilities: {} };
+    if (url === "/api/recycle") return { total: 0, groups: [] };
+    return {};
+  });
+  const app = (await load("app.js")).namespace;
+  for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(await app.showPane("workbench", "recycle-view"), true);
+  assert.equal(workbench.hidden, true, "回收中心是独立页面，待办事项区要隐藏");
+  assert.equal(agent.hidden, true, "与神对话区也要隐藏");
+  assert.equal(recycle.hidden, false);
+
+  assert.equal(await app.activatePane("workbench", "agent-view"), true);
+  for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(workbench.hidden, false, "回到与神对话时待办事项区一起恢复");
+  assert.equal(agent.hidden, false);
+  assert.equal(recycle.hidden, true);
+});
+
 test("habit rows read entry_status and expose the habit badge and rest state", async () => {
   const { load } = await harness();
   const { taskRow } = (await load("tasks.js")).namespace;

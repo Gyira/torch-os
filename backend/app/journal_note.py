@@ -18,11 +18,13 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
-from . import vault_layout
+from . import pillar_notes, vault_layout
 from .db import Database
 from .journal_shared import validate_day
 from .vault import managed_note_path
+from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 JOURNAL_DIR = Path("00_人生路", "01_日记")
@@ -209,6 +211,37 @@ def journal_heatmap(vault_dir: Path | str, today: date | str,
     }
 
 
+def delete_note(database: Database, vault_dir: Path | str, *, path: str,
+                expected_revision: str = "", read_only: bool = False) -> dict[str, Any]:
+    """软删除一篇日记：只接受四库日记目录里的 `YYYY-MM-DD.md`。
+
+    过去的日记在应用内只读，但仍允许在阅读器里删除；文件移进
+    `.torch-os/笔记回收站`，保留原相对路径，之后可在文件管理器里找回。
+    """
+    relative = vault_layout.normalize_relpath(path)
+    match = re.fullmatch(r"00_人生路/01_日记/(\d{4}-\d{2}-\d{2})\.md", relative)
+    if not match:
+        raise HTTPException(422, "只能删除四库日记目录里的单篇日记")
+    validate_day(match.group(1))
+    try:
+        ensure_vault_writable(read_only, "删除日记")
+    except VaultReadOnlyError as error:
+        raise HTTPException(409, str(error)) from error
+    result = pillar_notes.trash_note(
+        vault_dir, relative, expected_revision=expected_revision)
+    database.audit("journal_deleted", {
+        "path": relative, "trash": result.get("trash_path", ""),
+    })
+    return result
+
+
+class JournalDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    path: str = Field(min_length=1, max_length=2048)
+    expected_revision: str = Field(default="", max_length=64)
+
+
 def create_journal_note_router(
     database: Database, vault_dir: Path, prefix: str = "/api", read_only: bool = False,
 ) -> APIRouter:
@@ -218,5 +251,12 @@ def create_journal_note_router(
     def get_note(day: str = Query()):
         validate_day(day)
         return read_note(vault_dir, day)
+
+    @router.post("/journal/delete")
+    def delete(payload: JournalDeleteRequest):
+        return delete_note(
+            database, vault_dir, path=payload.path,
+            expected_revision=payload.expected_revision, read_only=read_only,
+        )
 
     return router

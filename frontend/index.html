@@ -11,6 +11,7 @@
       <div class="nav-sublist" id="nav-sub-workbench" data-sublist="workbench" role="group" aria-label="工作台分区">
         <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">待办事项</button>
         <button type="button" class="nav-subitem" data-pane="agent-view" aria-current="false">与神对话</button>
+        <button type="button" class="nav-subitem" data-pane="recycle-view" aria-current="false">回收中心</button>
       </div>
       <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
       <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
@@ -173,7 +174,7 @@
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
             <section class="time-page" id="time-trash-page" role="tabpanel" aria-labelledby="time-tab-trash" hidden aria-label="回收站">
               <header class="time-head"><h3>回收站</h3><span id="time-trash-count" class="meta" role="status"></span><button type="button" id="time-trash-refresh" class="text-button">刷新</button></header>
-              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>02_生活运营/00_待办事项/回收站</code>），包括滴答清单远端删除的任务。只有这里的“彻底删除”才会真正删除 md 文件。</p>
+              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>02_生活运营/00_待办事项/回收站</code>），包括滴答清单远端删除的任务。四库其他文档统一在「工作台 → 回收中心」查看；只有“彻底删除”才会真正删除 md 文件。</p>
               <p id="time-trash-status" class="status-message" role="status"></p>
               <div id="time-trash-list"></div>
             </section>
@@ -231,6 +232,20 @@
             </aside>
           </aside>
         </div>
+      </div>
+    </section>
+    <section id="recycle-view" class="pane workbench-recycle" data-module="workbench" data-pane-label="回收中心" aria-label="回收中心" hidden>
+      <div class="recycle-shell">
+        <header class="recycle-head">
+          <div>
+            <p class="eyebrow">RECYCLE CENTER</p>
+            <h2>回收中心</h2>
+            <p class="field-help">四库删除的笔记、日记和任务会先停在这里。恢复会回到原位置（任务按清单/完成状态回到对应文件夹）；只有「彻底删除」才会真正移除文件。</p>
+          </div>
+          <button type="button" id="recycle-refresh" class="button secondary">刷新</button>
+        </header>
+        <p id="recycle-status" class="status-message" role="status" aria-live="polite"></p>
+        <div id="recycle-groups"></div>
       </div>
     </section>
     <section id="life-view" class="view pillar-view" data-module="life" hidden>

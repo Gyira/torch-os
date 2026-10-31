@@ -37,6 +37,17 @@
 
 ## 已完成
 
+- **2026-10-31 全局回收中心**：工作台二级菜单新增独立页面「回收中心」，聚合四库删除的
+  笔记/日记（`.torch-os/笔记回收站`）和待办事项（`02_生活运营/00_待办事项/回收站`），
+  按人生路/自我档案/生活运营/知识库分组；每项可恢复原位置或彻底删除。待办事项模块的
+  回收站仍查看同一批任务；本子（文件夹）回收站不并入。
+  - 后端新增 `backend/app/recycle.py`：`GET /api/recycle`、`POST /api/recycle/restore`、
+    `POST /api/recycle/purge`；任务恢复复用 `task_trash.restore_trash` 与清单定义恢复，
+    恢复成功后按需同步恢复滴答侧任务；只读库拒绝写操作。
+  - 前端新增 `frontend/recycle-center.js` + `#recycle-view` 独立分区；`nav-order.js` 的
+    `visiblePaneIds` 支持 stacked 模块里的独立页面（回收中心），待办事项/与神对话仍同页。
+  - 测试：`tests/test_recycle.py`；`frontend/tests/interaction.test.mjs` 与
+    `frontend/tests/nav-order.test.mjs` 覆盖分组、恢复、彻底删除与页面切换。
 - **2026-10-31 工作台横幅统计模式重做 + 热力数据看板**：
   - 统计模式改成 7 行热力图（后端 56 天，横幅内按屏宽取最近 14–42 天铺满）：人生路 / 知识库 / 自我档案 / 任务创建 / 任务完成 /
     习惯完成 / 总热度；五档 0/25/50/75/100。计数行每 4 篇（项）满格；习惯按当天完成比例；

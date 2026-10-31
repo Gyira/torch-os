@@ -49,6 +49,59 @@ def test_read_returns_state_and_rejects_invalid_days(tmp_path):
     assert client.get("/api/journal/note", params={"day": "not-a-day"}).status_code == 422
 
 
+def test_delete_moves_a_journal_entry_to_the_note_trash(tmp_path):
+    client = make_client(tmp_path)
+    path = note_file(tmp_path)
+    path.parent.mkdir(parents=True)
+    raw = f"---\ntype: journal\ndate: {TODAY}\n---\n\n今天写下的正文。\n".encode("utf-8")
+    path.write_bytes(raw)
+    relative = f"00_人生路/01_日记/{TODAY}.md"
+    # 阅读器里的 revision 来自 /api/notes，与 markdown_store 一样是内容哈希前 16 位。
+    revision = hashlib.sha256(raw).hexdigest()[:16]
+
+    stale = client.post("/api/journal/delete", json={
+        "path": relative, "expected_revision": "0" * 16})
+    assert stale.status_code == 409
+    assert path.is_file()
+
+    deleted = client.post("/api/journal/delete", json={
+        "path": relative, "expected_revision": revision})
+    assert deleted.status_code == 200, deleted.text
+    payload = deleted.json()
+    assert payload["deleted"] is True
+    assert payload["path"] == relative
+    assert payload["trash_path"].startswith(".torch-os/笔记回收站/")
+    assert (tmp_path / "vault" / payload["trash_path"]).is_file()
+    assert not path.exists()
+    assert client.get("/api/journal/note", params={"day": TODAY}).json()["exists"] is False
+
+
+def test_delete_refuses_non_journal_paths_missing_files_and_read_only_vault(tmp_path):
+    client = make_client(tmp_path)
+    other = client.post("/api/journal/delete", json={
+        "path": "00_人生路/09_随笔/旧文.md"})
+    assert other.status_code == 422
+    template = client.post("/api/journal/delete", json={
+        "path": "00_人生路/01_日记/_模板/日记模板.md"})
+    assert template.status_code == 422
+    legacy = client.post("/api/journal/delete", json={
+        "path": f"02-Life/journal/{TODAY}.md"})
+    assert legacy.status_code == 422
+
+    missing = client.post("/api/journal/delete", json={
+        "path": f"00_人生路/01_日记/{TODAY}.md"})
+    assert missing.status_code == 404
+
+    read_only_client = make_client(tmp_path / "readonly", read_only=True)
+    path = tmp_path / "readonly" / "vault" / "00_人生路" / "01_日记" / f"{TODAY}.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\ntype: journal\n---\n\n正文\n", encoding="utf-8")
+    refused = read_only_client.post("/api/journal/delete", json={
+        "path": f"00_人生路/01_日记/{TODAY}.md"})
+    assert refused.status_code == 409
+    assert path.is_file()
+
+
 def test_read_only_vault_still_reads_the_note(tmp_path):
     client = make_client(tmp_path, read_only=True)
     path = note_file(tmp_path)

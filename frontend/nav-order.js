@@ -8,6 +8,19 @@ export const NAV_LABELS = {
 };
 const STORAGE_KEY = "torch-os:nav-order";
 
+/**
+ * 当前模块应显示的分区 ID。
+ * stacked 模块里的独立页面分区（如工作台「回收中心」）只显示自己，
+ * 其余分区仍按原有方式上下同页。
+ */
+export function visiblePaneIds(module, choice) {
+  if (!module) return [];
+  const pages = module.pagePanes || [];
+  if (pages.includes(choice)) return [choice];
+  const ids = (module.panes || []).map(([id]) => id);
+  return module.stacked ? ids.filter((id) => !pages.includes(id)) : (choice ? [choice] : []);
+}
+
 export function resolveOrder(stored, known = NAV_ORDER_DEFAULT) {
   const result = [];
   const knownSet = new Set(known);

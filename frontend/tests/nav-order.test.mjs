@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { visiblePaneIds } from "../nav-order.js";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import path from "node:path";
@@ -94,4 +95,24 @@ test("applyNavOrder keeps a sidebar entry that is not in the default list", asyn
   assert.equal(order[order.length - 1], "experimental");
   // 假 DOM 里没有四库按钮，applyNavOrder 只重排实际存在的节点；未知入口仍排最后。
   assert.deepEqual(dom.order(), ["workbench", "settings", "experimental"]);
+});
+
+test("visiblePaneIds keeps the workbench stacked except for the standalone recycle page", () => {
+  const workbench = {
+    stacked: true,
+    pagePanes: ["recycle-view"],
+    panes: [
+      ["workbench-view", "待办事项"],
+      ["agent-view", "与神对话"],
+      ["recycle-view", "回收中心"],
+    ],
+  };
+  assert.deepEqual(visiblePaneIds(workbench, "workbench-view"), ["workbench-view", "agent-view"]);
+  assert.deepEqual(visiblePaneIds(workbench, "agent-view"), ["workbench-view", "agent-view"]);
+  assert.deepEqual(visiblePaneIds(workbench, "recycle-view"), ["recycle-view"]);
+
+  const ops = { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"]] };
+  assert.deepEqual(visiblePaneIds(ops, "love-view"), ["love-view"]);
+  assert.deepEqual(visiblePaneIds(ops, ""), []);
+  assert.deepEqual(visiblePaneIds(null, "anything"), []);
 });

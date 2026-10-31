@@ -689,7 +689,7 @@ function listAction(action, entry) {
     confirmDialog({
       title: `删除清单「${entry.name}」？`,
       message: "整个清单文件夹会移到 02_生活运营/00_待办事项/回收站，"
-        + "这个清单里的已完成任务也会一起移过去；配置同时备份。可以在回收站页面恢复。",
+        + "这个清单里的已完成任务也会一起移过去；配置同时备份。可以在待办事项回收站或工作台 →「回收中心」恢复。",
       danger: true,
       onConfirm: async () => {
         if (viewState.selection?.list === entry.name) selectView({ view: "today" });
@@ -814,7 +814,7 @@ function taskOptions(selection, options = {}) {
           confirmLabel: "移到回收站",
         });
         if (!ok) return;
-        post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站（00_待办事项/回收站）。");
+        post("/api/time/tasks/delete", { key: task.key }, "任务已移到回收站；可在待办事项回收站或工作台 →「回收中心」恢复。");
       },
     },
   };

@@ -357,8 +357,10 @@ function readerMarkup(view, reading, railItems) {
     || taskDocument;
   // 只有走写作接口的章节（含自定义本子）能在本子之间移动；日记/任务/习惯不参与。
   const canMove = canWriteChapter(view, note.chapter);
-  // 日记有专用写入/撤销语义，任务删除要进任务回收站；两者都不在这里删除。
-  const canDelete = canWrite && note.chapter !== "journal" && !taskDocument;
+  // 日记没有应用内写作接口（过去的日子只读），但可以在阅读器里软删除；
+  // 任务文档的删除要进任务回收站，仍从任务板处理。
+  const canDelete = !taskDocument
+    && (canWriteChapter(view, note.chapter) || note.chapter === "journal");
   const date = !journalLabel && note.date
     ? ` · ${escapeHtml(formatRelativeDate(note.date))}`
     : "";
@@ -1317,7 +1319,7 @@ function bindPillarEvents() {
         if (!result) return;
         state.reading[view] = null;
         await loadPillar(view);
-        toast("已删除，可在 .torch-os/笔记回收站 找回。", "success", { timeout: 8000 });
+        toast("已删除，可在「工作台 → 回收中心」恢复。", "success", { timeout: 8000 });
       } catch (error) {
         if (error.status === 409) {
           toast("这篇笔记已在别处修改，未删除。请刷新后重试。", "warning");

@@ -72,7 +72,12 @@
   （同一库内）；删除移到 `.torch-os/笔记回收站`，`expected_revision` 冲突返回 409；
   所有写入审计；`VAULT_READ_ONLY=1` 时 409。任务、习惯、身份、生活运营不在这里写。
 - 今天的日记可直接在应用内写：`GET /api/journal/note?day=` 返回 `content` 与原始字节 `sha256`；
-  `POST /api/journal/write` 带 `expected_sha` 只写今天，过去日记保持只读。
+  `POST /api/journal/write` 带 `expected_sha` 只写今天，过去日记保持只读；
+  `POST /api/journal/delete` 可从阅读器软删除单篇日记到 `.torch-os/笔记回收站`，删除后回到列表。
+- **回收中心（2026-10-31）**：工作台二级菜单的独立页面，按人生路/自我档案/生活运营/知识库
+  聚合 `GET /api/recycle`；`POST /api/recycle/restore` 恢复原位置，任务仍按清单/完成状态路由；
+  `POST /api/recycle/purge` 彻底删除。待办事项模块的 `/api/time/trash` 继续服务原回收站页面，
+  两边查看的是同一批任务文件；本子（文件夹）回收站不并入。
 - **人生路 / 知识库首页（2026-10-30，热力图 2026-10-31）**：人生路首屏是
   「今天，写点什么？」+ **写作热力图**（最近 26 周，替代原来的今日日记卡片）+
   我的本子（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘）；知识库首屏是

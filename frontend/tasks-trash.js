@@ -191,6 +191,9 @@ export function initTrashPage() {
     }
   });
   document.addEventListener("torch:tasks-changed", () => {
-    if (!$("#time-trash-page")?.hidden) loadTrash();
+    // 回收中心和任务回收站共用同一批文件：即使回收站页暂时被「回收中心」盖住，
+    // 只要它仍被选中就重读，切回待办事项时不会显示旧条目。
+    const selected = $("#time-tab-trash")?.getAttribute("aria-selected") === "true";
+    if (selected) loadTrash();
   });
 }
