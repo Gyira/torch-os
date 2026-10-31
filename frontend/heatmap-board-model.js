@@ -27,6 +27,18 @@ export const heatPercent = (score) => {
   return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(1, value)) * 100) : 0;
 };
 
+/** 在用户自选的热力色上选深/浅字色，保证 100% 格子的日期/百分比仍然可读。 */
+export function heatInkForColor(hex) {
+  const value = String(hex || "").replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(value)) return "#ffffff";
+  const channels = [0, 2, 4].map((index) => {
+    const channel = parseInt(value.slice(index, index + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  return luminance > 0.42 ? "#151517" : "#ffffff";
+}
+
 const levelOf = (value) => Math.max(0, Math.min(4, Number(value) || 0));
 const pad2 = (value) => String(value).padStart(2, "0");
 const shortDate = (day) => `${Number(String(day).slice(5, 7))}/${Number(String(day).slice(8, 10))}`;

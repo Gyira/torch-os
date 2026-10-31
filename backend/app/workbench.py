@@ -25,7 +25,7 @@ from . import journal_note, todo_note, vault_layout
 from .db import Database, utc_now
 from .fortune import FortuneService
 from .habits import HabitService
-from .identity import greeting_for, read_identity
+from .identity import DEFAULT_HEAT_COLOR, greeting_for, read_identity
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SESSION_PREFIX = "dsh-session-"
@@ -133,6 +133,7 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "banner_darkness": identity.get("banner_darkness", 30.0),
         "banner_left_stat": identity.get("banner_left_stat") or "notes",
         "banner_center_stat": identity.get("banner_center_stat") or "streak",
+        "banner_heat_color": identity.get("banner_heat_color") or DEFAULT_HEAT_COLOR,
         "banner_details": identity.get("banner_details", True),
         "todos": todos,
         "todos_revision": note["revision"],

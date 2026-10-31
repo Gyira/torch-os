@@ -5,7 +5,8 @@
 
 import { $, api, escapeHtml } from "./core.js";
 import { shanghaiDay, shiftDay } from "./journal-model.js";
-import { heatmapBoardBody } from "./heatmap-board-model.js";
+import { DEFAULT_HEAT_COLOR } from "./banner.js";
+import { heatmapBoardBody, heatInkForColor } from "./heatmap-board-model.js";
 
 const board = {
   view: "day",
@@ -88,7 +89,12 @@ function renderFooter() {
 
 function render() {
   const content = $("#heatmap-content");
-  if (!content) return;
+  const dialog = $("#heatmap-dialog");
+  if (!content || !dialog) return;
+  const requested = String(board.data?.heat_color || "").trim();
+  const color = /^#[0-9a-fA-F]{6}$/.test(requested) ? requested : DEFAULT_HEAT_COLOR;
+  dialog.style.setProperty("--heat-color", color);
+  dialog.style.setProperty("--heat-on-color", heatInkForColor(color));
   content.innerHTML = heatmapBoardBody(board.data);
   syncToolbar();
   renderFooter();

@@ -45,6 +45,7 @@ from fastapi import APIRouter, HTTPException, Query
 from . import vault_layout
 from .db import Database, utc_now
 from .habits import HabitService
+from .identity import DEFAULT_HEAT_COLOR, read_identity
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_RANGE_DAYS = 366
@@ -846,6 +847,8 @@ def create_heatmap_router(database: Database, vault_dir: Path | str, *,
             "range": {"from": first.isoformat(), "to": last.isoformat()},
             "period": period,
             "caps": raw["caps"],
+            "heat_color": (read_identity(vault_dir).get("banner_heat_color")
+                           or DEFAULT_HEAT_COLOR),
             "task_present": bool(raw.get("task_present")),
             "truncated": bool(raw.get("truncated")),
             "rows": [

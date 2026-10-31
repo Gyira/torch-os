@@ -138,6 +138,34 @@ def test_banner_font_round_trips_and_survives_a_profile_write(tmp_path):
     assert bad.status_code == 422
 
 
+def test_banner_heat_color_defaults_to_green_and_round_trips(tmp_path):
+    """热力格颜色独立于横幅强调色：默认绿，可自选，非法值 422，档案表单不冲掉。"""
+    client = make_client(tmp_path)
+    seed_identity(tmp_path)
+    payload = client.get("/api/identity").json()
+    assert payload["banner_heat_color"] == "#2f9e6a"
+    assert payload["banner_accent"] == ""  # 强调色仍可留空，和热力色互不影响
+
+    saved = client.put("/api/identity/banner", json={
+        "mottos": ["旧座右铭"], "heroes": [],
+        "banner_heat_color": "#3B82F6", "revision": payload["revision"]})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["banner_heat_color"] == "#3b82f6"
+    assert saved.json()["banner_accent"] == ""
+    assert "banner_heat_color" in identity_path(tmp_path).read_text(encoding="utf-8")
+
+    profile = client.put("/api/identity", json={
+        "name": "林小舟", "motto": "把每天过成想要的样子",
+        "revision": saved.json()["revision"]})
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["banner_heat_color"] == "#3b82f6"
+
+    bad = client.put("/api/identity/banner", json={
+        "mottos": ["旧座右铭"], "heroes": [],
+        "banner_heat_color": "red", "revision": profile.json()["revision"]})
+    assert bad.status_code == 422
+
+
 def test_read_drops_a_hand_written_unsafe_font(tmp_path):
     """手写进 身份（identity）.md 的怪字体读回来当空——前端只会拿到安全的字体栈。"""
     client = make_client(tmp_path)

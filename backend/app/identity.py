@@ -29,6 +29,9 @@ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 IDENTITY_RELATIVE = "01_自我档案/01_内核与三观/身份（identity）.md"
 IDENTITY_LEGACY_RELATIVE = "01-Identity/身份（identity）.md"
 IDENTITY_LEGACY_ALT = "01-Identity/identity.md"
+# 热力格独立颜色：默认用温和的绿色，避免跟随横幅强调色（例如深红）显得刺眼。
+DEFAULT_HEAT_COLOR = "#2f9e6a"
+HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 def _identity_path(vault_dir: Path | str) -> Path:
@@ -114,6 +117,7 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
             "banner_darkness": 30.0,
             "banner_left_stat": "notes",
             "banner_center_stat": "streak",
+            "banner_heat_color": DEFAULT_HEAT_COLOR,
             "banner_details": True,
             "banner_font": "",
             **{field: "" for field in TEXT_FIELDS},
@@ -146,6 +150,9 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
     center_stat = str(metadata.get("banner_center_stat") or "streak").strip()
     if center_stat not in ("streak", "percent"):
         center_stat = "streak"
+    heat_color = str(metadata.get("banner_heat_color") or "").strip().lower()
+    if not HEX_COLOR_RE.fullmatch(heat_color):
+        heat_color = DEFAULT_HEAT_COLOR
     return {
         "path": note_relative(path, vault_dir),
         "exists": True,
@@ -162,6 +169,7 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
         "banner_darkness": _float_in(metadata.get("banner_darkness"), 30.0, 0.0, 60.0),
         "banner_left_stat": left_stat,
         "banner_center_stat": center_stat,
+        "banner_heat_color": heat_color,
         "banner_details": metadata.get("banner_details") is not False,
         "banner_font": _clean_font(metadata.get("banner_font")),
         **values,
@@ -190,7 +198,7 @@ def write_identity(vault_dir: Path | str, payload: IdentityWrite, *, read_only: 
         existing, _ = _split_front_matter(current.decode("utf-8", errors="replace"))
         for key in ("mottos", "hero", "heroes", "hero_overlay", "hero_focal", "banner_mode",
                     "banner_accent", "banner_blur", "banner_darkness", "banner_left_stat",
-                    "banner_center_stat", "banner_details", "banner_font"):
+                    "banner_center_stat", "banner_heat_color", "banner_details", "banner_font"):
             if existing.get(key) not in (None, "", []):
                 preserved[key] = existing[key]
     metadata = {
@@ -284,6 +292,7 @@ class BannerWrite(BaseModel):
     banner_darkness: float = Field(default=30.0, ge=0, le=60)
     banner_left_stat: str = "notes"
     banner_center_stat: str = "streak"
+    banner_heat_color: str = Field(default=DEFAULT_HEAT_COLOR, max_length=7)
     banner_details: bool = True
     banner_font: str = Field(default="", max_length=120)
     revision: str = Field(default="", max_length=64)
@@ -311,6 +320,12 @@ class BannerWrite(BaseModel):
             raise ValueError("左侧统计只能是 notes/memories/open/files")
         if self.banner_center_stat not in ("streak", "percent"):
             raise ValueError("中间统计只能是 streak/percent")
+        heat_color = self.banner_heat_color.strip().lower()
+        if not heat_color:
+            heat_color = DEFAULT_HEAT_COLOR
+        if not HEX_COLOR_RE.fullmatch(heat_color):
+            raise ValueError("热力格颜色应为 #RRGGBB")
+        self.banner_heat_color = heat_color
         font = _clean_font(self.banner_font)
         if self.banner_font.strip() and not font:
             raise ValueError("字体只能是字体名（字母、数字、空格、引号、逗号与中文名）")
@@ -353,6 +368,7 @@ def write_banner(vault_dir: Path | str, payload: BannerWrite, *,
     metadata["banner_darkness"] = round(payload.banner_darkness, 1)
     metadata["banner_left_stat"] = payload.banner_left_stat
     metadata["banner_center_stat"] = payload.banner_center_stat
+    metadata["banner_heat_color"] = payload.banner_heat_color
     metadata["banner_details"] = bool(payload.banner_details)
     if payload.banner_font:
         metadata["banner_font"] = payload.banner_font

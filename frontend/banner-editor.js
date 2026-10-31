@@ -3,7 +3,7 @@
 import { $, api, escapeHtml, jsonBody, setStatus, toast } from "./core.js";
 import {
   normalizeBanner, imageSrc, backdropVars, safeFont, firstFontName, BANNER_FONT_GROUPS,
-  parseMottos, mottoText,
+  parseMottos, mottoText, DEFAULT_HEAT_COLOR,
 } from "./banner.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -62,6 +62,18 @@ function currentFocal() {
 function accentValue() {
   const value = String($("#banner-accent").value || "").toLowerCase();
   return /^#[0-9a-f]{6}$/.test(value) ? value : "#bff038";
+}
+
+/** 热力格颜色输入：更新五档预览与预设选中状态；返回合法的 #rrggbb。 */
+function updateHeatColor(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const color = /^#[0-9a-f]{6}$/.test(text) ? text : DEFAULT_HEAT_COLOR;
+  const preview = $("#banner-heat-preview");
+  if (preview) preview.style.setProperty("--heat-color", color);
+  document.querySelectorAll("[data-heat-preset]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.heatPreset.toLowerCase() === color);
+  });
+  return color;
 }
 
 function renderHeroList() {
@@ -132,6 +144,8 @@ function fillForm(banner) {
   $("#banner-accent").value = banner.accent || "#bff038";
   $("#banner-left-stat").value = banner.leftStat;
   centerStatValue = banner.centerStat;
+  $("#banner-heat-color").value = banner.heatColor;
+  updateHeatColor(banner.heatColor);
   $("#banner-blur").value = String(banner.blur);
   $("#banner-darkness").value = String(banner.darkness);
   $("#banner-details").checked = banner.details;
@@ -234,6 +248,17 @@ export function initBannerEditor(onSaved) {
   ["#banner-overlay", "#banner-focal-x", "#banner-focal-y", "#banner-mottos",
    "#banner-accent", "#banner-blur", "#banner-darkness", "#banner-left-stat",
    "#banner-font"].forEach((selector) => $(selector).addEventListener("input", updatePreview));
+  $("#banner-heat-color").addEventListener("input", (event) => updateHeatColor(event.target.value));
+  $("#banner-heat-presets").addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-heat-preset]");
+    if (!button) return;
+    $("#banner-heat-color").value = button.dataset.heatPreset;
+    updateHeatColor(button.dataset.heatPreset);
+  });
+  $("#banner-heat-reset").addEventListener("click", () => {
+    $("#banner-heat-color").value = DEFAULT_HEAT_COLOR;
+    updateHeatColor(DEFAULT_HEAT_COLOR);
+  });
   $("#banner-details").addEventListener("change", updatePreview);
 
   $("#banner-hero-list").addEventListener("click", (event) => {
@@ -273,6 +298,7 @@ export function initBannerEditor(onSaved) {
         banner_darkness: Number($("#banner-darkness").value) || 0,
         banner_left_stat: $("#banner-left-stat").value,
         banner_center_stat: centerStatValue,
+        banner_heat_color: updateHeatColor($("#banner-heat-color").value),
         banner_details: Boolean($("#banner-details").checked),
         banner_font: safeFont($("#banner-font").value),
         revision: source.revision,

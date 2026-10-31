@@ -46,6 +46,8 @@
   - 新建 `backend/app/heatmap.py` + `GET /api/heatmap/board`（日/周/月/年），每天新建文档的
     创建日写入 `<个人数据库>/.obsidian/torch-os-heatmap/file-created.json`，周期快照写入
     `daily/weekly/monthly/yearly`；README 说明规则与目录。读取端不写库、只读模式跳过存档。
+  - 热力格颜色独立设置（`banner_heat_color`，默认 `#2f9e6a` 绿，编辑器可选预设/任意色）；
+    不再跟随横幅强调色（用户的 `#a31414` 深红只保留给其它横幅元素），数据看板同步使用。
   - 横幅右上角新增统一胶囊工具条：一键图片/统计切换（`POST /api/identity/banner/mode`）、
     回看数据看板、编辑、收起；统计横幅加高到 218px，热力图在 1360px 与窄屏下都不溢出。
   - 前端新增 `heatmap-board-model.js`（纯渲染，node 直测）与 `heatmap-board.js`（弹窗/取数）；

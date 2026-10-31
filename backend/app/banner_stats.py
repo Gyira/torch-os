@@ -21,6 +21,7 @@ from fastapi import APIRouter
 
 from . import heatmap, workbench
 from .db import Database
+from .identity import DEFAULT_HEAT_COLOR
 from .journal_note import note_abspath
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -96,6 +97,7 @@ def collect_banner_stats(database: Database, vault_dir: Path | str,
         "activity": activity,
         "heat_level": int(today_total.get("level") or 0),
         "heat_score": float(today_total.get("score") or 0),
+        "heat_color": payload.get("banner_heat_color") or DEFAULT_HEAT_COLOR,
         "heatmap": heatmap.banner_heatmap(raw),
         "heatmap_storage": storage,
     }

@@ -188,6 +188,7 @@ def test_board_endpoint_returns_four_views_and_writes_the_obsidian_archive(tmp_p
     assert payload["view"] == "day"
     assert payload["anchor"] == day(0)
     assert payload["detail"]["date"] == day(0)
+    assert payload["heat_color"] == "#2f9e6a"
     assert [row["key"] for row in payload["rows"]] == [
         "life", "knowledge", "self", "todo_created", "todo_done", "habits", "total"]
     life = payload["detail"]["rows"]["life"]

@@ -11,6 +11,8 @@ function esc(value) {
 
 // 字体栈只允许字体名用得上的字符（与后端 identity.py 的 FONT_PATTERN 同一套规则）。
 const FONT_PATTERN = /^[A-Za-z0-9\s,'"()\-_.㐀-鿿]{1,120}$/;
+// 热力格独立颜色（与后端 identity.DEFAULT_HEAT_COLOR 保持一致）。
+export const DEFAULT_HEAT_COLOR = "#2f9e6a";
 
 /** 归一化字体栈：不合法或超长就当没填（宁可用默认字体，也不让别的字符进样式）。 */
 export function safeFont(value) {
@@ -69,6 +71,7 @@ export function normalizeBanner(payload) {
   const darkness = Number(payload?.banner_darkness);
   const leftStat = String(payload?.banner_left_stat || "notes");
   const centerStat = String(payload?.banner_center_stat || "streak");
+  const heat = String(payload?.banner_heat_color || "").trim();
   return {
     mode: payload?.banner_mode === "stats" ? "stats" : "quote",
     heroes,
@@ -80,6 +83,7 @@ export function normalizeBanner(payload) {
     darkness: Number.isFinite(darkness) ? Math.min(60, Math.max(0, darkness)) : 30,
     leftStat: ["notes", "memories", "open", "files"].includes(leftStat) ? leftStat : "notes",
     centerStat: ["streak", "percent"].includes(centerStat) ? centerStat : "streak",
+    heatColor: /^#[0-9a-fA-F]{6}$/.test(heat) ? heat.toLowerCase() : DEFAULT_HEAT_COLOR,
     details: payload?.banner_details !== false,
     font: safeFont(payload?.banner_font),
   };
@@ -242,10 +246,10 @@ export function statsHtml(stats, options = {}) {
     ["🔥", `每日必做 ${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`],
   ];
   const progress = [
-    ["今日总热度", `${text(heatScore)}%`, heatScore],
-    ["今日完成度", `${text(percent ?? 0)}%`, percent ?? 0],
-    ["每日必做", `${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`, pct(dailyDone ?? 0, dailyTotal ?? 0)],
-    ["习惯打卡", `${text(habitDone ?? 0)}/${text(habitTotal ?? 0)}`, pct(habitDone ?? 0, habitTotal ?? 0)],
+    ["今日总热度", `${text(heatScore)}%`, heatScore, true],
+    ["今日完成度", `${text(percent ?? 0)}%`, percent ?? 0, false],
+    ["每日必做", `${text(dailyDone ?? 0)}/${text(dailyTotal ?? 0)}`, pct(dailyDone ?? 0, dailyTotal ?? 0), false],
+    ["习惯打卡", `${text(habitDone ?? 0)}/${text(habitTotal ?? 0)}`, pct(habitDone ?? 0, habitTotal ?? 0), false],
   ];
 
   return [
@@ -260,8 +264,8 @@ export function statsHtml(stats, options = {}) {
       `${heatRows}</div>` : "",
     "</div>",
     '<div class="banner-stats-col banner-stats-right">',
-    progress.map(([label, value, fill]) =>
-      `<div class="banner-stats-prog"><div class="banner-stats-prog-head"><span class="banner-stats-prog-title">${esc(label)}</span><span class="banner-stats-prog-val">${esc(value)}</span></div>` +
+    progress.map(([label, value, fill, isHeat]) =>
+      `<div class="banner-stats-prog${isHeat ? " is-heat" : ""}"><div class="banner-stats-prog-head"><span class="banner-stats-prog-title">${esc(label)}</span><span class="banner-stats-prog-val">${esc(value)}</span></div>` +
       (details ? `<div class="banner-stats-prog-track"><div class="banner-stats-prog-fill" style="width:${Math.max(0, Math.min(100, Number(fill) || 0))}%"></div></div>` : "") +
       `</div>`).join(""),
     "</div>",
@@ -281,6 +285,8 @@ export function applyBanner(element, payload, stats) {
   if (overlay) overlay.style.opacity = String(banner.overlay);
   if (banner.accent) element.style.setProperty("--banner-accent", banner.accent);
   else element.style.removeProperty("--banner-accent");
+  if (banner.heatColor) element.style.setProperty("--banner-heat-color", banner.heatColor);
+  else element.style.removeProperty("--banner-heat-color");
   // 字体：座右铭与统计文字共用一条字体栈；没选就交回样式表里的默认字体。
   if (banner.font) element.style.setProperty("--banner-font", banner.font);
   else element.style.removeProperty("--banner-font");

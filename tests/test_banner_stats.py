@@ -79,6 +79,7 @@ def test_router_payload_reports_our_own_numbers(tmp_path):
     assert heatmap["rows"][0]["label"] == "人生路"
     assert len(heatmap["rows"][0]["cells"]) == 56
     assert heatmap["rows"][-1]["cells"][-1]["today"] is True
+    assert payload["heat_color"] == "#2f9e6a"  # 默认热力绿，不跟随横幅强调色
     assert payload["heatmap_storage"]["status"] in {"written", "unchanged"}
     assert (tmp_path / "vault" / ".obsidian" / "torch-os-heatmap" / "daily"
             / TODAY[:4] / f"{TODAY}.json").is_file()

@@ -41,6 +41,10 @@ test("normalize fills defaults, trims entries and clamps the overlay", () => {
   assert.equal(statsOptions.details, false);
   assert.equal(normalizeBanner({ banner_left_stat: "hack" }).leftStat, "notes");
   assert.equal(normalizeBanner(null).details, true);
+  // 热力格颜色独立于强调色：默认绿、支持自定义、非法值回默认。
+  assert.equal(normalizeBanner(null).heatColor, "#2f9e6a");
+  assert.equal(normalizeBanner({ banner_heat_color: "#3B82F6" }).heatColor, "#3b82f6");
+  assert.equal(normalizeBanner({ banner_heat_color: "red" }).heatColor, "#2f9e6a");
 });
 
 test("backdrop converts darkness into brightness and scrim like apex", () => {
@@ -229,4 +233,7 @@ test("the banner exposes a one-click mode switch and a review board", async () =
   }
   assert.match(html, /id="heatmap-content"/);
   assert.match(html, /id="heatmap-foot"/);
+  assert.match(html, /id="banner-heat-color"[^>]*type="color"/);
+  assert.match(html, /data-heat-preset="#3b82f6"/);
+  assert.match(html, /id="banner-heat-presets"/);
 });

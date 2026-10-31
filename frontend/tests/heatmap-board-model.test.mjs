@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  heatmapBoardBody, heatPercent, formatHeatValue, ROW_ORDER,
+  heatmapBoardBody, heatPercent, formatHeatValue, heatInkForColor, ROW_ORDER,
 } from "../heatmap-board-model.js";
 
 function fixtureDays(count = 31) {
@@ -132,6 +132,12 @@ test("value formatting follows the seven-row rules", () => {
   assert.equal(formatHeatValue("habits", { scheduled: 3, skipped: 1, done: 1 }, fixture()), "1/2");
   assert.equal(formatHeatValue("habits", { scheduled: 0 }, fixture()), "—");
   assert.equal(formatHeatValue("total", { score: 0.5 }, fixture()), "50%");
+});
+
+test("custom heat colors keep readable text on the darkest cells", () => {
+  assert.equal(heatInkForColor("#2f9e6a"), "#ffffff");
+  assert.equal(heatInkForColor("#f5d76e"), "#151517");
+  assert.equal(heatInkForColor("not-a-color"), "#ffffff");
 });
 
 test("empty board data renders nothing instead of throwing", () => {

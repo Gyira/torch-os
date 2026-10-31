@@ -576,6 +576,23 @@
       <div class="form-grid">
         <div class="field"><label for="banner-left-stat">左侧数字</label><select id="banner-left-stat"><option value="notes">资料数</option><option value="memories">记忆数</option><option value="open">待办数</option><option value="files">今日新增文档</option></select></div>
       </div>
+      <div class="field">
+        <label for="banner-heat-color">热力格颜色（横幅热力图与数据看板）</label>
+        <div class="banner-heat-color-row">
+          <input id="banner-heat-color" type="color" value="#2f9e6a" aria-label="热力格颜色" />
+          <span id="banner-heat-preview" class="banner-heat-preview" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <button id="banner-heat-reset" type="button" class="text-button">默认绿</button>
+        </div>
+        <div id="banner-heat-presets" class="banner-heat-presets" role="group" aria-label="热力格预设颜色">
+          <button type="button" class="banner-heat-preset" data-heat-preset="#2f9e6a" style="--swatch:#2f9e6a" aria-label="绿色" title="绿色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#3b82f6" style="--swatch:#3b82f6" aria-label="蓝色" title="蓝色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#14b8a6" style="--swatch:#14b8a6" aria-label="青色" title="青色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#8b5cf6" style="--swatch:#8b5cf6" aria-label="紫色" title="紫色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#f59e0b" style="--swatch:#f59e0b" aria-label="橙色" title="橙色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#ec4899" style="--swatch:#ec4899" aria-label="粉色" title="粉色"></button>
+        </div>
+        <span class="field-help">只影响热力格与热力进度条；横幅其它强调色、图片和座右铭不受影响。</span>
+      </div>
       <div class="form-grid">
         <div class="field"><label for="banner-blur">背景模糊（像素）</label><input id="banner-blur" type="range" min="0" max="20" step="1" value="6" /></div>
         <div class="field"><label for="banner-darkness">背景变暗（%）</label><input id="banner-darkness" type="range" min="0" max="60" step="5" value="30" /></div>

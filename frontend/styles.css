@@ -62,6 +62,7 @@
   --p-banner-cell: rgba(255, 255, 255, 0.1);
   --p-banner-track: rgba(255, 255, 255, 0.18);
   --p-banner-accent: #bff038;
+  --p-heat: #2f9e6a;
   --p-banner-shadow: rgba(0, 0, 0, 0.5);
   --p-banner-ring: rgba(255, 255, 255, 0.75);
   /* 横幅统计模式的背景暗幕底色（透明度由 --banner-scrim-alpha 控制） */
@@ -237,6 +238,7 @@ html[data-torch-theme="dark"] {
   --p-banner-cell: rgba(255, 255, 255, 0.1);
   --p-banner-track: rgba(255, 255, 255, 0.18);
   --p-banner-accent: #bff038;
+  --p-heat: #2f9e6a;
   --p-banner-shadow: rgba(0, 0, 0, 0.5);
   --p-banner-ring: rgba(255, 255, 255, 0.75);
   /* 横幅统计模式的背景暗幕底色（透明度由 --banner-scrim-alpha 控制） */
@@ -744,19 +746,19 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-heatmap-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; font-size: .68em; color: var(--p-banner-dim); line-height: 1; }
 .banner-heatmap-legend { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; }
 .banner-heat-swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--p-banner-cell); }
-.banner-heat-swatch.level-1 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .35; }
-.banner-heat-swatch.level-2 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .55; }
-.banner-heat-swatch.level-3 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .78; }
-.banner-heat-swatch.level-4 { background: var(--banner-accent, var(--p-banner-accent)); opacity: 1; }
+.banner-heat-swatch.level-1 { background: var(--banner-heat-color, var(--p-heat)); opacity: .35; }
+.banner-heat-swatch.level-2 { background: var(--banner-heat-color, var(--p-heat)); opacity: .55; }
+.banner-heat-swatch.level-3 { background: var(--banner-heat-color, var(--p-heat)); opacity: .78; }
+.banner-heat-swatch.level-4 { background: var(--banner-heat-color, var(--p-heat)); opacity: 1; }
 .banner-heatmap-row { flex: 1 1 0; display: grid; grid-template-columns: 60px minmax(0, 1fr); align-items: stretch; gap: 8px; min-width: 0; min-height: 0; }
 .banner-heatmap-label { display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78em; color: var(--p-banner-ink-soft); line-height: 1.05; text-align: left; }
 .banner-heatmap-row.is-total .banner-heatmap-label { color: var(--p-banner-num); font-weight: 700; }
 .banner-heatmap-cells { display: flex; align-items: stretch; justify-content: space-between; gap: 4px; min-width: 0; }
 .banner-heat-cell { flex: 1 1 0; width: auto; min-width: 3px; height: auto; align-self: stretch; border-radius: 3px; background: var(--p-banner-cell); }
-.banner-heat-cell.level-1 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .35; }
-.banner-heat-cell.level-2 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .55; }
-.banner-heat-cell.level-3 { background: var(--banner-accent, var(--p-banner-accent)); opacity: .78; }
-.banner-heat-cell.level-4 { background: var(--banner-accent, var(--p-banner-accent)); opacity: 1; }
+.banner-heat-cell.level-1 { background: var(--banner-heat-color, var(--p-heat)); opacity: .35; }
+.banner-heat-cell.level-2 { background: var(--banner-heat-color, var(--p-heat)); opacity: .55; }
+.banner-heat-cell.level-3 { background: var(--banner-heat-color, var(--p-heat)); opacity: .78; }
+.banner-heat-cell.level-4 { background: var(--banner-heat-color, var(--p-heat)); opacity: 1; }
 .banner-heat-cell.today { box-shadow: 0 0 0 1.5px var(--p-banner-ring); }
 .banner-heat-cell.is-future { opacity: .28; }
 .banner-stats-prog { display: flex; flex-direction: column; gap: 2px; }
@@ -765,6 +767,7 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-stats-prog-val { font-size: .8em; font-weight: 700; color: var(--p-banner-num); font-variant-numeric: tabular-nums; }
 .banner-stats-prog-track { height: 4px; margin-top: 1px; border-radius: 2px; background: var(--p-banner-track); overflow: hidden; }
 .banner-stats-prog-fill { height: 100%; border-radius: 2px; background: var(--banner-accent, var(--p-banner-accent)); transition: width .6s ease; }
+.banner-stats-prog.is-heat .banner-stats-prog-fill { background: var(--banner-heat-color, var(--p-heat)); }
 @media (max-width: 900px) {
   .banner-stats { padding: 32px 14px 9px; }
   .banner-stats-left { flex: 0 1 142px; }
@@ -837,7 +840,7 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner.banner-empty .banner-stats-col + .banner-stats-col::before { background: linear-gradient(to bottom, transparent, var(--p-line-strong), transparent); }
 .banner.banner-empty .banner-heat-cell.is-empty,
 .banner.banner-empty .banner-heat-swatch.is-empty { background: var(--p-fill-strong); }
-.banner.banner-empty .banner-heat-cell.today { box-shadow: 0 0 0 1.5px var(--p-accent-2); }
+.banner.banner-empty .banner-heat-cell.today { box-shadow: 0 0 0 1.5px var(--banner-heat-color, var(--p-heat)); }
 .banner.banner-empty .banner-stats-prog-track { background: var(--p-fill-strong); }
 /* 横幅编辑弹窗（dialog 基础样式见 confirm-dialog 一族）。 */
 .banner-dialog { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); color: var(--p-ink); padding: 20px 22px; width: min(560px, 92vw); }
@@ -859,6 +862,20 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-hero-remove { color: var(--p-err-ink); }
 .banner-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 8px; }
 .banner-hero-actions input[type="url"] { flex: 1 1 190px; width: auto; min-width: 0; padding: 7px 9px; font-size: 12px; }
+/* 横幅编辑器的热力格颜色：色板 + 五档明度预览 + 预设圆点。 */
+.banner-heat-color-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.banner-heat-color-row input[type="color"] { width: 44px; height: 31px; padding: 2px; border: 1px solid var(--p-line-input); border-radius: 7px; background: var(--p-surface); cursor: pointer; }
+.banner-heat-preview { display: inline-flex; align-items: center; gap: 3px; }
+.banner-heat-preview i { width: 15px; height: 15px; border-radius: 3px; background: var(--heat-color, var(--p-heat)); }
+.banner-heat-preview i:nth-child(1) { opacity: .2; }
+.banner-heat-preview i:nth-child(2) { opacity: .35; }
+.banner-heat-preview i:nth-child(3) { opacity: .55; }
+.banner-heat-preview i:nth-child(4) { opacity: .78; }
+.banner-heat-preview i:nth-child(5) { opacity: 1; }
+.banner-heat-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; }
+.banner-heat-preset { width: 19px; height: 19px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .12); }
+.banner-heat-preset:hover { transform: translateY(-1px); }
+.banner-heat-preset.is-active { border-color: var(--p-ink-strong); box-shadow: 0 0 0 2px var(--p-surface), 0 0 0 3px var(--p-ink-2); }
 
 /* 数据看板（2026-10-31）：横幅「回看」打开的弹窗；日/周/月/年共用同一套热力色阶。 */
 .heatmap-dialog { width: min(1040px, calc(100vw - 28px)); max-width: min(1040px, calc(100vw - 28px)); max-height: 94vh; border: 1px solid var(--p-line-2); border-radius: 18px; padding: 0; background: var(--p-surface); color: var(--p-ink); box-shadow: 0 24px 80px var(--p-shadow); overflow: hidden; }
@@ -888,10 +905,10 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .heat-foot-storage[data-tone="error"] { color: var(--p-err-ink); }
 /* 色阶：0 = 空；1–3 用强调色混合；4 = 强调色实底。所有格子共享同一套变量。 */
 .heat-level-0 { --heat-fill: var(--p-fill); --heat-ink: var(--p-ink-4); }
-.heat-level-1 { --heat-fill: color-mix(in srgb, var(--p-accent-2) 20%, var(--p-surface-2)); --heat-ink: var(--p-ink-2); }
-.heat-level-2 { --heat-fill: color-mix(in srgb, var(--p-accent-2) 38%, var(--p-surface-2)); --heat-ink: var(--p-ink-2); }
-.heat-level-3 { --heat-fill: color-mix(in srgb, var(--p-accent-2) 58%, var(--p-surface-2)); --heat-ink: var(--p-ink-strong); }
-.heat-level-4 { --heat-fill: var(--p-accent-2); --heat-ink: var(--p-invert-ink); }
+.heat-level-1 { --heat-fill: color-mix(in srgb, var(--heat-color, var(--p-heat)) 20%, var(--p-surface-2)); --heat-ink: var(--p-ink-2); }
+.heat-level-2 { --heat-fill: color-mix(in srgb, var(--heat-color, var(--p-heat)) 38%, var(--p-surface-2)); --heat-ink: var(--p-ink-2); }
+.heat-level-3 { --heat-fill: color-mix(in srgb, var(--heat-color, var(--p-heat)) 58%, var(--p-surface-2)); --heat-ink: var(--p-ink-strong); }
+.heat-level-4 { --heat-fill: var(--heat-color, var(--p-heat)); --heat-ink: var(--heat-on-color, var(--p-invert-ink)); }
 .heat-legend { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; color: var(--p-ink-5); font-size: 10px; }
 .heat-legend-cell { width: 10px; height: 10px; border-radius: 2px; background: var(--heat-fill); }
 .heat-calendar-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px; }
@@ -905,8 +922,8 @@ button.heat-cal-cell { cursor: pointer; transition: transform .12s ease, box-sha
 button.heat-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 5px 12px var(--p-shadow); }
 .heat-cal-cell.is-blank { background: transparent; pointer-events: none; }
 .heat-cal-cell.is-future { opacity: .38; }
-.heat-cal-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--p-accent-2); }
-.heat-cal-cell.is-selected { border-color: var(--p-accent-2); box-shadow: 0 0 0 2px color-mix(in srgb, var(--p-accent-2) 28%, transparent); }
+.heat-cal-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--heat-color, var(--p-heat)); }
+.heat-cal-cell.is-selected { border-color: var(--heat-color, var(--p-heat)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--heat-color, var(--p-heat)) 28%, transparent); }
 .heat-cal-num { font-weight: 700; line-height: 1; }
 .heat-cal-mark { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .72; }
 .heatmap-body.is-day { display: grid; grid-template-columns: minmax(290px, .95fr) minmax(320px, 1.15fr); align-items: start; gap: 16px; }
@@ -920,20 +937,20 @@ button.heat-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 5px 12px
 .heat-total-badge strong { color: inherit; font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1; }
 .heat-dots { display: inline-flex; gap: 3px; }
 .heat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--p-fill-strong); }
-.heat-dot.is-on { background: var(--p-accent-2); }
+.heat-dot.is-on { background: var(--heat-color, var(--p-heat)); }
 .heat-detail-rows { display: grid; gap: 10px; max-height: 56vh; overflow: auto; padding-right: 2px; }
 .heat-detail-row { border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2); padding: 8px 10px; }
-.heat-detail-row.heat-level-4 { border-color: var(--p-accent-line); }
+.heat-detail-row.heat-level-4 { border-color: color-mix(in srgb, var(--heat-color, var(--p-heat)) 42%, var(--p-line)); }
 .heat-detail-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
 .heat-detail-name { color: var(--p-ink-2); font-weight: 700; }
 .heat-detail-value { color: var(--p-ink-4); font-variant-numeric: tabular-nums; }
 .heat-meter { height: 4px; margin-top: 5px; border-radius: 2px; background: var(--p-fill); overflow: hidden; }
-.heat-meter i { display: block; height: 100%; border-radius: 2px; background: var(--p-accent-2); transition: width .35s ease; }
+.heat-meter i { display: block; height: 100%; border-radius: 2px; background: var(--heat-color, var(--p-heat)); transition: width .35s ease; }
 .heat-detail-note { margin: 4px 0 0; color: var(--p-ink-4); font-size: 10px; }
 .heat-detail-empty { color: var(--p-ink-5); font-size: 12px; }
 .heat-doc-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
 .heat-doc-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface); padding: 2px 7px; color: var(--p-ink-3); font-size: 10px; }
-.heat-doc-chip span { margin-right: 3px; color: var(--p-accent-2); }
+.heat-doc-chip span { margin-right: 3px; color: var(--heat-color, var(--p-heat)); }
 .heat-doc-chip.is-more { color: var(--p-ink-5); }
 .heat-habit-list { display: grid; gap: 4px; margin-top: 6px; }
 .heat-habit-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 10px; }
@@ -953,7 +970,7 @@ button.heat-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 5px 12px
 .heat-week-row { display: contents; }
 .heat-week-label { display: flex; align-items: center; padding-right: 4px; color: var(--p-ink-3); font-size: 11px; }
 .heat-week-cell { min-height: 40px; display: grid; place-items: center; border-radius: 8px; background: var(--heat-fill); color: var(--heat-ink); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.heat-week-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--p-accent-2); }
+.heat-week-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--heat-color, var(--p-heat)); }
 .heat-week-cell.is-future { opacity: .35; }
 .heat-week-row.is-total .heat-week-label { color: var(--p-ink-strong); font-weight: 700; }
 .heat-week-row.is-total .heat-week-cell { border-radius: 10px; }
@@ -963,11 +980,11 @@ button.heat-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 5px 12px
 .heat-summary-days { color: var(--p-ink-4); font-size: 11px; }
 .heat-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .heat-summary-row { border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface-2); padding: 8px 10px; }
-.heat-summary-row.is-total { border-color: var(--p-accent-line); background: var(--p-accent-soft-3); }
+.heat-summary-row.is-total { border-color: color-mix(in srgb, var(--heat-color, var(--p-heat)) 38%, var(--p-line)); background: color-mix(in srgb, var(--heat-color, var(--p-heat)) 10%, var(--p-surface-2)); }
 .heat-summary-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--p-ink-3); font-size: 11px; }
 .heat-summary-row-head strong { color: var(--p-ink-2); font-variant-numeric: tabular-nums; }
 .heat-summary-meter { height: 4px; margin-top: 6px; border-radius: 2px; background: var(--p-fill); overflow: hidden; }
-.heat-summary-meter i { display: block; height: 100%; border-radius: 2px; background: var(--p-accent-2); }
+.heat-summary-meter i { display: block; height: 100%; border-radius: 2px; background: var(--heat-color, var(--p-heat)); }
 .heat-summary-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; color: var(--p-ink-5); font-size: 9px; }
 .heat-year { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px; }
 .heat-year-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
@@ -975,7 +992,7 @@ button.heat-cal-cell:hover { transform: translateY(-1px); box-shadow: 0 5px 12px
 .heat-year-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .heat-month-card { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface-2); color: var(--p-ink-2); text-align: left; transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
 button.heat-month-card { cursor: pointer; }
-button.heat-month-card:hover { transform: translateY(-1px); border-color: var(--p-accent-line); box-shadow: 0 6px 16px var(--p-shadow); }
+button.heat-month-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--heat-color, var(--p-heat)) 45%, var(--p-line)); box-shadow: 0 6px 16px var(--p-shadow); }
 .heat-month-card.is-empty, .heat-month-card.is-future { opacity: .55; }
 .heat-month-card.is-future { cursor: default; }
 .heat-month-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; }
@@ -983,7 +1000,7 @@ button.heat-month-card:hover { transform: translateY(-1px); border-color: var(--
 .heat-month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; max-width: 126px; }
 .heat-mini-cell { aspect-ratio: 1; border-radius: 2px; background: var(--heat-fill); }
 .heat-mini-cell.is-blank { background: transparent; }
-.heat-mini-cell.is-today { box-shadow: 0 0 0 1px var(--p-accent-2); }
+.heat-mini-cell.is-today { box-shadow: 0 0 0 1px var(--heat-color, var(--p-heat)); }
 .heat-mini-cell.is-future { opacity: .3; }
 .heat-month-foot { color: var(--p-ink-5); font-size: 9px; }
 .heat-month-empty { color: var(--p-ink-5); font-size: 10px; }
