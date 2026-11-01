@@ -161,9 +161,12 @@ test("恋爱大师有看板、skill 卡片、历史与唯一聊天入口", async
     "data-skill=\"deep_analysis\"", "data-skill=\"report\"", "data-skill=\"journal_batch\"",
     "data-love-action=\"master-chat\"", "data-love-action=\"master-select\"",
     "/api/love/master/runs/", "love-skill-card",
+    'id="love-master-journal-days"', '<option value="0">全部未补日期',
+    "journal_pending", "不脱敏",
   ]) {
     assert.ok(love.includes(marker), `缺少大师页标记：${marker}`);
   }
+  assert.ok(!love.includes('type="number" min="1" max="60"'), "补日记不应再把范围锁死在 60 天");
   // 右侧角色层是唯一聊天入口：编辑器/其他页面不再打开第二个角色层。
   const editor = await source("note-editor.js");
   assert.match(editor, /button\.hidden = loveContext/);

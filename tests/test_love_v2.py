@@ -369,6 +369,96 @@ def test_love_master_overview_and_portrait_run(tmp_path: Path) -> None:
         assert (memory_root / name).is_dir()
 
 
+class _FakeJournalRole:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def readiness(self):
+        return True, ""
+
+    def run_once(self, role_id, mode, prompt, *, entry="", selectors=None):
+        self.prompts.append(prompt)
+        return {
+            "structured": {
+                "title": "恋爱日记", "body": "今天和小林聊到很晚。", "mood": "love",
+            },
+            "text": "ok",
+        }
+
+
+def _wait_master_run(client: TestClient, run_id: int) -> dict:
+    run: dict = {}
+    for _ in range(100):
+        time.sleep(0.1)
+        run = client.get(f"/api/love/master/runs/{run_id}").json()
+        if run.get("status") in {"completed", "failed"}:
+            break
+    assert run.get("status") == "completed", run
+    return run
+
+
+def test_love_master_journal_batch_keeps_real_names_and_can_backfill_all(
+        tmp_path: Path) -> None:
+    paths = love_paths(tmp_path)
+    ensure_love_layout(tmp_path)
+    database = Database(tmp_path / "torch_os.sqlite3")
+    database.initialize()
+    ensure_chat_schema(paths.chat_db)
+    with chat_connect(paths.chat_db) as con:
+        con.execute(
+            "INSERT INTO contact (id, session_id, display_name, me_sender, partner_sender,"
+            " watermark, history_start_day, last_sync_day, last_sync_at, last_sync_status,"
+            " last_error, created_at, updated_at) VALUES"
+            " (1, 'x', '小林', '阿杰', '小林', 0, '2026-10-30', '2026-11-01', '', 'ok', '',"
+            " '2026-10-30', '2026-11-01')")
+        for index, (day, is_send, content) in enumerate([
+            ("2026-10-30", 0, "小林说：我的电话是13800138000，记得存一下"),
+            ("2026-10-31", 1, "明天见"),
+            ("2026-11-01", 0, "晚安，小林"),
+        ]):
+            con.execute(
+                "INSERT INTO messages (sender, is_send, message_type, content, day, ts,"
+                " content_hash, created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?)",
+                ("阿杰" if is_send else "小林", is_send, content, day,
+                 1793462400 + index * 86400, f"h{index}", day))
+        con.commit()
+    role = _FakeJournalRole()
+    app = FastAPI()
+    app.include_router(create_master_router(paths, database, role_service=role))
+    client = TestClient(app)
+    assert client.get("/api/love/master/overview").json()["journal_pending"] == 3
+
+    # 先补最近 1 天：原文不脱敏，对方用真实称呼「小林」。
+    started = client.post("/api/love/master/run", json={
+        "skill": "journal_batch", "max_days": 1,
+    })
+    assert started.status_code == 200, started.text
+    run = _wait_master_run(client, started.json()["run_id"])
+    assert [item["date"] for item in run["result"]["created"]] == ["2026-11-01"]
+    prompt = json.loads(role.prompts[-1])
+    assert prompt["messages"][0]["who"] == "小林"
+    assert "晚安，小林" in prompt["messages"][0]["content"]
+
+    # max_days=0 表示全量：已有草稿的日期跳过，其余日期全部补上。
+    started = client.post("/api/love/master/run", json={
+        "skill": "journal_batch", "max_days": 0,
+    })
+    assert started.status_code == 200, started.text
+    run = _wait_master_run(client, started.json()["run_id"])
+    assert sorted(item["date"] for item in run["result"]["created"]) == [
+        "2026-10-30", "2026-10-31",
+    ]
+    raw_prompt = next(json.loads(prompt) for prompt in role.prompts
+                      if '"2026-10-30"' in prompt)
+    raw = raw_prompt["messages"][0]
+    assert raw["who"] == "小林"
+    assert "13800138000" in raw["content"]
+    assert "[电话号码已隐藏]" not in raw["content"]
+    drafts = list((paths.root / "01_恋爱记忆" / "AI 草稿").glob("*.md"))
+    assert len(drafts) == 3
+    assert client.get("/api/love/master/overview").json()["journal_pending"] == 0
+
+
 def test_legacy_love_migration(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     legacy_dir = vault / ".torch-os" / "love"

@@ -299,6 +299,14 @@ def _recent_runs(paths: LovePaths, limit: int = 6) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _journal_pending(paths: LovePaths) -> int:
+    try:
+        existing = _note_dates(paths)
+        return sum(1 for day in _message_days(paths) if day not in existing)
+    except Exception:  # noqa: BLE001 - 待补数量只是提示，不影响看板
+        return 0
+
+
 def overview_payload(paths: LovePaths, target_name: str = "") -> dict[str, Any]:
     return {
         "memory": _memory_summary(paths),
@@ -308,6 +316,7 @@ def overview_payload(paths: LovePaths, target_name: str = "") -> dict[str, Any]:
         "gallery": _gallery_summary(paths),
         "bazi": _bazi_summary(paths),
         "runs": _recent_runs(paths),
+        "journal_pending": _journal_pending(paths),
         "paths": paths.as_dict(),
     }
 
@@ -465,20 +474,22 @@ def build_ai_context(paths: LovePaths, target_name: str = "", *,
     }
 
 
-def _message_days(paths: LovePaths, limit: int) -> list[str]:
+def _message_days(paths: LovePaths) -> list[str]:
     if not paths.chat_db.is_file():
         return []
     try:
         with _connect(paths.chat_db) as con:
             rows = con.execute(
                 "SELECT day, COUNT(*) AS count FROM messages GROUP BY day "
-                "ORDER BY day DESC LIMIT ?", (max(1, limit * 4),)).fetchall()
+                "ORDER BY day DESC").fetchall()
     except sqlite3.Error:
         return []
     return [row["day"] for row in rows]
 
 
-def _day_messages(paths: LovePaths, day: str) -> list[dict[str, Any]]:
+def _day_messages(paths: LovePaths, day: str, *,
+                  anonymize: bool = True) -> list[dict[str, Any]]:
+    """取一天的聊天；补日记用 ``anonymize=False``，保留真实称呼与原文。"""
     if not paths.chat_db.is_file():
         return []
     try:
@@ -490,25 +501,34 @@ def _day_messages(paths: LovePaths, day: str) -> list[dict[str, Any]]:
     except sqlite3.Error:
         return []
     names: dict[str, str] = {}
+    partner = "对象"
     if contact is not None:
-        for value in (contact["display_name"], contact["partner_sender"]):
-            if value:
-                names[str(value)] = "对象"
-        if contact["me_sender"]:
-            names[str(contact["me_sender"])] = "我"
-    return [
-        {
+        display_name = str(contact["display_name"] or "").strip()
+        if display_name:
+            partner = display_name
+        if anonymize:
+            for value in (contact["display_name"], contact["partner_sender"]):
+                if value:
+                    names[str(value)] = "对象"
+            if contact["me_sender"]:
+                names[str(contact["me_sender"])] = "我"
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        content = str(row["content"] or "")
+        if anonymize:
+            content = desensitize(content, names)
+        items.append({
             "time": datetime.fromtimestamp(int(row["ts"] or 0), DAY).strftime("%H:%M"),
-            "who": "我" if int(row["is_send"] or 0) else "对象",
-            "content": desensitize(str(row["content"] or ""), names)[:1000],
-        }
-        for row in rows
-    ]
+            "who": "我" if int(row["is_send"] or 0) else partner,
+            "content": content[:1000],
+        })
+    return items
 
 
 def _note_dates(paths: LovePaths) -> set[str]:
+    # 全量补写可能让恋爱记忆超过 500 篇，这里必须读全量，避免重复生成旧日期。
     notes = pillar_notes.list_notes(paths.root.parent.parent, pillar=vault_layout.LOVE_PILLAR,
-                                     limit=500)
+                                     limit=None)
     return {love_memory._note_date(note) for note in notes if love_memory._note_date(note)}
 
 
@@ -557,14 +577,17 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
         ensure_vault_writable(read_only, "AI 批量补日记")
     except VaultReadOnlyError as error:
         raise RuntimeError(str(error)) from error
-    max_days = max(1, min(60, int(params.get("max_days") or 10)))
+    # max_days=0 表示全量：补完所有有聊天、还没写过记忆的日期。
+    requested = int(params.get("max_days") or 0)
+    max_days = None if requested <= 0 else min(36500, requested)
     existing = _note_dates(paths)
-    candidates = [day for day in _message_days(paths, max_days * 3)
-                  if day not in existing][:max_days]
+    candidates = [day for day in _message_days(paths) if day not in existing]
+    if max_days is not None:
+        candidates = candidates[:max_days]
     created: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for index, day in enumerate(candidates, start=1):
-        messages = _day_messages(paths, day)
+        messages = _day_messages(paths, day, anonymize=False)
         if not messages:
             continue
         with _connect(paths.master_db) as con:
@@ -577,8 +600,9 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
             "messages": messages,
             "输出要求": (
                 "只输出一个 JSON 对象：{title:'...', body:'Markdown 正文', mood:'happy|love|"
-                "miss|excited|neutral|sad|angry'}。用第一人称「我」，100-300 字，"
-                "不要出现 AI/根据聊天记录等字样；聊天很少时如实写平淡。"
+                "miss|excited|neutral|sad|angry'}。用第一人称「我」，对方用聊天里出现的"
+                "真实称呼，不要改写成「对象」；100-300 字，不要出现 AI/根据聊天记录等字样；"
+                "聊天很少时如实写平淡。"
             ),
         }, ensure_ascii=False)
         try:
@@ -602,7 +626,8 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
         "created": created,
         "failed": failed,
         "attempted": len(candidates),
-        "text": f"补写完成：新增 {len(created)} 篇，失败 {len(failed)} 篇。",
+        "text": (f"补写完成：新增 {len(created)} 篇，失败 {len(failed)} 篇。"
+                 if candidates else "没有需要补写的日期：有聊天的日期都已有恋爱记忆。"),
     }
 
 
@@ -906,7 +931,7 @@ class RunPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     skill: str = Field(pattern=r"^(portrait|deep_analysis|report|journal_batch)$")
     days: int = Field(default=30, ge=0, le=3650)
-    max_days: int = Field(default=10, ge=1, le=60)
+    max_days: int = Field(default=10, ge=0, le=36500)
 
 
 def create_master_router(paths: LovePaths, database: Database, *,

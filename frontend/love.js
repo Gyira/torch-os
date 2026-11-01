@@ -1450,7 +1450,9 @@ function masterResultMarkup(run) {
   }
   if (run.status === "failed") return errorBox(run.error || "这次分析没有完成");
   const result = run.result || {};
-  const structured = result.structured || {};
+  // 补日记的结果直接存在顶层的 created/failed/text，其他 skill 才在 structured 里。
+  const structured = run.skill === "journal_batch"
+    ? result : (result.structured || {});
   const text = result.text || "";
   if (run.skill === "portrait") {
     const traits = Array.isArray(structured.traits) ? structured.traits : [];
@@ -1496,6 +1498,7 @@ async function renderMaster(content) {
     selected = await loveApi(`/api/love/master/runs/${love.masterSelectedId}`, { timeoutMs: 30000 }).catch(() => null);
   }
   const memory = overview.memory || {};
+  const journalPending = Number(overview.journal_pending) || 0;
   const chat = overview.chat || {};
   const cycle = overview.cycle || {};
   const schedule = overview.schedule || {};
@@ -1515,7 +1518,7 @@ async function renderMaster(content) {
     <article class="love-skill-card"><span class="eyebrow">PORTRAIT</span><h3>关系画像</h3><p>从记忆、聊天与统计里提炼对象画像、沟通方式和照顾建议。</p><button class="button primary" type="button" data-love-action="master-run" data-skill="portrait">生成画像</button></article>
     <article class="love-skill-card"><span class="eyebrow">DEEP ANALYSIS</span><h3>深度分析</h3><p>看关系阶段、沟通模式、关键事件与风险。</p><div class="love-inline-actions"><select id="love-master-deep-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="deep_analysis">开始分析</button></div></article>
     <article class="love-skill-card"><span class="eyebrow">REPORT</span><h3>阶段报告</h3><p>生成可留档的报告，支持查看历史、删除与 HTML 导出。</p><div class="love-inline-actions"><select id="love-master-report-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="report">生成报告</button></div></article>
-    <article class="love-skill-card"><span class="eyebrow">AI JOURNAL</span><h3>AI 批量补日记</h3><p>只补有聊天、还没有记忆的日期，先写进「AI 草稿」。</p><div class="love-inline-actions"><input id="love-master-journal-days" class="love-gallery-select" type="number" min="1" max="60" value="10" aria-label="最多补几天" /><button class="button primary" type="button" data-love-action="master-run" data-skill="journal_batch">开始补写</button></div></article>
+    <article class="love-skill-card"><span class="eyebrow">AI JOURNAL</span><h3>AI 批量补日记</h3><p>只补有聊天、还没有记忆的日期，先写进「AI 草稿」。${journalPending ? `当前还有 ${formatInt(journalPending)} 天待补。` : "当前没有待补日期。"}选「全部」会逐日调用 AI，耗时较长。</p><div class="love-inline-actions"><select id="love-master-journal-days" class="love-gallery-select" aria-label="补写范围"><option value="10">最近 10 天</option><option value="30">最近 30 天</option><option value="60">最近 60 天</option><option value="0">全部未补日期${journalPending ? `（${formatInt(journalPending)} 天）` : ""}</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="journal_batch">开始补写</button></div></article>
     <article class="love-skill-card"><span class="eyebrow">COACH</span><h3>沟通教练</h3><p>打开右侧恋爱大师角色层，带着当前数据聊今天能怎么做。</p><button class="button primary" type="button" data-love-action="master-chat">和恋爱大师聊聊</button></article>
     <article class="love-skill-card"><span class="eyebrow">BAZI</span><h3>八字合婚</h3><p>补齐双方出生信息，生成新的合婚页面。</p><button class="button secondary" type="button" data-love-action="goto-bazi">打开八字合婚</button></article>`;
   const history = love.masterRuns.length
@@ -1556,11 +1559,14 @@ async function runMasterSkill(skill, button) {
     : skill === "deep_analysis"
       ? Number($id("love-master-deep-days")?.value ?? 30)
       : 30;
-  const maxDays = Number($id("love-master-journal-days")?.value || 10);
+  const maxDays = Number($id("love-master-journal-days")?.value ?? 10);
   const labels = { portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 批量补日记" };
+  const message = skill === "journal_batch"
+    ? "会把当天聊天原文（不脱敏，保留真实称呼）通过 dsh 发送给你配置的模型，逐日补写；范围选「全部未补日期」时会调用很多次，耗时较长，已补过的日期会自动跳过。"
+    : "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。";
   if (!await confirmAction({
     title: `开始${labels[skill] || "分析"}？`,
-    message: "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。",
+    message,
     confirmLabel: "开始",
   })) return;
   await withBusy(button, "已提交…", async () => {

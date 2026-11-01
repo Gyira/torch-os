@@ -66,7 +66,8 @@ def _metadata(relative: str, metadata: dict[str, Any], path: Path) -> dict[str, 
 
 
 def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
-               query: str = "", limit: int = 100) -> list[dict[str, Any]]:
+               query: str = "", limit: int | None = 100) -> list[dict[str, Any]]:
+    """列出笔记；``limit=None`` 表示内部调用需要全量（外部 API 仍按上限截断）。"""
     vault = Path(vault_dir).resolve()
     roots: list[Path] = []
     if chapter:
@@ -112,6 +113,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
             item["mtime"] = path.stat().st_mtime
             found.append(item)
     found.sort(key=lambda item: (item.get("date") or "", item["mtime"]), reverse=True)
+    if limit is None:
+        return found
     return found[:max(1, min(500, limit))]
 
 

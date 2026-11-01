@@ -153,7 +153,8 @@
   - 恋爱大师：总览/看板 + dsh skill 卡片（画像/深度分析/报告/AI 补日记/沟通教练/八字）；
     右侧角色层是唯一聊天入口；结果存 `07_恋爱大师/analysis.db`。
   - 新增 `dsh/roles/love_master.md` 的 portrait/deep/report/journal_batch/bazi 模式与
-    `dsh/skills/love-master/SKILL.md`；AI 上下文可读取七个页面数据，聊天脱敏、经期只发聚合。
+    `dsh/skills/love-master/SKILL.md`；AI 上下文可读取七个页面数据，画像/分析/报告/
+    角色层聊天脱敏，AI 补日记按天发送原文，经期只发聚合。
   - 测试：`tests/test_love_v2.py` 7 项；前端 `love.test.mjs` / `bazi-page.test.mjs` /
     `love-cycle.test.mjs` / `notebook-model.test.mjs` 更新。
 - **2026-11-01 横幅热力图改成 GitHub 贡献日历风格（正方形格子）**：

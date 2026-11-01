@@ -122,7 +122,8 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 - `{"entry":"tasks","day":"YYYY-MM-DD"}`
 - `{"entry":"health"}` / `{"entry":"finance"}`：只读摘要
 - `{"entry":"love"}`：恋爱系统七个页面的只读摘要 + **脱敏后的最近聊天原文**；
-  经期只提供阶段/预计日期等聚合信息，不提供每日症状明细
+  经期只提供阶段/预计日期等聚合信息，不提供每日症状明细。AI 批量补日记是例外：
+  后端按天把聊天原文（不脱敏）直接交给 `journal_batch`，以保留真实称呼与细节
 
 `memory_card/proposal/share` 在后续阶段接入。每类来源有字符预算，
 总预算 24k、硬上限 80k；恋爱大师角色卡单独申请 60k；截断会在响应 `truncated`
