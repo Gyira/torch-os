@@ -3,17 +3,61 @@
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
 
+## 2026-11-01 AI 角色管理页（2.2，本轮）
+
+- 顶部新增第 6 个模块「AI 角色」：左侧列出全部角色（搜索 + 自我/生活/知识/运营/关系/
+  健康/财务筛选），右侧一页编辑名字、一句话定位、身份、说话风格和最多 6 个专属 Skill。
+- 角色卡扩展 frontmatter：`tagline`、`identity`、`style`、`skills[{id,name,when,instructions}]`；
+  `_load_role` 校验长度/重复/id；自定义区块追加在 mode 提示之后，留空时 prompt 与旧版一致。
+- 新接口 `GET/PUT /api/ai/roles/{id}/profile`：只写身份/风格/Skill 字段，模式正文不动；
+  revision 冲突 409，原子写入后 reload 校验，失败恢复旧文件。`/api/ai/roles` 增加
+  tagline/custom/skill_names 与 `errors`。
+- 前端新增 `role-admin-model.js`（纯筛选/校验/脏检查）、`role-admin.js`、`role-admin.css`；
+  保存成功清空角色抽屉缓存；切换角色/离开页面有未保存确认。
+- 验证：`tests/test_ai_roles.py` 11 passed；前端角色模型 8 + 页面接线 2 + 相关导航/交互通过；
+  QA 实例（8898）用 Edge 无头实测：9 张卡、身份/风格/Skill 编辑、保存/409 提示、
+  明暗主题、760px 单列、无 JS 错误。全量 pytest 仍受既有 6 项失败影响：
+  `test_identity_banner` 缺文件、`test_love_memory` 章节数、`test_v1_audit` 审计字段、
+  `test_workspaces` 3 项活动库名；均不在本次改动路径上。
+- 版本落点：`APP_VERSION 2.2.0`、README、WAKE_UP_START、插件 manifest/main/README、
+  VAULT_TEMPLATE 已对齐。
+
+## 2026-11-01 自我档案 v2 / 人生导师 / 八字系统（上一轮，未提交）
+
+设计与实施计划见 `docs/SELF_ARCHIVE_MENTOR_BAZI.md`、`docs/SELF_ARCHIVE_MENTOR_BAZI_PLAN.md`。
+
+- 页面：`#self` 改成三部分（自我档案 / 人生导师 / 八字系统），页面内左栏可二级展开；
+  顶部标题回归最上方；画像从顶部移到本子网格**下方**。
+- 档案：`01_自我档案/01_档案/` 下 11 个固定本子 + `00_画像.md`；条目是一篇 Markdown，
+  五类信息（事实/行为证据/推断/自我叙事/待验证假设）+ 置信度；修正用 supersede，不删除。
+  应用内不提供档案手动编辑/删除，只有人生导师能生成补丁，用户确认后才写入。
+- 人生导师：`dsh/roles/mentor.md`；三栏对话（会话 / 聊天 / 上下文），分层记忆
+  （核心记忆/记忆时间线/问答记忆）、待确认、每日三问、工作台常驻条；
+  「更新自我档案」全量整理读三库 + 记忆，生成画像与待确认补丁。
+- 八字：个人命盘 `01_自我档案/03_八字系统/命盘.md` + `解读/*.md`；
+  `bazi_engine` 与恋爱八字共用；个人页展示四柱/十神/藏干/五行/大运/AI 解读/历史。
+- 旧功能：忆灵旧面板/工作台忆灵条从界面退役；旧 `/api/memory-hub`、`identity_inbox`、
+  `questions` 保留兼容；旧 `yiling` 角色与旧会话作为历史保留，新入口统一为人生导师。
+- 已验证：新增/相关后端 56 + 84 + 13 + 5 项通过；前端全量 **508 passed**；
+  `scripts/self_probe.py` 与 `scripts/browser_v1_probe.py` 在 QA 实例通过
+  （11 本子、3 个左栏分组、画像下置、导师 4 tabs / 1 待确认 / 3 问、八字命盘、
+  工作台导师条点击跳转、迁移预览/执行；无 JS 错误）。
+  全量 pytest 已尝试，但本轮运行到约 30% 时耗时异常（受并发改动/慢测试影响），
+  已停止；发布前建议按 `docs/SELF_ARCHIVE_MENTOR_BAZI_PLAN.md` P6 重跑一次完整套件。
+- 待办：全量 pytest、真实库迁移预览与确认、旧文档逐段清理。
+
 ## 快照
 
 - 分支：`main`
 - 代码基线：`b2421ff`（`feat(banner): 优化横幅统计模式为 GitHub 风格正方形热力图`，以 `git log -1` 为准）
-- 版本：**2.1.0**（健康系统 v3，2026-11-01）。
-- 工作树：**健康系统 v3 + 恋爱系统 v2 改造未提交**（健康七页前端、沿用/四维评分、
-  AI 估算、健康档案、私人医生报告；恋爱七页前端、新后端模块、迁移、组件修复、
-  文档与测试）；另有本次之前就存在的横幅/工作台/列车追踪改动，以 `git status` 为准。
-- 布局版本：**`pillars-v2`**（四库主布局 46 章；2026-11-01 健康系统 v3 删除
+- 版本：**2.2.0**（AI 角色管理页，2026-11-01）。
+- 工作树：**健康系统 v3 + 恋爱系统 v2 + AI 角色管理页未提交**（健康七页前端、
+  沿用/四维评分、AI 估算、健康档案、私人医生报告；恋爱七页前端、新后端模块、迁移、
+  组件修复；AI 角色管理页、角色档案 API、前端测试与文档）；另有本次之前就存在的
+  横幅/工作台/列车追踪改动，以 `git status` 为准。
+- 布局版本：**`pillars-v2`**（四库主布局 47 章；2026-11-01 健康系统 v3 删除
   `medical` 章节、生活运营目录重排；恋爱系统 v2 另有 `love_journal/love_drafts`
-  两个写作章节，模板共 48 条章节目录，但不进四库首页；
+  两个写作章节，模板共 49 条章节目录，但不进四库首页；
   恋爱系统私人数据另在 `02_生活运营/01_恋爱系统/` 的七个页面目录，
   旧 `.torch-os/love/` 自动迁移并保留）
 - 生活运营目录（2026-11-01 重排）：`00_待办事项 / 01_恋爱系统 / 02_健康系统 /
@@ -22,22 +66,27 @@
   `08_生活建议`、`09_家庭与智能家居` 启动时自动改名。旧 `05_情感与记忆`、
   `02_财富与记账` 仅作只读兼容，分别并到 `07_情感与记忆`、`08_财富与记账`，
   新库不再创建空目录；迁移标记在 `.torch-os/ops-layout.json`。
-- 后端：**2026-11-01 全量 `1134 passed / 1 skipped / 0 failed`**（751.54 秒，
-  `PYTHONUTF8=1 PYTHONIOENCODING=utf-8`；含健康 v3、生活运营目录重排、恋爱 v2、
-  迁移、组件、四库模板/导入 API 全量）。注意：如果外层 shell 带着
-  `WORKSPACE_NAME / DATA_DIR / VAULT_DIR` 环境变量，`tests/test_workspaces.py`
-  的 3 个用例会把真实库名当成测试名而失败；清掉这三个变量后重跑即 0 failed，
-  这是测试环境泄漏，不是代码回归。
-- 前端：**全量通过（475 项 / 0 failed）**
+  健康系统内部目录：`00_健康报告 / 01_每日健康 / 02_身体档案 /
+  03_体检与检验 / 04_训练记录 / 05_问诊记录`；私人医生问答自动追加到当天
+  `05_问诊记录`，与健康报告分开。
+- 后端：**2026-11-01 全量 `1166 passed / 1 skipped / 6 failed`**；6 项为既有失败，
+  不在本次改动路径上：`test_identity_banner` 找不到身份文件、`test_love_memory`
+  章节数 60≠49、`test_v1_audit` 审计字段多出 pending/memory_notes/question_candidates、
+  `test_workspaces` 3 项把当前库名「个人数据库」当成「个人」（外层 DATA_DIR 测试泄漏）。
+  本次 AI 角色相关 `tests/test_ai_roles.py` **11 passed**。
+- 前端：**全量通过（508 项 / 0 failed）**
   （`node --experimental-vm-modules --test frontend/tests/*.test.mjs`）；
-  含健康四维/沿用/周卡片、恋爱七页、八字、经期、本子、待确认与主题 token 全量。
-- `scripts/check_all.ps1`：按脚本步骤逐项跑过并通过——全量 pytest、文本/结构完整性、
-  模块面 import/export、前端 JS 语法、前端 475 项、`compileall`、`pip check`
-  （本次是逐步执行，没有直接调用 `.ps1`）。
+  含新增角色管理模型 8 项、页面接线 2 项，以及健康四维/沿用/周卡片、恋爱七页、八字、
+  经期、本子、待确认与主题 token 全量。
+- `scripts/check_all.ps1`：2026-11-01 重跑；文本/结构完整性、模块面 import/export、
+  前端 JS 语法、前端 508 项、`compileall`、`pip check` 均通过；整体因上述 6 项既有
+  pytest 失败退出 1。QA 实例（8898）另用 Edge 无头验证明暗主题与 760px 单列，无 JS 错误。
 - 浏览器验收：2026-11-01 用临时个人实例 + Edge CDP 跑过健康七页的明暗主题、
   七天周卡片选中/翻周/日历跳转、四个记录弹窗、AI 饮食/运动估算、精确训练、
   常吃食物、健康档案、私人医生聊天、报告生成/阅读/删除；截图在
   `.test-data/shots-final-dark/`、`shots-light/`、`shots-dialog*/`、`shots-real/`。
+  私人医生问答自动落 `05_问诊记录` 已在临时实例实测：真实 AI 回复后生成
+  `2026-11-01_问诊记录.md`，列表/阅读器/计数同步，`memory: false`。
   真实服务的 `02_生活运营` 已执行目录重排：`03_体检与医疗` 并入
   `02_健康系统/03_体检与检验`，其余目录压紧到 03–06；标记与备份在
   `个人数据库/.torch-os/ops-layout.json` 与 `.torch-os/backups/ops-layout/`。

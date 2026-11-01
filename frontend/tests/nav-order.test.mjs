@@ -61,7 +61,7 @@ test("moveItem moves by one and clamps at the edges", async () => {
 
 test("storage round-trips the order and reset restores the default", async () => {
   const { NAV_ORDER_DEFAULT, clearOrder, currentNavOrder, readStoredOrder, storeOrder } = await loadModule();
-  const custom = ["settings", "knowledge", "workbench", "life", "self", "ops"];
+  const custom = ["settings", "knowledge", "workbench", "life", "self", "ops", "roles"];
   assert.equal(readStoredOrder(), null);
   storeOrder(custom);
   assert.deepEqual(Array.from(readStoredOrder()), custom);

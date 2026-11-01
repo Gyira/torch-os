@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -15,13 +15,14 @@
       </div>
       <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
       <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
-      <button class="nav-item" data-view="ops" aria-expanded="false" aria-controls="nav-sub-ops"><span aria-hidden="true">生</span>生活运营</button>
+      <button class="nav-item" data-view="ops" aria-expanded="false" aria-controls="nav-sub-ops"><span aria-hidden="true">营</span>生活运营</button>
       <div class="nav-sublist" id="nav-sub-ops" data-sublist="ops" role="group" aria-label="生活运营分区" hidden>
         <button type="button" class="nav-subitem active" data-pane="ops-view" aria-current="true">生活运营</button>
         <button type="button" class="nav-subitem" data-pane="love-view" aria-current="false">恋爱系统</button>
         <button type="button" class="nav-subitem" data-pane="health-view" aria-current="false">健康系统</button>
       </div>
       <button class="nav-item" data-view="knowledge"><span aria-hidden="true">知</span>知识库</button>
+      <button class="nav-item" data-view="roles"><span aria-hidden="true">角</span>AI 角色</button>
       <button class="nav-item" data-view="settings" aria-expanded="false"><span aria-hidden="true">⚙</span>设置与状态</button>
     </nav>
     <div class="sidebar-footer"><span id="service-dot" class="status-dot" aria-hidden="true"></span><span class="sidebar-service"><span id="service-label">正在检查本地服务…</span><span id="service-version">版本读取中…</span></span></div>
@@ -33,8 +34,8 @@
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
       <!-- 待确认中枢：草稿 / 事实 / 分流 三处积压在这里汇总成一个常驻数字（2026-10-27）。 -->
       <div id="workbench-pending" class="pending-strip" data-pending-strip hidden></div>
-      <!-- 忆灵（v1.0 P3）：用一张常驻条替代旧的主动提问卡；记忆中枢成为身份修改的前门。 -->
-      <div id="workbench-memory" class="memory-strip" data-memory-strip hidden></div>
+      <!-- 人生导师常驻条：今日三问 / 待确认 / 最近画像；点击进入自我档案 → 人生导师。 -->
+      <div id="workbench-mentor" class="mentor-strip" data-mentor-strip hidden></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
@@ -236,13 +237,18 @@
     </section>
     <section id="recycle-view" class="pane workbench-recycle" data-module="workbench" data-pane-label="回收中心" aria-label="回收中心" hidden>
       <div class="recycle-shell">
-        <header class="recycle-head">
-          <div>
-            <p class="eyebrow">RECYCLE CENTER</p>
-            <h2>回收中心</h2>
-            <p class="field-help">四库删除的笔记、日记和任务会先停在这里。恢复会回到原位置（任务按清单/完成状态回到对应文件夹）；只有「彻底删除」才会真正移除文件。</p>
+        <header class="pillar-head recycle-pillar-head">
+          <div class="pillar-head-main">
+            <span class="pillar-icon" aria-hidden="true">回</span>
+            <div>
+              <p class="eyebrow">四库 · 回收中心</p>
+              <h2>回收中心</h2>
+              <p class="pillar-subtitle">四库删除的笔记、日记和任务会先停在这里。恢复会回到原位置（任务按清单/完成状态回到对应文件夹）；只有「彻底删除」才会真正移除文件。</p>
+            </div>
           </div>
-          <button type="button" id="recycle-refresh" class="button secondary">刷新</button>
+          <div class="pillar-head-actions">
+            <button type="button" id="recycle-refresh" class="button secondary">刷新</button>
+          </div>
         </header>
         <p id="recycle-status" class="status-message" role="status" aria-live="polite"></p>
         <div id="recycle-groups"></div>
@@ -251,9 +257,10 @@
     <section id="life-view" class="view pillar-view" data-module="life" hidden>
       <div class="pillar-shell" data-pillar="life"><div class="pillar-empty">正在读取人生路…</div></div>
     </section>
-    <section id="self-view" class="view pillar-view" data-module="self" hidden>
-      <section id="self-hub" class="self-hub" data-self-hub aria-label="忆灵与当前状态"></section>
-      <div class="pillar-shell" data-pillar="self"><div class="pillar-empty">正在读取自我档案…</div></div>
+    <section id="self-view" class="view pillar-view self-view" data-module="self" hidden>
+      <div id="self-shell" class="self-shell">
+        <div class="self-loading">正在读取自我档案…</div>
+      </div>
     </section>
     <section id="ops-view" class="view pillar-view" data-module="ops" hidden>
       <div class="pillar-shell" data-pillar="ops"><div class="pillar-empty">正在读取生活运营…</div></div>
@@ -356,6 +363,44 @@
       <div class="pillar-shell" data-pillar="knowledge"><div class="pillar-empty">正在读取知识库…</div></div>
     </section>
 
+    <section id="roles-view" class="view roles-view" data-module="roles" aria-labelledby="page-title" hidden>
+      <div class="role-admin-hero">
+        <div class="role-admin-hero-copy">
+          <span class="eyebrow">ROLE STUDIO</span>
+          <h2>一个页面，管好每一位 AI</h2>
+          <p>定身份、定说话风格，再教它只属于这个角色的 Skill。改完保存，下一轮对话生效。</p>
+        </div>
+        <div class="role-admin-hero-side">
+          <div id="role-admin-readiness" class="role-admin-readiness" data-tone="warn">正在读取 AI 状态…</div>
+          <p id="role-admin-hero-stats" class="role-admin-hero-stats">正在读取角色…</p>
+        </div>
+      </div>
+      <div id="role-admin-warning" class="role-admin-warning" hidden></div>
+      <div class="role-admin-shell">
+        <aside class="role-admin-rail" aria-label="AI 角色列表">
+          <div class="role-admin-rail-head">
+            <div><span class="eyebrow">ALL ROLES</span><h2>角色</h2><p id="role-admin-count" class="meta">正在读取…</p></div>
+          </div>
+          <div class="field role-admin-search">
+            <label class="visually-hidden" for="role-admin-search">搜索角色</label>
+            <input id="role-admin-search" type="search" placeholder="搜索名字、定位、模式或 Skill…" autocomplete="off" />
+          </div>
+          <div id="role-admin-filters" class="role-admin-filters" role="group" aria-label="按角色分层筛选"></div>
+          <div id="role-admin-list" class="role-admin-list" aria-live="polite">
+            <div class="role-admin-list-empty"><p>正在读取角色…</p></div>
+          </div>
+          <p id="role-admin-list-status" class="status-message" role="status"></p>
+          <p class="role-admin-rail-note">角色卡存放在程序的 <code>dsh/roles</code> 里，所有数据库共用；这里改的是角色本身，不是聊天记录。</p>
+        </aside>
+        <div id="role-admin-editor" class="role-admin-editor" aria-live="polite">
+          <div class="role-admin-empty">
+            <span class="eyebrow">ROLE PROFILE</span>
+            <h2>选择左边的一位角色</h2>
+            <p>读它的身份、风格和专属 Skill，改完保存；也可以先看看它原来的角色卡设定。</p>
+          </div>
+        </div>
+      </div>
+    </section>
 
 
 
@@ -778,25 +823,6 @@
       </div>
     </section>
   </div>
-</dialog>
-<dialog id="memory-event-dialog" class="note-editor-dialog memory-event-dialog" aria-labelledby="memory-event-heading">
-  <div class="note-editor-head">
-    <div><p class="eyebrow">忆灵</p><h2 id="memory-event-heading">告诉忆灵一件事</h2><p class="field-help">只写你确认过的观察/感受/决定；它先成为事件，综合后才可能变成画像或身份补丁。</p></div>
-    <button id="memory-event-close" class="small-button" type="button">关闭</button>
-  </div>
-  <div class="note-editor-meta memory-event-meta">
-    <label>类型<select id="memory-event-kind">
-      <option value="observation">观察</option>
-      <option value="decision">决定</option>
-      <option value="feeling">感受</option>
-      <option value="relationship">关系</option>
-      <option value="goal_change">目标变化</option>
-      <option value="correction">纠正</option>
-    </select></label>
-    <label>来源（可选）<input id="memory-event-source" type="text" maxlength="500" placeholder="例如：今天的复盘 / 和某人的对话" /></label>
-  </div>
-  <label class="memory-event-text-label">内容<textarea id="memory-event-text" rows="5" maxlength="1000" placeholder="今天我发现……"></textarea></label>
-  <div class="form-actions"><span id="memory-event-status" class="status-message" role="status"></span><button id="memory-event-save" class="button primary" type="button">投递给忆灵</button></div>
 </dialog>
 <dialog id="notebook-create-dialog" class="notebook-create-dialog" aria-labelledby="notebook-create-title">
   <form id="notebook-create-form" class="notebook-create-form">

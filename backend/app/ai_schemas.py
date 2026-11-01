@@ -48,11 +48,58 @@ class HubEvent(_Loose):
     source_ref: str = Field(default="", max_length=500)
 
 
+class ArchiveVerdict(_Loose):
+    """人生导师对“档案这条是否要改”的裁决；只有 accept 才会生成待确认卡片。"""
+
+    decision: Literal["accept", "reject", "undecided"] = "undecided"
+    section: str = Field(default="", max_length=60)
+    entry_id: str = Field(default="", max_length=80)
+    action: Literal["create", "supersede"] = "create"
+    entry_type: str = Field(default="inference", max_length=20)
+    confidence: str = Field(default="medium", max_length=20)
+    title: str = Field(default="", max_length=120)
+    old_text: str = Field(default="", max_length=4000)
+    new_text: str = Field(default="", max_length=8000)
+    evidence: str = Field(default="", max_length=2000)
+    counterexample: str = Field(default="", max_length=2000)
+    verify: str = Field(default="", max_length=2000)
+    reason: str = Field(default="", max_length=2000)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+
+
+class MemoryNote(_Loose):
+    kind: str = Field(default="observation", max_length=40)
+    text: str = Field(default="", max_length=300)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+
+
+class QuestionDraft(_Loose):
+    prompt: str = Field(default="", max_length=300)
+    target_section: str = Field(default="", max_length=60)
+    section: str = Field(default="", max_length=60)
+    entry_type: str = Field(default="narrative", max_length=20)
+    priority: int = Field(default=50, ge=0, le=100)
+    why: str = Field(default="", max_length=500)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+
+
+class SynthesisResult(_Loose):
+    portrait: str = Field(default="", max_length=20_000)
+    portrait_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    archive_patches: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
+    memory_updates: list[MemoryNote] = Field(default_factory=list, max_length=30)
+    question_candidates: list[QuestionDraft] = Field(default_factory=list, max_length=30)
+    gaps: list[str] = Field(default_factory=list, max_length=20)
+
+
 class Reply(_Loose):
     reply: str = Field(default="", max_length=20_000)
     findings: list[Finding] = Field(default_factory=list, max_length=50)
     proposals: list[ProposalDraft] = Field(default_factory=list, max_length=20)
     identity_verdict: IdentityVerdict | None = None
+    archive_verdict: ArchiveVerdict | None = None
+    memory_notes: list[MemoryNote] = Field(default_factory=list, max_length=20)
+    questions: list[QuestionDraft] = Field(default_factory=list, max_length=10)
     hub_events: list[HubEvent] = Field(default_factory=list, max_length=20)
 
 
@@ -92,10 +139,13 @@ def parse_reply(text: str) -> tuple[Reply, bool]:
         reply = Reply.model_validate(data)
     except Exception:
         return Reply(reply=raw), False
-    if not reply.reply and not (reply.proposals or reply.findings or reply.identity_verdict):
+    if not reply.reply and not (reply.proposals or reply.findings
+                                or reply.identity_verdict or reply.archive_verdict
+                                or reply.memory_notes or reply.questions):
         reply.reply = raw
     return reply, True
 
 
 __all__ = ["Finding", "ProposalDraft", "IdentityVerdict", "HubEvent", "Reply",
+           "ArchiveVerdict", "MemoryNote", "QuestionDraft", "SynthesisResult",
            "extract_json", "parse_reply"]

@@ -17,33 +17,17 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from . import bazi_engine
+from .bazi_engine import (
+    GAN, GAN_ELEM, GAN_YANG, GEN, KE, SLOTS, ZHI, ZHI_ELEM, ZHI_HIDDEN,
+    chart_from_birth, default_pillars as _default_pillars,
+    normalize_pillars as _normalize_pillars, parse_pillar as _parse_pillar,
+    pillar as _pillar, ten_god as _ten_god,
+)
 from .love_layout import LovePaths
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 DAY = ZoneInfo("Asia/Shanghai")
-SLOTS = ("年柱", "月柱", "日柱", "时柱")
-GAN = "甲乙丙丁戊己庚辛壬癸"
-ZHI = "子丑寅卯辰巳午未申酉戌亥"
-GAN_ELEM = {
-    "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
-    "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
-}
-ZHI_ELEM = {
-    "子": "水", "丑": "土", "寅": "木", "卯": "木", "辰": "土", "巳": "火",
-    "午": "火", "未": "土", "申": "金", "酉": "金", "戌": "土", "亥": "水",
-}
-GAN_YANG = {
-    "甲": True, "乙": False, "丙": True, "丁": False, "戊": True,
-    "己": False, "庚": True, "辛": False, "壬": True, "癸": False,
-}
-ZHI_HIDDEN = {
-    "子": ("癸",), "丑": ("己", "癸", "辛"), "寅": ("甲", "丙", "戊"),
-    "卯": ("乙",), "辰": ("戊", "乙", "癸"), "巳": ("丙", "戊", "庚"),
-    "午": ("丁", "己"), "未": ("己", "丁", "乙"), "申": ("庚", "壬", "戊"),
-    "酉": ("辛",), "戌": ("戊", "辛", "丁"), "亥": ("壬", "甲"),
-}
-GEN = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
-KE = {"木": "土", "火": "金", "土": "水", "金": "木", "水": "火"}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS reports (
@@ -78,135 +62,16 @@ def ensure_bazi_schema(paths: LovePaths) -> None:
         connection.executescript(SCHEMA_SQL)
 
 
-def _ten_god(day_gan: str, other_gan: str) -> str:
-    if day_gan not in GAN_ELEM or other_gan not in GAN_ELEM:
-        return ""
-    day_element = GAN_ELEM[day_gan]
-    other_element = GAN_ELEM[other_gan]
-    same_polarity = GAN_YANG[day_gan] == GAN_YANG[other_gan]
-    if day_element == other_element:
-        return "比肩" if same_polarity else "劫财"
-    if GEN[day_element] == other_element:
-        return "食神" if same_polarity else "伤官"
-    if KE[day_element] == other_element:
-        return "偏财" if same_polarity else "正财"
-    if KE[other_element] == day_element:
-        return "七杀" if same_polarity else "正官"
-    if GEN[other_element] == day_element:
-        return "偏印" if same_polarity else "正印"
-    return ""
-
-
-def _pillar(slot: str, gan: str, zhi: str, day_gan: str) -> dict[str, Any]:
-    hidden = ZHI_HIDDEN.get(zhi, ())
-    return {
-        "slot": slot,
-        "gan": gan,
-        "zhi": zhi,
-        "gan_wx": GAN_ELEM.get(gan, ""),
-        "zhi_wx": ZHI_ELEM.get(zhi, ""),
-        "gan_ss": _ten_god(day_gan, gan),
-        "zhi_ss": "·".join(_ten_god(day_gan, item) for item in hidden),
-        "hidden": "/".join(hidden),
-    }
-
-
-def _parse_pillar(value: Any) -> tuple[str, str] | None:
-    text = str(value or "").strip()
-    if len(text) == 2 and text[0] in GAN and text[1] in ZHI:
-        return text[0], text[1]
-    return None
-
-
-def _default_pillars() -> dict[str, str]:
-    return {"year": "", "month": "", "day": "", "hour": ""}
-
-
-def _normalize_pillars(raw: Any) -> dict[str, str]:
-    result = _default_pillars()
-    if isinstance(raw, dict):
-        for key in result:
-            value = raw.get(key) or raw.get({"year": "年柱", "month": "月柱",
-                                             "day": "日柱", "hour": "时柱"}[key])
-            result[key] = str(value or "").strip()
-    elif isinstance(raw, (list, tuple)):
-        for index, key in enumerate(result):
-            if index < len(raw):
-                result[key] = str(raw[index] or "").strip()
-    return result
-
-
 def _person_from_birth(payload: "PersonPayload", role: str) -> tuple[dict[str, Any], str]:
     """返回 (人员 chart, 提示)。优先用用户填的四柱；缺失时用 lunar_python 排盘。"""
-    manual = _normalize_pillars(payload.pillars)
-    birth_ok = bool(payload.birth_date)
-    birth_time = payload.birth_time or "12:00"
-    manual_complete = all(manual.values())
-    time_note = ""
-    if not payload.birth_time and not manual_complete:
-        time_note = "出生时间未填，按 12:00（午时）排盘；时柱仅供参考。"
-    if manual_complete:
-        parsed = {key: _parse_pillar(value) for key, value in manual.items()}
-        if any(item is None for item in parsed.values()):
-            raise HTTPException(422, f"{role} 的四柱格式应为「甲子」这样的两字干支")
-        year, month, day, hour = (parsed[key] for key in ("year", "month", "day", "hour"))
-    else:
-        if not birth_ok:
-            raise HTTPException(422, f"{role} 需要填写出生日期，或直接填写完整四柱")
-        try:
-            from lunar_python import Solar
-            year_number, month_number, day_number = (int(part) for part in payload.birth_date.split("-"))
-            hour_number, minute_number = (int(part) for part in birth_time.split(":"))
-            eight = Solar.fromYmdHms(
-                year_number, month_number, day_number, hour_number, minute_number, 0
-            ).getLunar().getEightChar()
-        except Exception as error:  # noqa: BLE001 - 日期/库解析失败要变成可读提示
-            raise HTTPException(422, f"{role} 的出生日期或时间无法排盘：{error}") from error
-        year = (eight.getYearGan(), eight.getYearZhi())
-        month = (eight.getMonthGan(), eight.getMonthZhi())
-        day = (eight.getDayGan(), eight.getDayZhi())
-        hour = (eight.getTimeGan(), eight.getTimeZhi())
-    day_gan = day[0]
-    pillars = [
-        _pillar(SLOTS[0], year[0], year[1], day_gan),
-        _pillar(SLOTS[1], month[0], month[1], day_gan),
-        _pillar(SLOTS[2], day[0], day[1], day_gan),
-        _pillar(SLOTS[3], hour[0], hour[1], day_gan),
-    ]
-    dayun = ""
-    if payload.birth_date and (not manual_complete or payload.birth_time):
-        try:
-            from lunar_python import Solar
-            year_number, month_number, day_number = (int(part) for part in payload.birth_date.split("-"))
-            hour_number, minute_number = (int(part) for part in birth_time.split(":"))
-            eight = Solar.fromYmdHms(
-                year_number, month_number, day_number, hour_number, minute_number, 0
-            ).getLunar().getEightChar()
-            yun = eight.getYun(1 if role == "男命" else 0)
-            start = f"起运 {yun.getStartYear()} 年 {yun.getStartMonth()} 个月"
-            cycles = []
-            for item in yun.getDaYun()[1:7]:
-                if item.getGanZhi():
-                    cycles.append(f"{item.getGanZhi()} {item.getStartYear()}-{item.getEndYear()}")
-            dayun = start + ("；" + "；".join(cycles) if cycles else "")
-        except Exception:
-            dayun = ""
-    birth = " ".join(item for item in [
-        str(payload.birth_date or "").strip(),
-        str(payload.birth_time or "").strip(),
-    ] if item)
-    return {
-        "name": payload.name.strip(),
-        "birth": birth,
-        "place": payload.place.strip(),
-        "day_master": f"{day_gan}{GAN_ELEM.get(day_gan, '')}",
-        "pillars": pillars,
-        "pattern": "",
-        "favor": [],
-        "avoid": [],
-        "dayun": dayun,
-        "time_note": time_note,
-    }, time_note
+    try:
+        return chart_from_birth(
+            name=payload.name, role=role, sex="male" if role == "男命" else "female",
+            birth_date=payload.birth_date, birth_time=payload.birth_time,
+            place=payload.place, pillars=payload.pillars,
+        )
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 class PersonPayload(BaseModel):

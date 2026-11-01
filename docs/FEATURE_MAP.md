@@ -6,16 +6,34 @@
 
 `GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_bazi`、`love_chat`、`love_cycle`、`love_gallery`、`love_master`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
 
+## 自我档案 v2 / 人生导师 / 八字系统（2026-11-01）
+
+> 完整规格：`docs/SELF_ARCHIVE_MENTOR_BAZI.md`。旧「忆灵 / 记忆中枢」章节仅作历史兼容。
+
+- 页面：`#self` = 自我档案（11 个固定本子 + 画像）/ 人生导师 / 八字系统；
+  页面内左栏两级展开；顶部标题在最上方；画像在本子网格下方。
+- 档案：`01_自我档案/01_档案/`；条目 Markdown 带 `entry_type`（fact/behavior/
+  inference/narrative/hypothesis）、`confidence`、`sources`、`supersedes`；
+  应用内只提供「和导师辩论这条」，不提供直接编辑/删除；Obsidian 可直接改。
+- 人生导师：`dsh/roles/mentor.md`；`/api/mentor/overview`、`/api/mentor/questions/*`、
+  `/api/self/pending/*`、`/api/self/synthesize`；三栏对话 + 分层记忆 + 待确认 +
+  每日三问 + 工作台常驻条。档案只有导师能写，用户确认后落盘。
+- 八字：`/api/self/bazi/*`；`01_自我档案/03_八字系统/命盘.md` + `解读/*.md`；
+  四柱/十神/藏干/五行/大运本地计算，AI 只写解读；与恋爱八字共用 `bazi_engine`。
+- 旧忆灵：旧面板/工作台忆灵条退役；`/api/memory-hub`、`identity_inbox`、`questions`
+  保留只读兼容；旧 `yiling` 角色与旧会话作为历史保留。
+
 ## AI 角色层（1.0 P0–P1）
 
 - `GET /api/ai/status`：角色层是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数；
   QA/禁用 dsh 时返回 `available=false`，不启动子进程。
 - `GET /api/ai/roles`：读取 `dsh/roles/*.md` 的角色元数据（id/name/modes/proposals），
   不返回 prompt 正文；非法角色只出现在 `role_errors`，不会被使用。
-- 当前已加载 8 个角色：忆灵/苏格拉底、写作伙伴、学术导师、生活管家、恋爱大师、
-  私人医生、健康估算助手、理财专家。角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，
-  不是第二个模型或第二个 Key。身份映射：人生路→写作伙伴、知识库→学术导师、
-  生活运营→生活管家、恋爱系统→恋爱大师。
+- 当前已加载 9 个角色：人生导师、忆灵/苏格拉底（历史兼容）、写作伙伴、学术导师、
+  生活管家、恋爱大师、私人医生、健康估算助手、理财专家。角色 = 同一 dsh 内核 +
+  角色卡 + 后端拼装的只读上下文，不是第二个模型或第二个 Key。身份映射：
+  自我档案→人生导师、人生路→写作伙伴、知识库→学术导师、生活运营→生活管家、
+  恋爱系统→恋爱大师。
 - `POST /api/ai/chat`：页面内角色抽屉的一轮对话；`thread_id` 续聊，`selectors` 只接受
   identity/note/journal/tasks/health/finance/love 等枚举来源，后端读取、编号、截断。
   新增 `selection_text` / `selection_source` / `draft_text`：编辑器/阅读器选区与未保存草稿
@@ -24,6 +42,14 @@
   `structured` JSON；解析失败只保留自然语言，不产生提案。
 - `GET/POST /api/ai/threads`、`GET/DELETE /api/ai/threads/{id}`：角色会话；删除需要
   `confirm=true`。
+- **AI 角色管理页（2.2，顶部 `#roles`）**：左侧全部角色 + 搜索 + 分层筛选；右侧编辑
+  名字、一句话定位、身份、说话风格（4 个预设）与最多 6 个专属 Skill（名称/使用时机/做法）。
+  留空字段沿用角色卡原文；自定义区块追加在 `## mode:` 提示之后。
+- `GET /api/ai/roles/{id}/profile` 返回可编辑字段、模式、入口、提议、revision 与文件名，
+  不返回 prompt 正文；`PUT` 只写 `tagline/identity/style/skills`，带 `expected_revision`，
+  冲突 409；原子写入、reload 校验，失败恢复旧文件。模式提示段与其它 frontmatter 不动。
+- 角色卡属于程序仓库 `dsh/roles/`，所有数据库共用；保存后下一轮对话生效，前端同时清空
+  角色抽屉缓存。新页面有未保存切换/离页确认。
 - `GET /api/proposals`、`GET /api/proposals/{id}`、`POST /api/proposals/{id}/apply|reject`：
   通用提案状态机；P1–P3 已注册 `new_task`/`new_habit`/`new_note`/`archive_note`/
   `identity_patch` 落盘 handler；采纳任务会在 `02_生活运营/00_待办事项/` 生成任务笔记；
@@ -35,6 +61,9 @@
   不发请求，偏好存 `.torch-os/personal-data.json`。
 - 编辑器内打开伙伴不再关闭编辑器：角色抽屉可宿主在编辑器 dialog 右侧，也可收起为底部
   悬浮输入条；选中文字后出现「问…」浮钮，选区以 chip 形式引用，消息气泡不展示原文。
+- 阅读器右上角「问学术导师 / 问写作伙伴 / 问生活管家」直接打开对应角色抽屉，并以
+  `{entry:"note", path}` 自动带上当前文档（不复制正文到前端）；抽屉里显示「正在读《…》」，
+  换一篇文档再打开会重置对话；没有对应角色的库（自我档案）不显示该入口。
 - 未注册的提案 apply 返回 409，不会静默成功。
 
 ## 生活运营 AI（1.0 P4）
@@ -47,7 +76,10 @@
   报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
 - 恋爱系统 v2 改为七页（2026-11-01）；所有 AI 走 dsh，聊天脱敏后进入上下文。详见 `docs/LIFE_SYSTEMS.md`。
 
-## 忆灵 / 记忆中枢（1.0 P3）
+## 忆灵 / 记忆中枢（1.0 P3，2026-11-01 起为历史兼容）
+
+> 新入口与规格见上文「自我档案 v2 / 人生导师 / 八字系统」；本节描述的旧面板、
+> 复盘卡与身份候选不再由新界面调用。
 
 - `GET /api/memory-hub/overview`：规范画像、待审复盘卡、待审身份补丁、观察快照、
   记忆候选与统计；`GET /portrait`、`GET /portrait/history`。
@@ -88,7 +120,7 @@
   知识库 key 为 `custom:knowledge:<名字>`；`/api/pillars/{pillar}/overview` 返回
   `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，笔记仍走
   `/api/writing/notes`。名称不能和内置本子/章节/库名重名；
-  笔记可在同一库的本子之间移动（笔记卡片右上角「移动」或阅读器「移动到本子」直接选目标，
+  笔记可在同一库的本子之间移动（笔记卡片右上角或阅读器里的「移动」直接选目标，
   也可在编辑器「本子」选择器里保存时移动；后端会实际把 Markdown 文件移到目标文件夹、
   同步已扫描的 `documents` 索引路径并写 `note_moved` 审计），也可软删除到
   `.torch-os/笔记回收站`。
@@ -319,10 +351,12 @@
 - 数据全部在 `02_生活运营/02_健康系统/`：`01_每日健康/YYYY-MM-DD.md`（frontmatter
   存睡眠/身体/饮食/运动，正文是后端重写的可读摘要）、`02_身体档案`（身高/生日/
   病史/过敏/用药/目标/自定义指标）、`03_体检与检验`（带参考区间的 Markdown 表）、
-  `00_健康报告`（私人医生产物）。旧 `01_健康与体重` 月度表只读兼容。
+  `04_训练记录`（预留）、`05_问诊记录`（私人医生问答自动追加）、
+  `00_健康报告`（私人医生产物）。旧 `01_健康与体重` 月度表只读兼容；生活运营不再有
+  独立的 `03_体检与医疗`。
 - 七个页面：今日记录（四张记录卡 + 四维进度 + 七天周卡片）、身体情况、睡眠情况、
-  饮食情况、运动记录、健康档案（档案封面 + 最新数据 + 检查与用药 + 目标 + 报告）、
-  私人医生（页内问诊 + 固定「健康报告」本子）。
+  饮食情况、运动记录、健康档案（档案封面 + 最新数据 + 检查与用药 + 目标 + 问诊/报告）、
+  私人医生（页内问诊 + 自动问诊记录 + 固定「健康报告」本子）。
 - 沿用：当天没记录时显示最近一次数据（睡眠 3 天、身体 30 天、饮食 7 天、运动 14 天
   内有效），只在读取时生效，不复制成今天的新记录。
 - 评分：四维加权（睡眠 30 / 身体 25 / 饮食 20 / 运动 25），缺数据维度不参与并标
@@ -330,8 +364,9 @@
 - 饮食/运动支持一句话描述 + dsh `health_estimator` AI 估算（先预览可改再保存），
   内置约 60 种常吃食物；精确餐次与训练组数仍保留。
 - 私人医生：`health_doctor` 的 `advice`（页内聊天）与 `report`（健康报告）；
+  `POST /api/health/consult` 把每次问答追加到 `05_问诊记录` 当天文档；
   `POST /api/health/report` 基于最近 30 天 + 最新档案生成，落 `00_健康报告`，
-  标题 `YYYY-MM-DD 健康报告`；单份报告可软删除，本子不可删除。
+  标题 `YYYY-MM-DD 健康报告`；单份报告/问诊记录可软删除，本子不可删除。
 - 旧 `vitals`/`mind` 数据保留在 Markdown，不展示、不参与评分。
 - 图表是原生 SVG（`frontend/health-model.js`），页面不使用内联 style（CSP）。
 - 未做：训练计划、体检报告 PDF/OCR、CSV 批量导入、进度照片时间轴、Web 通知提醒。
@@ -411,8 +446,8 @@
 ### 设置 · 个人数据库（2026-10-26）
 
 - 设置 →「Obsidian 库连接」→「个人数据库」：显示当前库路径、模板只读预览
-  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `48 个章节 / layout v2`，即四库
-  46 章 + 恋爱记忆 2 个写作章节；设置页只
+  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `49 个章节 / layout v2`，即四库?
+  47 章 + 恋爱记忆 2 个写作章节；设置页只
   展示、不能编辑，也不渲染分组行），以及「创建新的个人数据库」（父文件夹 + 名字）。
 - 创建只写一个新文件夹，按 `pillars-v2` 直接落 v2 章节路径：四库章节、`_系统`/`任务`、
   `.torch-os/vault-layout.json`（含 `groups`）、`.obsidian` 预设与 torch 插件、种子身份笔记；

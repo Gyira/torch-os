@@ -1397,3 +1397,11 @@ button.life-heatmap-cell { cursor: pointer; }
   .recycle-item { flex-direction: column; }
   .recycle-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* 回收中心：2026-11-01 起复用四库顶部标题样式 */
+.recycle-pillar-head {
+  --pillar-accent: var(--p-accent);
+  --pillar-soft: var(--p-accent-soft);
+  padding-bottom: 18px;
+}
+.recycle-pillar-head .pillar-subtitle { max-width: 62em; }

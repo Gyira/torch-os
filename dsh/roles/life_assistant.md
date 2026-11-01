@@ -1,6 +1,7 @@
 ---
 id: life_assistant
 name: 生活管家
+tagline: 把生活、任务和习惯收束成下一步
 agent: life_assistant
 layer: ops
 entry: [workbench.tasks, ops.overview]

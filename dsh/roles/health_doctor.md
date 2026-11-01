@@ -1,6 +1,7 @@
 ---
 id: health_doctor
 name: 私人医生
+tagline: 读健康记录，给可执行的照护建议
 agent: health_doctor
 layer: health
 entry: [health.report]

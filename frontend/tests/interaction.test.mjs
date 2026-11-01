@@ -334,15 +334,15 @@ test("the shell keeps its skip link, main landmark and single page-title contrac
   assert.match(html, /<main class="main" id="main-content" tabindex="-1">/);
   assert.match(html, /<h1 id="page-title" tabindex="-1">/);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((match) => match[1]);
-  assert.equal(views.length, 6);
+  assert.equal(views.length, 7);
   for (const view of views) {
     // 模块可以是实体页面（workbench / settings），也可以只有分区（四库）。
     const shell = new RegExp(`id="${view}-view"`).test(html);
     const panes = new RegExp(`data-module="${view}"`).test(html);
     assert.ok(shell || panes, `${view} exposes a shell or panes`);
   }
-  // 工作台与设置页用页面标题；与神对话现在是同页区块，用自己的「与神对话」标签。
-  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 2);
+  // 工作台、AI 角色与设置页用页面标题；与神对话现在是同页区块，用自己的「与神对话」标签。
+  assert.equal((html.match(/aria-labelledby="page-title"/g) || []).length, 3);
 });
 
 test("static markup keeps accessible names and live status regions", async () => {
@@ -371,7 +371,7 @@ test("switching views focuses the page title and keeps aria-current in sync", as
   setResponse((url) => url === "/api/health" ? { status: "ok" }
     : url === "/api/config/status" ? { model_configured: false, capabilities: {} }
       : []);
-  const navItems = ["workbench", "life", "self", "ops", "knowledge", "settings"]
+  const navItems = ["workbench", "life", "self", "ops", "knowledge", "roles", "settings"]
     .map((view) => { const node = getNode(`[data-view="${view}"]`); node.dataset.view = view; return node; });
   // 真实浏览器里 `.nav-item, .panel-nav-item` 会同时命中侧边栏与面板切换条；
   // 这个假 DOM 只有侧边栏节点，所以按“包含 .nav-item”来回答（0.94.0 修正）。
@@ -468,7 +468,7 @@ test("the sidebar second level lists exactly the panes each module defines", asy
     modules[name] = [...entry.matchAll(/\["([a-z-]+)", "([^"]+)"\]/g)].map((match) => [match[1], match[2]]);
   }
   assert.deepEqual(Object.keys(modules).sort(), [
-    "knowledge", "life", "ops", "self", "settings", "workbench",
+    "knowledge", "life", "ops", "roles", "self", "settings", "workbench",
   ]);
 
   const groups = [...html.matchAll(/<div class="nav-sublist"[^>]*data-sublist="([a-z]+)"[^>]*>([\s\S]*?)<\/div>/g)]
@@ -509,7 +509,7 @@ test("the appearance section lists every sidebar view and offers a reset", async
   const defaults = (defaultsBlock.match(/"([a-z]+)"/g) || []).map((value) => value.replace(/"/g, ""));
   const views = [...html.matchAll(/class="nav-item[^"]*" data-view="([a-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual([...views].sort(), [...defaults].sort());
-  assert.equal(defaults.length, 6);
+  assert.equal(defaults.length, 7);
 });
 
 test("the time dialogs collect every field value on submit", async () => {
@@ -1151,7 +1151,7 @@ test("standalone pages use the top module navigation instead of the outer sideba
   const main = h.getNode("#main-content");
   assert.equal(byClass(main, "panel-nav").length, 1);
   assert.deepEqual(byClass(main, "panel-nav-item").map((node) => node.dataset.view),
-    ["workbench", "life", "self", "ops", "knowledge", "settings"]);
+    ["workbench", "life", "self", "ops", "knowledge", "roles", "settings"]);
 });
 
 test("destructive confirmations opt into the danger style and reset for the next prompt", async () => {

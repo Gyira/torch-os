@@ -37,7 +37,7 @@ test("the shortcut sheet covers every implemented entry and nothing else", async
   for (const expected of ["全局搜索", "快捷键总览", "工作台", "知识库", "新任务输入", "在 Obsidian 新建"]) {
     assert.match(labels, new RegExp(expected), `总览里应说明：${expected}`);
   }
-  assert.deepEqual(Object.keys(model.VIEW_CHORDS), ["w", "l", "s", "o", "k", ",", "h"]);
+  assert.deepEqual(Object.keys(model.VIEW_CHORDS), ["w", "l", "s", "o", "k", "r", ",", "h"]);
   assert.equal(model.VIEW_CHORDS.h, "help");
 });
 

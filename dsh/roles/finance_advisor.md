@@ -1,6 +1,7 @@
 ---
 id: finance_advisor
 name: 理财专家
+tagline: 读账目，给预算与消费建议
 agent: finance_advisor
 layer: finance
 entry: [finance.report]

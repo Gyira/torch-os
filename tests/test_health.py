@@ -459,7 +459,7 @@ def test_consult_note_appends_lists_and_deletes(tmp_path):
         "answer": "先把起床时间固定下来，晚上少看屏幕。"})
     assert first.status_code == 200, first.text
     path = first.json()["note"]["path"]
-    assert path == "02_生活运营/02_健康系统/05_问诊记录/2026-10-31 问诊记录.md"
+    assert path == "02_生活运营/02_健康系统/05_问诊记录/2026-10-31_问诊记录.md"
     assert first.json()["note"]["title"] == "2026-10-31 问诊记录"
 
     second = client.post("/api/health/consult", json={

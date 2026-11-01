@@ -14,7 +14,8 @@
 
 | id | 名称 | 模式 | 允许提议 |
 |---|---|---|---|
-| `yiling` | 忆灵 / 苏格拉底 | `synthesize` / `converse` | identity_patch、review_card、new_note、hub_event |
+| `mentor` | 人生导师 | `converse` / `synthesize` / `bazi` / `question_draft` | hub_event（档案补丁走独立 Markdown 待确认） |
+| `yiling` | 忆灵 / 苏格拉底（历史兼容） | `synthesize` / `converse` | identity_patch、review_card、new_note、hub_event |
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
 | `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
 | `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
@@ -23,8 +24,10 @@
 | `health_estimator` | 健康估算助手 | `estimate` | — |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
-忆灵与苏格拉底是**同一个 agent 的两种模式**：同一份画像、同一套身份权威；
-区别只在于入口（忆灵页 vs 苏格拉底对话）。
+2026-11-01 起，新入口统一为 `mentor`（人生导师）：对话、整理、八字、拟答四种模式，
+读自我档案/分层记忆/三库；档案写入走 `01_自我档案/02_人生导师/待确认/`。
+`yiling` 角色与旧会话只作历史保留，新界面不再调用；完整设计见
+`docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
 
 ## 3. 角色卡格式
 
@@ -32,6 +35,7 @@
 ---
 id: yiling
 name: 忆灵
+tagline: 长期观察者，维护你的画像与记忆
 agent: yiling
 layer: identity
 entry: [self.memory, self.socrates]
@@ -41,6 +45,13 @@ proposals: [identity_patch, review_card, new_note, hub_event]
 session: per_thread
 timeout_s: 180
 tools: none
+identity: 你是这个人的长期观察者，不替他做决定。
+style: 温和、克制、具体；先接住感受，再追问一个具体问题。
+skills:
+  - id: skill_week_review
+    name: 周回看
+    when: 周日晚上，或我说“回看这一周”时
+    instructions: 先列三件事实，再指出一个反复出现的模式，最后只给一个下周动作。
 ---
 
 ## mode: synthesize
@@ -55,6 +66,10 @@ tools: none
 - `id` 小写字母开头；`modes` 至少一个，且每个 mode 必须有对应 `## mode:` 段；
 - `entry` 必须属于固定入口表；`proposals` 必须属于固定提案类型表；
 - `tools` 必须是 `none`；`timeout_s` 在 10–600 秒；
+- `tagline` ≤120 字，`identity` ≤4000 字，`style` ≤2000 字；`skills` 最多 6 个，
+  每个必须有唯一 id/名称/做法，名称 ≤40 字、使用时机 ≤200 字、做法 ≤4000 字；
+- 自定义区块只作为「用户设定」追加在 mode 提示之后；留空时 prompt 与旧角色卡一致。
+  `style` 明确不改变 mode 规定的输出格式、事实边界和只读边界；
 - 非法角色只记入 `role_errors`，不会被加载。
 
 ## 4. 调用方式
@@ -79,7 +94,9 @@ dsh --profile headless --json --session-id <session-torch-...> -
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/ai/status` | 是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数、角色文件错误 |
-| GET | `/api/ai/roles` | 角色元数据（不含 prompt 正文） |
+| GET | `/api/ai/roles` | 角色元数据（不含 prompt 正文；含 tagline、custom 计数、skill_names 与加载错误） |
+| GET | `/api/ai/roles/{id}/profile` | 可编辑档案：名字/定位/身份/风格/Skill + 模式/入口/提议 + revision + 文件名 |
+| PUT | `/api/ai/roles/{id}/profile` | 保存身份/风格/Skill；`expected_revision` 必填，冲突 409；模式正文与其它字段不动 |
 | POST | `/api/ai/chat` | 角色对话；`role_id/mode/thread_id/message/entry/selectors/selection_text/selection_source/draft_text` |
 | POST | `/api/ai/run` | 一次性能力；返回 `text` + `structured` |
 | POST | `/api/ai/threads` | 新建会话 |
@@ -135,8 +152,13 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 
 ## 7. 前端入口（P1）
 
+- **顶部「AI 角色」管理页（2.2）**：`role-admin.js` + `role-admin.css` + 纯逻辑
+  `role-admin-model.js`；搜索/分层筛选、身份/风格/专属 Skill 编辑、revision 冲突提示、
+  未保存切换/离页确认，保存后清空角色抽屉缓存。当前角色卡仍属于程序仓库，所有数据库共用；
 - 工作台 → 时间管理顶部「生活管家」→ `life_assistant/tasks` 抽屉；
 - 人生路/知识库/生活运营/恋爱系统的首页卡片分别打开写作伙伴/学术导师/生活管家/恋爱大师；
+- 阅读器右上角有「问…」入口：打开对应角色时自动带上当前文档（`note` 选择器，每轮读取最新正文），
+  抽屉里用「正在读《…》」chip 说明，并给几条贴着这篇文档的问题；换一篇文档会开一段新对话；
 - 编辑器内打开伙伴不关闭编辑器：右侧面板与底部悬浮输入条可互相收起/展开；
 - 选中文字出现「问…」浮钮，选区以 chip 引用进入对话；消息气泡不展示原文；
 - 抽屉里的任务/习惯提案可直接采纳，采纳后任务板刷新；

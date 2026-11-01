@@ -100,6 +100,7 @@ from .pending import create_pending_router
 from .planning_export import create_planning_export_router
 from .questions import create_questions_router
 from .scheduler import SchedulerService, create_scheduler_router
+from .self_api import create_self_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
 from .migration_api import create_migration_router
@@ -110,14 +111,15 @@ from .wolai_import import WolaiImportError, preview_wolai_archive, import_select
 from .wolai_import import preview_import_states
 from .workbench import create_workbench_router
 
-APP_VERSION = '2.1.0'
+APP_VERSION = '2.2.0'
 
 # Page manifest consumed by the local dsh sidebar plugin (0.88.0). The labels
 # mirror frontend/nav-order.js; tests keep the two in sync.
 # 对话页已移除（用户 2026-10-05：对话统一在 dsh 里），所以这里不再有 chat。
 NAV_VIEWS = [
     ('workbench', '工作台'), ('life', '人生路'), ('self', '自我档案'),
-    ('ops', '生活运营'), ('knowledge', '知识库'), ('settings', '设置与状态'),
+    ('ops', '生活运营'), ('knowledge', '知识库'), ('roles', 'AI 角色'),
+    ('settings', '设置与状态'),
 ]
 
 
@@ -876,9 +878,13 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
         read_only=vault_read_only))
     # v1.0 忆灵：事件/画像/复盘卡/身份补丁；身份只走 proposal handler。
+    # 2026-11-01 起旧忆灵只作历史兼容；新入口是人生导师（self_api）。
     app.include_router(memory_hub.create_memory_hub_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
         read_only=vault_read_only))
+    # 自我档案 v2 + 人生导师：本子/条目/画像/待确认/每日三问/全量整理。
+    app.include_router(create_self_router(
+        vault_dir, read_only=vault_read_only, role_service=ai_service))
     # 恋爱系统 v2：私人数据全部在 02_生活运营/01_恋爱系统/，按七个页面分目录；
     # 旧 .torch-os/love/ 只作为迁移来源。AI 统一走 dsh 角色层，不再保存独立 DeepSeek Key。
     train_tracker_legacy: list[Path] = []

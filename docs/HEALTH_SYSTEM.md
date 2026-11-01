@@ -29,7 +29,9 @@
 │                                姓名/性别/生日/身高/血型、病史/过敏/用药、目标、自定义指标
 ├── 03_体检与检验/检验记录（labs）.md
 │                                日期/分类/项目/数值/单位/参考区间/异常
-└── 04_训练记录/                 预留目录；训练明细仍在每日记录的 training 列表里
+├── 04_训练记录/                 预留目录；训练明细仍在每日记录的 training 列表里
+└── 05_问诊记录/YYYY-MM-DD 问诊记录.md
+                                 私人医生每次问答自动追加；同一天同一篇
 ```
 
 > 2026-11-01 起 `02_生活运营/03_体检与医疗` 退役：启动时内容并入
@@ -46,6 +48,7 @@
 | 身体情况 | `02_身体档案` + 每日 `body` |
 | 健康档案 | 聚合 `02_身体档案`、`03_体检与检验`、每日记录与 `00_健康报告`（本身不另存副本） |
 | 私人医生 / 健康报告 | `00_健康报告` |
+| 私人医生问诊 | `05_问诊记录/YYYY-MM-DD 问诊记录.md`（每次问答自动追加） |
 | 精细训练明细 | 每日记录的 `training`；`04_训练记录` 仅作未来独立训练文件的预留目录 |
 
 每日记录 frontmatter（schema 仍为 `health-day-v1`，新字段向后兼容）：
@@ -157,7 +160,10 @@ note: 今天状态不错。
 | GET | `/api/health/overview?day=` | 今日记录：档案、目录、当日记录、`effective` 沿用、`current` 四维指数、周卡片、缺失项、检验、报告 |
 | GET | `/api/health/week?day=` | 某一周的 7 天摘要（周一起） |
 | GET | `/api/health/archive?day=` | 健康档案聚合 |
-| GET | `/api/health/doctor` | 私人医生数据范围与报告列表 |
+| GET | `/api/health/doctor` | 私人医生数据范围、报告与问诊记录列表 |
+| GET | `/api/health/consults` | 问诊记录列表 |
+| POST | `/api/health/consult` | `{question, answer, day?}` 追加到当天问诊记录 |
+| DELETE | `/api/health/consults?path=&revision=` | 删除单份问诊记录（软删除到笔记回收站） |
 | GET | `/api/health/day/{day}` | 某一天完整记录 + 旧六维当日评分 |
 | PATCH | `/api/health/day/{day}` | `{revision, changes:{section:{field:value}}}`；`null` 删除字段 |
 | PUT | `/api/health/day/{day}/diet` | `{revision, food_text, water_ml, meals}` 一次保存饮食 |

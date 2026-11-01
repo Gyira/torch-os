@@ -9,7 +9,8 @@
 - 趋势：``GET /api/health/trends``（指标目录里的任意数值指标 + 评分/BMI 等派生值）；
 - 洞察：``GET /api/health/insights`` 与已读标记；
 - 动作库：``GET /api/health/exercises``（文本复用 openGym，见 health_exercises）；
-- 报告：``POST /api/health/report`` 走「私人医生」角色，落 ``00_健康报告``。
+- 报告：``POST /api/health/report`` 走「私人医生」角色，落 ``00_健康报告``；
+- 问诊记录：``POST /api/health/consult`` 把每次问答追加到 ``05_问诊记录`` 当天文档。
 
 写入一律先过 ``ensure_vault_writable``；AI 不可用时报告返回 409，普通记录不受影响。
 """

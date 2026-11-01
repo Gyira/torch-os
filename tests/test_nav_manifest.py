@@ -13,7 +13,7 @@ from backend.app.application import create_app
 from backend.app.db import Database
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ["workbench", "life", "self", "ops", "knowledge", "settings"]
+MODULES = ["workbench", "life", "self", "ops", "knowledge", "roles", "settings"]
 
 
 def make_app(tmp_path):
@@ -27,7 +27,7 @@ def test_nav_manifest_matches_the_frontend_modules_and_labels(tmp_path):
     client.get("/")
     views = client.get("/api/nav").json()["views"]
     ids = [view["id"] for view in views]
-    assert len(ids) == len(set(ids)) == 6
+    assert len(ids) == len(set(ids)) == 7
     assert ids == MODULES, "顺序由 NAV_VIEWS 决定"
     assert "chat" not in ids, "对话页已移除：清单里不应再有 chat"
     assert "today" not in ids and "profile" not in ids, "旧页面名不应再出现在清单里"

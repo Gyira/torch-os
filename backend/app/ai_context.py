@@ -14,17 +14,24 @@ silently dropped, so the role can say "库里没有".
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from . import identity, journal_note, pillar_notes, task_reports, vault_layout, workbench
+from . import (identity, journal_note, pillar_notes, self_archive, task_reports,
+               mentor_memory, vault_layout, workbench)
 from .db import Database
 from .journal_shared import shanghai_today, validate_day
+from .vault import parse_text
 
 MAX_SELECTORS = 8
 MAX_TOTAL_CHARS = 80_000
 DEFAULT_TOTAL_CHARS = 24_000
-SUPPORTED_ENTRIES = {"identity", "note", "journal", "tasks", "health", "finance", "love"}
+SUPPORTED_ENTRIES = {
+    "identity", "note", "journal", "journals_recent", "tasks", "health",
+    "finance", "love", "self_archive", "mentor_memory", "recent_notes",
+    "ops_summary", "bazi_chart",
+}
 FUTURE_ENTRIES = {"memory_card", "proposal", "share"}
 
 IDENTITY_LABELS = {
@@ -118,6 +125,27 @@ def _journal_context(vault_dir: Path | str, selector: Mapping[str, Any],
                    str(note.get("relpath") or vault_layout.journal_path(day)), body, 4_000)
 
 
+def _journals_recent_context(vault_dir: Path | str, selector: Mapping[str, Any],
+                             source_id: str) -> tuple[dict[str, Any], str, bool]:
+    try:
+        days = max(1, min(int(selector.get("days") or 14), 90))
+    except (TypeError, ValueError):
+        days = 14
+    today = shanghai_today()
+    blocks: list[str] = []
+    for offset in range(days - 1, -1, -1):
+        day = (today - timedelta(days=offset)).isoformat()
+        note = journal_note.read_note(vault_dir, day)
+        if not note.get("exists"):
+            continue
+        content = str(note.get("content") or "").strip()
+        if not content or not journal_note.journal_has_content(content):
+            continue
+        blocks.append(f"### {day}\n\n{content[:3000]}")
+    body = "\n\n".join(blocks) if blocks else f"最近 {days} 天没有日记。"
+    return _source(source_id, "journals_recent", f"最近 {days} 天日记", "", body, 12_000)
+
+
 def _tasks_context(database: Database, vault_dir: Path | str, selector: Mapping[str, Any],
                    source_id: str) -> tuple[dict[str, Any], str, bool]:
     raw_day = str(selector.get("day") or "").strip()
@@ -179,6 +207,95 @@ def _finance_context(vault_dir: Path | str, source_id: str) -> tuple[dict[str, A
     return _source(source_id, "finance", "财富与记账摘要", "", body, 4_000)
 
 
+def _self_archive_context(vault_dir: Path | str,
+                          source_id: str) -> tuple[dict[str, Any], str, bool]:
+    body = self_archive.context_text(vault_dir, max_chars=20_000)
+    if not body:
+        body = "自我档案还没有条目。"
+    return _source(source_id, "self_archive", "自我档案（当前条目）",
+                   vault_layout.SELF_ARCHIVE_ROOT, body, 20_000)
+
+
+def _mentor_memory_context(vault_dir: Path | str,
+                           source_id: str) -> tuple[dict[str, Any], str, bool]:
+    body = mentor_memory.context_text(vault_dir, max_chars=13_000)
+    if not body:
+        body = "人生导师还没有记忆。"
+    return _source(source_id, "mentor_memory", "人生导师记忆",
+                   vault_layout.SELF_MENTOR_MEMORY_DIR, body, 13_000)
+
+
+def _recent_notes_context(vault_dir: Path | str, selector: Mapping[str, Any],
+                          source_id: str) -> tuple[dict[str, Any], str, bool]:
+    try:
+        days = max(1, min(int(selector.get("days") or 30), 365))
+    except (TypeError, ValueError):
+        days = 30
+    try:
+        notes = pillar_notes.list_notes(vault_dir, pillar="knowledge", limit=80)
+    except Exception:
+        notes = []
+    lines: list[str] = []
+    cutoff = (shanghai_today()).toordinal() - days
+    for note in notes:
+        raw_date = str(note.get("date") or "")[:10]
+        try:
+            if raw_date and date.fromisoformat(raw_date).toordinal() < cutoff:
+                continue
+        except ValueError:
+            pass
+        title = str(note.get("title") or "").strip()
+        excerpt = str(note.get("excerpt") or "").strip()
+        if not title:
+            continue
+        lines.append(f"- {title}" + (f"：{excerpt[:160]}" if excerpt else ""))
+        if len(lines) >= 40:
+            break
+    body = "最近的知识库笔记：\n" + "\n".join(lines) if lines else "最近没有新的知识库笔记。"
+    return _source(source_id, "recent_notes", f"知识库最近 {days} 天",
+                   vault_layout.PILLAR_DIRS["knowledge"], body, 8_000)
+
+
+def _ops_summary_context(database: Database, vault_dir: Path | str,
+                         source_id: str) -> tuple[dict[str, Any], str, bool]:
+    parts: list[str] = []
+    try:
+        meta, block, _cut = _tasks_context(database, vault_dir, {}, "S-tasks")
+        parts.append(block)
+    except Exception as exc:
+        parts.append(f"任务摘要读不到：{exc}")
+    try:
+        _meta, block, _cut = _health_context(vault_dir, "S-health")
+        parts.append(block)
+    except Exception as exc:
+        parts.append(f"健康摘要读不到：{exc}")
+    try:
+        _meta, block, _cut = _finance_context(vault_dir, "S-finance")
+        parts.append(block)
+    except Exception as exc:
+        parts.append(f"财务摘要读不到：{exc}")
+    return _source(source_id, "ops_summary", "生活运营摘要", "", "\n\n".join(parts), 10_000)
+
+
+def _bazi_context(vault_dir: Path | str,
+                  source_id: str) -> tuple[dict[str, Any], str, bool]:
+    path = Path(vault_dir) / vault_layout.SELF_BAZI_ROOT / "命盘.md"
+    if not path.is_file():
+        return _source(source_id, "bazi_chart", "个人命盘", "", "还没有命盘。", 1_000)
+    try:
+        metadata, body = parse_text(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        return _source(source_id, "bazi_chart", "个人命盘", "", f"命盘读不到：{exc}", 500)
+    lines = []
+    for key in ("name", "sex", "birth_date", "birth_time", "birth_place", "pillars_manual"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            lines.append(f"{key}：{value}")
+    text = "\n".join(lines) + ("\n\n" + body if body.strip() else "")
+    return _source(source_id, "bazi_chart", "个人命盘",
+                   f"{vault_layout.SELF_BAZI_ROOT}/命盘.md", text, 6_000)
+
+
 def _love_context(source_id: str, love_settings: Any = None) -> tuple[dict[str, Any], str, bool]:
     if love_settings is None:
         return _source(source_id, "love", "恋爱摘要", "", "还没有启用恋爱数据。", 1_000)
@@ -215,12 +332,24 @@ def _build_one(database: Database, vault_dir: Path | str, selector: Any,
         return _note_context(vault_dir, selector, source_id)
     if entry == "journal":
         return _journal_context(vault_dir, selector, source_id)
+    if entry == "journals_recent":
+        return _journals_recent_context(vault_dir, selector, source_id)
     if entry == "health":
         return _health_context(vault_dir, source_id)
     if entry == "finance":
         return _finance_context(vault_dir, source_id)
     if entry == "love":
         return _love_context(source_id, love_settings)
+    if entry == "self_archive":
+        return _self_archive_context(vault_dir, source_id)
+    if entry == "mentor_memory":
+        return _mentor_memory_context(vault_dir, source_id)
+    if entry == "recent_notes":
+        return _recent_notes_context(vault_dir, selector, source_id)
+    if entry == "ops_summary":
+        return _ops_summary_context(database, vault_dir, source_id)
+    if entry == "bazi_chart":
+        return _bazi_context(vault_dir, source_id)
     return _tasks_context(database, vault_dir, selector, source_id)
 
 

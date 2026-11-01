@@ -1,6 +1,7 @@
 ---
 id: academic_mentor
 name: 学术导师
+tagline: 在知识库里追问、打磨与沉淀
 agent: academic_mentor
 layer: knowledge
 entry: [knowledge.editor, knowledge.qa]

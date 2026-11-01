@@ -53,22 +53,22 @@ async def run(base_url: str, port: int = 9334) -> dict:
             await cdp.call("Runtime.enable")
             await cdp.call("Log.enable")
             await cdp.wait_for("document.readyState === 'complete'")
-            await cdp.wait_for("document.querySelectorAll('.panel-nav-item').length === 6", timeout=45)
+            await cdp.wait_for("document.querySelectorAll('.panel-nav-item').length === 7", timeout=45)
 
-            await cdp.wait_for("document.querySelector('#workbench-memory')", timeout=30)
+            await cdp.wait_for("document.querySelector('#workbench-mentor')", timeout=30)
             report["checks"]["workbench"] = bool(await cdp.evaluate("""(() => ({
-                memory: Boolean(document.querySelector('#workbench-memory')),
+                mentor: Boolean(document.querySelector('#workbench-mentor')),
                 old_question: Boolean(document.querySelector('#workbench-question')),
                 widgets: document.querySelectorAll('[data-widget]').length,
             }))()"""))
             wb = await cdp.evaluate("""(() => ({
-                memory: Boolean(document.querySelector('#workbench-memory')),
+                mentor: Boolean(document.querySelector('#workbench-mentor')),
                 old_question: Boolean(document.querySelector('#workbench-question')),
                 widgets: document.querySelectorAll('[data-widget]').length,
             }))()""")
             report["checks"]["workbench_detail"] = wb
-            if wb["old_question"] or not wb["memory"]:
-                report["errors"].append("工作台忆灵条/旧提问卡不符合预期")
+            if wb["old_question"] or not wb["mentor"]:
+                report["errors"].append("工作台人生导师条/旧提问卡不符合预期")
 
             # 设置 → 小组件：关掉天气，工作台不再显示。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"settings\"]').click()")
@@ -203,22 +203,32 @@ async def run(base_url: str, port: int = 9334) -> dict:
             report["checks"]["share_dialog"] = bool(await cdp.evaluate("Boolean(document.querySelector('#share-link-url'))"))
             await cdp.evaluate("document.querySelector('#share-link-close').click()")
 
-            # 自我档案：忆灵面板 + 苏格拉底按钮。
+            # 自我档案 v2：顶部标题 + 三部分左栏 + 11 个本子 + 画像在下方。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"self\"]').click()")
             await cdp.wait_for("location.hash === '#self'", timeout=10)
-            await cdp.wait_for("document.querySelector('#self-hub [data-memory-socrates]')", timeout=30)
-            report["checks"]["memory_hub"] = bool(await cdp.evaluate(
-                "Boolean(document.querySelector('#self-hub [data-memory-synthesize]'))"))
+            await cdp.wait_for("document.querySelectorAll('#self-view .self-book-card').length === 11", timeout=45)
+            self_home = await cdp.evaluate("""(() => ({
+                head: Boolean(document.querySelector('#self-shell .pillar-head')),
+                groups: document.querySelectorAll('#self-view .self-rail-group').length,
+                books: document.querySelectorAll('#self-view .self-book-card').length,
+                portrait: Boolean(document.querySelector('#self-view .self-portrait')),
+                old_hub: Boolean(document.querySelector('#self-hub')),
+            }))()""")
+            report["checks"]["self_archive"] = self_home
+            if not self_home.get("head") or self_home.get("groups") != 3 \
+                    or self_home.get("books") != 11 or not self_home.get("portrait") \
+                    or self_home.get("old_hub"):
+                report["errors"].append("自我档案 v2 外壳不符合预期")
 
-            # 生活运营：AI 卡片四个入口。
+            # 生活运营：首页顶部标题 + 四个生活系统入口。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"ops\"]').click()")
             await cdp.wait_for("location.hash === '#ops'", timeout=10)
-            await cdp.wait_for("document.querySelector('[data-ops-ai] .ops-ai-card')", timeout=30)
-            report["checks"]["ops_ai_buttons"] = int(await cdp.evaluate(
-                "document.querySelectorAll('[data-ops-ai-report]').length"))
+            await cdp.wait_for("document.querySelectorAll('#ops-view [data-ops-system]').length >= 4", timeout=30)
+            report["checks"]["ops_systems"] = int(await cdp.evaluate(
+                "document.querySelectorAll('#ops-view [data-ops-system]').length"))
             report["js_errors"] = list(cdp.errors)
             report["ok"] = bool(
-                report["checks"].get("workbench_detail", {}).get("memory")
+                report["checks"].get("workbench_detail", {}).get("mentor")
                 and not report["checks"].get("workbench_detail", {}).get("old_question")
                 and report["checks"].get("widget_hidden")
                 and report["checks"].get("life_home", {}).get("hero")
@@ -233,8 +243,8 @@ async def run(base_url: str, port: int = 9334) -> dict:
                 and report["checks"].get("knowledge_home", {}).get("ask")
                 and report["checks"].get("knowledge_home", {}).get("form")
                 and report["checks"].get("share_dialog")
-                and report["checks"].get("memory_hub")
-                and report["checks"].get("ops_ai_buttons") == 4
+                and report["checks"].get("self_archive", {}).get("books") == 11
+                and report["checks"].get("ops_systems", 0) >= 4
                 and not report["errors"]
                 and not cdp.errors
             )

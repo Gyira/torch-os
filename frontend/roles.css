@@ -136,6 +136,12 @@
   font-size: 20px;
 }
 
+.role-empty-hint {
+  margin-top: 10px;
+  color: var(--p-ink-faint);
+  font-size: 12px;
+}
+
 .role-drawer-chips {
   display: flex;
   flex-wrap: wrap;
@@ -377,6 +383,14 @@
   white-space: nowrap;
 }
 
+/* 阅读器文档上下文：只说明「正在读」，不提供移除，避免误删后还以为带着文档。 */
+.role-context-chip.is-note {
+  border-color: var(--p-line);
+  background: var(--p-surface-2);
+  color: var(--p-ink-3);
+  padding-right: 11px;
+}
+
 .role-context-clear {
   flex: none;
   width: 20px;
@@ -403,6 +417,12 @@
 }
 
 .role-message-quote + .role-message-body { margin-top: 2px; }
+
+.role-message-quote.is-note {
+  margin-right: 4px;
+  background: var(--p-accent-soft);
+  color: var(--p-warm-ink);
+}
 
 /* 编辑器内右侧面板：不改变 dialog 外层的 fixed 全局抽屉。 */
 .role-drawer.is-embedded {

@@ -8,7 +8,7 @@ import {
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { archiveMarkup } from "./archive-markup.js";
-import { companionForView } from "./ai-companions.js";
+import { companionForReader, companionForView, documentChips } from "./ai-companions.js";
 import { opsHomeState } from "./ops-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import { buildJournalHeatmap, journalHeatmapMarkup } from "./journal-heatmap.js";
@@ -90,7 +90,7 @@ const PILLAR_META = {
     title: "生活运营",
     subtitle: "把身体、关系、钱和家照顾好，不让它们占用注意力。",
     emptyHint: "生活运营的入口在首页：待办事项与四个生活系统。",
-    icon: "生",
+    icon: "营",
     defaultChapter: "task",
     quick: [],
   },
@@ -361,6 +361,13 @@ function readerMarkup(view, reading, railItems) {
   // 任务文档的删除要进任务回收站，仍从任务板处理。
   const canDelete = !taskDocument
     && (canWriteChapter(view, note.chapter) || note.chapter === "journal");
+  // 阅读器里的 AI 入口：打开时自动带上当前文档，用户不用先复述。
+  const companion = companionForReader(view, note.chapter);
+  const askAiButton = companion
+    ? `<button type="button" class="reader-ai-button" data-reader-ask-ai="${view}" title="打开${escapeHtml(companion.title)}；它会自动读取《${escapeHtml(displayTitle)}》，不用先复述" aria-label="向${escapeHtml(companion.title)}提问这篇文档">
+        <span class="reader-ai-glyph" aria-hidden="true">✦</span>问${escapeHtml(companion.short)}
+      </button>`
+    : "";
   const date = !journalLabel && note.date
     ? ` · ${escapeHtml(formatRelativeDate(note.date))}`
     : "";
@@ -395,8 +402,9 @@ function readerMarkup(view, reading, railItems) {
           <button type="button" class="pillar-reader-back" data-reader-back="${view}"><span aria-hidden="true">←</span> 返回列表</button>
           <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(chapterTitle(view, note.chapter))}</p>
           <div class="pillar-reader-actions">
+            ${askAiButton}
             ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">编辑</button>` : ""}
-            ${canMove ? `<button type="button" class="small-button" data-note-move="${view}">移动到本子</button>` : ""}
+            ${canMove ? `<button type="button" class="small-button" data-note-move="${view}" title="移动到其他本子" aria-label="移动《${escapeHtml(displayTitle)}》到其他本子">移动</button>` : ""}
             <button type="button" class="${canWrite ? "small-button" : "button primary"}" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
             ${canDelete ? `<button type="button" class="small-button reject" data-reader-delete="${view}">删除</button>` : ""}
             <button type="button" class="small-button" data-reader-copy-wikilink="${view}" title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
@@ -1289,6 +1297,28 @@ function bindPillarEvents() {
     const readerBack = event.target.closest?.("[data-reader-back]");
     if (readerBack) {
       closeReader(readerBack.dataset.readerBack || appState.view);
+      return;
+    }
+    const readerAsk = event.target.closest?.("[data-reader-ask-ai]");
+    if (readerAsk) {
+      const view = readerAsk.dataset.readerAskAi || appState.view;
+      const note = state.reading[view]?.note;
+      const companion = note ? companionForReader(view, note.chapter) : null;
+      if (!note?.path || !companion) return;
+      openRoleDrawer({
+        roleId: companion.roleId,
+        mode: companion.mode,
+        entry: companion.entry,
+        title: companion.title,
+        // 只传元信息；正文由后端按 note 选择器读取，每轮都拿最新的。
+        note: {
+          title: readerNoteTitle(note),
+          path: note.path,
+          chapter: note.chapter || "",
+          chars: String(note.body || "").length,
+        },
+        chips: documentChips(view, note.chapter),
+      }).catch((error) => toast(`打不开${companion.title}：${error.message}`, "error"));
       return;
     }
     const readerOpen = event.target.closest?.("[data-reader-open-obsidian]");

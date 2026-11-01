@@ -1738,6 +1738,11 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-reader-back:hover { border-color: var(--pillar-accent); color: var(--pillar-accent); background: var(--pillar-soft); }
 .pillar-reader-crumbs { margin: 0; color: var(--p-ink-5); font-size: 12px; letter-spacing: .02em; }
 .pillar-reader-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 阅读器 AI 入口：文件当前文档作为上下文，视觉上比「编辑」轻一档。 */
+.reader-ai-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--pillar-accent) 40%, var(--p-line)); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--pillar-accent) 8%, var(--p-surface)); color: var(--pillar-accent); font: inherit; font-size: 12.5px; font-weight: 650; white-space: nowrap; }
+.reader-ai-button:hover { background: color-mix(in srgb, var(--pillar-accent) 16%, var(--p-surface)); border-color: var(--pillar-accent); }
+.reader-ai-button:focus-visible { outline: 3px solid var(--p-focus-ring); outline-offset: 2px; }
+.reader-ai-glyph { font-size: 11px; line-height: 1; }
 .pillar-reader-grid { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 30px; align-items: start; }
 @media (min-width: 1500px) {
   .pillar-reader-grid { grid-template-columns: minmax(0, 1fr) 220px; gap: 36px; }

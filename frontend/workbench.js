@@ -18,7 +18,6 @@ import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 import { applyWidgetVisibility, readStoredWidgetHidden, resolveWidgetHidden } from "./widget-order.js";
 import { loadPendingStrip } from "./pending.js";
-import { initMemoryStrip, loadMemoryStrip } from "./memory-strip.js";
 import { initBookmarks } from "./bookmarks.js";
 import { initTasksAI } from "./tasks-ai.js";
 import { initHeatmapBoard } from "./heatmap-board.js";
@@ -186,7 +185,6 @@ export async function loadWorkbench() {
   if (!hidden.has("deepseek")) loadDeepSeekBalance();
   if (!hidden.has("train-tracker")) loadTrainTrackerWidget();
   loadPendingStrip();
-  loadMemoryStrip();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */
@@ -352,7 +350,6 @@ export function initWorkbench() {
   initWidgetDrag();
   initTimeModule();
   initTasksAI();
-  initMemoryStrip();
   // 设置页开关后：补初始化新显示的小组件，再按显隐重新加载。
   document.addEventListener("torch:widgets-changed", () => {
     if (state.view !== "workbench") return;

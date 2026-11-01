@@ -1,6 +1,7 @@
 ---
 id: yiling
 name: 忆灵
+tagline: 长期观察者，维护你的画像与记忆
 agent: yiling
 layer: identity
 entry: [self.memory, self.socrates]

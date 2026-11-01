@@ -37,6 +37,7 @@ const CURRENT_KEYS = Object.keys(CURRENT);
 const MEAL_TYPES = ["早餐", "午餐", "晚餐", "加餐"];
 const TRAINING_KINDS = ["力量", "跑步", "快走", "骑行", "游泳", "球类", "瑜伽", "柔韧", "有氧", "其他"];
 const QUALITY_LABELS = ["很差", "较差", "一般", "不错", "很好"];
+const CHAT_IDLE_STATUS = "不会诊断、不开药 · 自动记入问诊记录";
 
 const HEALTH = {
   inited: false,
@@ -49,6 +50,7 @@ const HEALTH = {
   archive: null,
   doctor: null,
   reports: [],
+  consults: [],
   foods: null,
   error: "",
   trendDays: 30,
@@ -401,6 +403,7 @@ async function ensurePageData() {
   if (HEALTH.page === "doctor") {
     HEALTH.doctor = await healthApi("/api/health/doctor");
     HEALTH.reports = Array.isArray(HEALTH.doctor.reports) ? HEALTH.doctor.reports : HEALTH.reports;
+    HEALTH.consults = Array.isArray(HEALTH.doctor.consults) ? HEALTH.doctor.consults : HEALTH.consults;
   }
 }
 
@@ -946,6 +949,7 @@ function renderArchive() {
   const activity = latest.activity?.totals || {};
   const labs = data.labs || { rows: [] };
   const reports = data.reports || [];
+  const consults = data.consults || [];
   const custom = profile.custom_metrics || [];
   const customValues = latest.custom?.values || {};
   const goals = profile.goals || {};
@@ -1048,6 +1052,12 @@ function renderArchive() {
       </article>
 
       <article class="health-dossier wide">
+        <header><h3>问诊记录</h3><button class="health-btn ghost small" type="button" data-health-action="go-page" data-page="doctor">去私人医生</button></header>
+        ${consults.length ? `<ul class="health-mini-list">${consults.slice(0, 5).map((consult) => `<li><button class="health-link" type="button" data-health-action="open-consult" data-path="${esc(consult.path)}">${esc(consult.title)}</button><small>${esc(consult.date)}</small></li>`).join("")}</ul>`
+          : `<p class="health-muted">还没有问诊记录；在私人医生页问一句，回复会自动记到当天文档。</p>`}
+      </article>
+
+      <article class="health-dossier wide">
         <header><h3>健康报告</h3><button class="health-btn ghost small" type="button" data-health-action="go-page" data-page="doctor">去私人医生</button></header>
         ${reports.length ? `<ul class="health-mini-list">${reports.slice(0, 5).map((report) => `<li><button class="health-link" type="button" data-health-action="open-report" data-path="${esc(report.path)}">${esc(report.title)}</button><small>${esc(report.date)}</small></li>`).join("")}</ul>`
           : `<p class="health-muted">还没有报告；在私人医生页可以按最新数据生成一份。</p>`}
@@ -1108,18 +1118,19 @@ function renderDoctor() {
   const caps = data.capabilities || {};
   const scope = data.scope || {};
   const reports = Array.isArray(data.reports) ? data.reports : HEALTH.reports;
+  const consults = Array.isArray(data.consults) ? data.consults : HEALTH.consults;
   return `<div class="health-doctor">
     <section class="health-doctor-hero">
       <div class="health-doctor-avatar" aria-hidden="true">医</div>
       <div class="health-doctor-copy">
         <span class="health-kicker">PRIVATE DOCTOR · 私人医生</span>
         <h2>有哪里不舒服，直接说。</h2>
-        <p>已读取 ${Number(scope.days) || 0} 天记录 · ${Number(scope.labs) || 0} 项检验 · ${Number(scope.reports) || 0} 份报告；回答只基于这些数据和你的描述。</p>
+        <p>已读取 ${Number(scope.days) || 0} 天记录 · ${Number(scope.labs) || 0} 项检验 · ${Number(scope.reports) || 0} 份报告 · <span id="health-consult-scope">${Number(scope.consults) || 0}</span> 份问诊记录；回答只基于这些数据和你的描述。</p>
       </div>
       <span class="health-doctor-badge ${caps.ai ? "is-on" : "is-off"}">${caps.ai ? "AI 可用" : "AI 未配置"}</span>
     </section>
     <section class="health-chat-card">
-      <header class="health-chat-head"><div><span class="health-kicker">问诊</span><h3>和私人医生聊聊</h3></div><span class="health-chat-status" id="health-chat-status">${caps.ai ? "不会诊断、不开药" : "AI 未配置，暂时不能问诊"}</span></header>
+      <header class="health-chat-head"><div><span class="health-kicker">问诊</span><h3>和私人医生聊聊</h3></div><span class="health-chat-status" id="health-chat-status">${caps.ai ? CHAT_IDLE_STATUS : "AI 未配置，暂时不能问诊"}</span></header>
       <div class="health-chat-messages" id="health-chat-messages"></div>
       <div class="health-chat-quick">${[
         "我最近睡不好", "帮我看看体重趋势", "今天吃得怎么样", "我有点不舒服",
@@ -1128,7 +1139,14 @@ function renderDoctor() {
         <textarea id="health-chat-input" name="message" rows="2" maxlength="2000" placeholder="${caps.ai ? "例如：这两天头有点晕，睡眠也不太好……" : "AI 未配置"}" ${caps.ai ? "" : "disabled"}></textarea>
         <button class="health-btn primary" type="submit" ${caps.ai ? "" : "disabled"}>发送</button>
       </form>
-      <p class="health-disclaimer">私人医生只做健康建议，不诊断疾病、不开药；持续异常或危险信号请尽快线下就医。</p>
+      <p class="health-disclaimer">每次问诊会自动追加到当天「问诊记录」；私人医生只做健康建议，不诊断疾病、不开药。持续异常或危险信号请尽快线下就医。</p>
+    </section>
+    <section class="health-notebook">
+      <header class="health-notebook-head">
+        <div class="health-notebook-cover" aria-hidden="true">诊</div>
+        <div><span class="health-kicker">固定本子 · 自动记录</span><h3>问诊记录</h3><p id="health-consult-count">${consults.length} 天 · 每次问诊自动追加</p></div>
+      </header>
+      <div id="health-consult-list">${consultListMarkup(consults)}</div>
     </section>
     <section class="health-notebook">
       <header class="health-notebook-head">
@@ -1147,6 +1165,29 @@ function renderDoctor() {
         : `<div class="health-empty"><strong>还没有健康报告</strong><p>点上面的「生成健康报告」，私人医生会基于最近 30 天记录和最新档案写一份。</p></div>`}
     </section>
   </div>`;
+}
+
+function consultListMarkup(consults) {
+  if (!consults.length) {
+    return `<div class="health-empty"><strong>还没有问诊记录</strong><p>在上面问一句，回复会自动追加到当天文档；同一天多次问诊会写在同一篇里。</p></div>`;
+  }
+  return `<div class="health-report-list">${consults.map((consult) => `<article class="health-report-item">
+    <button class="health-report-open" type="button" data-health-action="open-consult" data-path="${esc(consult.path)}">
+      <span class="health-report-date">${esc(monthDayLabel(consult.date || ""))}</span>
+      <strong>${esc(consult.title || "问诊记录")}</strong>
+      <small>${esc(consult.excerpt || "点击打开")}</small>
+    </button>
+    <button class="health-row-remove" type="button" data-health-action="delete-consult" data-path="${esc(consult.path)}" aria-label="删除这份问诊记录">×</button>
+  </article>`).join("")}</div>`;
+}
+
+function paintConsults() {
+  const container = node("health-consult-list");
+  if (container) container.innerHTML = consultListMarkup(HEALTH.consults);
+  const count = node("health-consult-count");
+  if (count) count.textContent = `${HEALTH.consults.length} 天 · 每次问诊自动追加`;
+  const scope = node("health-consult-scope");
+  if (scope) scope.textContent = String(HEALTH.consults.length);
 }
 
 function paintChat() {
@@ -1170,7 +1211,7 @@ function paintChat() {
     send.textContent = HEALTH.doctorChat.busy ? "医生正在看…" : "发送";
   }
   const status = node("health-chat-status");
-  if (status) status.textContent = HEALTH.doctorChat.busy ? "正在读取你的记录…" : "不会诊断、不开药";
+  if (status) status.textContent = HEALTH.doctorChat.busy ? "正在读取你的记录…" : CHAT_IDLE_STATUS;
 }
 
 async function sendDoctorMessage(text) {
@@ -1196,6 +1237,7 @@ async function sendDoctorMessage(text) {
       role: "assistant", content: reply,
       html: renderMarkdownDocument(reply).html,
     });
+    if (reply) await saveConsult(message, reply);
   } catch (error) {
     HEALTH.doctorChat.messages.push({
       role: "assistant", content: `这一轮没有成功：${error.message}`,
@@ -1206,6 +1248,22 @@ async function sendDoctorMessage(text) {
     paintChat();
     const input = node("health-chat-input");
     if (input) input.focus({ preventScroll: true });
+  }
+}
+
+async function saveConsult(question, answer) {
+  try {
+    const result = await healthApi("/api/health/consult", {
+      method: "POST", body: JSON.stringify({ question, answer }),
+    });
+    HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
+    if (HEALTH.doctor) {
+      HEALTH.doctor.consults = HEALTH.consults;
+      if (HEALTH.doctor.scope) HEALTH.doctor.scope.consults = HEALTH.consults.length;
+    }
+    paintConsults();
+  } catch (error) {
+    toast(`这轮问诊没写进本子：${error.message}`, "error");
   }
 }
 
@@ -1257,6 +1315,20 @@ async function handleAction(button) {
     await healthApi(`/api/health/reports?path=${encodeURIComponent(button.dataset.path)}`, { method: "DELETE" });
     toast("报告已移进回收站", "success");
     await refresh({ quiet: true });
+    return;
+  }
+  if (action === "open-consult") { await openConsult(button.dataset.path); return; }
+  if (action === "delete-consult") {
+    const ok = await confirmAction({ title: "删除这份问诊记录？", message: "问诊记录会移进笔记回收站，可以从回收站恢复。", confirmLabel: "删除", danger: true });
+    if (!ok) return;
+    const result = await healthApi(`/api/health/consults?path=${encodeURIComponent(button.dataset.path)}`, { method: "DELETE" });
+    HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
+    if (HEALTH.doctor) {
+      HEALTH.doctor.consults = HEALTH.consults;
+      if (HEALTH.doctor.scope) HEALTH.doctor.scope.consults = HEALTH.consults.length;
+    }
+    paintConsults();
+    toast("问诊记录已移进回收站", "success");
     return;
   }
   if (action === "generate-report") { await generateReport(button); return; }
@@ -2401,26 +2473,45 @@ async function generateReport(button) {
 }
 
 async function openReport(path) {
+  return openHealthNote(path, "report");
+}
+
+async function openConsult(path) {
+  return openHealthNote(path, "consult");
+}
+
+async function openHealthNote(path, kind = "report") {
   if (!path) return;
-  openHealthDialog(`<div class="health-loading">正在读取报告…</div>`);
+  const isConsult = kind === "consult";
+  const label = isConsult ? "问诊记录" : "健康报告";
+  const endpoint = isConsult ? "/api/health/consults" : "/api/health/reports";
+  openHealthDialog(`<div class="health-loading">正在读取${label}…</div>`);
   try {
     const note = await healthApi(`/api/notes?path=${encodeURIComponent(path)}`);
     const body = `<article class="health-report-reader">
-      <header><div><span class="health-kicker">健康报告</span><h2>${esc(note.title || "健康报告")}</h2><p>${esc(monthDayLabel(String(note.date || "").slice(0, 10)))} · 保存在「健康报告」本子</p></div><button class="health-modal-close" type="button" data-dialog-action="close" aria-label="关闭">×</button></header>
+      <header><div><span class="health-kicker">${label}</span><h2>${esc(note.title || label)}</h2><p>${esc(monthDayLabel(String(note.date || "").slice(0, 10)))} · 保存在「${label}」本子</p></div><button class="health-modal-close" type="button" data-dialog-action="close" aria-label="关闭">×</button></header>
       <div class="md-body">${renderMarkdownDocument(String(note.body || note.content || "")).html}</div>
-      <footer><button class="health-btn ghost" type="button" data-dialog-action="close">关闭</button><button class="health-btn danger" type="button" data-dialog-action="delete-current-report" data-path="${esc(path)}" data-revision="${esc(note.revision || "")}">删除这份报告</button></footer>
+      <footer><button class="health-btn ghost" type="button" data-dialog-action="close">关闭</button><button class="health-btn danger" type="button" data-dialog-action="delete-current-note" data-kind="${isConsult ? "consult" : "report"}" data-path="${esc(path)}" data-revision="${esc(note.revision || "")}">删除这份${label}</button></footer>
     </article>`;
     openHealthDialog(body);
     bindDialogAction(async (action, button) => {
-      if (action !== "delete-current-report") return;
-      const ok = await confirmAction({ title: "删除这份健康报告？", message: "报告会移进笔记回收站，可以从回收站恢复。", confirmLabel: "删除", danger: true });
+      if (action !== "delete-current-note") return;
+      const noteKind = button.dataset.kind === "consult" ? "consult" : "report";
+      const noteLabel = noteKind === "consult" ? "问诊记录" : "健康报告";
+      const ok = await confirmAction({ title: `删除这份${noteLabel}？`, message: `${noteLabel}会移进笔记回收站，可以从回收站恢复。`, confirmLabel: "删除", danger: true });
       if (!ok) return;
-      await healthApi(`/api/health/reports?path=${encodeURIComponent(button.dataset.path)}&revision=${encodeURIComponent(button.dataset.revision || "")}`, { method: "DELETE" });
-      toast("报告已移进回收站", "success");
+      const target = noteKind === "consult" ? "/api/health/consults" : "/api/health/reports";
+      const result = await healthApi(`${target}?path=${encodeURIComponent(button.dataset.path)}&revision=${encodeURIComponent(button.dataset.revision || "")}`, { method: "DELETE" });
+      if (noteKind === "consult") {
+        HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
+        if (HEALTH.doctor) HEALTH.doctor.consults = HEALTH.consults;
+        paintConsults();
+      }
+      toast(`${noteLabel}已移进回收站`, "success");
       closeHealthDialog();
       await refresh({ quiet: true });
     });
   } catch (error) {
-    openHealthDialog(`<p class="health-inline-error">报告读取失败：${esc(error.message)}</p>`);
+    openHealthDialog(`<p class="health-inline-error">${label}读取失败：${esc(error.message)}</p>`);
   }
 }

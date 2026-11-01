@@ -1,10 +1,10 @@
 // Sidebar menu order: one shared source for labels plus a local, per-browser order.
 // 五大模块收敛后的产品侧边栏（对话交给 dsh；帮助并进设置）。
-export const NAV_ORDER_DEFAULT = ["workbench", "life", "self", "ops", "knowledge", "settings"];
+export const NAV_ORDER_DEFAULT = ["workbench", "life", "self", "ops", "knowledge", "roles", "settings"];
 
 export const NAV_LABELS = {
   workbench: "工作台", life: "人生路", self: "自我档案", ops: "生活运营",
-  knowledge: "知识库", settings: "设置与状态",
+  knowledge: "知识库", roles: "AI 角色", settings: "设置与状态",
 };
 const STORAGE_KEY = "torch-os:nav-order";
 

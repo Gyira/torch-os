@@ -17,11 +17,13 @@ import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
 import { initPillars, loadPillarModule } from "./pillars.js";
 import { initPending } from "./pending.js";
-import { initMemoryHub, loadSelfHub } from "./memory-hub.js";
+import { initSelf, loadSelf } from "./self.js";
+import { initMentorStrip } from "./mentor-strip.js";
 import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
+import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
 import { initSelectionAsk } from "./selection-ask.js";
 import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 
@@ -42,10 +44,12 @@ const MODULES = {
   // 生活运营保留自己的章节轨，同时在模块顶部多「恋爱系统 / 健康系统」两个二级分区。
   ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"], ["health-view", "健康系统"]] },
   knowledge: { panes: [], ownNav: true },
+  roles: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
 };
 const paneChoice = {};
 const PANE_GUARDS = {};
+const MODULE_GUARDS = { roles: () => confirmRoleAdminLeave() };
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": () => { initDshPane(); loadDshPane(); },
@@ -53,9 +57,10 @@ const PANE_LOADERS = {
   "love-view": () => { initLovePane(); loadLovePane(); },
   "health-view": () => { initHealthPane(); loadHealthPane(); },
   "life-view": () => loadPillarModule("life"),
-  "self-view": () => { loadPillarModule("self"); loadSelfHub(); },
+  "self-view": () => { initSelf(); loadSelf(); },
   "ops-view": () => loadPillarModule("ops"),
   "knowledge-view": () => loadPillarModule("knowledge"),
+  "roles-view": () => { initRoleAdmin(); loadRoleAdmin(); },
   "settings-view": () => { loadSettings(); loadSchedulePanel(); },
 };
 
@@ -150,6 +155,7 @@ const GO_TARGETS = {
   health: ["ops", "health-view"], love: ["ops", "love-view"],
   brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
   notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
+  roles: ["roles", ""], role: ["roles", ""], ai: ["roles", ""],
   recycle: ["workbench", "recycle-view"],
 };
 
@@ -163,6 +169,16 @@ async function goTo(target, updateHash = true) {
     // 帮助已经并进设置：深链接 #help 仍然要把那个分区打开。
     if (!(await switchView("settings", updateHash))) return false;
     document.querySelector('[data-settings-nav="help"]')?.click();
+    return true;
+  }
+  if (target === "bazi") {
+    // 八字已并入自我档案的第三个页面；旧深链接仍能落到正确子页。
+    if (!(await switchView("self", updateHash))) return false;
+    window.setTimeout(() => {
+      document.dispatchEvent(new CustomEvent("torch:self-page", {
+        detail: { page: "bazi", sub: "chart" },
+      }));
+    }, 0);
     return true;
   }
   const mapped = GO_TARGETS[target];
@@ -235,8 +251,15 @@ function visiblePanesOf(view) {
   return visiblePaneIds(module, paneChoice[view] || module.panes[0]?.[0] || "");
 }
 
-/** 离开可见分区前先问一次未保存的草稿（日记、习惯）。 */
+/** 离开可见分区前先问一次未保存的草稿（日记、习惯、角色管理）。 */
 async function confirmLeaving(view) {
+  const moduleGuard = MODULE_GUARDS[view];
+  if (moduleGuard) {
+    navigationPending = true;
+    let allowed = false;
+    try { allowed = await moduleGuard(); } finally { navigationPending = false; }
+    if (!allowed) return false;
+  }
   for (const id of visiblePanesOf(view)) {
     const guard = PANE_GUARDS[id];
     if (!guard) continue;
@@ -414,8 +437,9 @@ function scheduleWorkbenchAnchor() {
 try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
 initSettings(); initInbox();
 initWorkbench(); initPillars(); initPending();
-initMemoryHub();
+initMentorStrip();
 initRoleDrawer();
+initRoleAdmin();
 initSelectionAsk();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
@@ -443,6 +467,17 @@ document.addEventListener("torch:show-pane", async (event) => {
   if (ok && detail.focus) {
     document.querySelector(detail.focus)?.scrollIntoView({ behavior: "auto", block: "start" });
   }
+});
+// 工作台常驻条 / 其他模块跳进自我档案的某个子页（人生导师、八字、本子）。
+document.addEventListener("torch:open-self-page", async (event) => {
+  const detail = event.detail || {};
+  if (!(await switchView("self"))) return;
+  // 等 self.js 完成首帧（initSelf 绑定事件）再切子页，避免事件早到被丢掉。
+  window.setTimeout(() => {
+    document.dispatchEvent(new CustomEvent("torch:self-page", {
+      detail: { page: detail.page || "archive", sub: detail.sub || "" },
+    }));
+  }, 0);
 });
 // 滴答同步完成后（可能在设置页触发）让工作台任务立即重读一次。
 document.addEventListener("torch:tasks-changed", () => {

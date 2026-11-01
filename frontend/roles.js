@@ -15,6 +15,9 @@ const state = {
   mode: "",
   entry: "",
   selectors: [],
+  // 阅读器里的当前文档：打开时带上，之后每轮自动作为 note 选择器发送。
+  note: null,
+  chips: [],
   threadId: "",
   messages: [],
   busy: false,
@@ -66,6 +69,14 @@ export function initRoleDrawer() {
     const detail = event.detail || {};
     if (detail.roleId) openRoleDrawer(detail);
   });
+  // 角色管理页保存后清掉缓存，下一次打开抽屉会读到新的名字、入口与模式。
+  document.addEventListener("torch:roles-changed", () => {
+    rolesCache = null;
+  });
+}
+
+export function invalidateRolesCache() {
+  rolesCache = null;
 }
 
 function mountRoleHost(host) {
@@ -119,6 +130,38 @@ function normalizeSelection(selection) {
     source,
     chars: Math.min(text.length, MAX_SELECTION_CHARS),
   };
+}
+
+/**
+ * 阅读器当前文档。浏览器只传标题/路径/字数这类元信息，正文仍由后端按
+ * `{entry:"note", path}` 读取——和选区、草稿一样，不让页面自带任意资料。
+ */
+function normalizeNote(note) {
+  if (!note || typeof note !== "object") return null;
+  const path = String(note.path || "").trim();
+  if (!path) return null;
+  const fallback = path.split("/").pop()?.replace(/\.md$/i, "") || "这篇文档";
+  const title = (String(note.title || "").trim() || fallback).slice(0, 160);
+  return {
+    path,
+    title,
+    chapter: String(note.chapter || ""),
+    chars: Math.max(0, Number(note.chars) || 0),
+  };
+}
+
+function normalizeChips(chips) {
+  if (!Array.isArray(chips)) return [];
+  return chips
+    .map((chip) => String(chip || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function noteHint(note) {
+  return note
+    ? `已自动读取《${note.title}》；AI 只提议，采纳后才写入。`
+    : "AI 只提议，采纳后才写入。";
 }
 
 export function setRoleSelection(selection) {
@@ -182,7 +225,31 @@ export async function openRoleDrawer(options = {}) {
     if (options.mode && state.role.modes?.some((item) => item.id === options.mode)) {
       state.mode = options.mode;
     }
+    // 换了一份上下文（另一篇文档，或从文档回到无文档）就换一段对话：旧轮次带的是旧资料。
+    const nextNote = normalizeNote(options.note);
+    const noteChanged = (nextNote?.path || "") !== (state.note?.path || "");
+    if (noteChanged) {
+      state.threadId = "";
+      state.messages = [];
+      state.chips = normalizeChips(options.chips);
+      state.selection = null;
+      const input = el("role-drawer-input");
+      if (input) input.value = "";
+    } else if (Array.isArray(options.chips)) {
+      state.chips = normalizeChips(options.chips);
+    }
+    state.note = nextNote;
     if (options.title) el("role-drawer-title").textContent = options.title;
+    el("role-drawer-subtitle").textContent = drawerSubtitle(state.role, state.mode, state.note);
+    if (options.hint) {
+      el("role-drawer-hint").textContent = options.hint;
+    } else if (noteChanged) {
+      el("role-drawer-hint").textContent = state.note
+        ? noteHint(state.note)
+        : (typeof options.getDraftText === "function"
+          ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
+          : "AI 只提议，采纳后才写入。");
+    }
     setRoleSelection(options.selection || state.selection);
     const host = mountRoleHost(requestedHost);
     state.docked = host === "editor" ? Boolean(options.dock ?? state.docked) : false;
@@ -192,6 +259,7 @@ export async function openRoleDrawer(options = {}) {
     if (options.prompt && !el("role-drawer-input")?.value) {
       el("role-drawer-input").value = options.prompt;
     }
+    renderRoleDrawer();
     el("role-drawer-input")?.focus();
     return true;
   }
@@ -232,6 +300,8 @@ export async function openRoleDrawer(options = {}) {
   state.mode = mode;
   state.entry = options.entry || (Array.isArray(role.entry) ? role.entry[0] : "") || "";
   state.selectors = Array.isArray(options.selectors) ? options.selectors : [];
+  state.note = normalizeNote(options.note);
+  state.chips = normalizeChips(options.chips);
   state.threadId = "";
   state.messages = [];
   state.busy = false;
@@ -250,15 +320,17 @@ export async function openRoleDrawer(options = {}) {
   el("role-drawer-title").textContent = options.title || role.name;
   const avatar = el("role-drawer-avatar");
   if (avatar) avatar.textContent = Array.from(String(role.name || "AI"))[0] || "AI";
-  el("role-drawer-subtitle").textContent = drawerSubtitle(role, mode);
+  el("role-drawer-subtitle").textContent = drawerSubtitle(role, mode, state.note);
   el("role-drawer-status").textContent = "";
   el("role-drawer-preview").textContent = "";
   el("role-drawer-preview").hidden = true;
   el("role-drawer-input").value = options.prompt || "";
   el("role-drawer-hint").textContent = options.hint
-    || (typeof options.getDraftText === "function"
-      ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
-      : "AI 只提议，采纳后才写入。");
+    || (state.note
+      ? noteHint(state.note)
+      : typeof options.getDraftText === "function"
+        ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
+        : "AI 只提议，采纳后才写入。");
   node.hidden = false;
   const backdrop = el("role-drawer-backdrop");
   if (backdrop) backdrop.hidden = host === "editor";
@@ -280,6 +352,8 @@ export function closeRoleDrawer() {
   state.mode = "";
   state.entry = "";
   state.selectors = [];
+  state.note = null;
+  state.chips = [];
   state.threadId = "";
   state.messages = [];
   state.busy = false;
@@ -309,24 +383,37 @@ function currentDraftText() {
   }
 }
 
+function withNoteSelector(list) {
+  const selectors = Array.isArray(list) ? [...list] : [];
+  const notePath = String(state.note?.path || "");
+  if (!notePath) return selectors;
+  if (selectors.some((item) => String(item?.entry || "") === "note"
+    && String(item?.path || "") === notePath)) {
+    return selectors;
+  }
+  selectors.push({ entry: "note", path: notePath });
+  return selectors;
+}
+
 async function sendRoleMessage(text) {
   const message = String(text || "").trim();
   if (!message || state.busy || !state.role) return;
   const selection = state.selection;
   const draftText = currentDraftText();
-  let selectors = state.selectors;
+  let selectors = withNoteSelector(state.selectors);
   if (typeof state.getSelectors === "function") {
     try {
       const next = state.getSelectors();
-      if (Array.isArray(next)) selectors = next;
+      if (Array.isArray(next)) selectors = withNoteSelector(next);
     } catch { /* 宿主暂时不可用：保留打开时的选择器 */ }
   }
   state.busy = true;
   state.messages.push({
     role: "user",
     content: message,
-    context: selection ? {
-      selection: { source: selection.source, chars: selection.chars },
+    context: (selection || state.note) ? {
+      selection: selection ? { source: selection.source, chars: selection.chars } : null,
+      note: state.note ? { title: state.note.title, chars: state.note.chars } : null,
     } : null,
   });
   const input = el("role-drawer-input");
@@ -387,25 +474,31 @@ function setBusy(busy, message) {
 function renderRoleContext() {
   const host = el("role-drawer-context");
   if (!host) return;
-  if (!state.selection) {
-    host.innerHTML = "";
-    host.hidden = true;
-    return;
+  const chips = [];
+  if (state.note) {
+    const chars = Number(state.note.chars) || 0;
+    const size = chars ? ` · ${chars.toLocaleString("zh-CN")} 字` : "";
+    chips.push(`<span class="role-context-chip is-note" title="每轮发送时会自动读取这篇文档；超出上下文预算会截断">
+      <span>正在读《${escapeAttr(state.note.title)}》${escapeAttr(size)}</span>
+    </span>`);
   }
-  const chars = Number(state.selection.chars) || 0;
-  const label = chars ? `引用了选文 · ${chars} 字` : "引用了选文";
-  host.innerHTML = `<span class="role-context-chip" title="${escapeAttr(state.selection.source || "")}">
-    <span>${escapeAttr(label)}</span>
-    <button type="button" class="role-context-clear" data-role-clear-selection aria-label="移除引用的选文">×</button>
-  </span>`;
-  host.hidden = false;
+  if (state.selection) {
+    const chars = Number(state.selection.chars) || 0;
+    const label = chars ? `引用了选文 · ${chars} 字` : "引用了选文";
+    chips.push(`<span class="role-context-chip" title="${escapeAttr(state.selection.source || "")}">
+      <span>${escapeAttr(label)}</span>
+      <button type="button" class="role-context-clear" data-role-clear-selection aria-label="移除引用的选文">×</button>
+    </span>`);
+  }
+  host.innerHTML = chips.join("");
+  host.hidden = !chips.length;
 }
 
 function renderRoleDrawer() {
   const messages = el("role-drawer-messages");
   if (!messages) return;
   if (!state.messages.length) {
-    messages.innerHTML = emptyMarkup(state.role?.name || "AI 角色");
+    messages.innerHTML = emptyMarkup(state.role?.name || "AI 角色", state.note);
   } else {
     messages.innerHTML = state.messages.map((message) => {
       const proposals = message.proposals?.length
@@ -417,7 +510,9 @@ function renderRoleDrawer() {
   messages.scrollTop = messages.scrollHeight;
   const chips = el("role-drawer-chips");
   if (chips) {
-    const values = quickChips(state.role?.id, state.mode);
+    // 带着文档时，先把「贴着这篇文档」的问题放在前面；不再混入泛泛的角色默认问题。
+    const docChips = Array.isArray(state.chips) ? state.chips : [];
+    const values = docChips.length ? docChips : quickChips(state.role?.id, state.mode);
     chips.innerHTML = values.map((value) =>
       `<button type="button" class="role-chip" data-role-chip="${escapeAttr(value)}">${escapeAttr(value)}</button>`
     ).join("");

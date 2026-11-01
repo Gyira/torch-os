@@ -1,6 +1,7 @@
 ---
 id: love_master
 name: 恋爱大师
+tagline: 看懂关系，给出有分寸的建议
 agent: love_master
 layer: love
 entry: [love.overview]

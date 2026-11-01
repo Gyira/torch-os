@@ -26,9 +26,11 @@ from .markdown_store import revision as _revision
 from .vault import note_relative, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-IDENTITY_RELATIVE = "01_自我档案/01_内核与三观/身份（identity）.md"
-IDENTITY_LEGACY_RELATIVE = "01-Identity/身份（identity）.md"
-IDENTITY_LEGACY_ALT = "01-Identity/identity.md"
+IDENTITY_RELATIVE = "01_自我档案/01_档案/身份（identity）.md"
+# 2026-11-01 自我档案重构：旧路径只读兜底，迁移后新库只写新路径。
+IDENTITY_LEGACY_RELATIVE = "01_自我档案/01_内核与三观/身份（identity）.md"
+IDENTITY_LEGACY_ALT = "01-Identity/身份（identity）.md"
+IDENTITY_LEGACY_ALT2 = "01-Identity/identity.md"
 # 热力格独立颜色：默认用温和的绿色，避免跟随横幅强调色（例如深红）显得刺眼。
 DEFAULT_HEAT_COLOR = "#2f9e6a"
 HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
@@ -41,6 +43,7 @@ def _identity_path(vault_dir: Path | str) -> Path:
     if current.exists():
         return current
     for legacy in (IDENTITY_LEGACY_RELATIVE, IDENTITY_LEGACY_ALT,
+                   IDENTITY_LEGACY_ALT2,
                    "01_自我档案/01_内核与三观/identity.md"):
         candidate = safe_note_path(root, legacy)
         if candidate.exists():

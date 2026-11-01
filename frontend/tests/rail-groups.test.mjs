@@ -42,7 +42,7 @@ const IMPORTS = {
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
   "./identity-inbox.js": ["identityInboxMarkup"],
   "./archive-markup.js": ["archiveMarkup"],
-  "./ai-companions.js": ["companionForView"],
+  "./ai-companions.js": ["companionForView", "companionForReader", "documentChips"],
   "./ops-model.js": ["opsHomeState"],
   "./journal-model.js": ["shanghaiDay"],
   "./journal-heatmap.js": ["buildJournalHeatmap", "journalHeatmapMarkup"],

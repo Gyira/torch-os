@@ -65,6 +65,32 @@ TASK_TRASH_DIR = f"{TASK_ROOT}/回收站"
 TASK_SYSTEM_DIR = f"{TASK_ROOT}/_系统"
 TASK_SPECIAL_DIRS = (TASK_INBOX_DIR, TASK_DONE_DIR, TASK_TRASH_DIR, TASK_SYSTEM_DIR)
 
+# 自我档案重构（2026-11-01）：三个部分一一对应三个目录。
+# - 01_档案：11 个固定本子 + 身份/画像两个特殊文件；
+# - 02_人生导师：分层记忆、待确认、每日三问与历史；
+# - 03_八字系统：个人命盘与 AI 解读。
+SELF_ROOT = PILLAR_DIRS["self"]
+SELF_ARCHIVE_ROOT = f"{SELF_ROOT}/01_档案"
+SELF_MENTOR_ROOT = f"{SELF_ROOT}/02_人生导师"
+SELF_BAZI_ROOT = f"{SELF_ROOT}/03_八字系统"
+SELF_IDENTITY_RELATIVE = f"{SELF_ARCHIVE_ROOT}/身份（identity）.md"
+SELF_PORTRAIT_RELATIVE = f"{SELF_ARCHIVE_ROOT}/00_画像.md"
+SELF_BACKUP_PREFIX = f"{SELF_ROOT}/99_重构备份-"
+SELF_MENTOR_MEMORY_DIR = f"{SELF_MENTOR_ROOT}/记忆"
+SELF_MENTOR_PENDING_DIR = f"{SELF_MENTOR_ROOT}/待确认"
+SELF_MENTOR_PENDING_PATCHES = f"{SELF_MENTOR_PENDING_DIR}/档案补丁"
+SELF_MENTOR_PENDING_ACCEPTED = f"{SELF_MENTOR_PENDING_DIR}/已采纳"
+SELF_MENTOR_PENDING_REJECTED = f"{SELF_MENTOR_PENDING_DIR}/已驳回"
+SELF_MENTOR_QUESTIONS_DIR = f"{SELF_MENTOR_ROOT}/提问"
+SELF_MENTOR_QUESTIONS_HISTORY = f"{SELF_MENTOR_QUESTIONS_DIR}/历史"
+SELF_MENTOR_HISTORY_DIR = f"{SELF_MENTOR_ROOT}/历史"
+SELF_MENTOR_PORTRAIT_HISTORY = f"{SELF_MENTOR_HISTORY_DIR}/画像"
+SELF_MENTOR_OLD_OBSERVATIONS = f"{SELF_MENTOR_HISTORY_DIR}/旧忆灵观察"
+SELF_BAZI_READINGS_DIR = f"{SELF_BAZI_ROOT}/解读"
+SELF_BAZI_HISTORY_DIR = f"{SELF_BAZI_ROOT}/历史"
+SELF_ARCHIVE_LAYOUT_SCHEMA = "self-archive-v1"
+SELF_ARCHIVE_LAYOUT_MARKER = ".torch-os/self-archive-layout.json"
+
 # key, pillar, 显示名, 相对路径, 默认 type
 CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     # 00_人生路
@@ -85,7 +111,7 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("work_review_pitfall", "life", "踩坑记录", "00_人生路/06_工作复盘/03_踩坑记录", "insight"),
     # v1.0 写作优先：随笔单独成章；任务/习惯仍在人生路，由工作台专用接口管理。
     ("essay", "life", "随笔", "00_人生路/09_随笔", "essay"),
-    # 01_自我档案
+    # 01_自我档案（旧章节：2026-11-01 重构后只做迁移/只读兜底，不再创建空目录）
     ("core_values", "self", "内核与三观", "01_自我档案/01_内核与三观", "value"),
     ("memory", "self", "记忆与自传", "01_自我档案/02_记忆与自传", "memory"),
     ("idea", "self", "想法与灵感", "01_自我档案/03_想法与灵感", "idea"),
@@ -97,6 +123,19 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("bazi", "self", "我的八字参考", "01_自我档案/07_我的八字参考", "bazi"),
     # v1.0 忆灵观察：AI 画像快照与观察报告，只追加不覆盖；memory: false，避免再次进入候选池。
     ("yiling", "self", "忆灵观察", "01_自我档案/08_忆灵观察", "observation"),
+    # 01_自我档案（v2，2026-11-01）：01_档案 下的 11 个固定本子。
+    # 顺序就是左栏顺序；本子文件夹固定，不可在应用内删除/重命名。
+    ("self_facts", "self", "基础事实", "01_自我档案/01_档案/01_基础事实", "self_archive_entry"),
+    ("self_body", "self", "身体与能量", "01_自我档案/01_档案/02_身体与能量", "self_archive_entry"),
+    ("self_behavior", "self", "行为与习惯", "01_自我档案/01_档案/03_行为与习惯", "self_archive_entry"),
+    ("self_emotion", "self", "情绪与压力", "01_自我档案/01_档案/04_情绪与压力", "self_archive_entry"),
+    ("self_motivation", "self", "动机与需求", "01_自我档案/01_档案/05_动机与需求", "self_archive_entry"),
+    ("self_values", "self", "三观与决策", "01_自我档案/01_档案/06_三观与决策", "self_archive_entry"),
+    ("self_relationship", "self", "关系与边界", "01_自我档案/01_档案/07_关系与边界", "self_archive_entry"),
+    ("self_narrative", "self", "自我叙事", "01_自我档案/01_档案/08_自我叙事", "self_archive_entry"),
+    ("self_paradox", "self", "矛盾与盲区", "01_自我档案/01_档案/09_矛盾与盲区", "self_archive_entry"),
+    ("self_timeline", "self", "人生时间线", "01_自我档案/01_档案/10_人生时间线", "self_archive_entry"),
+    ("self_experiments", "self", "验证与更新", "01_自我档案/01_档案/11_验证与更新", "self_archive_entry"),
     # 02_生活运营
     ("task", "ops", "待办事项", TASK_ROOT, "task"),
     # 健康系统（2026-10-31）：与恋爱系统平级的生活运营二级分区，数据全部在
@@ -229,7 +268,12 @@ CHAPTER_BY_KEY = {item[0]: item for item in CHAPTERS}
 CHAPTER_BY_PATH = {item[3].casefold(): item for item in CHAPTERS}
 
 # 只读兼容章节：旧库可能还有文件，运行时按旧路径读取；新库不再创建空目录。
-LEGACY_CHAPTER_KEYS = frozenset({"finance", "love_memory"})
+# 2026-11-01 自我档案重构：旧 self 章节进入迁移/只读兜底，新前端使用 self_* 章节。
+LEGACY_CHAPTER_KEYS = frozenset({
+    "finance", "love_memory",
+    "core_values", "memory", "idea", "relationship", "meaning",
+    "distill_work", "distill_career", "bazi", "yiling",
+})
 
 # 2026-11-01 生活运营目录重排：取消独立的「03_体检与医疗」，它的内容并入
 # `02_健康系统/03_体检与检验`；其余目录压紧编号。迁移只动顶层目录，逐个文件
@@ -721,8 +765,9 @@ def journal_path(day: str) -> str:
 
 
 def identity_paths() -> tuple[str, str]:
-    current = "01_自我档案/01_内核与三观/身份（identity）.md"
-    legacy = "01_自我档案/01_内核与三观/identity.md"
+    """身份文件的新旧路径：新路径在 01_档案 下，旧路径只读兜底。"""
+    current = SELF_IDENTITY_RELATIVE
+    legacy = "01_自我档案/01_内核与三观/身份（identity）.md"
     return current, legacy
 
 
@@ -892,6 +937,39 @@ def _write_ops_marker(root: Path, payload: dict[str, Any]) -> None:
         pass
 
 
+def ensure_self_layout(vault_dir: Path | str) -> list[str]:
+    """幂等创建自我档案三部分所需的固定目录（2026-11-01 重构）。
+
+    本子文件夹是前端左栏与数据目录的一一对应；应用内不允许删除/重命名。
+    """
+    root = Path(vault_dir)
+    relative_dirs = [
+        SELF_ARCHIVE_ROOT,
+        SELF_MENTOR_ROOT,
+        SELF_MENTOR_MEMORY_DIR,
+        SELF_MENTOR_PENDING_DIR,
+        SELF_MENTOR_PENDING_PATCHES,
+        SELF_MENTOR_PENDING_ACCEPTED,
+        SELF_MENTOR_PENDING_REJECTED,
+        SELF_MENTOR_QUESTIONS_DIR,
+        SELF_MENTOR_QUESTIONS_HISTORY,
+        SELF_MENTOR_HISTORY_DIR,
+        SELF_MENTOR_PORTRAIT_HISTORY,
+        SELF_MENTOR_OLD_OBSERVATIONS,
+        SELF_BAZI_ROOT,
+        SELF_BAZI_READINGS_DIR,
+        SELF_BAZI_HISTORY_DIR,
+        *[item[3] for item in CHAPTERS if item[1] == "self" and item[0].startswith("self_")],
+    ]
+    created: list[str] = []
+    for relative in relative_dirs:
+        path = root / relative
+        if not path.is_dir():
+            path.mkdir(parents=True, exist_ok=True)
+            created.append(relative)
+    return created
+
+
 def ensure_layout(vault_dir: Path | str) -> list[str]:
     """幂等创建四库和章节目录；返回实际创建的相对路径。
 
@@ -913,6 +991,9 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
         if not path.is_dir():
             path.mkdir(parents=True, exist_ok=True)
             created.append(item[3])
+    for relative in ensure_self_layout(root):
+        if relative not in created:
+            created.append(relative)
     for relative in TASK_SPECIAL_DIRS:
         path = root / relative
         if not path.is_dir():
@@ -956,6 +1037,15 @@ __all__ = [
     "LAYOUT_VERSION", "SYSTEM_DIR", "FOREIGN_FILES", "PILLAR_TITLES",
     "TASK_ROOT", "TASK_INBOX_DIR", "TASK_DONE_DIR", "TASK_TRASH_DIR",
     "TASK_SYSTEM_DIR", "TASK_SPECIAL_DIRS",
+    "SELF_ROOT", "SELF_ARCHIVE_ROOT", "SELF_MENTOR_ROOT", "SELF_BAZI_ROOT",
+    "SELF_IDENTITY_RELATIVE", "SELF_PORTRAIT_RELATIVE", "SELF_BACKUP_PREFIX",
+    "SELF_MENTOR_MEMORY_DIR", "SELF_MENTOR_PENDING_DIR",
+    "SELF_MENTOR_PENDING_PATCHES", "SELF_MENTOR_PENDING_ACCEPTED",
+    "SELF_MENTOR_PENDING_REJECTED", "SELF_MENTOR_QUESTIONS_DIR",
+    "SELF_MENTOR_QUESTIONS_HISTORY", "SELF_MENTOR_HISTORY_DIR",
+    "SELF_MENTOR_PORTRAIT_HISTORY", "SELF_MENTOR_OLD_OBSERVATIONS",
+    "SELF_BAZI_READINGS_DIR", "SELF_BAZI_HISTORY_DIR",
+    "SELF_ARCHIVE_LAYOUT_SCHEMA", "SELF_ARCHIVE_LAYOUT_MARKER",
     "PILLAR_DIRS", "PILLAR_ORDER", "LOVE_PILLAR", "LOVE_ROOT", "LOVE_MEMORY_DIR",
     "LOVE_JOURNAL_DIR", "LOVE_DRAFT_DIR", "LOVE_JOURNAL_CHAPTER",
     "LOVE_DRAFT_CHAPTER", "LOVE_NOTEBOOK_PREFIX", "LOVE_FIXED_NOTEBOOKS",

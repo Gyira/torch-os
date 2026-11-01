@@ -34,12 +34,19 @@ export function sourceMarkup(sources) {
 }
 
 export function quoteMarkup(context) {
+  const chips = [];
+  const noteTitle = String(context?.note?.title || "").trim();
+  if (noteTitle) {
+    chips.push(`<span class="role-message-quote is-note">读《${escapeRoleText(noteTitle)}》</span>`);
+  }
   const selection = context?.selection;
-  if (!selection) return "";
-  const chars = Number(selection.chars) || 0;
-  const label = chars ? `引用了选文 · ${chars} 字` : "引用了选文";
-  const source = selection.source ? ` data-quote-source="${escapeRoleText(selection.source)}"` : "";
-  return `<span class="role-message-quote"${source}>${escapeRoleText(label)}</span>`;
+  if (selection) {
+    const chars = Number(selection.chars) || 0;
+    const label = chars ? `引用了选文 · ${chars} 字` : "引用了选文";
+    const source = selection.source ? ` data-quote-source="${escapeRoleText(selection.source)}"` : "";
+    chips.push(`<span class="role-message-quote"${source}>${escapeRoleText(label)}</span>`);
+  }
+  return chips.join("");
 }
 
 export function messageMarkup(message) {
@@ -56,7 +63,16 @@ export function messageMarkup(message) {
   </article>`;
 }
 
-export function emptyMarkup(roleName = "AI 角色") {
+export function emptyMarkup(roleName = "AI 角色", note = null) {
+  const noteTitle = String(note?.title || "").trim();
+  if (noteTitle) {
+    return `<div class="role-empty">
+    <p class="eyebrow">ROLE</p>
+    <h3>${escapeRoleText(roleName)}</h3>
+    <p>已经读完《${escapeRoleText(noteTitle)}》。直接问这篇里的任何东西，不用先复述内容。</p>
+    <p class="role-empty-hint">它只提议；要改正文时，仍由你决定。</p>
+  </div>`;
+  }
   return `<div class="role-empty">
     <p class="eyebrow">ROLE</p>
     <h3>${escapeRoleText(roleName)}</h3>
@@ -89,7 +105,11 @@ export function quickChips(roleId, mode) {
   return [];
 }
 
-export function drawerSubtitle(role, mode) {
+export function drawerSubtitle(role, mode, note = null) {
   const entryCount = Array.isArray(role?.entry) ? role.entry.length : 0;
-  return `${roleTitle(role, mode)}${entryCount ? ` · ${entryCount} 个可用入口` : ""}`;
+  const parts = [roleTitle(role, mode)];
+  if (entryCount) parts.push(`${entryCount} 个可用入口`);
+  const noteTitle = String(note?.title || "").trim();
+  if (noteTitle) parts.push(`已读《${noteTitle}》`);
+  return parts.join(" · ");
 }

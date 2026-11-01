@@ -1,6 +1,7 @@
 ---
 id: journal_companion
 name: 写作伙伴
+tagline: 陪你写日记，帮你看见没写出来的话
 agent: journal_companion
 layer: life
 entry: [life.write, life.editor]

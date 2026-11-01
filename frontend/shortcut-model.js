@@ -21,6 +21,7 @@ export const SHORTCUT_GROUPS = [
       { keys: ["G", "S"], join: "then", label: "自我档案" },
       { keys: ["G", "O"], join: "then", label: "生活运营" },
       { keys: ["G", "K"], join: "then", label: "知识库" },
+      { keys: ["G", "R"], join: "then", label: "AI 角色管理" },
       { keys: ["G", ","], join: "then", label: "设置" },
       { keys: ["G", "H"], join: "then", label: "设置 → 帮助" },
     ],
@@ -52,6 +53,7 @@ export const VIEW_CHORDS = Object.freeze({
   s: "self",
   o: "ops",
   k: "knowledge",
+  r: "roles",
   ",": "settings",
   h: "help",
 });
