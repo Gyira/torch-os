@@ -778,7 +778,8 @@ def _ensure_master_notebook(paths: LovePaths, database: Database, name: str,
     target = Path(vault) / vault_layout.custom_notebook_path(name, vault_layout.LOVE_PILLAR)
     if not target.is_dir():
         notebooks.create_notebook(database, str(vault), name,
-                                  pillar=vault_layout.LOVE_PILLAR, read_only=read_only)
+                                  pillar=vault_layout.LOVE_PILLAR, read_only=read_only,
+                                  audit=False)
     return vault_layout.custom_notebook_key(name, vault_layout.LOVE_PILLAR)
 
 

@@ -545,6 +545,9 @@ node --experimental-vm-modules --test frontend/tests/*.test.mjs
 .torch-os/提问队列/                # dsh 投递的提问卡（忆灵综合读取）
 .torch-os/身份待确认/              # dsh 提取的「关于我」候选（待确认中枢采纳）
 .torch-os/vault-layout.json       # 建库时的四库/章节布局快照
+.torch-os/cloud-backup.json       # 云端完整备份设置、上次结果、保留份数
+.torch-os/cloud-backup.secret     # DPAPI/AES 保护的备份密码（不明文）
+.torch-os/cloud-backup-staging/   # 完整备份临时目录（完成即清理）
 .torch-os/backups/ logs/ diagnostics/ migrations/ restored/
                                   # 备份、日志、诊断、迁移记录、恢复副本
 ```
@@ -694,6 +697,10 @@ frontmatter 里放调度字段（`type: task`、`日期`、`时间`、`优先级
   结果全部在 `<库>\02_生活运营\01_恋爱系统\`，旧 `.torch-os\love\` 只作为迁移来源。
   一个库的数据不会出现在另一个库里。12306 同步只在你点击时访问官方接口，不做后台轮询。
 - 浏览器模式沿用所选工作区文件夹，规则与上面相同。
+- **云端完整备份**：设置 → 备份与恢复 → 云端完整备份，把整个个人数据库（含
+  Markdown、微信聊天、恋爱系统数据库/媒体、相册与 `.torch-os` 配置）做成一致快照，
+  写进百度网盘/阿里云盘等同步文件夹；默认 AES-256-GCM 密码加密，支持每天/每周自动。
+  详细步骤与恢复方法见 `docs/CLOUD_BACKUP.md`。
 - AI 角色/忆灵：角色子进程的工作目录是 `<数据目录>/ai-runtime/workspace` 的空工作区，环境变量只保留
   白名单，且拿不到 `VAULT_DIR`/`DATA_DIR`；资料由后端按选择器读取、编号、截断后放进 prompt。
   角色会话/轮次/提案在 SQLite，画像、复盘卡与身份备份在 `.torch-os/忆灵/` 与

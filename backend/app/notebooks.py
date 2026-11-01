@@ -63,7 +63,8 @@ def _require_pillar(pillar: str) -> str:
 
 
 def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
-                    pillar: str = "life", read_only: bool = False) -> dict[str, Any]:
+                    pillar: str = "life", read_only: bool = False,
+                    audit: bool = True) -> dict[str, Any]:
     key_pillar = _require_pillar(pillar)
     try:
         clean = vault_layout.validate_notebook_name(name)
@@ -96,9 +97,10 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
     except OSError as error:
         raise HTTPException(500, f"创建本子失败：{error}") from error
 
-    database.audit("notebook_created", {
-        "pillar": key_pillar, "name": clean, "path": relative,
-    })
+    if audit:
+        database.audit("notebook_created", {
+            "pillar": key_pillar, "name": clean, "path": relative,
+        })
     return {
         "key": vault_layout.custom_notebook_key(clean, key_pillar),
         "title": clean,

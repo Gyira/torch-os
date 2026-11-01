@@ -36,6 +36,7 @@ from .backup import (
     RESTORED_NAME_PATTERN, BackupError, create_backup, list_restored_copies,
     plan_retention, render_restore_drill_report, restore_backup, verify_restored_copy,
 )
+from .cloud_backup import CloudBackupService, create_cloud_backup_router
 from .conversation_export import create_conversation_export_router
 from .conversation_memory import create_conversation_memory_router
 from .schema_export import create_schema_router
@@ -379,6 +380,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     )
     scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
+    cloud_backup_service = CloudBackupService(
+        database, vault_dir, read_only=vault_read_only)
 
     # 每一次本地任务/清单写操作后立即尝试回写滴答。250ms 防抖只合并同一批快速
     # 操作；正常的一次点击/保存都会触发一次。测试和自定义 Provider 默认关闭，
@@ -438,9 +441,20 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             scheduler_state["last_check_at"] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
             await asyncio.sleep(60)
 
+    async def cloud_backup_loop() -> None:
+        # 只读模式下不启动；没有配置/关闭自动备份时 maybe_run_due 会直接返回。
+        while True:
+            try:
+                await run_in_threadpool(cloud_backup_service.maybe_run_due)
+            except Exception:
+                pass
+            await asyncio.sleep(60)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         tasks_to_stop = [asyncio.create_task(scheduler_loop())]
+        if runtime_label == 'personal' and not vault_read_only:
+            tasks_to_stop.append(asyncio.create_task(cloud_backup_loop()))
         if dida_service.supported:
             tasks_to_stop.append(asyncio.create_task(dida_sync_loop(dida_service, data_lock)))
         try:
@@ -591,6 +605,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'ai_roles':ai_enabled,
                     'attachment_localize':True,'attachment_plan':True,
                     'audit_summary':True,'backup_plan':True,'candidate_tidy':True,
+                    'cloud_backup': runtime_label == 'personal' and not vault_read_only,
                     'conversation_export':True,'conversation_extract':True,
                     'deepseek_balance':runtime_label == 'personal',
                     'diagnostics':True,'dida_sync':runtime_label == 'personal',
@@ -1021,6 +1036,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_journal_export_router(database))
     # One ZIP with every human-readable export (not a restore package).
     app.include_router(create_export_bundle_router(database, vault_dir))
+    if runtime_label == 'personal':
+        app.include_router(create_cloud_backup_router(cloud_backup_service))
+        app.state.cloud_backup = cloud_backup_service
 
     def import_archives():
         folder = database.path.parent / 'imports'

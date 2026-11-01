@@ -462,6 +462,28 @@
             </article>
           </section>
           <section class="settings-section" data-settings-section="backup" aria-labelledby="settings-backup-heading" hidden>
+            <article class="settings-card" id="cloud-backup-card" hidden>
+              <div class="settings-card-head"><div><span class="eyebrow">CLOUD BACKUP</span><h3>云端完整备份</h3><p>把整个个人数据库（Markdown、微信聊天、恋爱系统、相册、配置与 SQLite）打成一份完整快照，写进网盘同步文件夹。备份默认用密码加密；网盘客户端只会上传完成的文件。</p></div><button id="cloud-backup-run" class="button secondary" type="button" disabled>立即完整备份</button></div>
+              <div class="field">
+                <label for="cloud-backup-dir">网盘同步文件夹</label>
+                <input id="cloud-backup-dir" type="text" maxlength="1000" placeholder="例如 D:\BaiduSyncdisk\薪火OS备份" autocomplete="off" />
+                <span class="field-help">先在百度网盘 / 阿里云盘客户端里创建一个同步文件夹，再把完整路径填到这里。文件夹不能在个人数据库里面。</span>
+              </div>
+              <div class="form-grid">
+                <div class="field"><label for="cloud-backup-frequency">自动备份</label><select id="cloud-backup-frequency"><option value="manual">仅手动</option><option value="daily">每天</option><option value="weekly">每周</option></select></div>
+                <div class="field"><label for="cloud-backup-keep">保留最近几份</label><input id="cloud-backup-keep" type="number" min="1" max="30" value="7" /></div>
+              </div>
+              <div class="field"><label for="cloud-backup-encrypt"><input id="cloud-backup-encrypt" type="checkbox" checked /> 用密码加密（推荐）</label></div>
+              <div class="field">
+                <label for="cloud-backup-password">设置 / 更换备份密码</label>
+                <input id="cloud-backup-password" type="password" maxlength="200" autocomplete="new-password" placeholder="至少 8 位；已设置时留空保持不变" />
+                <span id="cloud-backup-password-hint" class="field-help" role="status">密码不会明文保存。忘记密码将无法恢复网盘里的加密备份，请另行保管。</span>
+              </div>
+              <div class="love-inline-actions"><button id="cloud-backup-save" class="button secondary" type="button">保存设置</button><span id="cloud-backup-feedback" class="status-message" role="status"></span></div>
+              <div id="cloud-backup-status" class="panel">正在读取云端备份设置…</div>
+              <div id="cloud-backup-list" class="panel" hidden></div>
+              <p class="field-help">恢复需要先退出薪火OS / Obsidian，再用仓库里的 <code>scripts/restore_full_backup.py</code> 解压到新目录；详见 <code>docs/CLOUD_BACKUP.md</code>。自动备份只在薪火OS 后端运行时检查，到点后写一份新快照。</p>
+            </article>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">LOCAL BACKUP</span><h2 id="settings-backup-heading" tabindex="-1">本地备份</h2><p>保存当前资料与数据库。恢复会另存为验证副本，不覆盖或自动切换当前数据。</p></div><button id="create-backup" class="button secondary">创建备份</button></div>
               <div id="backup-feedback" class="backup-feedback" role="status"></div>

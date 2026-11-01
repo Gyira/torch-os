@@ -6,11 +6,14 @@ import { initWidgetSettings, loadWidgetSettings } from "./widget-settings.js";
 let loadId = 0;
 let backupLoadId = 0;
 let backupBusy = false;
+let cloudBackupState = null;
+let cloudBackupPoll = 0;
 const diagnosticsAvailable = () => state.config?.capabilities?.diagnostics === true;
 const auditSummaryAvailable = () => state.config?.capabilities?.audit_summary === true;
 const exportBundleAvailable = () => state.config?.capabilities?.export_bundle === true;
 const backupPlanAvailable = () => state.config?.capabilities?.backup_plan === true;
 const restoredAvailable = () => state.config?.capabilities?.restored_copies === true;
+const cloudBackupAvailable = () => state.config?.capabilities?.cloud_backup === true;
 
 function sizeText(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -152,6 +155,7 @@ function showSettingsSection(name, { focus = true } = {}) {
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
   if (currentSettingsSection === "widgets") loadWidgetSettings();
+  if (currentSettingsSection === "backup" && cloudBackupAvailable()) loadCloudBackup();
 }
 
 // The last user action stays visible: a background refresh redraws the list and
@@ -313,6 +317,7 @@ export async function loadSettings() {
   if (restoredButton) restoredButton.disabled = !restoredAvailable();
   document.dispatchEvent(new CustomEvent('config-changed'));
   await loadBackups();
+  if (cloudBackupAvailable()) await loadCloudBackup();
   await loadAuditSummary();
   renderNavOrder();
 }
@@ -331,6 +336,191 @@ async function loadBackups() {
       return `<article class="document-card"><div><h3>${escapeHtml(item.filename)}</h3><p class="meta">${escapeHtml(formatDate(item.modified_at))} · ${size}</p></div><button class="small-button" data-restore-backup="${escapeHtml(item.filename)}" ${backupBusy ? "disabled" : ""}>恢复为验证副本</button></article>`;
     }).join("");
   } catch (error) { if (request === backupLoadId) renderState($("#backup-list"), "error", error.message, "backups"); }
+}
+
+function cloudBackupJobActive(job) {
+  return ["running", "queued"].includes(String(job?.status || ""));
+}
+
+function setCloudBackupHint(settings = cloudBackupState || {}) {
+  const encrypt = Boolean($("#cloud-backup-encrypt")?.checked);
+  const password = $("#cloud-backup-password");
+  if (password) {
+    password.disabled = !encrypt;
+    if (settings.password_set) password.placeholder = "已设置密码；留空保持不变";
+    else password.placeholder = "至少 8 位；首次使用请设置密码";
+  }
+  const hint = $("#cloud-backup-password-hint");
+  if (!hint) return;
+  if (!encrypt) {
+    hint.textContent = "当前不加密：任何能访问网盘文件的人都能看到完整聊天、相册与配置。";
+    hint.className = "field-help";
+  } else if (settings.password_set) {
+    hint.textContent = "已设置备份密码，留空保持不变。密码不会明文保存；忘记密码将无法恢复。";
+    hint.className = "field-help";
+  } else {
+    hint.textContent = "首次使用请设置至少 8 位密码。密码不会明文保存；忘记密码将无法恢复。";
+    hint.className = "field-help";
+  }
+}
+
+function fillCloudBackupForm(settings = {}) {
+  const card = $("#cloud-backup-card");
+  if (card) card.hidden = false;
+  if ($("#cloud-backup-dir")) $("#cloud-backup-dir").value = String(settings.directory || "");
+  if ($("#cloud-backup-frequency")) $("#cloud-backup-frequency").value = String(settings.frequency || "manual");
+  if ($("#cloud-backup-keep")) $("#cloud-backup-keep").value = String(Number(settings.keep) || 7);
+  if ($("#cloud-backup-encrypt")) $("#cloud-backup-encrypt").checked = settings.encrypt !== false;
+  if ($("#cloud-backup-password")) $("#cloud-backup-password").value = "";
+  cloudBackupState = settings;
+  setCloudBackupHint(settings);
+}
+
+function cloudBackupSnapshotsMarkup(rows = []) {
+  if (!rows.length) return '<p class="empty-state">网盘同步文件夹里还没有完整快照。</p>';
+  return `<ul class="history-list">${rows.map((row) => {
+    const locked = row.encrypted ? "已加密" : "未加密";
+    return `<li><code>${escapeHtml(row.filename)}</code><span>${escapeHtml(formatDate(row.modified_at))} · ${escapeHtml(sizeText(row.bytes))} · ${locked}</span></li>`;
+  }).join("")}</ul>`;
+}
+
+function renderCloudBackupStatus(data = {}) {
+  const settings = data.settings || {};
+  const job = data.job || {};
+  const rows = Array.isArray(data.snapshots) ? data.snapshots : [];
+  cloudBackupState = settings;
+  const active = cloudBackupJobActive(job);
+  const status = $("#cloud-backup-status");
+  if (status) {
+    if (active) {
+      status.innerHTML = `<p><strong>正在创建完整快照</strong></p><p class="meta">${escapeHtml(job.progress || "正在准备")}</p><p class="field-help">可以切走设置页；后台完成后会自动写进网盘同步文件夹。</p>`;
+      status.hidden = false;
+    } else if (job.status === "failed") {
+      status.innerHTML = `<p class="inline-error">完整备份失败：${escapeHtml(job.error || settings.last_error || "未知错误")}</p>`;
+      status.hidden = false;
+    } else if (settings.last_status === "completed") {
+      status.innerHTML = `<p><strong>上次完整备份成功</strong></p><p class="meta">${escapeHtml(formatDate(settings.last_run_at))} · <code>${escapeHtml(settings.last_file || "")}</code> · ${escapeHtml(sizeText(settings.last_bytes))} · ${Number(settings.last_files) || 0} 个文件</p>`;
+      status.hidden = false;
+    } else if (settings.last_status === "failed") {
+      status.innerHTML = `<p class="inline-error">上次完整备份失败：${escapeHtml(settings.last_error || "未知错误")}</p>`;
+      status.hidden = false;
+    } else {
+      status.innerHTML = '<p class="empty-state">还没有完整备份。选好网盘同步文件夹并保存后，点「立即完整备份」。</p>';
+      status.hidden = false;
+    }
+  }
+  const list = $("#cloud-backup-list");
+  if (list) {
+    list.innerHTML = `<p class="meta">网盘文件夹里共 ${rows.length} 份快照</p>${cloudBackupSnapshotsMarkup(rows)}`;
+    list.hidden = false;
+  }
+  const run = $("#cloud-backup-run");
+  if (run) run.disabled = active || !cloudBackupAvailable();
+  setCloudBackupHint(settings);
+}
+
+async function loadCloudBackup({ fillForm = true } = {}) {
+  if (!cloudBackupAvailable() || !$("#cloud-backup-card")) return;
+  try {
+    const data = await api("/api/cloud-backup");
+    if (fillForm) fillCloudBackupForm(data.settings || {});
+    renderCloudBackupStatus(data);
+    if (cloudBackupJobActive(data.job)) pollCloudBackup();
+  } catch (error) {
+    const status = $("#cloud-backup-status");
+    if (status) {
+      status.innerHTML = `<p class="inline-error">读取云端备份设置失败：${escapeHtml(error.message)}</p>`;
+      status.hidden = false;
+    }
+    const card = $("#cloud-backup-card");
+    if (card) card.hidden = false;
+  }
+}
+
+async function saveCloudBackup() {
+  if (!cloudBackupAvailable()) return false;
+  const directory = String($("#cloud-backup-dir")?.value || "").trim();
+  const keep = Number($("#cloud-backup-keep")?.value || 7);
+  const password = String($("#cloud-backup-password")?.value || "");
+  const encrypt = Boolean($("#cloud-backup-encrypt")?.checked);
+  const feedback = $("#cloud-backup-feedback");
+  if (!directory) {
+    if (feedback) { feedback.textContent = "请填写网盘同步文件夹。"; feedback.className = "status-message error"; }
+    return false;
+  }
+  if (!Number.isInteger(keep) || keep < 1 || keep > 30) {
+    if (feedback) { feedback.textContent = "保留份数需要是 1–30 的整数。"; feedback.className = "status-message error"; }
+    return false;
+  }
+  if (encrypt && !password && !cloudBackupState?.password_set) {
+    if (feedback) { feedback.textContent = "请设置至少 8 位备份密码，或关闭密码加密。"; feedback.className = "status-message error"; }
+    return false;
+  }
+  if (password && password.length < 8) {
+    if (feedback) { feedback.textContent = "备份密码至少需要 8 位。"; feedback.className = "status-message error"; }
+    return false;
+  }
+  try {
+    const data = await api("/api/cloud-backup/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        directory,
+        frequency: String($("#cloud-backup-frequency")?.value || "manual"),
+        keep,
+        encrypt,
+        password,
+      }),
+    });
+    fillCloudBackupForm(data.settings || {});
+    renderCloudBackupStatus(data);
+    if (feedback) { feedback.textContent = "设置已保存。"; feedback.className = "status-message success"; }
+    toast("云端完整备份设置已保存。", "success");
+    return true;
+  } catch (error) {
+    if (feedback) { feedback.textContent = `保存失败：${error.message}`; feedback.className = "status-message error"; }
+    return false;
+  }
+}
+
+async function runCloudBackup() {
+  if (!cloudBackupAvailable()) return;
+  const saved = await saveCloudBackup();
+  if (!saved) return;
+  const button = $("#cloud-backup-run");
+  if (button) button.disabled = true;
+  try {
+    const data = await api("/api/cloud-backup/run", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
+    renderCloudBackupStatus(data);
+    toast("已开始完整备份，完成后会写入网盘同步文件夹。", "info");
+    pollCloudBackup();
+  } catch (error) {
+    if (button) button.disabled = false;
+    const feedback = $("#cloud-backup-feedback");
+    if (feedback) { feedback.textContent = `启动失败：${error.message}`; feedback.className = "status-message error"; }
+  }
+}
+
+function pollCloudBackup() {
+  window.clearTimeout(cloudBackupPoll);
+  const tick = async () => {
+    if (!cloudBackupAvailable()) return;
+    try {
+      const data = await api("/api/cloud-backup/status", { timeoutMs: 20000 });
+      renderCloudBackupStatus(data);
+      if (cloudBackupJobActive(data.job)) {
+        cloudBackupPoll = window.setTimeout(tick, 1800);
+        return;
+      }
+      if (data.job?.status === "completed") toast("完整备份完成，网盘客户端会自动上传。", "success");
+      if (data.job?.status === "failed") toast("完整备份失败，请查看设置页原因。", "error");
+    } catch {
+      cloudBackupPoll = window.setTimeout(tick, 3000);
+    }
+  };
+  cloudBackupPoll = window.setTimeout(tick, 800);
 }
 
 async function runBackup(filename = null) {
@@ -358,6 +548,9 @@ export function initSettings() {
   initWidgetSettings();
   $("#refresh-settings").addEventListener("click", loadSettings);
   $("#create-backup").addEventListener("click", () => runBackup());
+  $("#cloud-backup-save")?.addEventListener("click", saveCloudBackup);
+  $("#cloud-backup-run")?.addEventListener("click", runCloudBackup);
+  $("#cloud-backup-encrypt")?.addEventListener("change", () => setCloudBackupHint());
   $("#run-diagnostics")?.addEventListener("click", runDiagnostics);
   $("#refresh-audit-summary")?.addEventListener("click", loadAuditSummary);
   $("#audit-summary-days")?.addEventListener("change", loadAuditSummary);
