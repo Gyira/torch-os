@@ -208,7 +208,8 @@ def _media_kind_from_path(media_path: str) -> str:
 
 def _media_kind(message: WeFlowMessage) -> str:
     path = str(message.media_path or "").lower()
-    # 先按消息类型/目录判断：收藏表情也常是 .jpg/.gif，不能只看扩展名当成图片。
+    # 先按消息类型/目录判断：收藏表情和内置小黄脸在 WeFlow 都是 type 47，
+    # media=1 时统一导出到 emojis/，也常是 .jpg/.gif，不能只看扩展名当成图片。
     if message.message_type == 5 or "/emojis/" in path:
         return "emoji"
     if message.message_type == 1 or "/images/" in path:

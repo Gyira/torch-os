@@ -568,11 +568,13 @@ function chatMessageMarkup(message) {
     }
   }
   const placeholders = new Set(["[图片]", "[视频]", "[语音]", "[表情]", "[动画表情]"]);
+  // 有媒体时才隐藏占位文字；媒体没导出成功时保留 [图片]/[表情]，避免空白气泡。
+  const hidePlaceholder = message.has_media && placeholders.has(content);
   return `<article class="love-chat-msg ${message.is_send ? "is-me" : "is-other"}">
     <div class="love-chat-bubble">
       <div class="love-chat-meta"><span>${escapeHtml(message.is_send ? "我" : "对象")}</span><time>${escapeHtml(message.time || "")}</time></div>
       ${media}
-      ${content && !placeholders.has(content) ? `<p>${content}</p>` : ""}
+      ${content && !hidePlaceholder ? `<p>${content}</p>` : ""}
     </div>
   </article>`;
 }
