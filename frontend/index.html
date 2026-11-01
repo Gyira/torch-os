@@ -32,9 +32,7 @@
     <p id="environment-banner" class="environment-banner" role="status" hidden></p>
     <header class="topbar"><div><span class="eyebrow">PERSONAL MENTOR</span><h1 id="page-title" tabindex="-1">今日</h1></div><div class="topbar-actions"><span id="scan-status" class="status-message" role="status">尚未扫描</span><button id="scan-btn" class="button secondary">扫描 Vault</button></div></header>
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
-      <!-- 待确认中枢：草稿 / 事实 / 分流 三处积压在这里汇总成一个常驻数字（2026-10-27）。 -->
-      <div id="workbench-pending" class="pending-strip" data-pending-strip hidden></div>
-      <!-- 人生导师常驻条：今日三问 / 待确认 / 最近画像；点击进入自我档案 → 人生导师。 -->
+      <!-- 人生导师常驻条：今日三问 / 待确认 / 最近画像；整张卡片可点，进入自我档案 → 人生导师。 -->
       <div id="workbench-mentor" class="mentor-strip" data-mentor-strip hidden></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
@@ -390,7 +388,7 @@
             <div class="role-admin-list-empty"><p>正在读取角色…</p></div>
           </div>
           <p id="role-admin-list-status" class="status-message" role="status"></p>
-          <p class="role-admin-rail-note">角色卡存放在程序的 <code>dsh/roles</code> 里，所有数据库共用；这里改的是角色本身，不是聊天记录。</p>
+          <p class="role-admin-rail-note">角色卡存放在程序的 <code>dsh/roles</code> 里，所有数据库共用；这里改的是角色本身，不是聊天记录。<span id="role-admin-legacy-note" hidden>旧忆灵已并入人生导师，不再单独管理。</span><span id="role-admin-internal-note" hidden>健康估算助手是健康页内部能力，不单独管理。</span></p>
         </aside>
         <div id="role-admin-editor" class="role-admin-editor" aria-live="polite">
           <div class="role-admin-empty">

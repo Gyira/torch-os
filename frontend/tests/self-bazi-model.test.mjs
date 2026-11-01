@@ -36,6 +36,9 @@ test("五行条与命盘板都能渲染", () => {
   const html = chartBoardMarkup(CHART);
   assert.match(html, /FIVE ELEMENTS/);
   assert.match(html, /data-wx="fire"/);
+  assert.match(html, /<progress class="bazi-element-bar" max="4" value="1"/);
+  assert.match(html, /<progress class="bazi-element-bar" max="4" value="4"/);
+  assert.doesNotMatch(html, /style=/);
   assert.match(html, /DAYUN/);
   assert.match(html, /戊午/);
 });

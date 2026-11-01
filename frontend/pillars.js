@@ -955,9 +955,6 @@ function renderShell(view) {
       </div>
     </header>`;
   const reading = state.reading[view];
-  // 自我档案的忆灵面板只在列表/总览显示；进入阅读器时让出整页空间。
-  const selfHub = document.getElementById("self-hub");
-  if (selfHub) selfHub.hidden = view === "self" && Boolean(reading);
   // 阅读视图单独放宽容器：列表/总览 1680，文章阅读用更宽的 1840。
   root.classList.toggle("is-reading", Boolean(reading));
   if (reading) {

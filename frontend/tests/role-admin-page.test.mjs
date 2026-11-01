@@ -16,6 +16,8 @@ test("the AI role manager has one shell, one nav entry and one stylesheet", asyn
   assert.match(html, /href="\/assets\/role-admin\.css"/);
   assert.match(html, /id="role-admin-list"/);
   assert.match(html, /id="role-admin-editor"/);
+  assert.match(html, /id="role-admin-legacy-note"/);
+  assert.match(html, /id="role-admin-internal-note"/);
   assert.match(app, /roles: \{ panes: \[\], ownNav: true \}/);
   assert.match(app, /"roles-view": \(\) => \{ initRoleAdmin\(\); loadRoleAdmin\(\); \}/);
   assert.match(app, /roles: \(\) => confirmRoleAdminLeave\(\)/);

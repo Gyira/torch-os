@@ -14,6 +14,9 @@ const deletedModules = [
   "journal-ritual.js", "journal-ritual-model.js",
   "journal-calendar.js", "vault-audit.js", "agent-chat.js", "harness-bridge.js",
   "pillar-steward.js", "ops-ai.js", "pillar-ops.js",
+  // 2026-11-01：待确认中枢/旧忆灵组件/旧每日提问已退役，前端不再加载这些模块。
+  "pending.js", "pending-markup.js", "memory-hub.js", "memory-strip.js",
+  "identity-inbox.js", "questions.js", "questions-markup.js",
 ];
 
 const retiredEndpoints = [

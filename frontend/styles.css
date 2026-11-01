@@ -1684,14 +1684,6 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px 16px; }
 .pillar-card .eyebrow { color: var(--pillar-accent); }
 .pillar-card-quiet { background: var(--p-surface-2); }
-/* 身份待确认：dsh 提炼的候选，采纳才进自我档案。 */
-.pillar-inbox-card { border-color: var(--pillar-accent); }
-.pillar-inbox-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.pillar-inbox-item { border-top: 1px dashed var(--p-line-2); padding-top: 9px; }
-.pillar-inbox-item:first-child { border-top: 0; padding-top: 0; }
-.pillar-inbox-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--p-ink-strong); }
-.pillar-inbox-evidence { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: var(--p-ink-5); }
-.pillar-inbox-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .pillar-stat { margin: 6px 0 2px; font-family: var(--p-font-display); font-size: 20px; color: var(--p-ink-strong); }
 .pillar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 10px 0 2px; }
 .pillar-week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--p-ink-5); font: inherit; font-size: 10px; padding: 2px 0; cursor: pointer; border-radius: 7px; }
@@ -1851,16 +1843,6 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-reader-foot { flex-direction: column; align-items: flex-start; }
   .pillar-reader-actions { width: 100%; margin-left: 0; }
 }
-.pillar-capture-form { display: flex; flex-direction: column; gap: 12px; padding: 18px 22px 20px; }
-.pillar-capture-form .field { display: flex; flex-direction: column; gap: 5px; }
-.pillar-capture-form input, .pillar-capture-form textarea, .pillar-capture-form select { width: 100%; padding: 8px 10px; border: 1px solid var(--p-line-input); border-radius: 9px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 13px; }
-.pillar-capture-form textarea { resize: vertical; }
-.pillar-capture-hint { color: var(--p-ink-5); font-size: 11px; line-height: 1.5; }
-.pillar-capture-more { border-top: 1px solid var(--p-line-faint); padding-top: 6px; }
-.pillar-capture-more summary { cursor: pointer; color: var(--p-ink-4); font-size: 12px; padding: 4px 0; }
-.pillar-capture-more[open] summary { color: var(--p-ink-2); margin-bottom: 8px; }
-.pillar-capture-more .field { margin-bottom: 0; }
-.pillar-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 1180px) {
   /* 平板起改为单列：章节轨横排，避免 23 个章节把页面拉得很长；
      右栏内容保留在列表下方，不丢掉最近 7 天、收件箱、身份卡与快速记录。 */
@@ -1900,15 +1882,8 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
   .pillar-rail-children[hidden] { display: none; }
   .pillar-rail-group-toggle { flex: 0 0 auto; width: auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 8px; }
   .pillar-rail-item.is-active { border-left-color: transparent; border-bottom-color: var(--pillar-accent); }
-  .pillar-capture-grid { grid-template-columns: 1fr; }
-  .pillar-suggestion-head { flex-direction: column; align-items: flex-start; }
-  .pillar-suggestion-tools { width: 100%; justify-content: space-between; }
-  .pillar-suggestion-row { align-items: flex-start; flex-wrap: wrap; }
-  .pillar-suggestion-check { flex: 1 1 100%; }
-  .pillar-suggestion-actions { width: 100%; justify-content: flex-end; }
   /* 小屏弹窗可能比视口高：让整个弹窗可滚动，底部按钮不会被裁掉。 */
   .pillar-dialog { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
-  .pillar-capture-form { padding-bottom: 16px; }
 }
 .pillar-ops-slot { margin-bottom: 18px; }
 .pillar-ops-card { border: 1px solid var(--p-line); border-radius: 16px; background: var(--p-surface); padding: 16px 18px; }
@@ -1936,78 +1911,11 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .pillar-global-search { padding: 16px 22px 20px; display: flex; flex-direction: column; gap: 10px; }
 .pillar-global-search input[type="search"] { width: 100%; padding: 10px 12px; border: 1px solid var(--p-line-input); border-radius: 10px; background: var(--p-surface); color: var(--p-ink); font: inherit; font-size: 14px; }
 .pillar-global-search [data-global-results] { max-height: 56vh; overflow: auto; }
-.pillar-suggestions { margin-bottom: 16px; }
-.pillar-suggestion-card { border: 1px solid var(--p-pillar-knowledge); border-radius: 14px; background: var(--p-pillar-knowledge-soft); padding: 14px 16px; }
-.pillar-suggestion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.pillar-suggestion-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pillar-suggestion-group { margin-top: 8px; }
-.pillar-suggestion-group:first-of-type { margin-top: 0; }
-.pillar-suggestion-group-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 2px; color: var(--p-ink-4); font-size: 11px; font-weight: 600; }
-.pillar-suggestion-group-title span:last-child { color: var(--p-ink-5); font-weight: 400; font-variant-numeric: tabular-nums; }
-.pillar-suggestion-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-top: 1px solid var(--p-line); }
-.pillar-suggestion-check { display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0; cursor: pointer; }
-.pillar-suggestion-check input { width: 16px; height: 16px; margin-top: 3px; flex: 0 0 auto; accent-color: var(--p-pillar-knowledge); }
-.pillar-suggestion-check > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pillar-suggestion-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pillar-confidence { border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface-2); color: var(--p-ink-4); padding: 0 6px; font-size: 10px; line-height: 1.7; }
-.pillar-confidence.high { border-color: var(--p-ok-line); background: var(--p-ok-soft); color: var(--p-ok-ink); }
-.pillar-confidence.medium { border-color: var(--p-warn-line); background: var(--p-warn-soft); color: var(--p-warn-ink); }
-.pillar-suggestion-row strong { color: var(--p-ink-strong); font-size: 13px; }
-.pillar-suggestion-row .field-help { margin: 2px 0 0; }
-.pillar-suggestion-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.pillar-suggestion-actions .small-button { flex: 0 0 auto; }
 .pillar-habits { margin-bottom: 16px; }
 .pillar-habit-list { display: grid; gap: 12px; }
 .pillar-habit-card { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px 16px; }
 .pillar-habit-card .pillar-ops-head { margin-bottom: 4px; }
 .pillar-habit-card .habit-grid { margin-top: 8px; }
-.pillar-steward-dialog { width: min(820px, 96vw); --pillar-accent: var(--p-accent); --pillar-soft: var(--p-accent-soft); }
-.pillar-steward-dialog[data-pillar="life"] { --pillar-accent: var(--p-pillar-life); --pillar-soft: var(--p-pillar-life-soft); }
-.pillar-steward-dialog[data-pillar="self"] { --pillar-accent: var(--p-pillar-self); --pillar-soft: var(--p-pillar-self-soft); }
-.pillar-steward-dialog[data-pillar="ops"] { --pillar-accent: var(--p-pillar-ops); --pillar-soft: var(--p-pillar-ops-soft); }
-.pillar-steward-dialog[data-pillar="knowledge"] { --pillar-accent: var(--p-pillar-knowledge); --pillar-soft: var(--p-pillar-knowledge-soft); }
-.pillar-steward-dialog .pillar-dialog-head .eyebrow { color: var(--pillar-accent); }
-.pillar-steward-dialog .pillar-dialog-head h2 { font-size: 24px; letter-spacing: .01em; }
-.steward-tabs { display: flex; gap: 4px; padding: 10px 22px 0; border-bottom: 1px solid var(--p-line); }
-.steward-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--p-ink-4); font: inherit; font-size: 13px; font-weight: 600; padding: 9px 12px 10px; cursor: pointer; }
-.steward-tab:hover { color: var(--p-ink-2); }
-.steward-tab.is-active { color: var(--pillar-accent); border-bottom-color: var(--pillar-accent); }
-.steward-body { padding: 16px 22px 22px; max-height: 64vh; overflow: auto; }
-/* 待确认中枢：工作台顶部一个常驻数字 + 带 tab 的弹层（2026-10-27）。 */
-.pending-strip { margin: 0 0 10px; }
-.pending-strip-button { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid var(--p-line-2); border-radius: 12px; background: var(--p-surface-2); color: var(--p-ink-2); font: inherit; font-size: 13px; padding: 8px 14px; cursor: pointer; text-align: left; }
-.pending-strip-button:hover { border-color: var(--pillar-accent); }
-.pending-strip-button:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
-.pending-strip-count { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--p-invert-bg); color: var(--p-invert-ink); font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
-.pending-strip-text { font-weight: 600; color: var(--p-ink-strong); }
-.pending-strip-parts { color: var(--p-ink-5); font-size: 12px; }
-.pending-tabs { display: flex; gap: 4px; padding: 10px 22px 0; border-bottom: 1px solid var(--p-line); }
-.pending-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--p-ink-4); font: inherit; font-size: 13px; font-weight: 600; padding: 9px 12px 10px; cursor: pointer; }
-.pending-tab span { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--p-surface-2); font-size: 11px; font-weight: 700; }
-.pending-tab:hover { color: var(--p-ink-2); }
-.pending-tab.is-active { color: var(--pillar-accent); border-bottom-color: var(--pillar-accent); }
-.pending-body { padding: 16px 22px 22px; max-height: 64vh; overflow: auto; }
-.pending-item { border: 1px solid var(--p-line); border-radius: 12px; padding: 13px 15px; margin-bottom: 10px; }
-.pending-item-title { margin: 2px 0 4px; font-family: var(--p-font-display); font-size: 16px; color: var(--p-ink-strong); }
-.pending-item-preview { margin: 0; font-size: 13px; line-height: 1.55; color: var(--p-ink-3); }
-.pending-item-lines { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--p-ink-4); }
-.pending-item-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.pending-chapter-select { max-width: 46%; border: 1px solid var(--p-line-2); border-radius: 8px; background: var(--p-surface); color: var(--p-ink-2); font: inherit; font-size: 12px; padding: 6px 8px; }
-.pending-chapter-select:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
-/* 主动提问：工作台顶部一张卡片，一天一个问题，答了直接进自我档案。 */
-.question-slot { margin: 0 0 12px; }
-.question-card { border: 1px solid var(--pillar-accent); border-radius: 14px; background: var(--p-surface); padding: 16px 18px 14px; box-shadow: 0 1px 0 var(--p-line); }
-.question-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.question-kicker { margin: 0; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--pillar-accent); }
-.question-count { font-size: 11px; color: var(--p-ink-5); }
-.question-prompt { margin: 8px 0 6px; font-family: var(--p-font-display); font-size: 19px; line-height: 1.45; color: var(--p-ink-strong); }
-.question-hint { margin: 0 0 10px; font-size: 12px; line-height: 1.6; color: var(--p-ink-4); }
-.question-why { margin: 0 0 10px; padding-left: 10px; border-left: 2px solid var(--p-line-2); font-size: 12px; line-height: 1.65; color: var(--p-ink-4); }
-.question-input { width: 100%; border: 1px solid var(--p-line-2); border-radius: 10px; background: var(--p-surface-2); color: var(--p-ink); font: inherit; font-size: 13px; line-height: 1.6; padding: 9px 11px; resize: vertical; }
-.question-input:focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: 1px; }
-.question-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
-.question-done { border-color: var(--p-line-2); }
-.question-done-text { margin: 6px 0 0; font-size: 13px; line-height: 1.6; color: var(--p-ink-4); }
 /* 自我档案：把总览排成一份档案（封面 / 目录 / 时间线），而不是笔记列表。 */
 .archive { display: flex; flex-direction: column; gap: 18px; }
 .archive-summary { margin: 0; font-size: 12px; letter-spacing: 0.02em; color: var(--p-ink-5); }

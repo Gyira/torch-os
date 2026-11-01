@@ -5,18 +5,35 @@
 
 ## 2026-11-01 AI 角色管理页（2.2，本轮）
 
-- 顶部新增第 6 个模块「AI 角色」：左侧列出全部角色（搜索 + 自我/生活/知识/运营/关系/
+- 顶部新增第 6 个模块「AI 角色」：左侧列出活跃角色（搜索 + 自我/生活/知识/运营/关系/
   健康/财务筛选），右侧一页编辑名字、一句话定位、身份、说话风格和最多 6 个专属 Skill。
+- 旧忆灵/苏格拉底角色卡标记 `legacy: true`，保留给旧会话和旧接口；健康估算助手标记
+  `internal: true`，只服务健康页估算。两者都不再进入 `/api/ai/roles` 的 `items` 或管理
+  列表；新对话统一走人生导师。
 - 角色卡扩展 frontmatter：`tagline`、`identity`、`style`、`skills[{id,name,when,instructions}]`；
   `_load_role` 校验长度/重复/id；自定义区块追加在 mode 提示之后，留空时 prompt 与旧版一致。
 - 新接口 `GET/PUT /api/ai/roles/{id}/profile`：只写身份/风格/Skill 字段，模式正文不动；
   revision 冲突 409，原子写入后 reload 校验，失败恢复旧文件。`/api/ai/roles` 增加
-  tagline/custom/skill_names 与 `errors`。
+  tagline/custom/skill_names/legacy_count 与 `errors`。
 - 前端新增 `role-admin-model.js`（纯筛选/校验/脏检查）、`role-admin.js`、`role-admin.css`；
   保存成功清空角色抽屉缓存；切换角色/离开页面有未保存确认。
+- 工作台取消旧「待确认中枢」条/入口（草稿/事实/收件箱弹层），不再加载 `pending.js`；
+  后端 `/api/pending/*` 仅保留兼容。人生导师常驻条改为整张卡片可点，并支持键盘
+  Enter / Space 进入导师页。
+- 八字五行条改用原生 `progress` + CSS，修复 CSP 拦掉内联 `width` 导致五条等长；
+  0/1/3/2/2 按数量显示，且不再写内联样式。
+- WeFlow 组件：自动从正在运行的 `WeFlow.exe` 反查安装目录（兼容 `D:\weflow` 等非标准
+  位置）；设置抽屉新增手动安装目录，保存到 `_归档/weflow-component/config.json`，以后优先使用。
+- 设置抽屉的 `data-love-action` 按钮（重新检查/选择 DLL/回滚）补上事件委托；没有内置
+  `wcdb_api.dll` 时不再静默，弹出说明并提供「选择已有 DLL」出口。
+- 清理未使用前端模块：`pending.js` / `pending-markup.js` / `memory-hub.js` /
+  `memory-strip.js` / `identity-inbox.js` / `questions.js` / `questions-markup.js`
+  及对应测试；顺带删除 roles.css 旧忆灵/旧 ops-ai 尾部 311 行、styles.css 旧待确认/
+  提问/管家/身份候选样式，并去掉 pillars.js 的 `self-hub` 死引用。
 - 验证：`tests/test_ai_roles.py` 11 passed；前端角色模型 8 + 页面接线 2 + 相关导航/交互通过；
-  QA 实例（8898）用 Edge 无头实测：9 张卡、身份/风格/Skill 编辑、保存/409 提示、
-  明暗主题、760px 单列、无 JS 错误。全量 pytest 仍受既有 6 项失败影响：
+  QA 实例（8898）用 Edge 无头实测：7 张活跃卡（旧忆灵和健康估算助手隐藏）、身份/风格/Skill
+  编辑、保存/409 提示、明暗主题、760px 单列、无 JS 错误；工作台无待确认条，导师条整卡点击
+  和键盘可进入。全量 pytest 仍受既有 6 项失败影响：
   `test_identity_banner` 缺文件、`test_love_memory` 章节数、`test_v1_audit` 审计字段、
   `test_workspaces` 3 项活动库名；均不在本次改动路径上。
 - 版本落点：`APP_VERSION 2.2.0`、README、WAKE_UP_START、插件 manifest/main/README、
@@ -69,17 +86,17 @@
   健康系统内部目录：`00_健康报告 / 01_每日健康 / 02_身体档案 /
   03_体检与检验 / 04_训练记录 / 05_问诊记录`；私人医生问答自动追加到当天
   `05_问诊记录`，与健康报告分开。
-- 后端：**2026-11-01 全量 `1166 passed / 1 skipped / 6 failed`**；6 项为既有失败，
+- 后端：**2026-11-01 全量 `1167 passed / 1 skipped / 6 failed`**；6 项为既有失败，
   不在本次改动路径上：`test_identity_banner` 找不到身份文件、`test_love_memory`
   章节数 60≠49、`test_v1_audit` 审计字段多出 pending/memory_notes/question_candidates、
   `test_workspaces` 3 项把当前库名「个人数据库」当成「个人」（外层 DATA_DIR 测试泄漏）。
   本次 AI 角色相关 `tests/test_ai_roles.py` **11 passed**。
-- 前端：**全量通过（508 项 / 0 failed）**
+- 前端：**全量通过（487 项 / 0 failed）**
   （`node --experimental-vm-modules --test frontend/tests/*.test.mjs`）；
   含新增角色管理模型 8 项、页面接线 2 项，以及健康四维/沿用/周卡片、恋爱七页、八字、
   经期、本子、待确认与主题 token 全量。
 - `scripts/check_all.ps1`：2026-11-01 重跑；文本/结构完整性、模块面 import/export、
-  前端 JS 语法、前端 508 项、`compileall`、`pip check` 均通过；整体因上述 6 项既有
+  前端 JS 语法、前端 487 项、`compileall`、`pip check` 均通过；整体因上述 6 项既有
   pytest 失败退出 1。QA 实例（8898）另用 Edge 无头验证明暗主题与 760px 单列，无 JS 错误。
 - 浏览器验收：2026-11-01 用临时个人实例 + Edge CDP 跑过健康七页的明暗主题、
   七天周卡片选中/翻周/日历跳转、四个记录弹窗、AI 饮食/运动估算、精确训练、

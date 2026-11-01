@@ -28,9 +28,22 @@ function render() {
       ${pending ? `<span class="mentor-strip-chip is-warn">待确认 ${pending}</span>` : ""}
       ${updated ? `<span class="meta">画像 ${escapeHtml(updated)}</span>` : ""}
     </div>
-    <button type="button" class="text-button" data-mentor-strip-open>去看看 ›</button>
+    <span class="text-button mentor-strip-open" aria-hidden="true">去看看 ›</span>
   </div>`;
   host.hidden = false;
+  host.dataset.mentorStripOpen = "";
+  host.setAttribute("role", "button");
+  host.setAttribute("tabindex", "0");
+  host.setAttribute("aria-label", `打开人生导师：${hint}`);
+}
+
+function openMentor() {
+  document.dispatchEvent(new CustomEvent("torch:open-self-page", {
+    detail: {
+      page: "mentor",
+      sub: state.questions ? "questions" : state.pending ? "pending" : "chat",
+    },
+  }));
 }
 
 export async function loadMentorStrip() {
@@ -50,14 +63,14 @@ export function initMentorStrip() {
   if (state.loaded) return;
   state.loaded = true;
   document.addEventListener("click", (event) => {
-    const open = event.target.closest?.("[data-mentor-strip-open]");
-    if (!open) return;
-    document.dispatchEvent(new CustomEvent("torch:open-self-page", {
-      detail: {
-        page: "mentor",
-        sub: state.questions ? "questions" : state.pending ? "pending" : "chat",
-      },
-    }));
+    if (!event.target.closest?.("[data-mentor-strip-open]")) return;
+    openMentor();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!event.target.closest?.("[data-mentor-strip-open]")) return;
+    event.preventDefault();
+    openMentor();
   });
   document.addEventListener("torch:self-badges", (event) => {
     const detail = event.detail || {};

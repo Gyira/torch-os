@@ -67,13 +67,26 @@
 .bazi-elements, .bazi-dayun { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); padding: 14px; }
 .bazi-elements .eyebrow, .bazi-dayun .eyebrow { margin: 0 0 8px; color: var(--pillar-accent, var(--p-pillar-self)); }
 .bazi-element-bars { display: flex; flex-direction: column; gap: 6px; }
-.bazi-element-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 22px; align-items: center; gap: 8px; font-size: 12px; color: var(--p-ink-4); }
-.bazi-element-row i { display: block; height: 8px; border-radius: 999px; background: var(--p-accent); min-width: 2px; }
-.bazi-element-row[data-wx="wood"] i { background: #3f9e6a; }
-.bazi-element-row[data-wx="fire"] i { background: #d4553f; }
-.bazi-element-row[data-wx="earth"] i { background: #c08a2e; }
-.bazi-element-row[data-wx="metal"] i { background: #8b9098; }
-.bazi-element-row[data-wx="water"] i { background: #3b76b5; }
+.bazi-element-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 22px; align-items: center; gap: 8px; font-size: 12px; color: var(--p-ink-4); --bazi-wx: var(--p-accent); }
+.bazi-element-bar {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--p-fill);
+}
+.bazi-element-bar::-webkit-progress-bar { background: var(--p-fill); border-radius: 999px; }
+.bazi-element-bar::-webkit-progress-value { background: var(--bazi-wx); border-radius: 999px; }
+.bazi-element-bar::-moz-progress-bar { background: var(--bazi-wx); border-radius: 999px; }
+.bazi-element-row[data-wx="wood"] { --bazi-wx: #3f9e6a; }
+.bazi-element-row[data-wx="fire"] { --bazi-wx: #d4553f; }
+.bazi-element-row[data-wx="earth"] { --bazi-wx: #c08a2e; }
+.bazi-element-row[data-wx="metal"] { --bazi-wx: #8b9098; }
+.bazi-element-row[data-wx="water"] { --bazi-wx: #3b76b5; }
 .bazi-element-row em { font-style: normal; text-align: right; color: var(--p-ink-5); font-variant-numeric: tabular-nums; }
 .bazi-dayun-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .bazi-dayun-list li { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--p-ink-3); padding: 4px 6px; border-radius: 7px; }

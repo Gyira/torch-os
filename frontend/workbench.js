@@ -17,7 +17,6 @@ import { initTrainTrackerWidget, loadTrainTrackerWidget } from "./train-tracker-
 import { initDutyWidget } from "./duty-widget.js";
 import { initWidgetDrag, refreshWorkbenchWidgets } from "./widget-drag.js";
 import { applyWidgetVisibility, readStoredWidgetHidden, resolveWidgetHidden } from "./widget-order.js";
-import { loadPendingStrip } from "./pending.js";
 import { initBookmarks } from "./bookmarks.js";
 import { initTasksAI } from "./tasks-ai.js";
 import { initHeatmapBoard } from "./heatmap-board.js";
@@ -184,7 +183,6 @@ export async function loadWorkbench() {
   if (!hidden.has("weather")) loadWeatherWidget();
   if (!hidden.has("deepseek")) loadDeepSeekBalance();
   if (!hidden.has("train-tracker")) loadTrainTrackerWidget();
-  loadPendingStrip();
 }
 
 /** 主清单里有项还没写进当天日记 / 日记或小节还不存在时，静默镜像一次（只重载一次，不留循环）。 */

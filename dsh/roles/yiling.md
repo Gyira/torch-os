@@ -1,7 +1,8 @@
 ---
 id: yiling
 name: 忆灵
-tagline: 长期观察者，维护你的画像与记忆
+tagline: 旧忆灵 / 苏格拉底，已并入人生导师
+legacy: true
 agent: yiling
 layer: identity
 entry: [self.memory, self.socrates]

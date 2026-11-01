@@ -26,6 +26,8 @@ const PROPOSAL_LABELS = {
 const state = {
   items: [],
   registryErrors: [],
+  legacyCount: 0,
+  internalCount: 0,
   aiStatus: null,
   selected: "",
   profile: null,
@@ -119,7 +121,13 @@ export async function loadRoleAdmin() {
     ]);
     state.items = Array.isArray(manifest?.items) ? manifest.items : [];
     state.registryErrors = Array.isArray(manifest?.errors) ? manifest.errors : [];
+    state.legacyCount = Math.max(0, Number(manifest?.legacy_count) || 0);
+    state.internalCount = Math.max(0, Number(manifest?.internal_count) || 0);
     state.aiStatus = aiStatus;
+    const legacyNote = el("role-admin-legacy-note");
+    if (legacyNote) legacyNote.hidden = !state.legacyCount;
+    const internalNote = el("role-admin-internal-note");
+    if (internalNote) internalNote.hidden = !state.internalCount;
     state.loading = false;
     renderReadiness();
     renderFilters();

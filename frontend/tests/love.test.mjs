@@ -172,11 +172,16 @@ test("恋爱大师有看板、skill 卡片、历史与唯一聊天入口", async
 test("设置抽屉覆盖 WeFlow、组件修复、数据目录与 AI 状态", async () => {
   const love = await source("love.js");
   for (const text of [
-    "WeFlow 连接", "微信组件修复", "olansoft/weflow-wcdb-api-oss",
+    "WeFlow 连接", "微信组件修复", "WeFlow 安装目录", "olansoft/weflow-wcdb-api-oss",
     "数据目录", "AI 与隐私", "love-settings-drawer",
   ]) {
     assert.ok(love.includes(text), `缺少设置内容：${text}`);
   }
+  assert.match(love, /\/api\/love\/weflow\/component\/install-dir/);
   assert.match(love, /\/api\/love\/weflow\/component\/replace/);
   assert.match(love, /\/api\/love\/weflow\/component\/rollback/);
+  // 没有内置 DLL 时不能静默无反应：要解释并给出“选择已有 DLL”的出口。
+  assert.match(love, /还没有内置 DLL/);
+  assert.match(love, /选择已有 DLL/);
+  assert.match(love, /love-settings-body.*addEventListener\("click"/s);
 });

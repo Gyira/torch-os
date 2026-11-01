@@ -1,7 +1,8 @@
 ---
 id: health_estimator
 name: 健康估算助手
-tagline: 把一句话估算成可编辑的健康记录
+tagline: 健康页内部的饮食/运动估算能力
+internal: true
 agent: health_estimator
 layer: health
 entry: [health.report]

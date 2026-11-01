@@ -196,6 +196,12 @@ export function initLovePane() {
       toast(`操作失败：${error.message}`, "error");
     });
   });
+  // 设置抽屉在 #love-content 之外，里面的 data-love-action 也要走同一套分发。
+  $id("love-settings-body")?.addEventListener("click", (event) => {
+    Promise.resolve(handleLoveAction(event)).catch((error) => {
+      toast(`操作失败：${error.message}`, "error");
+    });
+  });
   document.addEventListener("torch:notes-changed", (event) => {
     if (love.page !== "memories") return;
     if (event.detail?.pillar === "love" || String(event.detail?.path || "").includes("/01_恋爱系统/")) {
@@ -1589,6 +1595,7 @@ async function openLoveSettings() {
     ["恋爱大师", paths.master],
   ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd class="love-path">${escapeHtml(value || "—")}</dd></div>`).join("");
   const migration = status?.migration || {};
+  const component = love.weflowComponent || {};
   body.innerHTML = `
     ${card("WeFlow 连接", `
       <form id="love-settings-weflow" class="love-key-form">
@@ -1598,6 +1605,14 @@ async function openLoveSettings() {
       </form>`, { eyebrow: "WEFLOW" })}
     ${card("微信组件修复", `
       <p class="field-help">WeFlow 自带的闭源 WCDB 组件有到期校验，过期后会报 101。torch 不会破解它；这里用开源项目 <a href="https://github.com/olansoft/weflow-wcdb-api-oss" target="_blank" rel="noopener">olansoft/weflow-wcdb-api-oss</a> 构建的不过期 DLL 替换，并在替换前备份、失败可回滚。</p>
+      <form id="love-weflow-dir-form" class="love-key-form">
+        <div class="field">
+          <label for="love-weflow-dir-input">WeFlow 安装目录（自动检测失败时手动指定）</label>
+          <input id="love-weflow-dir-input" name="path" type="text" autocomplete="off" maxlength="1024" value="${escapeHtml(component.configured_dir || "")}" placeholder="例如 C:\\Program Files\\WeFlow，或 wcdb_api.dll 所在文件夹" />
+          <p class="field-help">可以填 WeFlow 安装根目录，也可以直接填 wcdb_api.dll 所在文件夹；保存后会优先按这个目录查找。不知道路径时，在任务管理器找到 WeFlow.exe → 右键「打开文件所在的位置」。</p>
+        </div>
+        <div class="love-inline-actions"><button class="button secondary" type="submit">保存目录并检查</button></div>
+      </form>
       <div id="love-weflow-component-status" class="love-component-status">正在检查…</div>
       <div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="weflow-component-check">重新检查</button><button class="button primary" type="button" data-love-action="weflow-component-install">选择已构建的 DLL 并替换</button><button class="button secondary" type="button" data-love-action="weflow-component-bundled">使用内置 DLL 一键替换</button><button class="button secondary" type="button" data-love-action="weflow-component-rollback">回滚</button></div>
       <p class="field-help">当前环境可能没有 C++ 工具链；项目附带构建脚本与图文教程，首次需要先构建一次 wcdb_api.dll。</p>`, { eyebrow: "COMPONENT" })}
@@ -1618,6 +1633,27 @@ async function openLoveSettings() {
       } catch (error) { toast(`保存失败：${error.message}`, "error"); }
     });
   });
+  $id("love-weflow-dir-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const input = form.elements.path;
+    const path = String(input?.value || "").trim();
+    const submit = form.querySelector('button[type="submit"]');
+    if (!path) {
+      toast("请先填写 WeFlow 安装目录。", "warning");
+      input?.focus();
+      return;
+    }
+    await withBusy(submit, "检查中…", async () => {
+      try {
+        const result = await loveApi("/api/love/weflow/component/install-dir", {
+          method: "PUT", body: JSON.stringify({ path }), timeoutMs: 30000,
+        });
+        toast(result.message || "目录已保存；请检查组件状态。", "success");
+        await checkWeFlowComponent();
+      } catch (error) { toast(`保存目录失败：${error.message}`, "error"); }
+    });
+  });
   checkWeFlowComponent();
 }
 
@@ -1636,10 +1672,19 @@ async function checkWeFlowComponent() {
   try {
     const data = await loveApi("/api/love/weflow/component/status", { timeoutMs: 20000 });
     love.weflowComponent = data;
-    const installed = data.installed ? "已找到 WeFlow" : "没有找到 WeFlow 安装目录";
+    const dirInput = $id("love-weflow-dir-input");
+    if (dirInput && !dirInput.value.trim()) {
+      dirInput.value = data.configured_dir || data.install_dir || "";
+    }
+    const installed = data.installed
+      ? "已找到 WeFlow"
+      : data.configured_dir ? "手动目录里还没有 wcdb_api.dll" : "没有找到 WeFlow 安装目录";
     const expired = data.expired ? " · 组件已过期（101）" : "";
     const bundled = data.bundled_dll ? " · 已发现内置 DLL" : " · 没有内置 DLL（需先构建）";
-    target.innerHTML = `<span class="love-badge ${data.expired ? "error" : data.installed ? "ok" : "warn"}">${escapeHtml(installed)}${escapeHtml(expired)}</span><p class="field-help">${escapeHtml(data.dll_path || "未检测到 wcdb_api.dll")}${escapeHtml(bundled)}</p>`;
+    const manual = data.configured_dir
+      ? ` · 手动目录${data.configured_dir_exists === false ? "不存在" : ""}`
+      : "";
+    target.innerHTML = `<span class="love-badge ${data.expired ? "error" : data.installed ? "ok" : "warn"}">${escapeHtml(installed)}${escapeHtml(expired)}</span><p class="field-help">${escapeHtml(data.dll_path || "未检测到 wcdb_api.dll")}${escapeHtml(bundled)}${escapeHtml(manual)}</p>${data.configured_dir ? `<p class="field-help">手动目录：${escapeHtml(data.configured_dir)}</p>` : ""}`;
   } catch (error) {
     target.innerHTML = `<span class="love-badge warn">组件检查不可用</span><p class="field-help">${escapeHtml(error.message)}</p>`;
   }
@@ -1929,7 +1974,13 @@ async function installWeFlowComponent(button) {
 
 async function installBundledWeFlowComponent(button) {
   if (!love.weflowComponent?.bundled_dll) {
-    toast("assets/weflow/wcdb_api.dll 不存在；请先按教程构建，或手动选择 DLL。", "warning");
+    const choose = await confirmAction({
+      title: "还没有内置 DLL",
+      message: "assets/weflow/wcdb_api.dll 不存在。内置替换需要先按教程构建一次；也可以直接选择你已有的 wcdb_api.dll。替换前请完全退出 WeFlow（含托盘）。",
+      confirmLabel: "选择已有 DLL",
+      cancelLabel: "知道了",
+    });
+    if (choose) await installWeFlowComponent(button);
     return;
   }
   if (!await confirmAction({ title: "使用内置 DLL 替换？", message: "替换前会备份当前 WeFlow 组件；请先完全退出 WeFlow（含托盘）。", confirmLabel: "替换" })) return;

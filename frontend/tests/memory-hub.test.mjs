@@ -35,3 +35,15 @@ test("old memory hub boot is retired but backend compatibility remains", async (
   assert.match(app, /initMentorStrip/);
   assert.match(app, /initSelf/);
 });
+
+test("the retired pending hub has no workbench entry and the mentor strip is whole-card clickable", async () => {
+  const [html, app, workbench, mentor] = await Promise.all([
+    read("index.html"), read("app.js"), read("workbench.js"), read("mentor-strip.js"),
+  ]);
+  assert.doesNotMatch(html, /workbench-pending|data-pending-strip/);
+  assert.doesNotMatch(app, /initPending/);
+  assert.doesNotMatch(workbench, /loadPendingStrip/);
+  assert.match(mentor, /host\.dataset\.mentorStripOpen = ""/);
+  assert.match(mentor, /document\.addEventListener\("keydown"/);
+  assert.doesNotMatch(mentor, /<button[^>]*data-mentor-strip-open/);
+});

@@ -41,6 +41,16 @@ def test_registry_loads_all_role_cards_without_errors():
     assert "identity_patch" in yiling.proposals
     assert yiling.tools == "none"
     assert yiling.manifest()["name"] == "忆灵"
+    assert yiling.legacy is True
+    estimator = registry.get("health_estimator")
+    assert estimator.internal is True
+    visible = registry.manifest()
+    assert visible["legacy_count"] == 1
+    assert visible["internal_count"] == 1
+    assert len(visible["items"]) == 7
+    visible_ids = [item["id"] for item in visible["items"]]
+    assert "yiling" not in visible_ids
+    assert "health_estimator" not in visible_ids
     mentor = registry.get("mentor")
     assert mentor.name == "人生导师"
     assert mentor.modes == ("converse", "synthesize", "bazi", "question_draft")
@@ -77,7 +87,9 @@ def test_service_status_requires_command_key_and_personal_mode(monkeypatch):
     status = service.status()
     assert status["available"] is True
     assert status["key"] == {"configured": True, "source": "saved"}
-    assert status["roles"] == 9
+    assert status["roles"] == 7
+    assert status["legacy_roles"] == 1
+    assert status["internal_roles"] == 1
 
     no_key = ai_roles.RoleService(registry, FakeBalance(key=""), enabled=True)
     assert no_key.status()["available"] is False
@@ -140,8 +152,13 @@ def test_ai_router_exposes_status_and_manifest(monkeypatch):
     app.include_router(ai_roles.create_ai_router(service))
     client = TestClient(app)
     assert client.get("/api/ai/status").json()["available"] is True
-    items = client.get("/api/ai/roles").json()["items"]
-    assert len(items) == 9
+    payload = client.get("/api/ai/roles").json()
+    items = payload["items"]
+    assert len(items) == 7
+    assert payload["legacy_count"] == 1
+    assert payload["internal_count"] == 1
+    assert "yiling" not in [item["id"] for item in items]
+    assert "health_estimator" not in [item["id"] for item in items]
     assert all("prompt" not in item for item in items)
     assert all("tagline" in item and "custom" in item for item in items)
     profile = client.get("/api/ai/roles/yiling/profile").json()

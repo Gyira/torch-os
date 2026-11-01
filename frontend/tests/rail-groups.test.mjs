@@ -40,7 +40,6 @@ const IMPORTS = {
   "./core.js": ["$", "api", "confirmAction", "escapeHtml", "formatRelativeDate", "openDialog", "state", "toast"],
   "./pillar-markdown.js": ["renderMarkdownDocument"],
   "./pillar-habits.js": ["bindHabitEvents", "mountHabits"],
-  "./identity-inbox.js": ["identityInboxMarkup"],
   "./archive-markup.js": ["archiveMarkup"],
   "./ai-companions.js": ["companionForView", "companionForReader", "documentChips"],
   "./ops-model.js": ["opsHomeState"],

@@ -68,7 +68,7 @@ export function elementsMarkup(chart = {}) {
       const value = Number(counts[item]) || 0;
       return `<div class="bazi-element-row" data-wx="${WUXING_CLASS[item]}">
         <span>${item}</span>
-        <i style="width:${Math.round((value / max) * 100)}%"></i>
+        <progress class="bazi-element-bar" max="${max}" value="${value}" aria-label="${item} ${value}"></progress>
         <em>${value}</em>
       </div>`;
     }).join("")}</div>

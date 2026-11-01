@@ -158,6 +158,8 @@ class RoleDefinition:
     style: str = ""
     skills: tuple[RoleSkill, ...] = ()
     revision: str = ""
+    legacy: bool = False
+    internal: bool = False
 
     def prompt_for(self, mode: str) -> str:
         if mode in self.prompts:
@@ -176,6 +178,8 @@ class RoleDefinition:
             "proposals": list(self.proposals),
             "timeout_s": self.timeout_s,
             "tools": self.tools,
+            "legacy": self.legacy,
+            "internal": self.internal,
             "custom": {
                 "identity": bool(self.identity),
                 "style": bool(self.style),
@@ -202,6 +206,8 @@ class RoleDefinition:
             "proposals": list(self.proposals),
             "revision": self.revision,
             "file": Path(self.path).name,
+            "legacy": self.legacy,
+            "internal": self.internal,
         }
 
 
@@ -293,6 +299,12 @@ def _load_role(path: Path) -> RoleDefinition:
     if len(style) > MAX_STYLE:
         raise ValueError(f"说话风格不能超过 {MAX_STYLE} 字")
     skills = _load_skills(meta)
+    legacy = meta.get("legacy", False)
+    if not isinstance(legacy, bool):
+        raise ValueError("legacy 必须是布尔值")
+    internal = meta.get("internal", False)
+    if not isinstance(internal, bool):
+        raise ValueError("internal 必须是布尔值")
     prompts = _mode_prompts(body)
     missing = [mode for mode in modes if mode not in prompts]
     if missing:
@@ -316,6 +328,8 @@ def _load_role(path: Path) -> RoleDefinition:
         style=style,
         skills=skills,
         revision=revision,
+        legacy=legacy,
+        internal=internal,
     )
 
 
@@ -381,8 +395,12 @@ class RoleRegistry:
         return role
 
     def manifest(self) -> dict[str, Any]:
+        visible = [self.roles[key] for key in sorted(self.roles)
+                   if not self.roles[key].legacy and not self.roles[key].internal]
         return {
-            "items": [self.roles[key].manifest() for key in sorted(self.roles)],
+            "items": [role.manifest() for role in visible],
+            "legacy_count": sum(1 for role in self.roles.values() if role.legacy),
+            "internal_count": sum(1 for role in self.roles.values() if role.internal),
             "errors": list(self.errors),
         }
 
@@ -582,7 +600,12 @@ class RoleService:
                 "configured": bool(describe.get("source")),
                 "source": str(describe.get("source") or ""),
             },
-            "roles": len(self.registry.roles),
+            "roles": sum(1 for role in self.registry.roles.values()
+                         if not role.legacy and not role.internal),
+            "legacy_roles": sum(1 for role in self.registry.roles.values()
+                                if role.legacy),
+            "internal_roles": sum(1 for role in self.registry.roles.values()
+                                  if role.internal),
             "role_errors": list(self.registry.errors),
         }
 

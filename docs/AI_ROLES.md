@@ -21,13 +21,15 @@
 | `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
 | `love_master` | 恋爱大师 | `advice` / `portrait` / `deep` / `report` / `journal_batch` / `bazi` | new_note、new_task |
 | `health_doctor` | 私人医生 | `report` / `advice` | health_report |
-| `health_estimator` | 健康估算助手 | `estimate` | — |
+| `health_estimator` | 健康估算助手（`internal: true`，仅健康页估算） | `estimate` | — |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 2026-11-01 起，新入口统一为 `mentor`（人生导师）：对话、整理、八字、拟答四种模式，
 读自我档案/分层记忆/三库；档案写入走 `01_自我档案/02_人生导师/待确认/`。
-`yiling` 角色与旧会话只作历史保留，新界面不再调用；完整设计见
-`docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
+`yiling` 角色卡标记 `legacy: true`，只为旧会话/旧接口保留；`health_estimator` 标记
+`internal: true`，只被健康页的一句话饮食/运动估算调用。两者都不出现在
+`/api/ai/roles` 的 `items` 与「AI 角色」管理列表中；新界面一律走人生导师。
+完整设计见 `docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
 
 ## 3. 角色卡格式
 
@@ -45,6 +47,7 @@ proposals: [identity_patch, review_card, new_note, hub_event]
 session: per_thread
 timeout_s: 180
 tools: none
+legacy: true
 identity: 你是这个人的长期观察者，不替他做决定。
 style: 温和、克制、具体；先接住感受，再追问一个具体问题。
 skills:
@@ -94,7 +97,7 @@ dsh --profile headless --json --session-id <session-torch-...> -
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/ai/status` | 是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数、角色文件错误 |
-| GET | `/api/ai/roles` | 角色元数据（不含 prompt 正文；含 tagline、custom 计数、skill_names 与加载错误） |
+| GET | `/api/ai/roles` | 活跃角色元数据（不含 prompt 正文；含 tagline、custom 计数、skill_names、legacy_count 与加载错误；legacy 角色不进 items） |
 | GET | `/api/ai/roles/{id}/profile` | 可编辑档案：名字/定位/身份/风格/Skill + 模式/入口/提议 + revision + 文件名 |
 | PUT | `/api/ai/roles/{id}/profile` | 保存身份/风格/Skill；`expected_revision` 必填，冲突 409；模式正文与其它字段不动 |
 | POST | `/api/ai/chat` | 角色对话；`role_id/mode/thread_id/message/entry/selectors/selection_text/selection_source/draft_text` |

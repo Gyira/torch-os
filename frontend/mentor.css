@@ -4,7 +4,18 @@
   border-radius: 14px;
   background: var(--p-surface);
   margin-bottom: 14px;
+  transition: border-color .14s ease, background-color .14s ease;
 }
+.mentor-strip[data-mentor-strip-open] { cursor: pointer; }
+.mentor-strip[data-mentor-strip-open]:hover {
+  border-color: var(--p-accent-line);
+  background: var(--p-surface-2);
+}
+.mentor-strip[data-mentor-strip-open]:focus-visible {
+  outline: 2px solid var(--p-focus-ring);
+  outline-offset: 2px;
+}
+.mentor-strip-open { flex: 0 0 auto; white-space: nowrap; }
 .mentor-strip-inner {
   display: flex;
   align-items: center;

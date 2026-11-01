@@ -50,6 +50,20 @@ assets/weflow/wcdb_api.dll
 
 torch 的「微信组件修复」会优先使用这个文件；也可以每次手动选择。
 
+### 3.1 没有内置 DLL 时
+
+`assets/weflow/wcdb_api.dll` 默认不存在（构建产物被 `.gitignore` 忽略）。点「使用内置 DLL
+一键替换」不会静默失败，而会说明原因并提供「选择已有 DLL」的出口；也可以先按第 3 节构建。
+
+### 3.2 找不到安装目录时
+
+torch 会依次尝试：用户手动保存的目录 → `WEFLOW_HOME` → 正在运行的 `WeFlow.exe`
+所在目录（所以装在 `D:\weflow` 这类非标准位置也能发现）→ 注册表/常见安装位置。
+
+设置抽屉的「WeFlow 安装目录」可以手动填安装根目录，或直接填 `wcdb_api.dll`
+所在文件夹；保存后写入 `_归档/weflow-component/config.json`，以后优先使用。
+路径不存在或里面没有 `wcdb_api.dll` 时会拒绝保存并提示。
+
 ## 4 一键替换与回滚
 
 1. 完全退出 WeFlow（包括托盘）。

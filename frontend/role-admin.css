@@ -282,6 +282,7 @@
   line-height: 1.6;
 }
 .role-admin-rail-note code { font-size: 10px; }
+.role-admin-rail-note span:not([hidden]) { display: block; margin-top: 2px; }
 
 .role-admin-editor { min-width: 0; }
 .role-admin-empty {
