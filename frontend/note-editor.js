@@ -58,6 +58,14 @@ const templateSheet = {
 
 function el(id) { return document.getElementById(id); }
 
+/** 编辑器上下文：人生路 / 知识库 / 恋爱记忆；未知值按人生路处理。 */
+function editorContext(value) {
+  const key = String(value || "");
+  if (key === "knowledge" || key === "love") return key;
+  if (key === "ops") return "ops";
+  return "life";
+}
+
 function renderToolbar() {
   const host = el("note-editor-toolbar");
   if (!host) return;
@@ -733,7 +741,7 @@ export async function openNoteEditor(options = {}) {
     state.mode = note ? "edit" : "new";
     state.path = String(note?.path || "");
     state.revision = String(note?.revision || "");
-    state.context = String(note?.pillar || options.context || "life") === "knowledge" ? "knowledge" : "life";
+    state.context = editorContext(note?.pillar || options.context || "life");
     state.chapter = String(note?.chapter || options.chapter
       || defaultWriteChapter(state.context));
     state.title = String(note?.title || options.title || "");
@@ -760,7 +768,8 @@ export async function openNoteEditor(options = {}) {
   if (eyebrow) eyebrow.textContent = state.journal
     ? `人生路 · ${state.journalDay}`
     : state.task ? "生活运营 · 待办事项 · 任务文档"
-      : (state.context === "knowledge" ? "知识库 · 写作" : "人生路 · 写作");
+      : state.context === "knowledge" ? "知识库 · 写作"
+        : state.context === "love" ? "恋爱记忆 · 写作" : "人生路 · 写作";
   el("note-editor-title").value = state.title;
   el("note-editor-tags").value = tagsToInput(state.tags);
   el("note-editor-text").value = state.body;
@@ -838,7 +847,7 @@ function applyNote(note) {
   state.body = normalizeBody(note.body ?? state.body);
   state.savedBody = state.body;
   state.tags = Array.isArray(note.tags) ? note.tags : state.tags;
-  if (note.pillar) state.context = note.pillar === "knowledge" ? "knowledge" : "life";
+  if (note.pillar) state.context = editorContext(note.pillar);
 }
 
 /**
@@ -1266,7 +1275,7 @@ async function reloadNote() {
     state.savedBody = state.body;
     state.tags = Array.isArray(note.tags) ? note.tags : [];
     state.chapter = String(note.chapter || state.chapter);
-    if (note.pillar) state.context = note.pillar === "knowledge" ? "knowledge" : "life";
+    if (note.pillar) state.context = editorContext(note.pillar);
     el("note-editor-title").value = state.title;
     el("note-editor-tags").value = tagsToInput(state.tags);
     el("note-editor-text").value = state.body;
@@ -1386,6 +1395,7 @@ function hidePolish() {
 function syncCompanionUi() {
   const dialog = el("note-editor-dialog");
   if (dialog) dialog.dataset.editorContext = state.context || "life";
+  const loveContext = state.context === "love";
   const companion = companionForEditor(state.context);
   const button = el("note-editor-role");
   if (button) {
@@ -1393,16 +1403,22 @@ function syncCompanionUi() {
     button.textContent = label;
     button.setAttribute("aria-label", label);
     button.dataset.roleTitle = companion.title;
+    // 恋爱记忆的 AI 统一在「恋爱大师」右侧角色层；编辑器不再开第二个聊天入口。
+    button.hidden = loveContext;
   }
-  // 任务文档不做话题判类/润色；它们是任务板上的文档，不是散文。
+  // 任务文档不做话题判类/润色；恋爱记忆也不在这里判类/润色，统一走恋爱大师。
   const classify = el("note-editor-classify");
   const polishButton = el("note-editor-polish-btn");
-  if (classify) classify.hidden = Boolean(state.journal || state.task);
-  if (polishButton) polishButton.hidden = Boolean(state.task);
-  if (state.task) hidePolish();
+  if (classify) classify.hidden = Boolean(state.journal || state.task || loveContext);
+  if (polishButton) polishButton.hidden = Boolean(state.task || loveContext);
+  if (state.task || loveContext) hidePolish();
 }
 
 function openCompanion(selection = null) {
+  if (state.context === "love") {
+    setStatus("恋爱记忆的 AI 统一在「恋爱大师」右侧角色层里使用。", "warning");
+    return;
+  }
   if (!selection) {
     const textarea = el("note-editor-text");
     const start = Number(textarea?.selectionStart);

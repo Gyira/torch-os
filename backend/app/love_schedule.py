@@ -2,7 +2,8 @@
 
 只读最新排班表 Excel，得到「哪天上班 / 哪天休息」，并把单元格里的当天值乘车次
 作为 `duty` 字段返回；前端在当天备注位置直接显示。用户备注存在
-`<个人数据库>/.torch-os/love/schedule-notes.json`，可以追加交接事项或改车次。
+`<个人数据库>/02_生活运营/01_恋爱系统/03_排班日历/schedule-notes.json`，
+手动覆盖存在同目录 `overrides.json`，可以追加交接事项或改车次。
 
 车次时刻表、实时位置与沿线天气已经拆分到独立的工作台「列车追踪」组件，
 这里不再读取 train_timetable.json。排班对象姓名只从本机配置读取
@@ -18,7 +19,7 @@ import shutil
 import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -29,6 +30,7 @@ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 MAX_EXCEL_BYTES = 20 * 1024 * 1024
 MAX_NOTE_LENGTH = 500
 NOTES_NAME = "schedule-notes.json"
+OVERRIDES_NAME = "overrides.json"
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -254,6 +256,64 @@ def _write_notes(path: Path, notes: dict[str, str], *, read_only: bool) -> None:
     os.replace(temporary, path)
 
 
+def _load_overrides(path: Path) -> dict[str, dict[str, Any]]:
+    """手动覆盖：``{date: {status: follow|work|rest, duty: str|None}}``。"""
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not isinstance(value, dict):
+            continue
+        try:
+            date.fromisoformat(key)
+        except ValueError:
+            continue
+        status = str(value.get("status") or "follow").strip().lower()
+        if status not in ("follow", "work", "rest"):
+            status = "follow"
+        duty = value.get("duty")
+        if duty is not None:
+            duty = str(duty).strip()[:MAX_NOTE_LENGTH]
+        result[key] = {"status": status, "duty": duty}
+    return result
+
+
+def _write_overrides(path: Path, overrides: dict[str, dict[str, Any]], *,
+                     read_only: bool) -> None:
+    try:
+        ensure_vault_writable(read_only, "保存排班手动覆盖")
+    except VaultReadOnlyError as error:
+        raise HTTPException(409, str(error)) from error
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(overrides, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+
+
+def _apply_override(entry: dict[str, Any], override: dict[str, Any] | None) -> dict[str, Any]:
+    if not override:
+        return {**entry, "override": False, "excel_work": entry.get("work"),
+                "excel_rest": entry.get("rest"), "excel_duty": entry.get("duty", "")}
+    base = {**entry, "override": True,
+            "excel_work": entry.get("work"), "excel_rest": entry.get("rest"),
+            "excel_duty": entry.get("duty", "")}
+    status = str(override.get("status") or "follow")
+    if status == "work":
+        base["work"], base["rest"] = True, False
+    elif status == "rest":
+        base["work"], base["rest"] = False, True
+    if override.get("duty") is not None:
+        base["duty"] = override.get("duty") or ""
+    return base
+
+
 def _month_days(month: str) -> list[date]:
     year, month_number = (int(part) for part in month.split("-"))
     days = calendar.monthrange(year, month_number)[1]
@@ -261,12 +321,24 @@ def _month_days(month: str) -> list[date]:
 
 
 def _month_payload(month: str, excel_dir: Path, notes: dict[str, str],
-                   target_name: str) -> dict[str, Any]:
+                   target_name: str,
+                   overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     month_days = _month_days(month)
+    overrides = overrides or {}
     base = {"month": month, "today": datetime.now(TZ).date().isoformat()}
     latest = _find_latest_excel(excel_dir)
     if latest is None:
-        return {**base, "found": False, "error": "还没有排班表", "days": []}
+        # 没有 Excel 时，手动覆盖仍可用于“整月手动排班”的轻量兜底。
+        days = [
+            _apply_override({
+                "date": day.isoformat(), "in_range": False,
+                "work": None, "rest": None,
+                "note": notes.get(day.isoformat(), ""), "duty": "",
+            }, overrides.get(day.isoformat()))
+            for day in month_days
+        ]
+        return {**base, "found": bool(overrides), "error": "" if overrides else "还没有排班表",
+                "days": days, "manual_only": bool(overrides)}
     try:
         workbook = ScheduleWorkbook(latest, target_name)
     except Exception as exc:  # noqa: BLE001 - 第三方 Excel 解析错误要转成界面提示
@@ -287,14 +359,15 @@ def _month_payload(month: str, excel_dir: Path, notes: dict[str, str],
         column = workbook.date_columns.get(day)
         note = notes.get(day.isoformat(), "")
         if column is None:
-            days.append({"date": day.isoformat(), "in_range": False,
-                         "work": None, "rest": None, "note": note, "duty": ""})
-            continue
-        cell = workbook.cell_for(row, column)
-        rest = _is_rest_cell(cell)
-        days.append({"date": day.isoformat(), "in_range": True,
+            entry = {"date": day.isoformat(), "in_range": False,
+                     "work": None, "rest": None, "note": note, "duty": ""}
+        else:
+            cell = workbook.cell_for(row, column)
+            rest = _is_rest_cell(cell)
+            entry = {"date": day.isoformat(), "in_range": True,
                      "work": not rest, "rest": rest, "note": note,
-                     "duty": "" if rest else _duty_text(cell)})
+                     "duty": "" if rest else _duty_text(cell)}
+        days.append(_apply_override(entry, overrides.get(day.isoformat())))
     span = workbook.date_range()
     return {
         **base,
@@ -325,11 +398,31 @@ class NoteWrite(BaseModel):
         return value
 
 
+class OverrideWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    date: str = Field(min_length=10, max_length=10)
+    status: Literal["follow", "work", "rest"] = "follow"
+    duty: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, value: str) -> str:
+        try:
+            date.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("日期格式应为 YYYY-MM-DD") from error
+        return value
+
+
 def create_schedule_router(excel_dir: Path, notes_path: Path,
                            target_name: str = "", *, read_only: bool = False,
+                           overrides_path: Path | str | None = None,
                            prefix: str = "/api/love/schedule") -> APIRouter:
     excel_dir = Path(excel_dir)
     notes_path = _notes_path(notes_path)
+    overrides_path = Path(overrides_path) if overrides_path else (
+        notes_path.parent / OVERRIDES_NAME)
     target_name = str(target_name or "").strip()
     router = APIRouter(prefix=prefix, tags=["love-schedule"])
 
@@ -348,6 +441,7 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
         return {
             "excel_dir": str(excel_dir),
             "notes_path": str(notes_path),
+            "overrides_path": str(overrides_path),
             "excel_exists": latest is not None,
             "target_configured": bool(target_name),
             "date_range": span,
@@ -355,7 +449,8 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
 
     @router.get("/month")
     def month(month: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")):
-        return _month_payload(month, excel_dir, _load_notes(notes_path), target_name)
+        return _month_payload(month, excel_dir, _load_notes(notes_path), target_name,
+                              _load_overrides(overrides_path))
 
     @router.get("/day")
     def day(target_date: str = Query(alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")):
@@ -364,7 +459,8 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
         except ValueError as error:
             raise HTTPException(422, "日期格式应为 YYYY-MM-DD") from error
         payload = _month_payload(parsed.strftime("%Y-%m"), excel_dir,
-                                 _load_notes(notes_path), target_name)
+                                 _load_notes(notes_path), target_name,
+                                 _load_overrides(overrides_path))
         if not payload.get("found"):
             return {"found": False, "date": target_date, "error": payload.get("error", "排班表不可用")}
         item = next((day for day in payload["days"] if day["date"] == target_date), None)
@@ -391,8 +487,9 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
         found = False
         error = ""
         notes = _load_notes(notes_path)
+        overrides = _load_overrides(overrides_path)
         for month, month_dates in grouped.items():
-            payload = _month_payload(month, excel_dir, notes, target_name)
+            payload = _month_payload(month, excel_dir, notes, target_name, overrides)
             if not payload.get("found"):
                 error = error or str(payload.get("error") or "排班表不可用")
                 for item in month_dates:
@@ -428,6 +525,29 @@ def create_schedule_router(excel_dir: Path, notes_path: Path,
             notes.pop(payload.date, None)
         _write_notes(notes_path, notes, read_only=read_only)
         return {"date": payload.date, "note": note}
+
+    @router.put("/override")
+    def save_override(payload: OverrideWrite):
+        overrides = _load_overrides(overrides_path)
+        if payload.status == "follow" and payload.duty is None:
+            overrides.pop(payload.date, None)
+        else:
+            overrides[payload.date] = {
+                "status": payload.status,
+                "duty": payload.duty,
+            }
+        _write_overrides(overrides_path, overrides, read_only=read_only)
+        return {"date": payload.date,
+                "override": overrides.get(payload.date),
+                "active": payload.date in overrides}
+
+    @router.delete("/override")
+    def clear_override(target_date: str = Query(alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")):
+        overrides = _load_overrides(overrides_path)
+        removed = overrides.pop(target_date, None) is not None
+        if removed:
+            _write_overrides(overrides_path, overrides, read_only=read_only)
+        return {"date": target_date, "removed": removed}
 
     @router.post("/excel")
     async def replace_excel(file: UploadFile = File(...)):

@@ -1,0 +1,64 @@
+name: Build WeFlow WCDB component
+
+# 构建 https://github.com/olansoft/weflow-wcdb-api-oss 的 Windows x64 产物。
+# 产物不提交到仓库；下载 artifact 后放到 assets/weflow/ 或手动在应用里选择。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-weflow-wcdb.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone open-source wrapper
+        shell: pwsh
+        run: |
+          git clone https://github.com/olansoft/weflow-wcdb-api-oss.git "$env:RUNNER_TEMP\weflow-wcdb"
+          git -C "$env:RUNNER_TEMP\weflow-wcdb" checkout codex/clarify-build-guide
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: |
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkg) { $vcpkg = 'C:\vcpkg' }
+          & "$vcpkg\vcpkg.exe" install curl:x64-windows zstd:x64-windows
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Generate WCDB import library
+        shell: cmd
+        run: |
+          cd /d "%RUNNER_TEMP%\weflow-wcdb"
+          if not exist deps\win32\x64\WCDB.lib (
+            lib /def:deps\win32\x64\WCDB.def /machine:x64 /out:deps\win32\x64\WCDB.lib
+          )
+
+      - name: Configure and build
+        shell: pwsh
+        run: |
+          $src = "$env:RUNNER_TEMP\weflow-wcdb"
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkg) { $vcpkg = 'C:\vcpkg' }
+          cmake -S $src -B "$src\build-win-x64" -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DWCDB_LIB_PATH="$src\deps\win32\x64\WCDB.lib"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "$src\build-win-x64" --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weflow-wcdb-win32-x64
+          path: ${{ runner.temp }}\weflow-wcdb\build-win-x64\Release\wcdb_api.dll
+          if-no-files-found: error

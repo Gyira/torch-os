@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_LIFE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS, LIFE_NOTEBOOKS, OPS_NOTEBOOKS,
+  DEFAULT_LIFE_WRITE_CHAPTER, DEFAULT_LOVE_WRITE_CHAPTER, KNOWLEDGE_NOTEBOOKS,
+  LIFE_NOTEBOOKS, LOVE_NOTEBOOKS, LOVE_NOTEBOOK_PREFIX, OPS_NOTEBOOKS,
   buildMoveTargetGroups, buildNotebookCards, canDeleteNotebook, customNotebookKey,
   customNotebookName, customNotebookPillar, defaultWriteChapter, greetingForHour,
   isProtectedNotebook, journalHeading, knowledgeHeroState, lifeHeroState,
@@ -220,4 +221,22 @@ test("ops exposes one protected task notebook and never counts other chapters", 
   ]);
   assert.deepEqual(cards.map((card) => card.key), ["task"]);
   assert.equal(cards[0].count, 3);
+});
+
+test("love memory has two protected notebooks and a distinct custom prefix", () => {
+  assert.equal(DEFAULT_LOVE_WRITE_CHAPTER, "love_journal");
+  assert.equal(defaultWriteChapter("love"), "love_journal");
+  assert.equal(notebooksFor("love").length, LOVE_NOTEBOOKS.length);
+  assert.equal(notebookForChapter("love", "love_journal").title, "恋爱日志");
+  assert.equal(notebookForChapter("love", "love_drafts").title, "AI 草稿");
+  assert.equal(isProtectedNotebook("love", "love_journal"), true);
+  assert.equal(isProtectedNotebook("love", "love_drafts"), true);
+  assert.equal(canDeleteNotebook("love", notebookById("love", "love_journal")), false);
+  const key = customNotebookKey("旅行", "love");
+  assert.equal(key, `${LOVE_NOTEBOOK_PREFIX}旅行`);
+  assert.equal(customNotebookPillar(key), "love");
+  assert.equal(customNotebookName(key), "旅行");
+  const custom = notebookForChapter("love", key);
+  assert.equal(custom.title, "旅行");
+  assert.match(custom.description, /02_生活运营\/01_恋爱系统\/01_恋爱记忆/);
 });

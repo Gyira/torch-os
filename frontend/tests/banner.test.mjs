@@ -230,6 +230,10 @@ test("the editor exposes a file picker and uploads into the database .torch-os f
   assert.match(editor, /\/api\/identity\/banner\/image/);
   assert.match(editor, /data-banner-hero-remove/);
   assert.match(editor, /FormData/);
+  // 预览照片按实际横幅的宽高比显示取景，座右铭样本在下面（2026-11-01）。
+  assert.match(html, /id="banner-preview-photo"/);
+  assert.match(editor, /#workbench-banner/);
+  assert.match(editor, /aspectRatio/);
 });
 
 test("the banner exposes a one-click mode switch and a review board", async () => {

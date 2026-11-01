@@ -40,7 +40,12 @@ def test_chapter_manifest_covers_the_four_pillars():
     assert "01_自我档案/01_内核与三观" in paths
     assert "02_生活运营/02_健康系统" in paths
     assert "03_知识库/00_收件箱" in paths
-    assert len(paths) == len(vault_layout.CHAPTERS)
+    pillar_chapters = [item for item in vault_layout.CHAPTERS
+                       if item[1] in vault_layout.PILLAR_ORDER]
+    assert len(paths) == len(pillar_chapters)
+    # 恋爱记忆的写作章节不属于四库首页；它们只在模板/写作域清单里出现。
+    assert vault_layout.LOVE_JOURNAL_DIR not in paths
+    assert vault_layout.LOVE_DRAFT_DIR not in paths
 
 
 def test_moved_chapters_use_v2_paths_and_others_keep_v1_paths():

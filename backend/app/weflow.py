@@ -156,6 +156,36 @@ class WeFlowClient:
     def health(self) -> dict[str, Any]:
         return self._get("/api/v1/health")
 
+    def download_media(self, relative_path: str, *, max_bytes: int = 64 * 1024 * 1024) -> bytes:
+        """下载 WeFlow 已导出的媒体文件（图片/视频/语音/表情）。
+
+        ``relative_path`` 来自 ChatLab 消息的 ``mediaPath``，只允许普通相对路径；
+        仍然走同一个 loopback 基础地址和 Token，不访问用户提供的任意 URL。
+        """
+        value = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+        if not value or ".." in value.split("/") or "\x00" in value:
+            raise WeFlowError("WeFlow 媒体路径不正确")
+        if not value.startswith(("images/", "videos/", "voices/", "emojis/", "files/")):
+            # 会话目录通常在 mediaPath 前面；两种形式都允许，但仍拒绝绝对路径/Scheme。
+            if ":" in value.split("/")[0]:
+                raise WeFlowError("WeFlow 媒体路径不正确")
+        try:
+            response = self._client.get(
+                f"{self._base}/api/v1/media/{quote(value, safe='/')}",
+                headers={"Accept": "application/octet-stream"},
+            )
+        except httpx.HTTPError as exc:
+            raise WeFlowError(f"WeFlow 媒体下载失败：{exc}") from exc
+        if response.status_code in (401, 403):
+            raise WeFlowError("WeFlow Access Token 无效或已更换")
+        if response.status_code == 404:
+            raise WeFlowError("WeFlow 找不到这个媒体文件")
+        if response.status_code != 200:
+            raise WeFlowError(f"WeFlow 媒体返回 HTTP {response.status_code}")
+        if len(response.content) > max_bytes:
+            raise WeFlowError("WeFlow 媒体超过大小上限")
+        return response.content
+
     def sessions(self, keyword: str = "", *, limit: int = 200,
                  include_groups: bool = False) -> list[WeFlowSession]:
         limit = max(1, min(int(limit), 1000))

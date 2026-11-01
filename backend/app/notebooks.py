@@ -30,7 +30,7 @@ from .db import Database
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 NOTEBOOK_TRASH_DIR = ".torch-os/本子回收站"
-NotebookPillar = Literal["life", "knowledge"]
+NotebookPillar = Literal["life", "knowledge", "love"]
 
 
 class NotebookCreateRequest(BaseModel):
@@ -58,7 +58,7 @@ def _is_reparse(info: Any) -> bool:
 def _require_pillar(pillar: str) -> str:
     value = str(pillar or "").strip()
     if value not in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
-        raise HTTPException(422, "只有人生路和知识库支持自定义本子")
+        raise HTTPException(422, "只有人生路、知识库和恋爱记忆支持自定义本子")
     return value
 
 
@@ -186,7 +186,10 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
         raise HTTPException(409, "本子文件夹不是普通目录，已停止删除")
     try:
         parent = target.parent.resolve()
-        expected_parent = (vault / vault_layout.PILLAR_DIRS[pillar]).resolve()
+        root = vault_layout.notebook_root(pillar)
+        if not root:
+            raise HTTPException(409, "这个库不支持本子目录")
+        expected_parent = (vault / root).resolve()
         if parent != expected_parent or not target.resolve().is_relative_to(vault):
             raise HTTPException(409, "本子目录不在库内，已停止删除")
         note_count = _count_markdown(target)

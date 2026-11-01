@@ -67,4 +67,5 @@ def test_finance_month_summary(tmp_path):
     summary = client.get("/api/ops/finance/summary?months=3").json()
     assert len(summary["months"]) == 1
     assert len(summary["months"][0]["rows"]) == 2
-    assert summary["months"][0]["path"].startswith("02_生活运营/02_财富与记账/")
+    assert summary["months"][0]["path"].startswith("02_生活运营/08_财富与记账/")
+

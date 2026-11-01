@@ -6,6 +6,8 @@
   （见 `V1_CHAPTER_MOVES`），运行时不再写入；
 - 工作台任务与待办在 `02_生活运营/00_待办事项`（任务根 + 收集箱/已完成/回收站）；
   旧 00_人生路/07_任务与待办、08_任务与待办、00-System 只做只读兜底与迁移；
+- 2026-11-01 生活运营目录重排：`03_体检与医疗` 退役并入
+  `02_健康系统/03_体检与检验`，其余目录压紧编号（见 `OPS_LAYOUT_MOVES`）；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
 
 所有路径都以创建目录（Vault 根）为基准，使用 POSIX 相对路径字符串，
@@ -17,8 +19,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +35,8 @@ PILLAR_TITLES = {
     "self": "自我档案",
     "ops": "生活运营",
     "knowledge": "知识库",
+    # 恋爱记忆不是第五个主库：它只作为生活运营下的写作域，供恋爱系统使用。
+    "love": "恋爱记忆",
 }
 PILLAR_DIRS = {
     "life": "00_人生路",
@@ -39,6 +45,17 @@ PILLAR_DIRS = {
     "knowledge": "03_知识库",
 }
 PILLAR_ORDER = ("life", "self", "ops", "knowledge")
+
+# 恋爱系统 v2（2026-11-01）：生活运营下的二级分区；记忆使用独立写作域，
+# 但不进入四库首页/迁移状态，避免把“四库”变成五库。
+LOVE_PILLAR = "love"
+LOVE_ROOT = "02_生活运营/01_恋爱系统"
+LOVE_MEMORY_DIR = f"{LOVE_ROOT}/01_恋爱记忆"
+LOVE_JOURNAL_DIR = f"{LOVE_MEMORY_DIR}/恋爱日志"
+LOVE_DRAFT_DIR = f"{LOVE_MEMORY_DIR}/AI 草稿"
+LOVE_JOURNAL_CHAPTER = "love_journal"
+LOVE_DRAFT_CHAPTER = "love_drafts"
+LOVE_NOTEBOOK_PREFIX = "custom:love:"
 
 # 任务数据层（2026-10-31）：落在生活运营下，根目录直接是收集箱/已完成/回收站/各清单文件夹。
 TASK_ROOT = "02_生活运营/00_待办事项"
@@ -89,16 +106,20 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("health_profile", "ops", "身体档案", "02_生活运营/02_健康系统/02_身体档案", "health_profile"),
     ("health_lab", "ops", "体检与检验", "02_生活运营/02_健康系统/03_体检与检验", "health_lab"),
     ("health_train", "ops", "训练记录", "02_生活运营/02_健康系统/04_训练记录", "health_train"),
-    ("finance", "ops", "财富与记账", "02_生活运营/02_财富与记账", "finance_month"),
-    ("medical", "ops", "体检与医疗", "02_生活运营/03_体检与医疗", "medical"),
-    ("affairs", "ops", "证件与事务", "02_生活运营/04_证件与事务", "document"),
+    ("health_consult", "ops", "问诊记录", "02_生活运营/02_健康系统/05_问诊记录", "health_consult"),
+    ("finance", "ops", "财富与记账", "02_生活运营/08_财富与记账", "finance_month"),
+    # 2026-11-01：体检/医疗不再单独占一个生活运营顶层目录；检验记录归
+    # `02_健康系统/03_体检与检验`，`medical` 章节退役。下列 03–06 是重排后的
+    # 当前生活运营目录；`finance` 与 `love_memory` 是旧数据的只读兼容路径，
+    # 不再创建空目录，也不参与前端导航。
+    ("affairs", "ops", "证件与事务", "02_生活运营/03_证件与事务", "document"),
     # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
-    ("love_memory", "ops", "情感与记忆", "02_生活运营/05_情感与记忆", "memory"),
+    ("love_memory", "ops", "情感与记忆", "02_生活运营/07_情感与记忆", "memory"),
     # v1.0 生活运营 AI 报告：专家角色生成的可读产物，落数据层；家庭是占位章节。
     ("health_report", "ops", "健康报告", "02_生活运营/02_健康系统/00_健康报告", "report"),
-    ("finance_report", "ops", "财务报告", "02_生活运营/07_财务报告", "report"),
-    ("life_advice", "ops", "生活建议", "02_生活运营/08_生活建议", "advice"),
-    ("family", "ops", "家庭与智能家居", "02_生活运营/09_家庭与智能家居", "family"),
+    ("finance_report", "ops", "财务报告", "02_生活运营/04_财务报告", "report"),
+    ("life_advice", "ops", "生活建议", "02_生活运营/05_生活建议", "advice"),
+    ("family", "ops", "家庭与智能家居", "02_生活运营/06_家庭与智能家居", "family"),
     # 03_知识库
     ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
     ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),
@@ -108,6 +129,9 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("method_work", "knowledge", "工作方法", "03_知识库/05_方法库/01_工作方法", "method"),
     ("method_general", "knowledge", "通用方法", "03_知识库/05_方法库/02_通用方法", "method"),
     ("output", "knowledge", "输出与作品", "03_知识库/06_输出与作品", "output"),
+    # 02_生活运营 / 01_恋爱系统：只给恋爱记忆写作域使用，不进入四库首页。
+    (LOVE_JOURNAL_CHAPTER, LOVE_PILLAR, "恋爱日志", LOVE_JOURNAL_DIR, "love_memory"),
+    (LOVE_DRAFT_CHAPTER, LOVE_PILLAR, "AI 草稿", LOVE_DRAFT_DIR, "love_memory"),
 )
 
 # 侧边栏分组：只影响展示，章节仍是清单里的唯一来源；没有分组的库给空列表。
@@ -127,7 +151,7 @@ CHAPTER_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
 CUSTOM_NOTEBOOK_PREFIX = "custom:"
 KNOWLEDGE_NOTEBOOK_PREFIX = f"{CUSTOM_NOTEBOOK_PREFIX}knowledge:"
 CUSTOM_NOTEBOOK_MAX_NAME = 48
-CUSTOM_NOTEBOOK_PILLARS = ("life", "knowledge")
+CUSTOM_NOTEBOOK_PILLARS = ("life", "knowledge", LOVE_PILLAR)
 CUSTOM_NOTEBOOK_ROOT = PILLAR_DIRS["life"]
 # 内置本子（首页卡片）→ 标题与该本子包含的章节 key。任务/习惯不是本子卡片。
 BUILTIN_NOTEBOOKS: dict[str, dict[str, tuple[str, tuple[str, ...]]]] = {
@@ -152,18 +176,30 @@ BUILTIN_NOTEBOOKS: dict[str, dict[str, tuple[str, tuple[str, ...]]]] = {
     "ops": {
         "task": ("待办事项", ("task",)),
     },
+    "love": {
+        "journal": ("恋爱日志", (LOVE_JOURNAL_CHAPTER,)),
+        "drafts": ("AI 草稿", (LOVE_DRAFT_CHAPTER,)),
+    },
 }
-# 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项。
+# 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项、
+# 恋爱记忆的「恋爱日志」与「AI 草稿」。前三个是原有保护；恋爱记忆的两个
+# 固定本子不参与删除，避免首页与本子列表对不上。
 PROTECTED_NOTEBOOK_KEYS: dict[str, frozenset[str]] = {
     "life": frozenset({"essay"}),
     "knowledge": frozenset({"inbox"}),
     "ops": frozenset({"task"}),
+    "love": frozenset({"journal", "drafts"}),
 }
 DELETED_NOTEBOOKS_REL = Path(".torch-os") / "deleted-notebooks.json"
 # 固定章节仍然优先；不在固定一级目录里的直属文件夹才视为“我的本子”。
 FIXED_TOP_DIRS = frozenset(item[3].split("/")[1] for item in CHAPTERS)
 _NOTEBOOK_FORBIDDEN = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
 _NOTEBOOK_FOLDED_TOP_DIRS = {name.casefold() for name in FIXED_TOP_DIRS}
+# 恋爱记忆的两个固定本子是目录，但不是“自定义本子”；列表和路径解析都要跳过。
+LOVE_FIXED_NOTEBOOKS = frozenset({
+    "恋爱日志".casefold(),
+    "AI 草稿".casefold(),
+})
 # 自定义本子不能和任何内置本子/章节/库名同名，否则首页会出现两个「日记」。
 RESERVED_NOTEBOOK_TITLES = frozenset(
     {item[2] for item in CHAPTERS}
@@ -191,6 +227,27 @@ V1_CHAPTER_MOVES: dict[str, str] = {
 
 CHAPTER_BY_KEY = {item[0]: item for item in CHAPTERS}
 CHAPTER_BY_PATH = {item[3].casefold(): item for item in CHAPTERS}
+
+# 只读兼容章节：旧库可能还有文件，运行时按旧路径读取；新库不再创建空目录。
+LEGACY_CHAPTER_KEYS = frozenset({"finance", "love_memory"})
+
+# 2026-11-01 生活运营目录重排：取消独立的「03_体检与医疗」，它的内容并入
+# `02_健康系统/03_体检与检验`；其余目录压紧编号。迁移只动顶层目录，逐个文件
+# 冲突保留原文件，不覆盖。标记写 `.torch-os/ops-layout.json`，幂等可重跑。
+OPS_ROOT = "02_生活运营"
+OPS_LAYOUT_SCHEMA = "ops-layout-v2"
+OPS_LAYOUT_MARKER = ".torch-os/ops-layout.json"
+OPS_HEALTH_LAB = f"{OPS_ROOT}/02_健康系统/03_体检与检验"
+OPS_LAYOUT_MOVES: tuple[tuple[str, str], ...] = (
+    (f"{OPS_ROOT}/03_体检与医疗", OPS_HEALTH_LAB),
+    (f"{OPS_ROOT}/04_证件与事务", f"{OPS_ROOT}/03_证件与事务"),
+    (f"{OPS_ROOT}/07_财务报告", f"{OPS_ROOT}/04_财务报告"),
+    (f"{OPS_ROOT}/08_生活建议", f"{OPS_ROOT}/05_生活建议"),
+    (f"{OPS_ROOT}/09_家庭与智能家居", f"{OPS_ROOT}/06_家庭与智能家居"),
+    # 旧只读章节也一并压紧编号；实际不存在时什么也不做。
+    (f"{OPS_ROOT}/05_情感与记忆", f"{OPS_ROOT}/07_情感与记忆"),
+    (f"{OPS_ROOT}/02_财富与记账", f"{OPS_ROOT}/08_财富与记账"),
+)
 
 # 旧布局 → 新章节（只在迁移预览里使用；运行时读取旧路径只做只读兜底）。
 LEGACY_DIRS = {
@@ -259,10 +316,21 @@ def chapter_manifest(*, hidden: set[str] | frozenset[str] = frozenset()) -> dict
 
 def pillar_of(relpath: str) -> str:
     text = normalize_relpath(relpath)
+    # 恋爱记忆在 02_生活运营 下，必须先于 ops 匹配，否则会被误判成生活运营。
+    if text == LOVE_MEMORY_DIR or text.startswith(LOVE_MEMORY_DIR + "/"):
+        return LOVE_PILLAR
     for key, directory in PILLAR_DIRS.items():
         if text == directory or text.startswith(directory + "/"):
             return key
     return ""
+
+
+def notebook_root(pillar: str) -> str:
+    """自定义本子所在根目录；love 使用恋爱记忆目录，其余用四库根目录。"""
+    key = str(pillar or "")
+    if key == LOVE_PILLAR:
+        return LOVE_MEMORY_DIR
+    return PILLAR_DIRS.get(key, "")
 
 
 def chapter_key_of(relpath: str) -> str:
@@ -320,20 +388,28 @@ def validate_notebook_name(value: Any) -> str:
 
 
 def custom_notebook_key(name: str, pillar: str = "life") -> str:
-    """人生路沿用 `custom:<名字>`；知识库用 `custom:knowledge:<名字>`。"""
+    """人生路沿用 `custom:<名字>`；知识库/恋爱记忆带库前缀。"""
     clean = validate_notebook_name(name)
     if pillar == "knowledge":
         return f"{KNOWLEDGE_NOTEBOOK_PREFIX}{clean}"
+    if pillar == LOVE_PILLAR:
+        return f"{LOVE_NOTEBOOK_PREFIX}{clean}"
     return f"{CUSTOM_NOTEBOOK_PREFIX}{clean}"
 
 
 def custom_notebook_pillar(chapter_key: str) -> str:
-    """自定义本子 key → life/knowledge；不是合法本子 key 返回空串。"""
+    """自定义本子 key → life/knowledge/love；不是合法本子 key 返回空串。"""
     value = str(chapter_key or "").strip()
     if value.startswith(KNOWLEDGE_NOTEBOOK_PREFIX):
         try:
             validate_notebook_name(value[len(KNOWLEDGE_NOTEBOOK_PREFIX):])
             return "knowledge"
+        except ValueError:
+            return ""
+    if value.startswith(LOVE_NOTEBOOK_PREFIX):
+        try:
+            validate_notebook_name(value[len(LOVE_NOTEBOOK_PREFIX):])
+            return LOVE_PILLAR
         except ValueError:
             return ""
     if value.startswith(CUSTOM_NOTEBOOK_PREFIX):
@@ -349,7 +425,10 @@ def custom_notebook_name(chapter_key: str) -> str:
     pillar = custom_notebook_pillar(chapter_key)
     if not pillar:
         return ""
-    prefix = KNOWLEDGE_NOTEBOOK_PREFIX if pillar == "knowledge" else CUSTOM_NOTEBOOK_PREFIX
+    prefix = {
+        "knowledge": KNOWLEDGE_NOTEBOOK_PREFIX,
+        LOVE_PILLAR: LOVE_NOTEBOOK_PREFIX,
+    }.get(pillar, CUSTOM_NOTEBOOK_PREFIX)
     return str(chapter_key).strip()[len(prefix):]
 
 
@@ -358,26 +437,36 @@ def is_custom_notebook_key(chapter_key: str) -> bool:
 
 
 def custom_notebook_path(name: str, pillar: str = "life") -> str:
-    if pillar not in CUSTOM_NOTEBOOK_PILLARS:
-        raise ValueError("只有人生路和知识库支持自定义本子")
-    return f"{PILLAR_DIRS[pillar]}/{validate_notebook_name(name)}"
+    root = notebook_root(pillar)
+    if not root:
+        raise ValueError("只有人生路、知识库和恋爱记忆支持自定义本子")
+    return f"{root}/{validate_notebook_name(name)}"
 
 
 def custom_notebook_pillar_of(relpath: str) -> str:
-    """路径属于哪个库；只有人生路/知识库的自定义本子路径会返回 key 用的库。"""
+    """路径属于哪个库；只有支持自定义本子的库会返回 key 用的库。"""
     pillar = pillar_of(relpath)
     return pillar if pillar in CUSTOM_NOTEBOOK_PILLARS else ""
 
 
 def custom_notebook_name_from_relpath(relpath: str) -> str:
-    """<库>/<自定义文件夹>/<笔记>.md → 文件夹名；库根直属文件与固定一级目录返回空串。"""
+    """<库根>/<自定义文件夹>/<笔记>.md → 文件夹名；库根直属文件与固定目录返回空串。"""
     text = normalize_relpath(relpath)
-    parts = text.split("/")
-    # 至少要有「库 / 本子文件夹 / 笔记」三段；库根下的散落文件不是自定义本子。
-    if len(parts) < 3 or custom_notebook_pillar_of(text) == "":
+    pillar = custom_notebook_pillar_of(text)
+    if not pillar:
         return ""
-    name = parts[1]
+    root = notebook_root(pillar)
+    root_parts = root.split("/") if root else []
+    parts = text.split("/")
+    # 至少要有「库根 / 本子文件夹 / 笔记」；恋爱记忆的库根有三段。
+    if not root_parts or len(parts) < len(root_parts) + 2:
+        return ""
+    if parts[:len(root_parts)] != root_parts:
+        return ""
+    name = parts[len(root_parts)]
     if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+        return ""
+    if pillar == LOVE_PILLAR and name.casefold() in LOVE_FIXED_NOTEBOOKS:
         return ""
     if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
         return ""
@@ -392,7 +481,10 @@ def list_custom_notebooks(vault_dir: Path | str,
     """列出某个库根目录下的自定义本子文件夹（不跟符号链接）。"""
     if pillar not in CUSTOM_NOTEBOOK_PILLARS:
         return []
-    root = Path(vault_dir) / PILLAR_DIRS[pillar]
+    root_relative = notebook_root(pillar)
+    if not root_relative:
+        return []
+    root = Path(vault_dir) / root_relative
     try:
         entries = list(root.iterdir())
     except OSError:
@@ -401,6 +493,8 @@ def list_custom_notebooks(vault_dir: Path | str,
     for entry in entries:
         name = entry.name
         if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+            continue
+        if pillar == LOVE_PILLAR and name.casefold() in LOVE_FIXED_NOTEBOOKS:
             continue
         if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
             continue
@@ -644,6 +738,160 @@ def inbox_dir() -> str:
     return chapter_dir("inbox")
 
 
+def _ops_marker_path(root: Path) -> Path:
+    return root / OPS_LAYOUT_MARKER
+
+
+def _read_ops_marker(root: Path) -> dict[str, Any]:
+    path = _ops_marker_path(root)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _ops_sources(root: Path) -> list[str]:
+    return [source for source, _target in OPS_LAYOUT_MOVES if (root / source).exists()]
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    try:
+        if left.stat().st_size != right.stat().st_size:
+            return False
+        return left.read_bytes() == right.read_bytes()
+    except OSError:
+        return False
+
+
+def _merge_ops_tree(source: Path, target: Path, actions: list[str],
+                    conflicts: list[str]) -> None:
+    """把 source 合并进 target；同名但内容不同的文件留在 source，绝不覆盖。"""
+    if not source.exists():
+        return
+    if source.is_symlink():
+        conflicts.append(f"{source}:符号链接不处理")
+        return
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        actions.append(f"{source.name} → {target.parent.name}/{target.name}")
+        return
+    if source.is_file():
+        if target.is_file() and _same_file(source, target):
+            source.unlink()
+            return
+        conflicts.append(f"{source}:目标已存在且内容不同")
+        return
+    if not source.is_dir() or not target.is_dir():
+        conflicts.append(f"{source}:源与目标类型不同")
+        return
+    for child in sorted(source.iterdir(), key=lambda item: item.name):
+        destination = target / child.name
+        if child.is_symlink():
+            conflicts.append(f"{child}:符号链接不处理")
+            continue
+        if not destination.exists():
+            child.rename(destination)
+            continue
+        if child.is_dir() and destination.is_dir():
+            _merge_ops_tree(child, destination, actions, conflicts)
+            continue
+        if child.is_file() and destination.is_file() and _same_file(child, destination):
+            child.unlink()
+            continue
+        conflicts.append(f"{child}:目标已存在且内容不同")
+    try:
+        if not any(source.iterdir()):
+            source.rmdir()
+    except OSError as error:
+        conflicts.append(f"{source}:删除空目录失败（{error}）")
+
+
+def _backup_ops_sources(root: Path, sources: list[str], stamp: str) -> str:
+    backup_root = root / ".torch-os" / "backups" / "ops-layout" / stamp
+    for source in sources:
+        path = root / source
+        if not path.is_dir():
+            continue
+        destination = backup_root / source
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copytree(path, destination, dirs_exist_ok=True)
+        except OSError:
+            # 备份失败不阻断搬移；标记里会记录失败，源目录仍然保留在回收站/原处。
+            continue
+    return backup_root.relative_to(root).as_posix()
+
+
+def plan_ops_layout(vault_dir: Path | str) -> dict[str, Any]:
+    root = Path(vault_dir)
+    sources = _ops_sources(root)
+    actions = []
+    for source, target in OPS_LAYOUT_MOVES:
+        if (root / source).exists():
+            actions.append(f"{source} → {target}")
+    return {"schema": OPS_LAYOUT_SCHEMA, "sources": sources, "actions": actions,
+            "count": len(actions), "marker": _read_ops_marker(root)}
+
+
+def ensure_ops_layout(vault_dir: Path | str, *, database: Any = None) -> dict[str, Any]:
+    """把生活运营的旧顶层目录压紧编号，并把体检/医疗并入健康系统。
+
+    幂等：标记文件存在且没有旧目录时直接返回 already_done；只移动顶层目录，
+    同名冲突保留原文件并写进报告。只应在可写实例启动时调用。
+    """
+    root = Path(vault_dir).resolve()
+    if not root.is_dir():
+        return {"schema": OPS_LAYOUT_SCHEMA, "status": "skipped", "reason": "vault_missing",
+                "moved": 0}
+    sources = _ops_sources(root)
+    marker = _read_ops_marker(root)
+    if marker.get("schema") == OPS_LAYOUT_SCHEMA and not sources:
+        return {**marker, "status": "done", "already_done": True, "moved": 0}
+    if not sources:
+        payload = {"schema": OPS_LAYOUT_SCHEMA, "status": "done", "already_done": True,
+                   "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                   "moved": 0, "actions": [], "conflicts": [], "backup": ""}
+        _write_ops_marker(root, payload)
+        return payload
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = _backup_ops_sources(root, sources, stamp)
+    actions: list[str] = []
+    conflicts: list[str] = []
+    for source, target in OPS_LAYOUT_MOVES:
+        source_path = root / source
+        if source_path.exists():
+            _merge_ops_tree(source_path, root / target, actions, conflicts)
+    payload = {
+        "schema": OPS_LAYOUT_SCHEMA, "status": "done" if not conflicts else "partial",
+        "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "moved": len(actions), "actions": actions, "conflicts": conflicts,
+        "backup": backup,
+    }
+    _write_ops_marker(root, payload)
+    if database is not None:
+        try:
+            database.audit("ops_layout_migrated", {
+                "moved": len(actions), "conflicts": len(conflicts), "backup": backup})
+        except Exception:
+            pass
+    return payload
+
+
+def _write_ops_marker(root: Path, payload: dict[str, Any]) -> None:
+    path = _ops_marker_path(root)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                             encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        pass
+
+
 def ensure_layout(vault_dir: Path | str) -> list[str]:
     """幂等创建四库和章节目录；返回实际创建的相对路径。
 
@@ -659,7 +907,7 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
             path.mkdir(parents=True, exist_ok=True)
             created.append(relpath)
     for item in CHAPTERS:
-        if item[0] in hidden:
+        if item[0] in hidden or item[0] in LEGACY_CHAPTER_KEYS:
             continue
         path = root / item[3]
         if not path.is_dir():
@@ -708,11 +956,17 @@ __all__ = [
     "LAYOUT_VERSION", "SYSTEM_DIR", "FOREIGN_FILES", "PILLAR_TITLES",
     "TASK_ROOT", "TASK_INBOX_DIR", "TASK_DONE_DIR", "TASK_TRASH_DIR",
     "TASK_SYSTEM_DIR", "TASK_SPECIAL_DIRS",
-    "PILLAR_DIRS", "PILLAR_ORDER", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
-    "CHAPTER_GROUPS", "V1_CHAPTER_MOVES", "LEGACY_DIRS", "normalize_relpath",
+    "PILLAR_DIRS", "PILLAR_ORDER", "LOVE_PILLAR", "LOVE_ROOT", "LOVE_MEMORY_DIR",
+    "LOVE_JOURNAL_DIR", "LOVE_DRAFT_DIR", "LOVE_JOURNAL_CHAPTER",
+    "LOVE_DRAFT_CHAPTER", "LOVE_NOTEBOOK_PREFIX", "LOVE_FIXED_NOTEBOOKS",
+    "notebook_root", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
+    "LEGACY_CHAPTER_KEYS", "OPS_ROOT", "OPS_LAYOUT_SCHEMA", "OPS_LAYOUT_MARKER",
+    "OPS_HEALTH_LAB", "OPS_LAYOUT_MOVES", "CHAPTER_GROUPS", "V1_CHAPTER_MOVES",
+    "LEGACY_DIRS", "normalize_relpath",
     "chapter_manifest", "pillar_of", "chapter_key_of", "chapter_dir",
     "chapter_default_type", "v1_chapter_move", "is_foreign",
     "is_skipped", "index_policy", "safe_note_stem", "validate_target",
     "journal_path", "identity_paths", "legacy_identity_path", "legacy_journal_path",
     "inbox_dir", "ensure_layout", "layout_status",
+    "plan_ops_layout", "ensure_ops_layout",
 ]

@@ -172,6 +172,81 @@ def test_train_status_before_running_at_station_and_arrived() -> None:
     assert "时刻表" in missing["message"]
 
 
+def test_12306_search_matches_exact_code_and_date(monkeypatch) -> None:
+    """车次搜索接口按日期返回车次本身，发车后仍可拿到 train_no。"""
+    payload = {"data": [
+        {"date": "20261101", "from_station": "成都东", "station_train_code": "G3350",
+         "to_station": "西安北", "train_no": "76000G335010"},
+        {"date": "20261101", "from_station": "北京西", "station_train_code": "G335",
+         "to_station": "南昌西", "train_no": "240000G33520"},
+    ]}
+    calls = []
+
+    class FakeResponse:
+        def json(self):
+            return payload
+
+    def fake_get(client, url, *, params=None, max_bytes=0):
+        calls.append((url, params))
+        return FakeResponse()
+
+    monkeypatch.setattr(train_tracker, "_get", fake_get)
+    train_no = train_tracker._search_train_no(
+        object(), "G335", "2026-11-01", "北京西", "南昌西")
+    assert train_no == "240000G33520"
+    assert calls[0][0] == train_tracker.SEARCH_URL
+    assert calls[0][1]["date"] == "20261101"
+    assert calls[0][1]["keyword"] == "G335"
+
+
+def test_fetch_12306_prefers_search_and_skips_left_ticket(monkeypatch) -> None:
+    monkeypatch.setattr(train_tracker, "_search_train_no",
+                        lambda *args, **kwargs: "240000G33520")
+    monkeypatch.setattr(train_tracker, "_query_stops", lambda *args, **kwargs: [
+        {"station_name": "北京西", "start_time": "12:00"},
+        {"station_name": "石家庄", "arrive_time": "13:01", "start_time": "13:03"},
+        {"station_name": "南昌西", "arrive_time": "17:52"},
+    ])
+    monkeypatch.setattr(train_tracker, "_bootstrap",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            AssertionError("搜索成功时不应再走余票会话")))
+    train = train_tracker.fetch_12306_train("G335", "北京西", "南昌西", "2026-11-01")
+    assert train["from_station"] == "北京西"
+    assert train["to_station"] == "南昌西"
+    assert train["depart_time"] == "12:00"
+    assert train["arrive_time"] == "17:52"
+    assert train["train_no"] == "240000G33520"
+    assert len(train["stops"]) == 3
+
+
+def test_fetch_12306_falls_back_to_tomorrow_after_departure(monkeypatch) -> None:
+    """余票接口在发车后查不到当天车次时，用明天的 train_no、今天的经停站。"""
+    def no_search(*args, **kwargs):
+        raise train_tracker.TrainSyncError("search unavailable")
+
+    monkeypatch.setattr(train_tracker, "_search_train_no", no_search)
+    monkeypatch.setattr(train_tracker, "_bootstrap", lambda *args, **kwargs: None)
+    monkeypatch.setattr(train_tracker, "_station_map",
+                        lambda *args, **kwargs: {"北京西": "BXP", "南昌西": "NXG"})
+    seen = []
+
+    def fake_query(client, code, date_text, from_station, to_station, stations):
+        seen.append(date_text)
+        if date_text == "2026-11-01":
+            raise train_tracker.TrainSyncError("today missing")
+        return "240000G33520"
+
+    monkeypatch.setattr(train_tracker, "_query_train_no", fake_query)
+    monkeypatch.setattr(train_tracker, "_query_stops", lambda *args, **kwargs: [
+        {"station_name": "北京西", "start_time": "12:00"},
+        {"station_name": "南昌西", "arrive_time": "17:52"},
+    ])
+    monkeypatch.setattr(train_tracker, "_today_text", lambda: "2026-11-01")
+    train = train_tracker.fetch_12306_train("G335", "北京西", "南昌西", "2026-11-01")
+    assert seen == ["2026-11-01", "2026-11-02"]
+    assert train["train_no"] == "240000G33520"
+
+
 def test_12306_left_ticket_rotation_and_stop_parsing(monkeypatch) -> None:
     row = ("secret|预订|24000000G10L|G1|VNP|AOH|VNP|AOH|06:30|11:24|04:54|"
            "Y|abc|20261028|3|P3|01|13|1|0|有")

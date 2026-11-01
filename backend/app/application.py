@@ -8,7 +8,6 @@ import json
 import os
 import re
 import secrets
-from dataclasses import replace
 from urllib.parse import urlsplit
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -72,14 +71,18 @@ from .todo_note import create_todo_router
 from .tasks import TaskCreate, create_task, create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
-from .love import LoveSettings, create_love_router
 from .health import create_health_router
+from .love_layout import ensure_love_layout, love_paths
+from .love_migrate import migrate_love_v2
+from .love_chat import create_chat_router
+from .love_memory import create_memory_router
 from .love_schedule import create_schedule_router
 from .love_cycle import create_cycle_router
-from .love_storage import (
-    DB_NAME as LOVE_DB_NAME, EXCEL_DIR_NAME as LOVE_EXCEL_DIR_NAME, KEY_NAME as LOVE_KEY_NAME,
-    STOPWORDS_NAME as LOVE_STOPWORDS_NAME, migrate_love_data,
-)
+from .love_gallery import create_gallery_router
+from .love_bazi import create_bazi_router
+from .love_master import create_master_router
+from .love_system import create_system_router
+from .love_weflow_component import create_component_router
 from .train_tracker import create_train_tracker_router
 from .journal_export import create_journal_export_router
 from .habits import HabitCreate, HabitService, create_habits_router
@@ -107,7 +110,7 @@ from .wolai_import import WolaiImportError, preview_wolai_archive, import_select
 from .wolai_import import preview_import_states
 from .workbench import create_workbench_router
 
-APP_VERSION = '1.0.0'
+APP_VERSION = '2.1.0'
 
 # Page manifest consumed by the local dsh sidebar plugin (0.88.0). The labels
 # mirror frontend/nav-order.js; tests keep the two in sync.
@@ -249,8 +252,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     database.initialize()
     vault_dir.mkdir(parents=True, exist_ok=True)
     # 真实个人实例启动时幂等整理任务数据层；测试/显式注入库不自动搬文件。
+    ops_layout_state: dict[str, Any] = {"status": "skipped", "reason": "not_eligible"}
     task_layout_state: dict[str, Any] = {"status": "skipped", "reason": "not_eligible"}
     if runtime_label == "personal" and not provided_paths and not vault_read_only:
+        try:
+            from .vault_layout import ensure_ops_layout
+            ops_layout_state = ensure_ops_layout(vault_dir, database=database)
+        except Exception as error:  # 迁移失败不能阻止服务启动
+            ops_layout_state = {"status": "error", "error": type(error).__name__}
         try:
             from .task_layout_bootstrap import ensure_task_data_layout
             task_layout_state = ensure_task_data_layout(
@@ -455,6 +464,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.database = database
     app.state.vault_dir = vault_dir
     app.state.task_layout_bootstrap = task_layout_state
+    app.state.ops_layout_bootstrap = ops_layout_state
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = data_lock
@@ -512,7 +522,15 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             request.url.path.startswith('/api/love/projects/')
             and request.url.path.endswith('/report/preview')
         )
-        if love_report_preview:
+        love_bazi_html = (
+            request.url.path.startswith('/api/love/bazi/reports/')
+            and request.url.path.endswith('/html')
+        )
+        love_master_html = (
+            request.url.path.startswith('/api/love/master/runs/')
+            and request.url.path.endswith('/html')
+        )
+        if love_report_preview or love_bazi_html or love_master_html:
             response.headers['Cache-Control'] = 'no-store'
             response.headers['Content-Security-Policy'] = (
                 "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
@@ -581,7 +599,11 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'life_assistant':ai_enabled,'life_reports':True,
                     'love': runtime_label == 'personal',
+                    'love_bazi': runtime_label == 'personal',
+                    'love_chat': runtime_label == 'personal',
                     'love_cycle': runtime_label == 'personal',
+                    'love_gallery': runtime_label == 'personal',
+                    'love_master': runtime_label == 'personal' and ai_enabled,
                     'love_memory': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
@@ -857,67 +879,73 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(memory_hub.create_memory_hub_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
         read_only=vault_read_only))
-    # 恋爱系统：数据统一放在当前个人数据库的 .torch-os/love/，不启动独立服务；
-    # AI 只走用户配置的 DeepSeek。QA 是隔离的虚构工作区，不注册、也不触碰真实恋爱数据。
+    # 恋爱系统 v2：私人数据全部在 02_生活运营/01_恋爱系统/，按七个页面分目录；
+    # 旧 .torch-os/love/ 只作为迁移来源。AI 统一走 dsh 角色层，不再保存独立 DeepSeek Key。
     train_tracker_legacy: list[Path] = []
     love_settings: Any = None
+    love_migration: dict[str, Any] = {}
     if runtime_label == 'personal':
         from .config import (
-            LOVE_API_BASE_URL, LOVE_API_MODEL, LOVE_APP_DIR, LOVE_DATA_DIR,
-            LOVE_LEGACY_DB_PATH, LOVE_LEGACY_EXCEL_DIR, LOVE_LEGACY_TIMETABLE_PATH,
-            LOVE_STOPWORDS_PATH, LOVE_TARGET_NAME, ROOT_DIR,
+            LOVE_LEGACY_DB_PATH, LOVE_TARGET_NAME, LOVE_LEGACY_TIMETABLE_PATH, ROOT_DIR,
         )
-        # 默认跟着当前选中的个人数据库走（<DATA_DIR>/love）；真实个人实例才认显式覆盖，
-        # 测试/QA 注入的临时库一律使用自己的数据目录，避免碰到真实路径。
-        explicit_love_dir = (os.getenv('LOVE_DATA_DIR') or '').strip()
-        love_data_dir = (LOVE_DATA_DIR if explicit_love_dir and not provided_paths
-                         else (Path(database.path).parent / 'love'))
+        legacy_love_dir = Path(database.path).resolve().parent / 'love'
         train_tracker_legacy = [
-            love_data_dir / 'train_timetable.json',
+            legacy_love_dir / 'train_timetable.json',
             Path(LOVE_LEGACY_TIMETABLE_PATH),
             ROOT_DIR / 'data' / 'love' / 'train_timetable.json',
         ] if not provided_paths else []
-        love_settings = LoveSettings(
-            db_path=love_data_dir / LOVE_DB_NAME,
-            key_file=love_data_dir / LOVE_KEY_NAME,
-            app_dir=LOVE_APP_DIR,
-            stopwords_path=love_data_dir / LOVE_STOPWORDS_NAME,
-            excel_dir=love_data_dir / LOVE_EXCEL_DIR_NAME,
-            api_base_url=LOVE_API_BASE_URL,
-            api_model=LOVE_API_MODEL,
-            target_name=LOVE_TARGET_NAME,
-        )
+        love_settings = love_paths(vault_dir)
         if love_legacy_migration is None:
             love_legacy_migration = not provided_paths
         if love_legacy_migration:
-            love_settings = replace(love_settings, migration=migrate_love_data(
-                love_data_dir,
-                legacy_db_path=LOVE_LEGACY_DB_PATH,
-                legacy_key_file=Path(LOVE_LEGACY_DB_PATH).parent / LOVE_KEY_NAME,
-                legacy_excel_dir=LOVE_LEGACY_EXCEL_DIR,
-                legacy_stopwords_path=LOVE_STOPWORDS_PATH,
-            ))
+            love_migration = migrate_love_v2(
+                vault_dir, database, database_path=database.path,
+                extra_legacy_roots=(
+                    [Path(LOVE_LEGACY_DB_PATH).parent] if not provided_paths else []
+                ),
+                read_only=vault_read_only,
+            )
         else:
-            love_data_dir.mkdir(parents=True, exist_ok=True)
-            (love_data_dir / LOVE_EXCEL_DIR_NAME).mkdir(parents=True, exist_ok=True)
+            ensure_love_layout(vault_dir, read_only=vault_read_only)
         app.state.love_settings = love_settings
-        # 角色层按需读取恋爱系统的只读摘要；在 love_settings 建好后回填。
+        app.state.love_paths = love_settings
+        app.state.love_migration = love_migration
+        # 角色层按需读取恋爱系统的只读摘要；在路径建好后回填。
         ai_service.love_settings = love_settings
-        app.include_router(create_love_router(
-            settings=love_settings, vault_dir=vault_dir,
-            database=database, read_only=vault_read_only,
+        app.include_router(create_system_router(
+            love_settings, migration=love_migration, role_service=ai_service,
+        ))
+        app.include_router(create_component_router(
+            love_settings, read_only=vault_read_only,
+        ))
+        app.include_router(create_memory_router(
+            vault_dir, database, read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+        app.include_router(create_chat_router(
+            love_settings, read_only=vault_read_only,
         ))
         app.include_router(create_schedule_router(
-            love_settings.excel_dir,
-            love_data_dir / 'schedule-notes.json',
-            love_settings.target_name,
+            love_settings.schedule_excel,
+            love_settings.schedule_notes,
+            LOVE_TARGET_NAME,
             read_only=vault_read_only,
+            overrides_path=love_settings.schedule_overrides,
         ), dependencies=[Depends(journal_data_guard)])
-        # 经期关怀：纯本地计算，数据在 .torch-os/love/cycle.db；首次保存时才创建文件。
+        # 经期关怀：纯本地计算，数据在 04_经期关怀/cycle.db；首次保存时才创建文件。
         app.include_router(create_cycle_router(
-            love_data_dir / 'cycle.db',
+            love_settings.cycle_db,
             read_only=vault_read_only,
         ), dependencies=[Depends(journal_data_guard)])
+        app.include_router(create_gallery_router(
+            love_settings, read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+        app.include_router(create_bazi_router(
+            love_settings, role_service=ai_service, read_only=vault_read_only,
+        ), dependencies=[Depends(journal_data_guard)])
+        app.include_router(create_master_router(
+            love_settings, database, role_service=ai_service,
+            target_name=LOVE_TARGET_NAME, read_only=vault_read_only,
+        ))
     # v1.0 生活运营 AI：健康/财务/恋爱/生活管家；报告落 06–08 章，建议只生成提案。
     app.include_router(life_reports.create_life_ai_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,

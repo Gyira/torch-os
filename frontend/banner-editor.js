@@ -111,10 +111,19 @@ function removeHero(index) {
 
 function updatePreview() {
   const preview = $("#banner-preview");
+  const photo = $("#banner-preview-photo");
   const first = heroItems[0]?.preview || "";
   preview.classList.toggle("banner-empty", heroItems.length === 0);
-  preview.style.backgroundImage = first ? `url("${first.replace(/"/g, "%22")}")` : "";
-  preview.style.backgroundPosition = currentFocal();
+  photo.style.backgroundImage = first ? `url("${first.replace(/"/g, "%22")}")` : "";
+  photo.style.backgroundPosition = currentFocal();
+  // 取景和真实横幅一致：照片框的宽高比直接从工作台横幅量（引言按内容、统计 234px 高），
+  // cover + 同一焦点，预览里看到的就是放出来那一条，不再用固定的 514×120 卡片骗人。
+  const live = document.querySelector("#workbench-banner");
+  if (live && live.offsetWidth && live.offsetHeight) {
+    photo.style.aspectRatio = `${live.offsetWidth} / ${live.offsetHeight}`;
+  } else {
+    photo.style.removeProperty("aspect-ratio");
+  }
   preview.style.setProperty("--banner-accent", accentValue());
   // 字体：预览里直接用第一句座右铭当样本，选什么字体当场看得见。
   const font = safeFont($("#banner-font").value);
@@ -126,7 +135,7 @@ function updatePreview() {
   preview.style.setProperty("--banner-blur", backdrop.blur);
   preview.style.setProperty("--banner-bright", backdrop.bright);
   preview.style.setProperty("--banner-scrim-alpha", backdrop.scrim);
-  const overlay = preview.querySelector(".banner-overlay");
+  const overlay = photo.querySelector(".banner-overlay");
   if (overlay) {
     overlay.style.opacity = $("#banner-overlay").value;
     overlay.style.backdropFilter = `blur(${backdrop.blur}) brightness(${backdrop.bright})`;

@@ -92,20 +92,17 @@ test("triage cards require an explicit chapter choice now that steward is gone",
   assert.match(html, /人生路 \/ 生活心得/);
 });
 
-test("love drafts offer write and discard, and discard is the destructive one", () => {
-  const html = pendingItemMarkup({
-    kind: "love", id: "d1", title: "2026-10-20 · 每日记忆",
-    preview: "今天一起去看了海", lines: [], source: "每日记忆 · 恋爱系统",
-    created: "", actions: ["write", "discard"],
-  });
-  assert.match(html, /class="button secondary" data-pending-action="write"/);
-  assert.match(html, /class="text-button" data-pending-action="discard"/);
-  assert.match(html, /写入四库/);
+test("每日记忆已移除，待确认中枢不再出现恋爱记忆", () => {
+  const html = pendingStripMarkup({ total: 3, draft: 0, fact: 1, triage: 2, love: 3 });
+  assert.match(html, />3</);
+  assert.match(html, /事实 1 · 收件箱 2/);
+  assert.equal(html.includes("恋爱记忆"), false);
+  assert.equal(html.includes("写入四库"), false);
 });
 
 test("a strip counts every room that has work", () => {
-  const html = pendingStripMarkup({ total: 6, draft: 0, fact: 1, triage: 2, love: 3 });
+  const html = pendingStripMarkup({ total: 6, draft: 0, fact: 1, triage: 5 });
   assert.match(html, />6</);
-  assert.match(html, /事实 1 · 收件箱 2 · 恋爱记忆 3/);
+  assert.match(html, /事实 1 · 收件箱 5/);
   assert.equal(html.includes("草稿 0"), false);
 });

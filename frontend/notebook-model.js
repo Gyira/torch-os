@@ -79,23 +79,41 @@ export const OPS_NOTEBOOKS = Object.freeze([
   },
 ]);
 
+// 恋爱记忆：默认「恋爱日志」不可删；AI 批量补日记先放「AI 草稿」。
+export const LOVE_NOTEBOOKS = Object.freeze([
+  {
+    key: "love_journal", title: "恋爱日志", eyebrow: "MEMORY", icon: "恋", tone: "rose",
+    description: "默认本子，记录每天想留下的片段。",
+    chapters: ["love_journal"], primary: true,
+  },
+  {
+    key: "love_drafts", title: "AI 草稿", eyebrow: "AI DRAFT", icon: "AI", tone: "plum",
+    description: "AI 批量补日记先放这里，你确认后再移入正式本子。",
+    chapters: ["love_drafts"],
+  },
+]);
+
 // 人生路只有一个「写点什么」入口：默认先落到随笔，写完再改本子。
 export const DEFAULT_LIFE_WRITE_CHAPTER = "essay";
 export const DEFAULT_KNOWLEDGE_WRITE_CHAPTER = "topic";
 export const DEFAULT_OPS_WRITE_CHAPTER = "task";
+export const DEFAULT_LOVE_WRITE_CHAPTER = "love_journal";
 
 export function defaultWriteChapter(pillar) {
   const value = String(pillar || "");
   if (value === "knowledge") return DEFAULT_KNOWLEDGE_WRITE_CHAPTER;
   if (value === "ops") return DEFAULT_OPS_WRITE_CHAPTER;
+  if (value === "love") return DEFAULT_LOVE_WRITE_CHAPTER;
   return DEFAULT_LIFE_WRITE_CHAPTER;
 }
 
-// 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项。
+// 用户明确保留的默认内置本子：人生路随笔、知识库收件箱、生活运营待办事项、
+// 恋爱记忆的恋爱日志与 AI 草稿。
 export const PROTECTED_NOTEBOOK_KEYS = Object.freeze({
   life: Object.freeze(["essay"]),
   knowledge: Object.freeze(["inbox"]),
   ops: Object.freeze(["task"]),
+  love: Object.freeze(["love_journal", "love_drafts"]),
 });
 
 export function isProtectedNotebook(pillar, key) {
@@ -115,26 +133,34 @@ const NOTEBOOKS = {
   life: LIFE_NOTEBOOKS,
   knowledge: KNOWLEDGE_NOTEBOOKS,
   ops: OPS_NOTEBOOKS,
+  love: LOVE_NOTEBOOKS,
 };
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export const CUSTOM_NOTEBOOK_PREFIX = "custom:";
-// 知识库使用更长的前缀，避免两个库出现同名本子时 key 冲突。
+// 知识库/恋爱记忆使用更长的前缀，避免两个库出现同名本子时 key 冲突。
 export const KNOWLEDGE_NOTEBOOK_PREFIX = "custom:knowledge:";
+export const LOVE_NOTEBOOK_PREFIX = "custom:love:";
 const CUSTOM_NOTEBOOK_PREFIXES = Object.freeze({
   life: CUSTOM_NOTEBOOK_PREFIX,
   knowledge: KNOWLEDGE_NOTEBOOK_PREFIX,
+  love: LOVE_NOTEBOOK_PREFIX,
 });
 const CUSTOM_TONES = ["amber", "plum", "sage", "blue", "indigo", "rose", "slate"];
 
-/** 自定义本子 key → 所在库（life / knowledge）；不是本子 key 返回空串。 */
+/** 自定义本子 key → 所在库（life / knowledge / love）；不是本子 key 返回空串。 */
 export function customNotebookPillar(key) {
   const value = String(key || "");
   if (value.startsWith(KNOWLEDGE_NOTEBOOK_PREFIX)
       && value.length > KNOWLEDGE_NOTEBOOK_PREFIX.length) {
     return "knowledge";
   }
+  if (value.startsWith(LOVE_NOTEBOOK_PREFIX)
+      && value.length > LOVE_NOTEBOOK_PREFIX.length) {
+    return "love";
+  }
   if (value.startsWith(CUSTOM_NOTEBOOK_PREFIX)
       && !value.startsWith(KNOWLEDGE_NOTEBOOK_PREFIX)
+      && !value.startsWith(LOVE_NOTEBOOK_PREFIX)
       && value.length > CUSTOM_NOTEBOOK_PREFIX.length) {
     return "life";
   }
@@ -173,7 +199,9 @@ export function customNotebookDefinition(key) {
   const name = customNotebookName(key);
   const pillar = customNotebookPillar(key);
   if (!name || !pillar) return null;
-  const root = pillar === "knowledge" ? "03_知识库" : "00_人生路";
+  const root = pillar === "knowledge" ? "03_知识库"
+    : pillar === "love" ? "02_生活运营/01_恋爱系统/01_恋爱记忆"
+      : "00_人生路";
   return {
     key: String(key),
     title: name,

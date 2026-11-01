@@ -4,132 +4,179 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 恋爱系统是「工作台」的二级分区，不是新的顶层模块。
-// 同时守住两条边界：页面不写内联样式（工作台 CSP 只允许 self），
-// 动画/报告等独立文档才允许由后端单独出页面。
-
+// 恋爱系统 v2：生活运营下的二级分区，七个页面；数据在本机。
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const source = (name) => readFile(path.join(frontend, name), "utf8");
 
-async function source(name) {
-  return readFile(path.join(frontend, name), "utf8");
-}
-
-test("恋爱系统挂在生活运营的二级菜单里，不在工作台", async () => {
+test("恋爱系统只剩七个页面，并挂在生活运营下", async () => {
   const html = await source("index.html");
+  const app = await source("app.js");
+  const nav = await source("nav-order.js");
+
   assert.match(html, /data-pane="love-view"/);
   assert.match(html, /id="love-view"/);
   assert.match(html, /data-module="ops"[^>]*data-pane-label="恋爱系统"|data-pane-label="恋爱系统"/);
-  assert.match(html, /data-love-page="dashboard"/);
-  assert.match(html, /data-love-page="cycle"><span>02<\/span>经期关怀/);
-  assert.match(html, /data-love-page="settings"/);
+  for (const [key, label, number] of [
+    ["memories", "恋爱记忆", "01"],
+    ["chat", "微信聊天", "02"],
+    ["schedule", "排班日历", "03"],
+    ["cycle", "经期关怀", "04"],
+    ["gallery", "恋爱相册", "05"],
+    ["bazi", "八字合婚", "06"],
+    ["master", "恋爱大师", "07"],
+  ]) {
+    assert.match(html, new RegExp(`data-love-page="${key}"[^>]*>\\s*<span>${number}</span>${label}`),
+      `缺少 ${number} ${label}`);
+  }
+  for (const old of ["dashboard", "import", "wechat", "stats", "analysis", "profile",
+    "journal", "memory", "report", "settings"]) {
+    assert.equal(html.includes(`data-love-page="${old}"`), false, `旧页面不应保留：${old}`);
+  }
+  assert.match(html, /id="love-settings-open"/);
+  assert.match(html, /id="love-settings-drawer"/);
+  assert.match(html, /id="love-settings-backdrop"/);
 
-  // 二级入口必须在生活运营的 nav-sublist 里，而不是工作台的。
-  const workbenchSub = html.slice(html.indexOf('id="nav-sub-workbench"'), html.indexOf('id="nav-sub-ops"'));
   const opsSub = html.slice(html.indexOf('id="nav-sub-ops"'), html.indexOf('data-view="knowledge"'));
-  assert.equal(workbenchSub.includes('data-pane="love-view"'), false);
-  assert.ok(opsSub.includes('data-pane="love-view"'), "生活运营缺少恋爱系统二级入口");
-  // 分区本身也必须属于 ops，否则 activatePane 找不到它。
-  assert.match(html, /<section id="love-view"[^>]*data-module="ops"/);
-
-  const nav = await source("nav-order.js");
+  assert.ok(opsSub.includes('data-pane="love-view"'));
   const labels = nav.match(/NAV_LABELS = \{([^}]*)\}/)[1];
-  assert.equal(labels.includes("恋爱系统"), false, "顶层导航不应新增独立恋爱模块");
-
-  const app = await source("app.js");
-  assert.match(app, /ops: \{ stacked: false, panes: \[\["ops-view", "生活运营"\], \["love-view", "恋爱系统"\](, \["health-view", "健康系统"\])?\] \}/);
-  const workbenchBlock = app.slice(app.indexOf("workbench: {"), app.indexOf("life: {"));
-  assert.equal(workbenchBlock.includes("love-view"), false,
-    "工作台的二级菜单不应再出现恋爱系统");
+  assert.equal(labels.includes("恋爱系统"), false);
   assert.match(app, /"love-view": \(\) => \{ initLovePane\(\); loadLovePane\(\); \}/);
 });
 
 test("恋爱页面不违反工作台的内联样式 CSP", async () => {
   const love = await source("love.js");
   assert.equal(/style\s*=/.test(love), false, "CSP style-src 'self' 会阻止内联 style 属性");
-  assert.equal(/<style\b/.test(love), false, "页面内不应写 <style>；报告由后端单独文档承载");
-  assert.match(love, /widthClass/);
-  assert.match(love, /love-width-/);
-  // 报告预览必须走后端独立文档，而不是 srcdoc 继承工作台 CSP。
-  assert.match(love, /\/report\/preview/);
+  assert.equal(/<style\b/.test(love), false, "页面内不应写 <style>");
   assert.equal(/srcdoc/.test(love), false);
 });
 
-test("恋爱系统只调用本机原生 API", async () => {
+test("恋爱系统只调用本机原生 API，不直接访问外部 AI", async () => {
   const love = await source("love.js");
   for (const endpoint of [
     "/api/love/status",
-    "/api/love/projects",
-    "/analysis",
-    "/journal",
-    "/profile",
-    "/report",
-    "/schedule/",
-    "/settings/api-key",
+    "/api/love/memory/overview",
+    "/api/love/memory/notes",
+    "/api/love/memory/export",
+    "/api/love/chat/status",
+    "/api/love/chat/calendar",
+    "/api/love/chat/day",
+    "/api/love/chat/sync",
+    "/api/love/chat/export",
+    "/api/love/schedule/month",
+    "/api/love/schedule/override",
+    "/api/love/gallery/overview",
+    "/api/love/gallery/upload",
+    "/api/love/bazi/generate",
+    "/api/love/bazi/history",
+    "/api/love/master/run",
+    "/api/love/master/overview",
+    "/api/love/weflow/component/status",
   ]) {
     assert.ok(love.includes(endpoint), `缺少接口：${endpoint}`);
   }
-  const withoutLocal = love
-    .replace(/https:\/\/api\.deepseek\.com\/v1/g, "")
-    .replace(/http:\/\/127\.0\.0\.1:\$\{[^}]+\}/g, "")
-    .replace(/http:\/\/127\.0\.0\.1:\d+/g, "");
-  assert.equal(/https?:\/\//.test(withoutLocal), false,
-    "恋爱页面不应直接访问外部服务；AI 调用与微信读取都在后端完成");
+  assert.equal(love.includes("api.deepseek.com"), false);
+  assert.equal(love.includes("/api/love/settings/api-key"), false);
+  // 唯一允许的外部链接是微信组件修复文档里标注的开源项目地址。
+  const withoutDocs = love.replace(/https:\/\/github\.com\/olansoft\/weflow-wcdb-api-oss/g, "");
+  assert.equal(/https?:\/\//.test(withoutDocs), false);
 });
 
-test("排班页是值班日历，不再包含车次时刻表/沿线天气", async () => {
+test("恋爱记忆是首页，本子/编辑器/导出/删除入口齐全", async () => {
   const html = await source("index.html");
-  const js = await source("love.js");
-  assert.match(html, /data-love-page="schedule"><span>11<\/span>值班日历/);
-  assert.match(js, /schedule: "值班日历"/);
-  assert.match(js, /\/api\/love\/schedule\/month/);
-  assert.match(js, /\/api\/love\/schedule\/note/);
-  assert.match(js, /day\.duty/);
-  assert.match(js, /当天值乘/);
-  assert.doesNotMatch(js, /交路|时刻表|沿线天气|查看排班表|schedule_timetable/);
-  assert.doesNotMatch(js, /\/api\/love\/schedule\/(timetable|train)/);
-
-  const start = html.indexOf('id="love-view"');
-  const end = html.indexOf('id="knowledge-view"', start);
-  const loveMarkup = html.slice(start, end);
-  assert.doesNotMatch(loveMarkup, /train-tracker|列车追踪/);
+  const love = await source("love.js");
+  const app = await source("app.js");
+  assert.match(html, /<h2 id="love-title">恋爱记忆<\/h2>/);
+  assert.match(love, /memories: "恋爱记忆"/);
+  assert.match(love, /data-love-action="memory-new"/);
+  assert.match(love, /写点什么/);
+  assert.match(love, /openNoteEditor\(\{ context: "love", chapter: "love_journal" \}\)/);
+  assert.match(love, /data-love-action="memory-create-notebook"/);
+  assert.match(love, /data-love-action="memory-delete-notebook"/);
+  assert.match(love, /\/api\/love\/memory\/export/);
+  assert.match(love, /AI 草稿/);
+  assert.match(love, /memory-promote-drafts/);
+  // 默认进入恋爱记忆，而不是旧总览。
+  assert.match(love, /page: "memories"/);
+  assert.match(app, /loadLovePane/);
 });
 
-test("微信同步与每日记忆入口和接口齐全", async () => {
-  const html = await source("index.html");
-  const js = await source("love.js");
-  assert.match(html, /data-love-page="wechat"><span>04<\/span>微信同步/);
-  assert.match(html, /data-love-page="memory"><span>09<\/span>每日记忆/);
-  assert.match(js, /wechat: "微信同步"/);
-  assert.match(js, /memory: "每日记忆"/);
-  for (const endpoint of [
-    "/api/love/weflow/status",
-    "/api/love/weflow/settings",
-    "/api/love/weflow/sessions",
-    "/api/love/weflow/connect",
-    "/api/love/weflow/project",
-    "/api/love/weflow/sync",
-    "/api/love/weflow/import-preview",
-    "/api/love/weflow/import-file",
-    "/api/love/memory/days",
-    "/api/love/memory/generate",
-    "/api/love/memory/drafts",
-    "/write",
-  ]) {
-    assert.ok(js.includes(endpoint), `缺少接口：${endpoint}`);
-  }
-  assert.match(js, /02_生活运营\/05_情感与记忆/);
-  // Token 只提交给本机后端，不进入 localStorage / sessionStorage。
-  assert.doesNotMatch(js, /(?:localStorage|sessionStorage)[^\n]{0,80}(?:token|Token)/);
-  assert.doesNotMatch(js, /Access Token[^\n]{0,80}writeStorage/);
-});
-
-test("每日记忆与微信同步有响应式样式", async () => {
-  const css = await source("styles.css");
+test("微信聊天页是单联系人、日历看板与按日查看", async () => {
+  const love = await source("love.js");
   for (const className of [
-    "love-memory-layout", "love-memory-day", "love-memory-textarea",
-    "love-sync-result", "love-divider",
+    "love-chat-calendar", "love-chat-day", "is-synced", "is-unsynced", "is-no_chat",
+    "love-chat-messages", "love-chat-bubble",
   ]) {
-    assert.ok(css.includes(className), `缺少样式：${className}`);
+    assert.ok(love.includes(className), `缺少聊天页标记：${className}`);
   }
-  assert.match(css, /@media \(max-width: 900px\)[\s\S]{0,400}love-memory-layout/);
+  assert.match(love, /data-love-action="chat-day"/);
+  assert.match(love, /\/api\/love\/chat\/sessions/);
+  assert.match(love, /\/api\/love\/chat\/bind/);
+  assert.match(love, /\/api\/love\/chat\/export/);
+  assert.match(love, /love-chat-rebind|chat-rebind/);
+  assert.doesNotMatch(love, /导入聊天|微信同步|ChatLab/);
+});
+
+test("排班日历支持单日手动覆盖，经期页仍走独立接口", async () => {
+  const love = await source("love.js");
+  assert.match(love, /schedule: "排班日历"/);
+  assert.match(love, /\/api\/love\/schedule\/month/);
+  assert.match(love, /\/api\/love\/schedule\/override/);
+  assert.match(love, /\/api\/love\/schedule\/note/);
+  assert.match(love, /data-love-action="schedule-day"/);
+  assert.match(love, /renderLoveCycle/);
+  assert.match(love, /handleLoveCycleAction/);
+  assert.doesNotMatch(love, /交路|时刻表|沿线天气/);
+});
+
+test("恋爱相册支持上传、相簿、全览与删除", async () => {
+  const love = await source("love.js");
+  for (const action of [
+    "gallery-upload", "gallery-create-album", "gallery-album", "gallery-open",
+    "gallery-bulk-move", "gallery-bulk-delete", "gallery-delete-album",
+  ]) {
+    assert.ok(love.includes(action), `缺少相册动作：${action}`);
+  }
+  assert.match(love, /captureVideoThumb/);
+  assert.match(love, /love-gallery-grid/);
+});
+
+test("八字合婚有男女双方输入、AI 分析与历史页面", async () => {
+  const love = await source("love.js");
+  assert.match(love, /baziPersonFields\("him"/);
+  assert.match(love, /baziPersonFields\("her"/);
+  assert.match(love, /\/api\/love\/bazi\/generate/);
+  assert.match(love, /\/api\/love\/bazi\/history/);
+  assert.match(love, /data-love-action="bazi-select"/);
+  assert.match(love, /data-love-action="bazi-delete"/);
+  assert.match(love, /reports\/\$\{report\.id\}\/html/);
+  for (const className of ["love-bazi-hero", "love-bazi-pair", "love-bazi-points", "love-bazi-years"]) {
+    assert.ok(love.includes(className), `缺少八字样式标记：${className}`);
+  }
+});
+
+test("恋爱大师有看板、skill 卡片、历史与唯一聊天入口", async () => {
+  const love = await source("love.js");
+  for (const marker of [
+    "masterTrendChart", "data-love-action=\"master-run\"", "data-skill=\"portrait\"",
+    "data-skill=\"deep_analysis\"", "data-skill=\"report\"", "data-skill=\"journal_batch\"",
+    "data-love-action=\"master-chat\"", "data-love-action=\"master-select\"",
+    "/api/love/master/runs/", "love-skill-card",
+  ]) {
+    assert.ok(love.includes(marker), `缺少大师页标记：${marker}`);
+  }
+  // 右侧角色层是唯一聊天入口：编辑器/其他页面不再打开第二个角色层。
+  const editor = await source("note-editor.js");
+  assert.match(editor, /button\.hidden = loveContext/);
+});
+
+test("设置抽屉覆盖 WeFlow、组件修复、数据目录与 AI 状态", async () => {
+  const love = await source("love.js");
+  for (const text of [
+    "WeFlow 连接", "微信组件修复", "olansoft/weflow-wcdb-api-oss",
+    "数据目录", "AI 与隐私", "love-settings-drawer",
+  ]) {
+    assert.ok(love.includes(text), `缺少设置内容：${text}`);
+  }
+  assert.match(love, /\/api\/love\/weflow\/component\/replace/);
+  assert.match(love, /\/api\/love\/weflow\/component\/rollback/);
 });

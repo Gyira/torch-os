@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_cycle`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_bazi`、`love_chat`、`love_cycle`、`love_gallery`、`love_master`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
 
 ## AI 角色层（1.0 P0–P1）
 
@@ -12,8 +12,8 @@
   QA/禁用 dsh 时返回 `available=false`，不启动子进程。
 - `GET /api/ai/roles`：读取 `dsh/roles/*.md` 的角色元数据（id/name/modes/proposals），
   不返回 prompt 正文；非法角色只出现在 `role_errors`，不会被使用。
-- 当前已加载 7 个角色：忆灵/苏格拉底、写作伙伴、学术导师、生活管家、恋爱大师、
-  私人医生、理财专家。角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，
+- 当前已加载 8 个角色：忆灵/苏格拉底、写作伙伴、学术导师、生活管家、恋爱大师、
+  私人医生、健康估算助手、理财专家。角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，
   不是第二个模型或第二个 Key。身份映射：人生路→写作伙伴、知识库→学术导师、
   生活运营→生活管家、恋爱系统→恋爱大师。
 - `POST /api/ai/chat`：页面内角色抽屉的一轮对话；`thread_id` 续聊，`selectors` 只接受
@@ -42,10 +42,10 @@
 - `GET /api/ops/ai/overview`、`POST /api/ops/ai/report` 仍保留（健康/财务/恋爱/生活汇总）；
   当前前端不再显示旧的 AI 卡片，生活运营首页改由「生活管家」角色读取
   tasks/identity/health/finance/love 摘要。
-- 报告落点不变：健康 `02_生活运营/02_健康系统/00_健康报告`、财务 `07_财务报告`、
-  恋爱/生活建议 `08_生活建议`；
+- 报告落点不变：健康 `02_生活运营/02_健康系统/00_健康报告`、财务 `04_财务报告`、
+  恋爱/生活建议 `05_生活建议`；
   报告 `memory: false`、`generated_by` 标记；不自动改月度表/任务/习惯。
-- 恋爱系统 13 页保持（2026-10-31 新增「经期关怀」）；顶部新增「恋爱大师」按钮，只读分析摘要，不读原始聊天。详见 `docs/LIFE_SYSTEMS.md`。
+- 恋爱系统 v2 改为七页（2026-11-01）；所有 AI 走 dsh，聊天脱敏后进入上下文。详见 `docs/LIFE_SYSTEMS.md`。
 
 ## 忆灵 / 记忆中枢（1.0 P3）
 
@@ -137,7 +137,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 首页「今天，写点什么？」+ 我的本子（日记、反思复盘、心得体会、目标、项目、随笔、工作复盘）；本子内是笔记卡片列表与全屏写作；最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作、我的八字参考 |
-| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」（聊天分析、微信同步、画像、日志、每日记忆、报告、值班日历、八字合婚、经期关怀） |
+| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」七个页面：恋爱记忆、微信聊天、排班日历、经期关怀、恋爱相册、八字合婚、恋爱大师；「健康系统」七个页面：今日记录、身体情况、睡眠情况、饮食情况、运动记录、健康档案、私人医生 |
 | 知识库 | `#knowledge` | 首页「今天想弄明白什么？」（DeepSeek 提问/分享链接回填）+ 知识本子：收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
 
@@ -167,8 +167,8 @@
     `01_自我档案/02_记忆与自传`，拒绝不动四库；
   - **收件箱**：`03_知识库/00_收件箱` 带 `steward_policy` 给的章节建议，选好章节一键真的搬过去
     （重名自动 `-2`，不覆盖；任务/日记/习惯不由这里搬）；原入口保持不变；
-  - **恋爱记忆**：恋爱系统 `memory_drafts` 里还没写入的每日记忆草稿，写入四库或丢弃；
-    动作仍由恋爱系统自己的接口执行，中枢只做汇总。
+  - **恋爱记忆**：2026-11-01 起取消「每日记忆」，待确认中枢不再汇总恋爱草稿；
+    AI 补日记草稿在恋爱系统的「恋爱记忆 → AI 草稿」里确认和移动。
   接口：`GET /api/pending/summary`、`GET /api/pending/items?kind=`、
   `POST /api/pending/drafts`、`POST /api/pending/facts`、`POST /api/pending/triage`；
   统一结构 `{kind,id,title,preview,lines,source,created,actions}` 由 `backend/app/pending.py` 适配，
@@ -178,7 +178,8 @@
   第一句仍是主字号；图片改成文件选择器（可多选 PNG/JPG/WebP/GIF，单张 ≤10MB），
   选中的图片由 `POST /api/identity/banner/image` 复制到当前个人数据库的 `.torch-os/横幅背景/`，
   返回库内相对路径写回 `身份（identity）.md` 的 `heroes`；仍支持追加 https 链接、列表移除与
-  每半小时轮换。
+  每半小时轮换。预览（2026-11-01）按工作台横幅的**真实宽高比**（从 `#workbench-banner` 现量）
+  用 `cover` + 同一焦点显示取景，座右铭样本放在照片下面，不再用固定的 514×120 卡片。
 - **横幅统计模式（2026-10-31，用户定义规则；2026-11-01 改 GitHub 风格）**：7 行热力图
   （后端最近 56 天，按横幅实际宽度取最近 12–56 天；格子是**正方形**（13–20px）、
   2px 圆角、上下/左右同为 4px 间距，整块按「格子」垂直居中，标签右对齐，今日格描边，
@@ -229,8 +230,10 @@
 - 列车追踪小组件（2026-10-27，默认右栏，独立于恋爱系统）：用户自己添加/删除关注车次；
   卡片显示待发车/运行中/停站中/已到达、当前站→下一站、区间进度和倒计时，点开看全部经停站。
   `GET /api/train-tracker/status`、`GET /train?code=`、`POST /timetable`（导入 JSON）、
-  `POST /sync`（用户点击时从 12306 官方接口取一次经停站，失败保留本地数据）；时刻表在
-  `<个人数据库>/.torch-os/train-tracker/timetable.json`，与 `.torch-os/love/` 完全分开。
+  `POST /sync`（用户点击时从 12306 官方接口取一次经停站，失败保留本地数据；先走车次搜索，
+  发车后仍可取 `train_no`，失败再退回余票查询；当天已发车会用明天的车次号解析、按今天查经停站）；时刻表在
+  `<个人数据库>/.torch-os/train-tracker/timetable.json`，与恋爱系统的
+  `02_生活运营/01_恋爱系统/` 完全分开。
 - DeepSeek 余额卡（默认右栏）：本地后端代理官方 `GET /api/deepseek/balance`（上游
   `https://api.deepseek.com/user/balance`），显示总余额、充值余额与赠金，支持本机预警线、
   「去充值」跳转和 60 秒自动刷新；Key 优先用本机保存的（AES-GCM 加密在数据目录，不进
@@ -243,7 +246,7 @@
 - 左右两侧小组件栏（天气、倒计时、纪念日、值班、运势、列车追踪、DeepSeek 余额）默认
   天气+倒计时+纪念日+值班在左、运势+列车追踪+DeepSeek 在右；卡片可拖拽互换位置与顺序，
   也可以整卡从一栏拖到另一栏，落点上下半区决定插到前/后。值班卡显示今天与未来 6 天的
-  上班/休息和当天值乘车次，点开看未来 31 天；只读，备注仍去恋爱系统的值班日历里改。
+  上班/休息和当天值乘车次，点开看未来 31 天；只读，备注仍去恋爱系统的排班日历里改。
   布局写入 `.torch-os/personal-data.json`（localStorage 只是缓存）。新增组件时，给
   `.workbench-side-left` 或 `.workbench-side-right` 的直接子元素补 `data-widget`
   （可选 `data-widget-label`）即可自动获得拖拽、跨栏和 ↑/↓ 排序。
@@ -309,65 +312,59 @@
 - 月度表只读展示趋势 sparkline 与分类占比；「在 Obsidian 打开月度表」跳到原文，
   新增/修改/删除行都在 Obsidian 里做。
 
-### 健康系统（生活运营的二级分区，2026-10-31）
+### 健康系统（生活运营的二级分区，2026-11-01 改版）
 
 - 与「恋爱系统」平级：生活运营顶部二级菜单「生活运营 / 恋爱系统 / 健康系统」，
   不是新的顶层模块；`#health` 深链接直达。
 - 数据全部在 `02_生活运营/02_健康系统/`：`01_每日健康/YYYY-MM-DD.md`（frontmatter
-  存睡眠/身体/体征/营养/活动/心理/训练，正文是后端重写的可读摘要）、
-  `02_身体档案`（身高/生日/病史/过敏/用药/目标/自定义指标）、
-  `03_体检与检验`（一张带参考区间的 Markdown 表）、`00_健康报告`（私人医生产物）。
-  旧 `01_健康与体重` 月度表只读兼容，不再写入。
-- 原生 12 页：今日总览（六维健康指数圆环、七天文概、待补提醒）、身体与体征
-  （BMI/BMR、围度、血压/心率/血氧/血糖/HRV、异常提示）、睡眠（评分与分期）、
-  饮食（餐次合计、三大宏量、饮水快捷按钮）、活动（步数/久坐）、心理（情绪/压力/
-  精力/焦虑/正念/日记与热力图）、训练（本地动作库、组记录、容量）、体检与医疗
-  （检验表与用药）、趋势看板（最多 4 指标叠加，量纲不同自动归一化）、关联洞察、
-  健康报告、设置（档案/目标/自定义指标/权重只读）。
-- 评分：睡眠 0–100（时长/深睡/REM/入睡耗时/质量）；健康指数六维加权，缺数据维度
-  不参与并标「数据不足」；洞察 5 类规则，总样本 <7 天或每组 <5 不生成。
-- 私人医生：`health_doctor`（`report`/`advice`），按钮打开角色抽屉，
-  `POST /api/health/report` 生成周报/月报并落 `00_健康报告`；AI 不可用时 409。
-- 动作库文本复用 openGym（5526 条唯一名称，中文优先），不复制其图片/动画。
+  存睡眠/身体/饮食/运动，正文是后端重写的可读摘要）、`02_身体档案`（身高/生日/
+  病史/过敏/用药/目标/自定义指标）、`03_体检与检验`（带参考区间的 Markdown 表）、
+  `00_健康报告`（私人医生产物）。旧 `01_健康与体重` 月度表只读兼容。
+- 七个页面：今日记录（四张记录卡 + 四维进度 + 七天周卡片）、身体情况、睡眠情况、
+  饮食情况、运动记录、健康档案（档案封面 + 最新数据 + 检查与用药 + 目标 + 报告）、
+  私人医生（页内问诊 + 固定「健康报告」本子）。
+- 沿用：当天没记录时显示最近一次数据（睡眠 3 天、身体 30 天、饮食 7 天、运动 14 天
+  内有效），只在读取时生效，不复制成今天的新记录。
+- 评分：四维加权（睡眠 30 / 身体 25 / 饮食 20 / 运动 25），缺数据维度不参与并标
+  「数据不足」；过期数据不计入。
+- 饮食/运动支持一句话描述 + dsh `health_estimator` AI 估算（先预览可改再保存），
+  内置约 60 种常吃食物；精确餐次与训练组数仍保留。
+- 私人医生：`health_doctor` 的 `advice`（页内聊天）与 `report`（健康报告）；
+  `POST /api/health/report` 基于最近 30 天 + 最新档案生成，落 `00_健康报告`，
+  标题 `YYYY-MM-DD 健康报告`；单份报告可软删除，本子不可删除。
+- 旧 `vitals`/`mind` 数据保留在 Markdown，不展示、不参与评分。
 - 图表是原生 SVG（`frontend/health-model.js`），页面不使用内联 style（CSP）。
 - 未做：训练计划、体检报告 PDF/OCR、CSV 批量导入、进度照片时间轴、Web 通知提醒。
   数据模型、API 与评分公式详见 [`HEALTH_SYSTEM.md`](HEALTH_SYSTEM.md)。
 
-### 恋爱系统（生活运营的二级分区，2026-10-27）
+### 恋爱系统 v2（生活运营的二级分区，2026-11-01）
 
-- 位于「生活运营」模块的二级菜单（顶部「生活运营 / 恋爱系统」标签），不是新的顶层模块；不再启动原「恋爱分析助手」的 Electron/FastAPI 服务。
-- 数据统一放在当前个人数据库的 `.torch-os/love/`：`love_analysis.db`、`cycle.db`（经期关怀，
-  首次保存时创建）、AES 加密 Key、排班表 `xlsx/`、`schedule-notes.json` 值班备注和停用词。
-  首次启动会把旧版
-  `%LOCALAPPDATA%\love-analysis-assistant`、仓库 `data/love` 和原项目目录里的数据复制过来，
-  原文件保留；已有项目、消息、画像、分析记录和日志继续可用。车次时刻表不在这里，
-  已独立到 `.torch-os/train-tracker/`。
-- 原生页面：总览、**经期关怀**（经期记录、预测、月历、每日身体状态与护理提示）、
-  导入聊天（TXT/编码识别）、**微信同步**、统计（趋势/回复间隔/媒体/高频词）、
-  AI 深度分析、画像（锁定/编辑/删除）、恋爱日志（手写与按天 AI 生成）、**每日记忆**、
-  HTML 报告（独立文档预览与打印）、**值班日历**（月历显示上班/休息，并从排班表单元格
-  自动带出当天值乘车次；点日期弹窗可追加交接备注）、**八字合婚**（只读渲染
-  `.torch-os/love/bazi.json`：双人命盘、三条依据、口径说明、关键年份与相处建议）、
-  设置（DeepSeek Key）。排班页不再出现交路表、车次时刻表、实时位置或沿线天气。
-- **经期关怀（2026-10-31）**：恋爱系统二级页面；经期记录、下次经期/排卵/易孕期预测、
-  月历、每日身体状态（疼痛/情绪/睡眠/饮水/精力/症状/备注）、阶段护理与伴侣关怀提示、
-  趋势统计。数据在 `.torch-os/love/cycle.db`，读取不建文件、首次保存才创建；纯本地计算，
-  不接 AI；预测不是诊断，也不能作为避孕依据；只读模式拒绝写入。
-- **微信同步（WeFlow 本地 API，2026-10-27）**：WeFlow 负责读取本机已登录微信，
-  torch 只访问 `http://127.0.0.1:<端口>`（默认 5031）并只拉取用户选中的一个单聊。
-  Token 用 AES-256-GCM 加密存在 `.torch-os/love/`，不回显、不写日志；群聊、公众号和
-  其他聊天不会被读取。首次使用可在「微信同步」里用单聊直接新建聊天项目，已有项目则
-  先预览、再合并；按平台消息 ID、内容哈希和 ±2 分钟模糊匹配去重，写入前自动备份
-  `.torch-os/love/backups/`。API 暂时不可用时，可在同一页导入 WeFlow 导出的 ChatLab
-  JSON/JSONL 单聊文件作为兜底（同样只合并，不写四库）。原文只进恋爱数据库，不写四库。
-- **每日记忆**：按天用原生 DeepSeek 生成结构化草稿（标题、摘要、小事、计划、心情、关键词），
-  用户在页面里修改并确认后，才写入 `02_生活运营/05_情感与记忆` 的普通 Markdown。
-  DSH 直接读这些 Markdown 继续对话；批量/每日摘要仍走原生 DeepSeek，因为 DSH 没有
-  稳定的批处理接口。未确认的草稿只存在恋爱数据库。
-- AI 调用只在用户显式操作时发生；发送前脱敏姓名、电话、证件、邮箱、链接和银行卡号。
-  Key 使用 AES-256-GCM 加密保存在同一目录，不上传；`.torch-os` 不参与普通 Vault 扫描和
-  工作台备份快照，拷贝整个个人数据库文件夹时会一起带走。
-- QA 隔离工作区不注册恋爱路由，也不会打开真实恋爱数据库；微信同步、每日记忆与经期关怀只在个人模式出现。
+- 位于「生活运营」模块的二级菜单，不是新的顶层模块；七个页面：恋爱记忆、微信聊天、
+  排班日历、经期关怀、恋爱相册、八字合婚、恋爱大师。顶部齿轮打开设置抽屉。
+- 私人数据全部在 `02_生活运营/01_恋爱系统/`，按页面分目录：
+  `01_恋爱记忆/`（Markdown）、`02_微信聊天/chat.db`、`03_排班日历/`、
+  `04_经期关怀/cycle.db`、`05_恋爱相册/albums.db`、`06_八字合婚/bazi.db`、
+  `07_恋爱大师/analysis.db`。旧 `.torch-os/love/` 首次启动迁移并保留原文件。
+- **恋爱记忆**：人生路同款本子（默认「恋爱日志」不可删、自定义本子）、Markdown 编辑器、
+  热力图、最近记录、导出 TXT、删除进笔记回收站；AI 批量补日记先写「AI 草稿」。
+- **微信聊天**：单联系人绑定、增量同步、三态日历（无聊天/已同步/未同步）、按日查看、
+  图片/视频缩略图、TXT/JSON 导出；只访问 `127.0.0.1` 的 WeFlow API。
+  WeFlow 组件 101/到期用开源 `olansoft/weflow-wcdb-api-oss` 构建的 DLL 替换，
+  设置抽屉提供备份/替换/回滚；不修改闭源 DLL。
+- **排班日历**：Excel 底表 + `overrides.json` 单日手动覆盖（上班/休息/车次/备注），
+  可恢复跟随 Excel；导入排班表仍可用。
+- **经期关怀**：原有经期记录、预测、月历、每日身体状态与护理提示；数据在
+  `04_经期关怀/cycle.db`，纯本地计算，不接外部服务；预测不是诊断，也不能作为避孕依据。
+- **恋爱相册**：照片/视频复制进库、相册分类、缩略图、全览、移动、删除；
+  一个文件属于一个相簿。
+- **八字合婚**：男女双方出生信息 + 可选四柱；四柱/十神/藏干/大运由本地
+  `lunar_python` 或用户手填决定，AI 只写格局、喜忌与合婚解读；结果存 `06_八字合婚/bazi.db`，
+  历史可切换、删除、导出 HTML。
+- **恋爱大师**：关系总览 + 数据看板 + dsh skill 卡片（关系画像、深度分析、阶段报告、
+  AI 补日记、沟通教练、八字入口）；结果存 `07_恋爱大师/analysis.db`，可切换历史/删除/导出。
+  右侧角色层是唯一聊天入口；所有 AI 走 dsh `love_master` 与 `love-master` skill。
+- AI 只在用户显式操作时发生；聊天原文脱敏后进入上下文，经期只发送聚合阶段，
+  照片与原始数据库不发送。QA 隔离工作区不注册恋爱路由。
 
 ### 知识库
 
@@ -414,7 +411,8 @@
 ### 设置 · 个人数据库（2026-10-26）
 
 - 设置 →「Obsidian 库连接」→「个人数据库」：显示当前库路径、模板只读预览
-  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `47 个章节 / layout v2`；设置页只
+  （章节与分组来自 `backend/app/vault_layout.py`，摘要显示 `48 个章节 / layout v2`，即四库
+  46 章 + 恋爱记忆 2 个写作章节；设置页只
   展示、不能编辑，也不渲染分组行），以及「创建新的个人数据库」（父文件夹 + 名字）。
 - 创建只写一个新文件夹，按 `pillars-v2` 直接落 v2 章节路径：四库章节、`_系统`/`任务`、
   `.torch-os/vault-layout.json`（含 `groups`）、`.obsidian` 预设与 torch 插件、种子身份笔记；

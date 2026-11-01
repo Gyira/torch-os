@@ -123,6 +123,8 @@ _metric("vitals", "glucose_mmol", "血糖", unit="mmol/L", minimum=1, maximum=40
         step=0.1, precision=1, normal=(3.9, 6.1), higher_better=False)
 
 # ── 饮食营养 ─────────────────────────────────────────────────────────
+_metric("nutrition", "food_text", "吃了什么", kind="text",
+        help_text="用一句话描述今天吃了什么；保存时可以让 AI 按描述估算热量")
 _metric("nutrition", "calories", "热量", unit="kcal", kind="int",
         minimum=0, maximum=10000, higher_better=None, aggregation="sum")
 _metric("nutrition", "protein_g", "蛋白质", unit="g", minimum=0, maximum=500,
@@ -140,6 +142,8 @@ _metric("nutrition", "alcohol_units", "酒精", unit="单位", minimum=0, maximu
         step=0.5, precision=1, higher_better=False)
 
 # ── 日常活动 ─────────────────────────────────────────────────────────
+_metric("activity", "exercise_text", "做了什么运动", kind="text",
+        help_text="例如：跑步 1 小时，跑步机显示 500 大卡；保存时可以让 AI 按描述估算")
 _metric("activity", "steps", "步数", unit="步", kind="int", minimum=0, maximum=100000,
         target=8000, higher_better=True, aggregation="sum")
 _metric("activity", "sedentary_min", "久坐时长", unit="分钟", kind="minutes",
@@ -161,6 +165,12 @@ _metric("mind", "journal", "今日感受", kind="text", help_text="只写给自�
 # ── 训练（单次训练的主观字段）────────────────────────────────────────
 _metric("training", "minutes", "训练时长", unit="分钟", kind="int",
         minimum=1, maximum=600, target=45, higher_better=True, aggregation="sum")
+_metric("training", "calories", "运动消耗", unit="kcal", kind="int",
+        minimum=0, maximum=5000, higher_better=True, aggregation="sum")
+_metric("training", "distance_km", "运动距离", unit="km", minimum=0, maximum=200,
+        step=0.1, precision=1, aggregation="sum")
+_metric("training", "steps", "运动步数", unit="步", kind="int",
+        minimum=0, maximum=100000, aggregation="sum")
 _metric("training", "rpe", "主观疲劳", kind="rating", minimum=1, maximum=10,
         higher_better=False, help_text="1 很轻松，10 极限")
 _metric("training", "soreness", "肌肉酸痛", kind="rating", minimum=1, maximum=5,
@@ -185,6 +195,144 @@ LAB_TESTS: tuple[dict[str, Any], ...] = (
 )
 
 LAB_CATEGORIES: tuple[str, ...] = ("血脂", "血糖", "肝功能", "肾功能", "甲状腺", "营养", "其他")
+
+# ── 常吃食物（按常见份量预置，单位：kcal / g）────────────────────────
+# 只用于「点一下就填」和 AI 不可用时的兜底；份量是常见估值，用户仍可在
+# 估算预览里改数字。名称与关键词都参与搜索。
+FOOD_PRESETS: tuple[dict[str, Any], ...] = (
+    {"name": "米饭", "portion": "1 碗（约 150g）", "keywords": "米饭 白饭 大米",
+     "calories": 174, "protein_g": 3.9, "carbs_g": 38.9, "fat_g": 0.5},
+    {"name": "米饭（半碗）", "portion": "半碗（约 75g）", "keywords": "米饭 半碗",
+     "calories": 87, "protein_g": 2.0, "carbs_g": 19.5, "fat_g": 0.3},
+    {"name": "杂粮饭", "portion": "1 碗（约 150g）", "keywords": "杂粮饭 糙米饭",
+     "calories": 180, "protein_g": 4.5, "carbs_g": 37.0, "fat_g": 1.5},
+    {"name": "馒头", "portion": "1 个（约 100g）", "keywords": "馒头 馍",
+     "calories": 223, "protein_g": 7.0, "carbs_g": 47.0, "fat_g": 1.1},
+    {"name": "花卷", "portion": "1 个（约 100g）", "keywords": "花卷",
+     "calories": 210, "protein_g": 6.0, "carbs_g": 42.0, "fat_g": 2.0},
+    {"name": "面条", "portion": "1 碗（约 200g）", "keywords": "面条 挂面 汤面",
+     "calories": 220, "protein_g": 7.0, "carbs_g": 44.0, "fat_g": 1.5},
+    {"name": "米线", "portion": "1 碗（约 200g）", "keywords": "米线 米粉",
+     "calories": 230, "protein_g": 4.0, "carbs_g": 50.0, "fat_g": 1.0},
+    {"name": "白粥", "portion": "1 碗（约 300g）", "keywords": "粥 白粥 稀饭",
+     "calories": 90, "protein_g": 3.0, "carbs_g": 18.0, "fat_g": 1.0},
+    {"name": "小米粥", "portion": "1 碗（约 300g）", "keywords": "小米粥",
+     "calories": 100, "protein_g": 3.0, "carbs_g": 21.0, "fat_g": 1.0},
+    {"name": "燕麦", "portion": "1 碗（约 40g 干）", "keywords": "燕麦 麦片",
+     "calories": 150, "protein_g": 5.0, "carbs_g": 27.0, "fat_g": 3.0},
+    {"name": "面包", "portion": "1 片（约 30g）", "keywords": "面包 吐司",
+     "calories": 80, "protein_g": 2.5, "carbs_g": 14.0, "fat_g": 1.5},
+    {"name": "包子", "portion": "1 个（约 100g）", "keywords": "包子 肉包 菜包",
+     "calories": 220, "protein_g": 6.0, "carbs_g": 32.0, "fat_g": 7.0},
+    {"name": "饺子", "portion": "10 个（约 200g）", "keywords": "饺子 水饺",
+     "calories": 480, "protein_g": 20.0, "carbs_g": 55.0, "fat_g": 18.0},
+    {"name": "油条", "portion": "1 根（约 60g）", "keywords": "油条",
+     "calories": 270, "protein_g": 4.0, "carbs_g": 28.0, "fat_g": 16.0},
+    {"name": "煎饼果子", "portion": "1 个（约 180g）", "keywords": "煎饼 煎饼果子",
+     "calories": 400, "protein_g": 12.0, "carbs_g": 45.0, "fat_g": 18.0},
+    {"name": "鸡蛋", "portion": "1 个（约 50g）", "keywords": "鸡蛋 水煮蛋 煎蛋",
+     "calories": 72, "protein_g": 6.3, "carbs_g": 0.4, "fat_g": 4.9},
+    {"name": "鸡蛋羹", "portion": "1 碗（约 150g）", "keywords": "鸡蛋羹 蒸蛋",
+     "calories": 100, "protein_g": 8.0, "carbs_g": 2.0, "fat_g": 6.5},
+    {"name": "牛奶", "portion": "1 杯（约 250ml）", "keywords": "牛奶 纯牛奶",
+     "calories": 135, "protein_g": 7.5, "carbs_g": 12.0, "fat_g": 7.5},
+    {"name": "低脂牛奶", "portion": "1 杯（约 250ml）", "keywords": "低脂奶 脱脂奶",
+     "calories": 90, "protein_g": 8.0, "carbs_g": 11.0, "fat_g": 1.5},
+    {"name": "豆浆", "portion": "1 杯（约 300ml）", "keywords": "豆浆",
+     "calories": 45, "protein_g": 3.0, "carbs_g": 6.0, "fat_g": 1.0},
+    {"name": "酸奶", "portion": "1 杯（约 200g）", "keywords": "酸奶",
+     "calories": 140, "protein_g": 6.0, "carbs_g": 20.0, "fat_g": 4.0},
+    {"name": "鸡胸肉", "portion": "1 份（约 100g）", "keywords": "鸡胸肉 鸡胸",
+     "calories": 133, "protein_g": 31.0, "carbs_g": 0.0, "fat_g": 1.0},
+    {"name": "鸡腿", "portion": "1 个（约 100g）", "keywords": "鸡腿",
+     "calories": 181, "protein_g": 24.0, "carbs_g": 0.0, "fat_g": 9.0},
+    {"name": "牛肉", "portion": "1 份（约 100g）", "keywords": "牛肉 牛腩",
+     "calories": 250, "protein_g": 26.0, "carbs_g": 0.0, "fat_g": 15.0},
+    {"name": "猪瘦肉", "portion": "1 份（约 100g）", "keywords": "瘦肉 猪肉",
+     "calories": 143, "protein_g": 20.0, "carbs_g": 0.0, "fat_g": 6.0},
+    {"name": "五花肉", "portion": "1 份（约 100g）", "keywords": "五花肉 红烧肉",
+     "calories": 395, "protein_g": 14.0, "carbs_g": 0.0, "fat_g": 37.0},
+    {"name": "鱼", "portion": "1 份（约 100g）", "keywords": "鱼 鱼肉",
+     "calories": 100, "protein_g": 18.0, "carbs_g": 0.0, "fat_g": 3.0},
+    {"name": "虾", "portion": "1 份（约 100g）", "keywords": "虾 虾仁",
+     "calories": 93, "protein_g": 18.0, "carbs_g": 1.0, "fat_g": 1.5},
+    {"name": "豆腐", "portion": "1 块（约 100g）", "keywords": "豆腐",
+     "calories": 80, "protein_g": 8.0, "carbs_g": 2.0, "fat_g": 4.0},
+    {"name": "青菜", "portion": "1 份（约 200g）", "keywords": "青菜 蔬菜 小白菜",
+     "calories": 40, "protein_g": 3.0, "carbs_g": 5.0, "fat_g": 1.0},
+    {"name": "西兰花", "portion": "1 份（约 150g）", "keywords": "西兰花",
+     "calories": 50, "protein_g": 4.0, "carbs_g": 7.0, "fat_g": 0.5},
+    {"name": "番茄炒蛋", "portion": "1 份（约 250g）", "keywords": "番茄炒蛋 西红柿炒蛋",
+     "calories": 250, "protein_g": 12.0, "carbs_g": 10.0, "fat_g": 18.0},
+    {"name": "宫保鸡丁", "portion": "1 份（约 250g）", "keywords": "宫保鸡丁",
+     "calories": 450, "protein_g": 25.0, "carbs_g": 20.0, "fat_g": 30.0},
+    {"name": "红烧肉", "portion": "1 份（约 200g）", "keywords": "红烧肉",
+     "calories": 600, "protein_g": 20.0, "carbs_g": 10.0, "fat_g": 52.0},
+    {"name": "麻婆豆腐", "portion": "1 份（约 250g）", "keywords": "麻婆豆腐",
+     "calories": 300, "protein_g": 15.0, "carbs_g": 12.0, "fat_g": 22.0},
+    {"name": "清蒸鱼", "portion": "1 份（约 200g）", "keywords": "清蒸鱼",
+     "calories": 180, "protein_g": 30.0, "carbs_g": 2.0, "fat_g": 6.0},
+    {"name": "炒青菜", "portion": "1 份（约 200g）", "keywords": "炒青菜 炒蔬菜",
+     "calories": 90, "protein_g": 3.0, "carbs_g": 6.0, "fat_g": 6.0},
+    {"name": "凉拌黄瓜", "portion": "1 份（约 150g）", "keywords": "凉拌黄瓜 黄瓜",
+     "calories": 40, "protein_g": 1.0, "carbs_g": 6.0, "fat_g": 1.5},
+    {"name": "炒饭", "portion": "1 份（约 300g）", "keywords": "炒饭 蛋炒饭",
+     "calories": 550, "protein_g": 15.0, "carbs_g": 75.0, "fat_g": 20.0},
+    {"name": "拉面", "portion": "1 碗（约 400g）", "keywords": "拉面 牛肉面",
+     "calories": 500, "protein_g": 20.0, "carbs_g": 70.0, "fat_g": 16.0},
+    {"name": "螺蛳粉", "portion": "1 碗（约 400g）", "keywords": "螺蛳粉",
+     "calories": 600, "protein_g": 18.0, "carbs_g": 75.0, "fat_g": 25.0},
+    {"name": "麻辣烫", "portion": "1 份（约 400g）", "keywords": "麻辣烫",
+     "calories": 500, "protein_g": 20.0, "carbs_g": 50.0, "fat_g": 25.0},
+    {"name": "火锅", "portion": "1 顿", "keywords": "火锅",
+     "calories": 800, "protein_g": 40.0, "carbs_g": 50.0, "fat_g": 50.0},
+    {"name": "烧烤", "portion": "1 顿", "keywords": "烧烤 烤串",
+     "calories": 700, "protein_g": 35.0, "carbs_g": 40.0, "fat_g": 45.0},
+    {"name": "汉堡", "portion": "1 个", "keywords": "汉堡",
+     "calories": 500, "protein_g": 25.0, "carbs_g": 45.0, "fat_g": 25.0},
+    {"name": "披萨", "portion": "1 块（约 120g）", "keywords": "披萨 比萨",
+     "calories": 285, "protein_g": 12.0, "carbs_g": 33.0, "fat_g": 11.0},
+    {"name": "炸鸡", "portion": "1 块（约 100g）", "keywords": "炸鸡",
+     "calories": 300, "protein_g": 20.0, "carbs_g": 12.0, "fat_g": 20.0},
+    {"name": "薯条", "portion": "1 份（约 100g）", "keywords": "薯条",
+     "calories": 365, "protein_g": 4.0, "carbs_g": 45.0, "fat_g": 18.0},
+    {"name": "三明治", "portion": "1 个（约 150g）", "keywords": "三明治",
+     "calories": 300, "protein_g": 15.0, "carbs_g": 30.0, "fat_g": 13.0},
+    {"name": "沙拉", "portion": "1 份（约 250g）", "keywords": "沙拉 蔬菜沙拉",
+     "calories": 150, "protein_g": 8.0, "carbs_g": 12.0, "fat_g": 8.0},
+    {"name": "可乐", "portion": "1 罐（约 330ml）", "keywords": "可乐 汽水",
+     "calories": 139, "protein_g": 0.0, "carbs_g": 35.0, "fat_g": 0.0},
+    {"name": "奶茶", "portion": "1 杯（约 500ml）", "keywords": "奶茶",
+     "calories": 350, "protein_g": 5.0, "carbs_g": 55.0, "fat_g": 12.0},
+    {"name": "美式咖啡", "portion": "1 杯（约 300ml）", "keywords": "美式 咖啡",
+     "calories": 5, "protein_g": 0.5, "carbs_g": 0.0, "fat_g": 0.0},
+    {"name": "拿铁", "portion": "1 杯（约 300ml）", "keywords": "拿铁 咖啡",
+     "calories": 150, "protein_g": 8.0, "carbs_g": 12.0, "fat_g": 8.0},
+    {"name": "啤酒", "portion": "1 罐（约 330ml）", "keywords": "啤酒",
+     "calories": 150, "protein_g": 1.0, "carbs_g": 12.0, "fat_g": 0.0},
+    {"name": "苹果", "portion": "1 个（约 200g）", "keywords": "苹果",
+     "calories": 104, "protein_g": 0.5, "carbs_g": 28.0, "fat_g": 0.3},
+    {"name": "香蕉", "portion": "1 根（约 120g）", "keywords": "香蕉",
+     "calories": 107, "protein_g": 1.3, "carbs_g": 27.0, "fat_g": 0.4},
+    {"name": "橙子", "portion": "1 个（约 200g）", "keywords": "橙子 橘子",
+     "calories": 94, "protein_g": 1.8, "carbs_g": 24.0, "fat_g": 0.2},
+    {"name": "西瓜", "portion": "1 块（约 300g）", "keywords": "西瓜",
+     "calories": 90, "protein_g": 1.8, "carbs_g": 23.0, "fat_g": 0.3},
+    {"name": "坚果", "portion": "1 小把（约 30g）", "keywords": "坚果 花生 核桃",
+     "calories": 180, "protein_g": 5.0, "carbs_g": 6.0, "fat_g": 15.0},
+    {"name": "红薯", "portion": "1 个（约 200g）", "keywords": "红薯 地瓜",
+     "calories": 180, "protein_g": 3.0, "carbs_g": 42.0, "fat_g": 0.3},
+    {"name": "玉米", "portion": "1 根（约 200g）", "keywords": "玉米",
+     "calories": 110, "protein_g": 4.0, "carbs_g": 24.0, "fat_g": 1.5},
+    {"name": "土豆", "portion": "1 个（约 200g）", "keywords": "土豆 马铃薯",
+     "calories": 150, "protein_g": 4.0, "carbs_g": 34.0, "fat_g": 0.2},
+    {"name": "汤", "portion": "1 碗（约 300ml）", "keywords": "汤 清汤",
+     "calories": 60, "protein_g": 3.0, "carbs_g": 6.0, "fat_g": 2.0},
+    {"name": "粽子", "portion": "1 个（约 150g）", "keywords": "粽子",
+     "calories": 300, "protein_g": 6.0, "carbs_g": 50.0, "fat_g": 9.0},
+    {"name": "蛋糕", "portion": "1 块（约 100g）", "keywords": "蛋糕 甜点",
+     "calories": 350, "protein_g": 5.0, "carbs_g": 45.0, "fat_g": 17.0},
+)
 
 FIELD_ORDER: dict[str, tuple[str, ...]] = {}
 for _key, _item in METRICS.items():
@@ -246,6 +394,27 @@ def custom_metric_key(name: str) -> str:
     return f"custom.{str(name or '').strip()}"
 
 
+def food_items(query: str = "", limit: int = 80) -> list[dict[str, Any]]:
+    """搜索常吃食物；空查询返回完整清单（上限 limit）。"""
+    text = str(query or "").strip().casefold()
+    count = max(1, min(int(limit or 80), 200))
+    items: list[dict[str, Any]] = []
+    for index, item in enumerate(FOOD_PRESETS):
+        haystack = " ".join([
+            str(item.get("name") or ""), str(item.get("portion") or ""),
+            str(item.get("keywords") or ""),
+        ]).casefold()
+        if text and text not in haystack:
+            continue
+        items.append({
+            "id": f"food-{index + 1}", **{key: value for key, value in item.items()
+                                          if key != "keywords"},
+        })
+        if len(items) >= count:
+            break
+    return items
+
+
 __all__ = ["GROUPS", "METRICS", "LAB_TESTS", "LAB_CATEGORIES", "FIELD_ORDER",
-           "SECTION_TITLES", "metric", "section_fields", "numeric_fields",
-           "catalog", "custom_metric_key"]
+           "FOOD_PRESETS", "SECTION_TITLES", "metric", "section_fields",
+           "numeric_fields", "catalog", "custom_metric_key", "food_items"]

@@ -1,5 +1,10 @@
-"""恋爱系统（原生模块）。
+"""恋爱系统 v1（旧版，保留给迁移与回归测试）。
 
+2026-11-01 起应用不再注册 ``create_love_router``；运行时由 ``love_layout`` /
+``love_chat`` / ``love_memory`` / ``love_bazi`` / ``love_master`` 等 v2 模块接管。
+本文件只保留旧数据库结构、旧解析/分析逻辑与迁移参考，便于测试旧数据兼容性。
+
+原说明：
 把原来的「恋爱分析助手」重做成薪火OS 的一部分：
 - 数据统一放在当前个人数据库的 ``.torch-os/love/``（数据库、加密 Key、排班表、值班备注、
   停用词）；旧版 ``%LOCALAPPDATA%`` / 仓库 ``data/love`` 的数据只在首次启动时复制过来；
@@ -1896,7 +1901,7 @@ class MemoryWriteRequest(BaseModel):
 
 
 def _memory_target_path(day: str) -> str:
-    return f"02_生活运营/05_情感与记忆/{day} 恋爱记忆.md"
+    return f"02_生活运营/07_情感与记忆/{day} 恋爱记忆.md"
 
 
 def _memory_text(value: Any, limit: int) -> str:

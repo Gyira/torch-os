@@ -7,7 +7,7 @@
 | `draft` | `inbox_items`（早报/晚报/周报） | 标记已读 / 丢弃（只打标记） |
 | `fact` | `memories.status='candidate'` + `.torch-os/身份待确认/` | 采纳（写四库）/ 拒绝（不动四库） |
 | `triage` | `03_知识库/00_收件箱` | 自选章节，真的移过去 |
-| `love` | `.torch-os/love/love_analysis.db` 的 `memory_drafts` | 写入四库 / 丢弃（由恋爱系统的接口执行） |
+| `love` | 已移除（2026-11-01 恋爱系统 v2 取消「每日记忆」） | — |
 
 统一结构固定为 `{kind, id, title, preview, lines, source, created, actions}`，
 前端只认这一个结构——否则中枢会变成四种列表拼接，比现在更难用。
@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -25,11 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import identity_inbox, pillar_notes, vault_layout
 from .db import Database
-from .love_storage import DB_NAME as LOVE_DB_NAME
 from .scheduler import SchedulerService
 
-KINDS = ("draft", "fact", "triage", "love")
-KIND_TITLES = {"draft": "草稿", "fact": "事实", "triage": "收件箱", "love": "恋爱记忆"}
+KINDS = ("draft", "fact", "triage")
+KIND_TITLES = {"draft": "草稿", "fact": "事实", "triage": "收件箱"}
 MAX_LINES = 6
 # 任务/日记/习惯由各自的工作台管，收件箱不能往那儿搬。
 TRIAGE_BLOCKED = {"task", "journal", "habit"}
@@ -161,65 +159,6 @@ def triage(vault_dir: Path | str, limit: int = 50) -> list[dict[str, Any]]:
     return items
 
 
-def _love_db_paths(vault_dir: Path | str) -> list[Path]:
-    paths = [Path(vault_dir) / ".torch-os" / "love" / LOVE_DB_NAME]
-    try:
-        from .config import LOVE_DATA_DIR
-
-        paths.append(Path(LOVE_DATA_DIR) / LOVE_DB_NAME)
-    except Exception:  # 配置缺失时只用库内默认位置
-        pass
-    return paths
-
-
-def _love_preview(markdown: str) -> tuple[str, list[str]]:
-    lines: list[str] = []
-    for line in str(markdown or "").splitlines():
-        text = line.strip()
-        if not text or text.startswith(("---", "#", ">", "|", "```")):
-            continue
-        lines.append(text[:80])
-        if len(lines) >= 3:
-            break
-    return (" · ".join(lines[:2]) if lines else "（草稿还没有正文）"), lines
-
-
-def love_drafts(vault_dir: Path | str, limit: int = 50) -> list[dict[str, Any]]:
-    """恋爱系统的「每日记忆」草稿：只读它自己的库，写回仍走恋爱系统的接口。"""
-    for db_path in _love_db_paths(vault_dir):
-        if not db_path.is_file():
-            continue
-        connection = None
-        try:
-            connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            connection.row_factory = sqlite3.Row
-            rows = connection.execute(
-                "SELECT id, day, status, markdown FROM memory_drafts "
-                "WHERE status='draft' ORDER BY day DESC LIMIT ?",
-                (max(1, min(limit, 200)),),
-            ).fetchall()
-        except sqlite3.Error:
-            return []
-        finally:
-            if connection is not None:
-                connection.close()
-        items: list[dict[str, Any]] = []
-        for row in rows:
-            preview, lines = _love_preview(row["markdown"])
-            items.append({
-                "kind": "love",
-                "id": str(row["id"]),
-                "title": f"{row['day']} · 每日记忆",
-                "preview": preview,
-                "lines": lines,
-                "source": "每日记忆 · 恋爱系统",
-                "created": f"{row['day']}T00:00:00",
-                "actions": ["write", "discard"],
-            })
-        return items
-    return []
-
-
 def items(database: Database, vault_dir: Path | str, service: SchedulerService,
           kind: str = "", limit: int = 50) -> list[dict[str, Any]]:
     key = str(kind or "").strip()
@@ -231,10 +170,8 @@ def items(database: Database, vault_dir: Path | str, service: SchedulerService,
         return facts(database, vault_dir, limit)
     if key == "triage":
         return triage(vault_dir, limit)
-    if key == "love":
-        return love_drafts(vault_dir, limit)
     merged = (drafts(service, limit) + facts(database, vault_dir, limit)
-              + triage(vault_dir, limit) + love_drafts(vault_dir, limit))
+              + triage(vault_dir, limit))
     merged.sort(key=lambda item: _timestamp(item["created"]), reverse=True)
     return merged[:max(1, min(limit, 200))]
 
@@ -245,7 +182,6 @@ def summary(database: Database, vault_dir: Path | str, service: SchedulerService
         "draft": len(drafts(service, 200)),
         "fact": len(facts(database, vault_dir, 200)),
         "triage": len(triage(vault_dir, 200)),
-        "love": len(love_drafts(vault_dir, 200)),
     }
     return {"total": sum(counts.values()), **counts, "titles": KIND_TITLES}
 
@@ -356,5 +292,5 @@ def create_pending_router(database: Database, vault_dir: Path | str, *,
 
 
 __all__ = ["KINDS", "KIND_TITLES", "create_pending_router", "summary", "items",
-           "drafts", "facts", "triage", "love_drafts", "triage_chapters", "move_triage",
+           "drafts", "facts", "triage", "triage_chapters", "move_triage",
            "apply_draft", "apply_fact"]

@@ -33,7 +33,7 @@ def test_registry_loads_all_role_cards_without_errors():
     registry = ai_roles.RoleRegistry(ROLES)
     assert registry.errors == []
     assert sorted(registry.roles) == [
-        "academic_mentor", "finance_advisor", "health_doctor",
+        "academic_mentor", "finance_advisor", "health_doctor", "health_estimator",
         "journal_companion", "life_assistant", "love_master", "yiling",
     ]
     yiling = registry.get("yiling")
@@ -74,7 +74,7 @@ def test_service_status_requires_command_key_and_personal_mode(monkeypatch):
     status = service.status()
     assert status["available"] is True
     assert status["key"] == {"configured": True, "source": "saved"}
-    assert status["roles"] == 7
+    assert status["roles"] == 8
 
     no_key = ai_roles.RoleService(registry, FakeBalance(key=""), enabled=True)
     assert no_key.status()["available"] is False
@@ -138,5 +138,5 @@ def test_ai_router_exposes_status_and_manifest(monkeypatch):
     client = TestClient(app)
     assert client.get("/api/ai/status").json()["available"] is True
     items = client.get("/api/ai/roles").json()["items"]
-    assert len(items) == 7
+    assert len(items) == 8
     assert all("prompt" not in item for item in items)

@@ -26,6 +26,11 @@ BREAKDOWN_LABELS = {
 }
 WEIGHT_KEYS = ("sleep", "nutrition", "activity", "mental", "body", "training")
 
+# 新版「当前状态」评分：只保留能在新界面录入的四项。
+CURRENT_WEIGHTS = {"sleep": 0.30, "body": 0.25, "nutrition": 0.20, "movement": 0.25}
+CURRENT_LABELS = {"sleep": "睡眠", "body": "身体", "nutrition": "饮食", "movement": "运动"}
+FRESHNESS_DAYS = {"sleep": 3, "body": 30, "nutrition": 7, "activity": 14}
+
 
 def _num(value: Any) -> float | None:
     try:
@@ -364,6 +369,139 @@ def _training_dimension(day: dict[str, Any], history: list[dict[str, Any]],
     return round(count_score * 0.7 + volume_score * 0.3, 1)
 
 
+def _movement_dimension(day: dict[str, Any], history: list[dict[str, Any]],
+                        target: dict[str, Any]) -> float | None:
+    """一周运动：次数 + 分钟 + 步数；步数单独也能算。"""
+    from .health_store import training_totals
+
+    goal = _num(target.get("weekly_training")) or 4
+    steps_goal = _num(target.get("steps")) or 8000
+    try:
+        current_day = date.fromisoformat(str(day.get("date")))
+    except ValueError:
+        return None
+    window_start = (current_day - timedelta(days=6)).isoformat()
+    window = [item for item in history
+              if window_start <= str(item.get("date")) <= str(day.get("date"))]
+    sessions = sum(len(item.get("training") or []) for item in window)
+    minutes = sum(training_totals(item)["minutes"] for item in window)
+    steps_values = [
+        _num(_section(item, "activity").get("steps")) for item in window
+    ]
+    steps_values = [value for value in steps_values if value is not None]
+    steps_average = _mean(steps_values) if steps_values else None
+    if not sessions and minutes <= 0 and steps_average is None:
+        return None
+    parts: list[tuple[float, float]] = []
+    if sessions or minutes:
+        parts.append((_clamp(sessions / goal * 100), 0.35))
+        parts.append((_clamp(minutes / 150 * 100), 0.35))
+        if steps_average is not None:
+            parts.append((_clamp(steps_average / steps_goal * 100), 0.30))
+    else:
+        parts.append((_clamp(steps_average / steps_goal * 100), 1.0))
+    weight_sum = sum(weight for _score, weight in parts) or 1
+    return round(sum(score * weight for score, weight in parts) / weight_sum, 1)
+
+
+def _fresh_meta(latest: dict[str, Any], key: str, day: str, window: int) -> dict[str, Any] | None:
+    meta = latest.get(key)
+    if not isinstance(meta, dict) or not meta.get("date"):
+        return None
+    age = int(meta.get("age") or 0)
+    return {
+        "date": str(meta["date"]), "age": age, "window": window,
+        "fresh": age <= window, "carried": str(meta["date"]) != str(day),
+    }
+
+
+def current_score(profile: dict[str, Any], history: list[dict[str, Any]],
+                  day: str, latest: dict[str, Any] | None = None) -> dict[str, Any]:
+    """当前状态评分：每项取最近一次记录，超过有效期就不计入。"""
+    latest = latest or {}
+    history = list(history or [])
+    day = str(day or "")
+    body_values = ((latest.get("body") or {}).get("values") or {})
+    sleep_values = ((latest.get("sleep") or {}).get("values") or {})
+    target = targets(profile, {"sections": {"body": body_values}})
+    derived: dict[str, Any] = {"targets": target}
+    body_bmi = bmi(body_values.get("weight_kg"), profile.get("height_cm"))
+    if body_bmi is not None:
+        derived["bmi"] = body_bmi
+        derived["bmi_band"] = bmi_band(body_bmi)
+    estimate = bmr(profile, body_values.get("weight_kg"), day)
+    if estimate:
+        derived["bmr"] = estimate
+    sleep_detail = sleep_score(sleep_values)
+    if sleep_detail:
+        derived["sleep_score"] = sleep_detail["score"]
+        derived["sleep_rating"] = sleep_detail["rating"]
+    derived["abnormal"] = []
+
+    dimensions: dict[str, float | None] = {
+        "sleep": None, "body": None, "nutrition": None, "movement": None,
+    }
+    sources: dict[str, dict[str, Any]] = {}
+
+    sleep_meta = _fresh_meta(latest, "sleep", day, FRESHNESS_DAYS["sleep"])
+    if sleep_meta and sleep_meta["fresh"] and sleep_values.get("duration_min"):
+        dimensions["sleep"] = _sleep_dimension(
+            {"sections": {"sleep": sleep_values}}, target["sleep_minutes"])
+        sources["sleep"] = sleep_meta
+
+    body_meta = _fresh_meta(latest, "body", day, FRESHNESS_DAYS["body"])
+    if body_meta and body_meta["fresh"] and body_values.get("weight_kg"):
+        dimensions["body"] = _body_dimension(
+            {"date": body_meta["date"], "sections": {"body": body_values}},
+            profile, history, target)
+        sources["body"] = body_meta
+
+    nutrition_meta = _fresh_meta(latest, "nutrition", day, FRESHNESS_DAYS["nutrition"])
+    if nutrition_meta and nutrition_meta["fresh"]:
+        nutrition = latest.get("nutrition") or {}
+        pseudo = {"sections": {"nutrition": nutrition.get("values") or {}},
+                  "meals": nutrition.get("meals") or []}
+        dimensions["nutrition"] = _nutrition_dimension(pseudo, target)
+        if dimensions["nutrition"] is not None:
+            sources["nutrition"] = nutrition_meta
+
+    activity_meta = _fresh_meta(latest, "activity", day, FRESHNESS_DAYS["activity"])
+    if activity_meta and activity_meta["fresh"]:
+        activity = latest.get("activity") or {}
+        pseudo = {"date": activity_meta["date"],
+                  "sections": {"activity": activity.get("values") or {}},
+                  "training": activity.get("training") or []}
+        dimensions["movement"] = _movement_dimension(pseudo, history, target)
+        if dimensions["movement"] is not None:
+            sources["movement"] = activity_meta
+
+    weights = dict(CURRENT_WEIGHTS)
+    raw_weights = profile.get("score_weights") if isinstance(profile.get("score_weights"), dict) else {}
+    # 旧档案只有六维权重，缺 movement；这种情况下直接用新版默认权重，
+    # 避免把「身体 10%」这类旧比例带进新版四维指数。
+    if all(key in raw_weights for key in CURRENT_WEIGHTS):
+        for key in CURRENT_WEIGHTS:
+            number = _num(raw_weights.get(key))
+            if number is not None and 0 <= number <= 1:
+                weights[key] = float(number)
+    breakdown = {key: (round(value, 1) if value is not None else None)
+                 for key, value in dimensions.items()}
+    available = {key: value for key, value in dimensions.items() if value is not None}
+    insufficient = [CURRENT_LABELS[key] for key in CURRENT_WEIGHTS if key not in available]
+    if not available:
+        return {"total": None, "breakdown": breakdown, "insufficient": insufficient,
+                "derived": derived, "weights": weights, "sources": sources,
+                "as_of": None}
+    weight_sum = sum(weights[key] for key in available)
+    if weight_sum <= 0:
+        weights = {key: 1.0 for key in available}
+        weight_sum = float(len(available))
+    total = round(sum(weights[key] * value for key, value in available.items()) / weight_sum)
+    as_of = max((meta.get("date", "") for meta in sources.values()), default="")
+    return {"total": int(_clamp(total)), "breakdown": breakdown, "insufficient": insufficient,
+            "derived": derived, "weights": weights, "sources": sources, "as_of": as_of}
+
+
 def score_day(day: dict[str, Any], profile: dict[str, Any],
               history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """计算一天的健康指数；缺数据的维度不参与加权。"""
@@ -584,6 +722,7 @@ def insights(days: list[dict[str, Any]], profile: dict[str, Any],
     return items
 
 
-__all__ = ["BREAKDOWN_LABELS", "WEIGHT_KEYS", "age_of", "bmi", "bmi_band", "bmr",
-           "tdee", "targets", "sleep_score", "blood_pressure_level", "abnormal_items",
-           "score_day", "score_series", "insights"]
+__all__ = ["BREAKDOWN_LABELS", "WEIGHT_KEYS", "CURRENT_WEIGHTS", "CURRENT_LABELS",
+           "FRESHNESS_DAYS", "age_of", "bmi", "bmi_band", "bmr", "tdee", "targets",
+           "sleep_score", "blood_pressure_level", "abnormal_items", "score_day",
+           "current_score", "score_series", "insights"]

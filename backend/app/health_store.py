@@ -46,6 +46,7 @@ LAB_DIR = f"{HEALTH_ROOT}/03_体检与检验"
 LAB_REL = f"{LAB_DIR}/检验记录（labs）.md"
 LAB_LEGACY = f"{LAB_DIR}/labs.md"
 TRAIN_DIR = f"{HEALTH_ROOT}/04_训练记录"
+CONSULT_DIR = f"{HEALTH_ROOT}/05_问诊记录"
 REPORT_DIR = f"{HEALTH_ROOT}/00_健康报告"
 DAY_SCHEMA = "health-day-v1"
 PROFILE_SCHEMA = "health-profile-v1"
@@ -260,11 +261,6 @@ def _frontmatter(data: dict[str, Any]) -> dict[str, Any]:
         "chapter": "health_daily",
         "created": data.get("created") or _now(), "updated": _now(),
     }
-    score = data.get("score")
-    if isinstance(score, dict) and score.get("total") is not None:
-        meta["score"] = int(score["total"])
-        meta["score_breakdown"] = {key: value for key, value in (score.get("breakdown") or {}).items()
-                                   if value is not None}
     for section in SECTIONS:
         values = {key: value for key, value in (data.get("sections", {}).get(section) or {}).items()
                   if value not in (None, "")}
@@ -292,16 +288,8 @@ def write_day(vault_dir: Path | str, data: dict[str, Any],
     loaded = load_note(path)
     if expected_revision and loaded["exists"] and loaded["revision"] != expected_revision:
         raise HTTPException(409, "这一天的健康记录已在别处修改，请刷新后重试")
-    # 评分是派生值：写回时算一次，方便在 Obsidian 里直接看到；读取时接口会再算一次。
-    try:
-        from . import health_score
-        history = list_days(vault_dir, start=shift_day(day, -7), end=day, limit=8)
-        data["score"] = health_score.score_day({**data, "date": day},
-                                               read_profile(vault_dir), history)
-    except HTTPException:
-        raise
-    except Exception:  # 评分失败不能挡住记录本身
-        data["score"] = {"total": None, "breakdown": {}, "insufficient": []}
+    # 评分是读取时计算的派生值；不再把某一天的分数写进 frontmatter，
+    # 避免 Obsidian 里看到的旧六维分数和新版四维分数对不上。
     meta = _frontmatter({**data, "date": day})
     body = render_body({**data, "date": day})
     text = "\n".join([
@@ -398,6 +386,12 @@ def _meal_clean(payload: dict[str, Any]) -> dict[str, Any]:
             if number < 0 or number > 10000:
                 raise HTTPException(422, "餐次数值超出范围")
             meal[field] = round(number, 1) if field not in {"calories", "sodium_mg"} else int(round(number))
+    portion = _clean_text(payload.get("portion"), 30)
+    if portion:
+        meal["portion"] = portion
+    source = str(payload.get("source") or "").strip().lower()
+    if source in {"ai", "preset", "manual"}:
+        meal["source"] = source
     return meal
 
 
@@ -417,17 +411,18 @@ def delete_meal(vault_dir: Path | str, day: str, meal_id: str) -> dict[str, Any]
     return write_day(vault_dir, data, data["revision"])
 
 
-TRAINING_KINDS = ("力量", "有氧", "球类", "柔韧", "其他")
+TRAINING_KINDS = ("力量", "跑步", "快走", "骑行", "游泳", "球类", "瑜伽", "柔韧",
+                  "有氧", "其他")
 
 
 def _training_clean(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise HTTPException(422, "训练记录必须是对象")
-    kind = str(payload.get("kind") or "力量").strip()
+        raise HTTPException(422, "运动记录必须是对象")
+    kind = str(payload.get("kind") or "其他").strip()
     if kind not in TRAINING_KINDS:
         kind = "其他"
     session: dict[str, Any] = {"id": uuid4().hex[:8], "kind": kind, "exercises": []}
-    for field in ("minutes", "rpe", "soreness", "mood_after"):
+    for field in ("minutes", "rpe", "soreness", "mood_after", "calories", "steps"):
         number = _finite(payload.get(field))
         if number is not None:
             spec = health_catalog.metric(f"training.{field}")
@@ -436,7 +431,15 @@ def _training_clean(payload: dict[str, Any]) -> dict[str, Any]:
             if spec and spec["max"] is not None and number > spec["max"]:
                 raise HTTPException(422, f"{spec['label']}超出范围")
             session[field] = int(round(number))
-    session["note"] = _clean_text(payload.get("note"), 600)
+    distance = _finite(payload.get("distance_km"))
+    if distance is not None:
+        if not 0 <= distance <= 200:
+            raise HTTPException(422, "运动距离超出范围")
+        session["distance_km"] = round(distance, 1)
+    session["note"] = _clean_text(payload.get("note") or payload.get("text"), 600)
+    source = str(payload.get("source") or "").strip().lower()
+    if source in {"ai", "preset", "manual", "device"}:
+        session["source"] = source
     exercises = payload.get("exercises")
     total_volume = 0.0
     if isinstance(exercises, list):
@@ -467,8 +470,10 @@ def _training_clean(payload: dict[str, Any]) -> dict[str, Any]:
                 session["exercises"].append({"exercise_id": exercise_id, "name": name,
                                              "sets": sets})
     session["volume_kg"] = round(total_volume, 1)
-    if not session["exercises"] and not session.get("minutes"):
-        raise HTTPException(422, "训练至少要有一个动作或训练时长")
+    if (not session["exercises"] and not session.get("minutes")
+            and not session.get("calories") and not session.get("steps")
+            and not session["note"]):
+        raise HTTPException(422, "运动记录至少要写一句、填时长或消耗")
     return session
 
 
@@ -486,6 +491,78 @@ def delete_training(vault_dir: Path | str, day: str, session_id: str) -> dict[st
         raise HTTPException(404, "这条训练记录不存在")
     data["training"] = remaining
     return write_day(vault_dir, data, data["revision"])
+
+
+def replace_meals(vault_dir: Path | str, day: str, meals: list[dict[str, Any]],
+                  expected_revision: str = "") -> dict[str, Any]:
+    """整组替换当天的餐次；用于饮食弹窗一次保存。"""
+    data = read_day(vault_dir, day)
+    if expected_revision and data["exists"] and data["revision"] != expected_revision:
+        raise HTTPException(409, "这一天的健康记录已在别处修改，请刷新后重试")
+    cleaned = [_meal_clean(item) for item in (meals or [])[:60] if isinstance(item, dict)]
+    data["meals"] = cleaned
+    return write_day(vault_dir, data, expected_revision)
+
+
+def replace_training(vault_dir: Path | str, day: str, sessions: list[dict[str, Any]],
+                     expected_revision: str = "") -> dict[str, Any]:
+    """整组替换当天的运动/训练；用于运动弹窗一次保存。"""
+    data = read_day(vault_dir, day)
+    if expected_revision and data["exists"] and data["revision"] != expected_revision:
+        raise HTTPException(409, "这一天的健康记录已在别处修改，请刷新后重试")
+    cleaned = [_training_clean(item) for item in (sessions or [])[:40] if isinstance(item, dict)]
+    data["training"] = cleaned
+    return write_day(vault_dir, data, expected_revision)
+
+
+def replace_diet(vault_dir: Path | str, day: str, *, food_text: str = "",
+                 water_ml: float | None = None, meals: list[dict[str, Any]] | None = None,
+                 expected_revision: str = "") -> dict[str, Any]:
+    """饮食弹窗的一次性保存：自由描述 + 饮水 + 餐次明细。"""
+    data = read_day(vault_dir, day)
+    if expected_revision and data["exists"] and data["revision"] != expected_revision:
+        raise HTTPException(409, "这一天的健康记录已在别处修改，请刷新后重试")
+    values = dict((data.get("sections") or {}).get("nutrition") or {})
+    text = _clean_text(food_text, 2000)
+    if text:
+        values["food_text"] = text
+    else:
+        values.pop("food_text", None)
+    if water_ml is None:
+        pass
+    else:
+        water = _finite(water_ml)
+        if water is None or water < 0 or water > 8000:
+            raise HTTPException(422, "饮水量应在 0-8000 ml")
+        values["water_ml"] = int(round(water))
+    data["sections"]["nutrition"] = values
+    data["meals"] = [_meal_clean(item) for item in (meals or [])[:60]
+                     if isinstance(item, dict)]
+    return write_day(vault_dir, data, expected_revision)
+
+
+def replace_exercise(vault_dir: Path | str, day: str, *, exercise_text: str = "",
+                     steps: float | None = None, sessions: list[dict[str, Any]] | None = None,
+                     expected_revision: str = "") -> dict[str, Any]:
+    """运动弹窗的一次性保存：自由描述 + 步数 + 运动明细。"""
+    data = read_day(vault_dir, day)
+    if expected_revision and data["exists"] and data["revision"] != expected_revision:
+        raise HTTPException(409, "这一天的健康记录已在别处修改，请刷新后重试")
+    values = dict((data.get("sections") or {}).get("activity") or {})
+    text = _clean_text(exercise_text, 2000)
+    if text:
+        values["exercise_text"] = text
+    else:
+        values.pop("exercise_text", None)
+    if steps is not None:
+        number = _finite(steps)
+        if number is None or number < 0 or number > 100000:
+            raise HTTPException(422, "步数应在 0-100000")
+        values["steps"] = int(round(number))
+    data["sections"]["activity"] = values
+    data["training"] = [_training_clean(item) for item in (sessions or [])[:40]
+                        if isinstance(item, dict)]
+    return write_day(vault_dir, data, expected_revision)
 
 
 # ── 身体档案 ─────────────────────────────────────────────────────────
@@ -845,11 +922,102 @@ def nutrition_totals(data: dict[str, Any]) -> dict[str, float]:
 def training_totals(data: dict[str, Any]) -> dict[str, float]:
     minutes = 0.0
     volume = 0.0
+    calories = 0.0
+    distance = 0.0
+    steps = 0.0
     for session in data.get("training") or []:
         minutes += _finite(session.get("minutes")) or 0
         volume += _finite(session.get("volume_kg")) or 0
+        calories += _finite(session.get("calories")) or 0
+        distance += _finite(session.get("distance_km")) or 0
+        steps += _finite(session.get("steps")) or 0
     return {"minutes": round(minutes, 1), "volume_kg": round(volume, 1),
-            "sessions": float(len(data.get("training") or []))}
+            "calories": round(calories, 1), "distance_km": round(distance, 1),
+            "steps": round(steps, 1), "sessions": float(len(data.get("training") or []))}
+
+
+def _has_nutrition(data: dict[str, Any]) -> bool:
+    section = (data.get("sections") or {}).get("nutrition") or {}
+    if data.get("meals"):
+        return True
+    return any(section.get(key) is not None
+               for key in ("calories", "protein_g", "carbs_g", "fat_g"))
+
+
+def _has_activity(data: dict[str, Any]) -> bool:
+    section = (data.get("sections") or {}).get("activity") or {}
+    if data.get("training"):
+        return True
+    return any(section.get(key) is not None
+               for key in ("steps", "exercise_text", "sedentary_min", "active_cal"))
+
+
+def latest_payload(vault_dir: Path | str, end_day: str = "",
+                   lookback: int = 90) -> dict[str, Any]:
+    """在选定日期（含）之前，找每个分区最近一次非空记录。
+
+    只在读取时使用：不把旧数据复制成今天的新记录。返回的 ``age`` 是距选定
+    日期的天数，供前端显示「沿用 X 月 X 日」和判断是否过期；
+    ``previous`` 是再往前一次，用来显示「比上次」。
+    """
+    end = validate_day(end_day or today())
+    span = max(1, min(int(lookback or 90), MAX_RANGE_DAYS))
+    start = shift_day(end, -(span - 1))
+    records = list_days(vault_dir, start=start, end=end, limit=span)
+    by_date = {record["date"]: record for record in records}
+
+    def find(predicate, from_offset: int = 0):
+        for offset in range(max(0, from_offset), span):
+            day = shift_day(end, -offset)
+            record = by_date.get(day)
+            if record and predicate(record):
+                return day, offset, record
+        return None
+
+    def build(section: str, day: str, offset: int, record: dict[str, Any]) -> dict[str, Any]:
+        values = (record.get("sections") or {}).get(section) or {}
+        return {"date": day, "age": offset, "values": values}
+
+    def with_previous(section: str, predicate, extra=None, fallback=None):
+        match = find(predicate)
+        if match is None and fallback is not None:
+            match = find(fallback)
+        if match is None:
+            return
+        day, offset, record = match
+        item = {**build(section, day, offset, record), **(extra(record) if extra else {})}
+        previous = find(predicate, offset + 1)
+        if previous is not None:
+            prev_day, prev_offset, prev_record = previous
+            item["previous"] = build(section, prev_day, prev_offset, prev_record)
+        result[section] = item
+
+    result: dict[str, Any] = {}
+    for section in ("sleep", "body"):
+        with_previous(section, lambda record, section=section:
+                      bool((record.get("sections") or {}).get(section)))
+
+    with_previous(
+        "nutrition", _has_nutrition,
+        extra=lambda record: {
+            "meals": record.get("meals") or [],
+            "totals": nutrition_totals(record),
+        },
+        fallback=lambda record: bool((record.get("sections") or {}).get("nutrition")),
+    )
+    with_previous(
+        "activity", _has_activity,
+        extra=lambda record: {
+            "training": record.get("training") or [],
+            "totals": training_totals(record),
+        },
+    )
+    custom = find(lambda record: bool(record.get("custom")))
+    if custom is not None:
+        day, offset, record = custom
+        result["custom"] = {"date": day, "age": offset,
+                            "values": dict(record.get("custom") or {})}
+    return result
 
 
 def custom_metric_keys(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -871,17 +1039,6 @@ def render_body(data: dict[str, Any]) -> list[str]:
     day = data["date"]
     sections = data.get("sections") or {}
     lines = [f"# {day} 健康记录", ""]
-    score = data.get("score")
-    if isinstance(score, dict) and score.get("total") is not None:
-        breakdown = score.get("breakdown") or {}
-        parts = [f"健康指数 **{int(score['total'])}**"]
-        labels = {"sleep": "睡眠", "nutrition": "营养", "activity": "活动",
-                  "mental": "心理", "body": "身体", "training": "训练"}
-        for key, label in labels.items():
-            value = breakdown.get(key)
-            if value is not None:
-                parts.append(f"{label} {int(value)}")
-        lines += ["> " + " · ".join(parts), ""]
 
     sleep = sections.get("sleep") or {}
     if sleep:
@@ -889,12 +1046,12 @@ def render_body(data: dict[str, Any]) -> list[str]:
         detail = [f"时长 {_fmt(sleep.get('duration_min'), ' 分钟', 0)}"]
         if sleep.get("bed") and sleep.get("wake"):
             detail.append(f"{sleep['bed']} → {sleep['wake']}")
+        if sleep.get("quality"):
+            detail.append(f"主观质量 {sleep['quality']}/5")
         if sleep.get("deep_min"):
             detail.append(f"深睡 {_fmt(sleep['deep_min'], ' 分钟', 0)}")
         if sleep.get("rem_min"):
             detail.append(f"REM {_fmt(sleep['rem_min'], ' 分钟', 0)}")
-        if sleep.get("quality"):
-            detail.append(f"主观质量 {sleep['quality']}/5")
         lines += ["- " + "，".join(detail), ""]
 
     body = sections.get("body") or {}
@@ -913,29 +1070,19 @@ def render_body(data: dict[str, Any]) -> list[str]:
             parts.append(f"BMR {_fmt(body['bmr'], ' kcal', 0)}")
         lines += ["- " + "，".join(parts), ""]
 
-    vitals = sections.get("vitals") or {}
-    if vitals:
-        lines.append("## 生命体征")
-        parts = []
-        if vitals.get("resting_hr") is not None:
-            parts.append(f"静息心率 {_fmt(vitals['resting_hr'], ' bpm', 0)}")
-        if vitals.get("systolic") is not None and vitals.get("diastolic") is not None:
-            parts.append(f"血压 {vitals['systolic']}/{vitals['diastolic']} mmHg")
-        if vitals.get("spo2") is not None:
-            parts.append(f"血氧 {_fmt(vitals['spo2'], '%', 0)}")
-        if vitals.get("temperature_c") is not None:
-            parts.append(f"体温 {_fmt(vitals['temperature_c'], '°C')}")
-        lines += ["- " + "，".join(parts), ""]
-
+    food_text = str((sections.get("nutrition") or {}).get("food_text") or "").strip()
     nutrition = nutrition_totals(data)
-    if data.get("meals") or data.get("sections", {}).get("nutrition"):
+    if data.get("meals") or food_text or (sections.get("nutrition") or {}):
         lines.append("## 饮食")
+        if food_text:
+            lines += [f"- 吃了什么：{food_text}", ""]
         if data.get("meals"):
-            lines += ["| 餐次 | 内容 | 热量 | 蛋白 | 碳水 | 脂肪 |",
-                      "| --- | --- | --- | --- | --- | --- |"]
+            lines += ["| 餐次 | 内容 | 份量 | 热量 | 蛋白 | 碳水 | 脂肪 |",
+                      "| --- | --- | --- | --- | --- | --- | --- |"]
             for meal in data["meals"]:
-                lines.append("| {type} | {name} | {cal} | {protein} | {carbs} | {fat} |".format(
+                lines.append("| {type} | {name} | {portion} | {cal} | {protein} | {carbs} | {fat} |".format(
                     type=meal.get("meal_type", ""), name=meal.get("name", ""),
+                    portion=meal.get("portion", ""),
                     cal=_fmt(meal.get("calories"), " kcal", 0),
                     protein=_fmt(meal.get("protein_g"), " g"),
                     carbs=_fmt(meal.get("carbs_g"), " g"),
@@ -949,37 +1096,25 @@ def render_body(data: dict[str, Any]) -> list[str]:
         lines.append("")
 
     activity = sections.get("activity") or {}
-    if activity:
-        lines.append("## 活动")
-        parts = []
+    exercise_text = str(activity.get("exercise_text") or "").strip()
+    if activity or data.get("training"):
+        lines.append("## 运动")
+        if exercise_text:
+            lines.append(f"- 今天做了什么：{exercise_text}")
         if activity.get("steps") is not None:
-            parts.append(f"步数 {_fmt(activity['steps'], '', 0)}")
+            lines.append(f"- 步数：{_fmt(activity['steps'], '', 0)}")
         if activity.get("sedentary_min") is not None:
-            parts.append(f"久坐 {_fmt(activity['sedentary_min'], ' 分钟', 0)}")
-        if activity.get("active_cal") is not None:
-            parts.append(f"活动消耗 {_fmt(activity['active_cal'], ' kcal', 0)}")
-        lines += ["- " + "，".join(parts), ""]
-
-    mind = sections.get("mind") or {}
-    if mind:
-        lines.append("## 心理")
-        parts = []
-        for key, label in (("mood", "情绪"), ("stress", "压力"), ("energy", "精力"),
-                           ("anxiety", "焦虑")):
-            if mind.get(key) is not None:
-                parts.append(f"{label} {mind[key]}/5")
-        if mind.get("mindful_min") is not None:
-            parts.append(f"正念 {_fmt(mind['mindful_min'], ' 分钟', 0)}")
-        lines += ["- " + "，".join(parts), ""]
-        if mind.get("journal"):
-            lines += [f"> {mind['journal']}", ""]
-
-    if data.get("training"):
-        lines.append("## 训练")
-        for session in data["training"]:
-            meta = [session.get("kind") or "训练"]
+            lines.append(f"- 久坐：{_fmt(activity['sedentary_min'], ' 分钟', 0)}")
+        for session in data.get("training") or []:
+            meta = [session.get("kind") or "运动"]
             if session.get("minutes"):
                 meta.append(f"{session['minutes']} 分钟")
+            if session.get("calories"):
+                meta.append(f"{_fmt(session['calories'], ' kcal', 0)}")
+            if session.get("distance_km"):
+                meta.append(f"{_fmt(session['distance_km'], ' km')}")
+            if session.get("steps"):
+                meta.append(f"{_fmt(session['steps'], ' 步', 0)}")
             if session.get("volume_kg"):
                 meta.append(f"容量 {_fmt(session['volume_kg'], ' kg', 0)}")
             if session.get("rpe"):
@@ -994,10 +1129,23 @@ def render_body(data: dict[str, Any]) -> list[str]:
                 lines.append(f"- 备注：{session['note']}")
             lines.append("")
 
+    custom = data.get("custom") or {}
+    if custom:
+        lines.append("## 自定义指标")
+        lines += [f"- {name}：{_fmt(value)}" for name, value in custom.items()]
+        lines.append("")
+
     if data.get("note"):
         lines += ["## 备注", "", data["note"], ""]
-    if not any(sections.get(section) for section in SECTIONS) and not data.get("meals") \
-            and not data.get("training"):
+
+    # 旧版生命体征/情绪字段仍在 frontmatter 里，保留但不参与新版展示与评分。
+    if sections.get("vitals") or sections.get("mind"):
+        lines += ["> 生命体征与情绪是旧版字段：仍保留在 frontmatter，新版界面不再展示、"
+                  "不参与评分。", ""]
+
+    if (not any(sections.get(section) for section in ("sleep", "body"))
+            and not data.get("meals") and not data.get("training")
+            and not activity and not custom):
         lines += ["还没有记录。", ""]
     return lines
 
@@ -1009,6 +1157,7 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
     start, end_day = recent_range(days, end)
     records = list_days(vault_dir, start=start, end=end_day, limit=MAX_RANGE_DAYS)
     labs = read_labs(vault_dir) if (Path(vault_dir) / vault_layout.chapter_dir("health_lab")).is_dir() else {"rows": []}
+    latest = latest_payload(vault_dir, end_day, lookback=90)
     from . import health_score  # 避免循环导入
     lines: list[str] = []
     facts: dict[str, Any] = {"days": len(records), "range": [start, end_day]}
@@ -1021,6 +1170,8 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
             basics.append(f"出生于 {profile['birth_date']}")
         if profile.get("height_cm"):
             basics.append(f"身高 {_fmt(profile['height_cm'], ' cm')}")
+        if profile.get("blood_type"):
+            basics.append(f"血型 {profile['blood_type']}")
         if basics:
             lines.append("- 档案：" + "，".join(basics))
         if profile.get("allergies"):
@@ -1037,6 +1188,62 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
         if goals:
             lines.append("- 目标：" + "、".join(
                 f"{health_goal_label(key)} {value}" for key, value in goals.items()))
+
+    # 最新一次（可能不是今天）：沿用规则的事实基础。
+    latest_lines: list[str] = []
+    sleep_latest = latest.get("sleep")
+    if sleep_latest:
+        values = sleep_latest["values"]
+        detail = f"睡眠 {_fmt(values.get('duration_min'), ' 分钟', 0)}（{sleep_latest['date']}）"
+        if values.get("bed") and values.get("wake"):
+            detail += f"，{values['bed']} → {values['wake']}"
+        if values.get("quality"):
+            detail += f"，主观质量 {values['quality']}/5"
+        latest_lines.append("- 最新" + detail)
+    body_latest = latest.get("body")
+    if body_latest:
+        values = body_latest["values"]
+        parts = [f"体重 {_fmt(values.get('weight_kg'), ' kg')}（{body_latest['date']}）"]
+        if values.get("body_fat_pct") is not None:
+            parts.append(f"体脂 {_fmt(values['body_fat_pct'], '%')}")
+        if values.get("muscle_kg") is not None:
+            parts.append(f"肌肉量 {_fmt(values['muscle_kg'], ' kg')}")
+        if values.get("waist_cm") is not None:
+            parts.append(f"腰围 {_fmt(values['waist_cm'], ' cm')}")
+        latest_lines.append("- 最新" + "，".join(parts))
+    nutrition_latest = latest.get("nutrition")
+    if nutrition_latest:
+        totals = nutrition_latest.get("totals") or {}
+        latest_lines.append(
+            f"- 最新饮食（{nutrition_latest['date']}）：热量 {_fmt(totals.get('calories'), ' kcal', 0)}，"
+            f"蛋白 {_fmt(totals.get('protein_g'), ' g')}，饮水 {_fmt(totals.get('water_ml'), ' ml', 0)}；"
+            f"{len(nutrition_latest.get('meals') or [])} 条餐次")
+        text = str((nutrition_latest.get("values") or {}).get("food_text") or "").strip()
+        if text:
+            latest_lines.append(f"  描述：{text}")
+    activity_latest = latest.get("activity")
+    if activity_latest:
+        totals = activity_latest.get("totals") or {}
+        latest_lines.append(
+            f"- 最新运动（{activity_latest['date']}）：{int(totals.get('sessions', 0))} 次，"
+            f"{_fmt(totals.get('minutes'), ' 分钟', 0)}，"
+            f"消耗 {_fmt(totals.get('calories'), ' kcal', 0)}，"
+            f"步数 {_fmt((activity_latest.get('values') or {}).get('steps'), '', 0)}")
+        text = str((activity_latest.get("values") or {}).get("exercise_text") or "").strip()
+        if text:
+            latest_lines.append(f"  描述：{text}")
+        for session in (activity_latest.get("training") or [])[:5]:
+            parts = [str(session.get("kind") or "运动")]
+            if session.get("minutes"):
+                parts.append(f"{session['minutes']} 分钟")
+            if session.get("calories"):
+                parts.append(f"{_fmt(session['calories'], ' kcal', 0)}")
+            if session.get("note"):
+                parts.append(str(session["note"])[:80])
+            latest_lines.append("  · " + "，".join(parts))
+    if latest_lines:
+        lines.append("- 最新状态（未更新时沿用）：")
+        lines += latest_lines
 
     weights = [(day["date"], (day["sections"].get("body") or {}).get("weight_kg"))
                for day in records]
@@ -1061,20 +1268,39 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
         lines.append(f"- 步数：平均 {sum(activities) / len(activities):.0f} 步/天"
                      f"（{len(activities)} 天有记录）")
 
-    moods = [((day["sections"].get("mind") or {}).get("mood")) for day in records]
-    moods = [value for value in moods if value]
-    if moods:
-        lines.append(f"- 情绪：平均 {sum(moods) / len(moods):.1f}/5（{len(moods)} 天有记录）")
+    calories = [nutrition_totals(day).get("calories") for day in records if _has_nutrition(day)]
+    calories = [value for value in calories if value]
+    if calories:
+        lines.append(f"- 饮食：平均 {sum(calories) / len(calories):.0f} kcal/天"
+                     f"（{len(calories)} 天有记录）")
+
+    food_texts = [str((day["sections"].get("nutrition") or {}).get("food_text") or "").strip()
+                  for day in records if _has_nutrition(day)]
+    food_texts = [text for text in food_texts if text][-7:]
+    if food_texts:
+        lines.append("- 最近饮食描述：" + "；".join(text[:80] for text in food_texts))
 
     training = [day for day in records if day.get("training")]
     if training:
-        volume = sum(training_totals(day)["volume_kg"] for day in training)
-        minutes = sum(training_totals(day)["minutes"] for day in training)
-        lines.append(f"- 训练：{len(training)} 天有记录，共 {minutes:.0f} 分钟、"
-                     f"容量 {volume:.0f} kg")
+        totals = [training_totals(day) for day in training]
+        minutes = sum(item["minutes"] for item in totals)
+        sessions = sum(int(item["sessions"]) for item in totals)
+        training_calories = sum(item["calories"] for item in totals)
+        lines.append(f"- 运动：{sessions} 次，共 {minutes:.0f} 分钟，"
+                     f"消耗 {training_calories:.0f} kcal（{len(training)} 天有记录）")
+        for day in training[-5:]:
+            for session in (day.get("training") or [])[:3]:
+                parts = [str(session.get("kind") or "运动")]
+                if session.get("minutes"):
+                    parts.append(f"{session['minutes']} 分钟")
+                if session.get("calories"):
+                    parts.append(f"{_fmt(session['calories'], ' kcal', 0)}")
+                if session.get("note"):
+                    parts.append(str(session["note"])[:80])
+                lines.append(f"  · {day['date']} " + "，".join(parts))
     facts.update({"weights": len(weights), "sleeps": len(sleeps),
-                  "activities": len(activities), "moods": len(moods),
-                  "training_days": len(training)})
+                  "activities": len(activities), "training_days": len(training),
+                  "nutrition_days": len(calories)})
 
     abnormal = [row for row in labs.get("rows") or [] if row.get("abnormal")]
     if abnormal:
@@ -1084,9 +1310,19 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
         facts["abnormal_labs"] = len(abnormal)
     elif labs.get("rows"):
         lines.append(f"- 检验：共 {len(labs['rows'])} 项，最近一次没有超出参考区间的记录。")
+    for row in (labs.get("rows") or [])[-12:]:
+        lines.append(f"  · {row['date']} {row['test']} {row['value']}{row.get('unit', '')}"
+                     f"{'（异常）' if row.get('abnormal') else ''}")
+
+    current = health_score.current_score(profile, records, end_day, latest)
+    if current.get("total") is not None:
+        breakdown = current.get("breakdown") or {}
+        lines.append(f"- 当前健康指数：{int(current['total'])}（睡眠 {breakdown.get('sleep', '—')}，"
+                     f"身体 {breakdown.get('body', '—')}，饮食 {breakdown.get('nutrition', '—')}，"
+                     f"运动 {breakdown.get('movement', '—')}）")
+        facts["score"] = current["total"]
 
     for day in records[-10:]:
-        score = health_score.score_day(day, profile, records)
         parts = [day["date"]]
         sleep = (day["sections"].get("sleep") or {}).get("duration_min")
         if sleep:
@@ -1097,16 +1333,20 @@ def summary(vault_dir: Path | str, *, days: int = 30, end: str = "") -> tuple[st
         steps = (day["sections"].get("activity") or {}).get("steps")
         if steps:
             parts.append(f"步数 {steps}")
-        mind = (day["sections"].get("mind") or {}).get("mood")
-        if mind:
-            parts.append(f"情绪 {mind}/5")
-        if score.get("total") is not None:
-            parts.append(f"健康指数 {int(score['total'])}")
+        training_totals_value = training_totals(day)
+        if training_totals_value["sessions"]:
+            parts.append(f"运动 {int(training_totals_value['sessions'])} 次/")
+            parts.append(f"{training_totals_value['minutes']:.0f} 分钟")
+        nutrition_value = nutrition_totals(day)
+        if nutrition_value.get("calories"):
+            parts.append(f"热量 {nutrition_value['calories']:.0f}kcal")
         lines.append("- " + " · ".join(str(part) for part in parts))
 
     if not records and not labs.get("rows"):
         lines.append("健康系统还没有记录。")
     facts["labs"] = len(labs.get("rows") or [])
+    facts["latest"] = {key: value.get("date") for key, value in latest.items()
+                       if isinstance(value, dict)}
     return "\n".join(lines) or "健康系统还没有记录。", facts
 
 
@@ -1140,15 +1380,16 @@ def write_insight_state(database: Any, read: list[str]) -> dict[str, Any]:
 
 __all__ = [
     "HEALTH_ROOT", "DAILY_DIR", "PROFILE_DIR", "PROFILE_REL", "LAB_DIR", "LAB_REL",
-    "TRAIN_DIR", "REPORT_DIR", "SECTIONS", "MAX_RANGE_DAYS", "DEFAULT_WEIGHTS",
+    "TRAIN_DIR", "CONSULT_DIR", "REPORT_DIR", "SECTIONS", "MAX_RANGE_DAYS", "DEFAULT_WEIGHTS",
     "DEFAULT_TARGETS", "MEAL_TYPES", "TRAINING_KINDS", "LAB_COLUMNS",
     "validate_day", "today", "shift_day", "day_relpath", "day_path",
     "profile_path", "lab_path", "coerce_value", "clean_section", "empty_day",
     "read_day", "write_day", "patch_day", "add_meal", "delete_meal",
-    "add_training", "delete_training", "empty_profile", "read_profile",
+    "replace_meals", "replace_diet", "add_training", "delete_training",
+    "replace_training", "replace_exercise", "empty_profile", "read_profile",
     "write_profile", "read_labs", "save_labs", "clean_labs", "list_days",
     "recent_range", "meal_totals", "nutrition_totals", "training_totals",
-    "custom_metric_keys", "render_body", "summary", "state_dir",
+    "latest_payload", "custom_metric_keys", "render_body", "summary", "state_dir",
     "read_insight_state", "write_insight_state", "health_goal_label",
     "revision",
 ]

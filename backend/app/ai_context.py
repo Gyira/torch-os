@@ -22,8 +22,8 @@ from .db import Database
 from .journal_shared import shanghai_today, validate_day
 
 MAX_SELECTORS = 8
-MAX_TOTAL_CHARS = 24_000
-DEFAULT_TOTAL_CHARS = 16_000
+MAX_TOTAL_CHARS = 80_000
+DEFAULT_TOTAL_CHARS = 24_000
 SUPPORTED_ENTRIES = {"identity", "note", "journal", "tasks", "health", "finance", "love"}
 FUTURE_ENTRIES = {"memory_card", "proposal", "share"}
 
@@ -182,6 +182,14 @@ def _finance_context(vault_dir: Path | str, source_id: str) -> tuple[dict[str, A
 def _love_context(source_id: str, love_settings: Any = None) -> tuple[dict[str, Any], str, bool]:
     if love_settings is None:
         return _source(source_id, "love", "恋爱摘要", "", "还没有启用恋爱数据。", 1_000)
+    if hasattr(love_settings, "chat_db"):
+        try:
+            from .love_master import build_ai_context
+            body, _meta = build_ai_context(
+                love_settings, days=90, include_chat=True, max_chars=60_000)
+        except Exception as exc:
+            body = f"恋爱摘要暂时读不到：{exc}"
+        return _source(source_id, "love", "恋爱数据（已脱敏）", "", body, 60_000)
     from . import life_reports
     try:
         body, _stats = life_reports.love_context(love_settings)

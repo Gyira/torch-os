@@ -15,18 +15,21 @@
 """
 from __future__ import annotations
 
+import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import health_catalog, health_exercises, health_score, health_store, pillar_notes
+from . import (health_catalog, health_exercises, health_score, health_store,
+               pillar_notes, vault_layout)
 from .ai_schemas import extract_json
 from .db import Database
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-REPORT_KINDS = {"week": ("周报", 7), "month": ("月报", 30)}
+ESTIMATE_ROLE = "health_estimator"
 TREND_LIMIT = 4
 TREND_DAYS = (7, 30, 90, 180, 365)
 PSEUDO_METRICS = {
@@ -35,13 +38,13 @@ PSEUDO_METRICS = {
     "body.bmi": {"label": "BMI", "unit": "", "precision": 1},
     "training.volume_kg": {"label": "训练容量", "unit": "kg", "precision": 0},
     "training.minutes": {"label": "训练时长", "unit": "分钟", "precision": 0},
+    "training.calories": {"label": "运动消耗", "unit": "kcal", "precision": 0},
 }
 TREND_PRESETS = (
     {"key": "sleep", "title": "睡眠质量", "metrics": ["sleep.duration_min", "sleep.score"]},
     {"key": "weight", "title": "体重管理", "metrics": ["body.weight_kg", "body.body_fat_pct"]},
-    {"key": "training", "title": "训练表现", "metrics": ["training.volume_kg", "training.minutes"]},
-    {"key": "mind", "title": "心理状态", "metrics": ["mind.mood", "mind.stress", "activity.steps"]},
-    {"key": "vitals", "title": "生命体征", "metrics": ["vitals.resting_hr", "vitals.systolic"]},
+    {"key": "training", "title": "运动表现", "metrics": ["training.calories", "training.minutes"]},
+    {"key": "diet", "title": "饮食热量", "metrics": ["nutrition.calories", "nutrition.protein_g"]},
 )
 
 
@@ -55,6 +58,7 @@ class MealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     meal_type: str = Field(default="加餐", max_length=8)
     name: str = Field(min_length=1, max_length=60)
+    portion: str = Field(default="", max_length=30)
     amount_g: float | None = Field(default=None, ge=0, le=10000)
     calories: float | None = Field(default=None, ge=0, le=10000)
     protein_g: float | None = Field(default=None, ge=0, le=1000)
@@ -62,17 +66,47 @@ class MealRequest(BaseModel):
     fat_g: float | None = Field(default=None, ge=0, le=1000)
     fiber_g: float | None = Field(default=None, ge=0, le=500)
     sodium_mg: float | None = Field(default=None, ge=0, le=20000)
+    source: str = Field(default="", max_length=10)
+    confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 class TrainingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: str = Field(default="力量", max_length=8)
+    kind: str = Field(default="其他", max_length=8)
     minutes: int | None = Field(default=None, ge=1, le=600)
+    calories: int | None = Field(default=None, ge=0, le=5000)
+    distance_km: float | None = Field(default=None, ge=0, le=200)
+    steps: int | None = Field(default=None, ge=0, le=100000)
     rpe: int | None = Field(default=None, ge=1, le=10)
     soreness: int | None = Field(default=None, ge=1, le=5)
     mood_after: int | None = Field(default=None, ge=1, le=5)
     note: str = Field(default="", max_length=600)
+    source: str = Field(default="", max_length=10)
+    intensity: str = Field(default="", max_length=10)
+    confidence: float | None = Field(default=None, ge=0, le=1)
     exercises: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DietSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    revision: str = ""
+    food_text: str = Field(default="", max_length=2000)
+    water_ml: float | None = Field(default=None, ge=0, le=8000)
+    meals: list[MealRequest] = Field(default_factory=list, max_length=60)
+
+
+class ExerciseSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    revision: str = ""
+    exercise_text: str = Field(default="", max_length=2000)
+    steps: int | None = Field(default=None, ge=0, le=100000)
+    sessions: list[TrainingRequest] = Field(default_factory=list, max_length=40)
+
+
+class EstimateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    kind: str = Field(default="food", max_length=10)
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class LabRequest(BaseModel):
@@ -97,8 +131,17 @@ class InsightRead(BaseModel):
 
 class ReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    kind: str = Field(default="week", min_length=3, max_length=8)
+    # kind 保留给旧调用；新版统一为「基于最新数据的健康报告」。
+    kind: str = Field(default="state", max_length=8)
+    days: int = Field(default=30, ge=7, le=366)
     confirm: bool = Field(strict=True)
+
+
+class ConsultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    question: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=16000)
+    day: str = Field(default="", max_length=10)
 
 
 def _guard(read_only: bool):
@@ -110,7 +153,7 @@ def _guard(read_only: bool):
     return check
 
 
-def _history(vault_dir: Path | str, day: str, span: int = 8) -> list[dict[str, Any]]:
+def _history(vault_dir: Path | str, day: str, span: int = 90) -> list[dict[str, Any]]:
     start = health_store.shift_day(day, -(max(2, span) - 1))
     return health_store.list_days(vault_dir, start=start, end=day, limit=max(2, span))
 
@@ -130,15 +173,20 @@ def _payload(vault_dir: Path | str, profile: dict[str, Any],
 def _missing(data: dict[str, Any]) -> list[dict[str, str]]:
     sections = data.get("sections") or {}
     checks = (
-        ("sleep", "duration_min", "睡眠", "今天还没记录睡眠"),
+        ("sleep", "duration_min", "睡眠", "今天还没记录睡了多久"),
         ("body", "weight_kg", "体重", "今天还没称体重"),
-        ("nutrition", "water_ml", "饮水", "今天还没记录饮水"),
-        ("activity", "steps", "步数", "今天还没记录步数"),
-        ("mind", "mood", "情绪", "今天还没打分情绪"),
+        ("nutrition", "calories", "饮食", "今天还没记录吃了什么"),
+        ("activity", "steps", "运动", "今天还没记录运动"),
     )
     items = []
     for section, field, label, hint in checks:
-        if (sections.get(section) or {}).get(field) is None:
+        values = sections.get(section) or {}
+        has = values.get(field) is not None
+        if section == "nutrition" and data.get("meals"):
+            has = True
+        if section == "activity" and data.get("training"):
+            has = True
+        if not has:
             items.append({"key": f"{section}.{field}", "label": label, "hint": hint})
     return items
 
@@ -217,32 +265,85 @@ def _stats(points: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _reports(vault_dir: Path | str, limit: int = 8) -> list[dict[str, Any]]:
+def _reports(vault_dir: Path | str, limit: int = 20) -> list[dict[str, Any]]:
     try:
         notes = pillar_notes.list_notes(vault_dir, chapter="health_report", limit=limit)
     except Exception:
         return []
-    return [{key: note.get(key) for key in ("title", "path", "date", "summary")}
-            for note in notes[:limit]]
+    items = []
+    for note in notes[:limit]:
+        title = note.get("title") or "健康报告"
+        date_value = str(note.get("date") or "")
+        match = re.match(r"^(\d{4}-\d{2}-\d{2})", str(title))
+        if match:
+            date_value = match.group(1)
+        items.append({
+            "title": title,
+            "path": note.get("path") or "",
+            "date": date_value[:10],
+            "excerpt": note.get("excerpt") or "",
+            "updated": str(note.get("updated") or "")[:19],
+        })
+    return items
+
+
+def _consults(vault_dir: Path | str, limit: int = 20) -> list[dict[str, Any]]:
+    try:
+        notes = pillar_notes.list_notes(vault_dir, chapter="health_consult", limit=limit)
+    except Exception:
+        return []
+    items = []
+    for note in notes[:limit]:
+        title = note.get("title") or "问诊记录"
+        date_value = str(note.get("date") or "")
+        match = re.match(r"^(\d{4}-\d{2}-\d{2})", str(title))
+        if match:
+            date_value = match.group(1)
+        items.append({
+            "title": title,
+            "path": note.get("path") or "",
+            "date": date_value[:10],
+            "excerpt": note.get("excerpt") or "",
+            "updated": str(note.get("updated") or "")[:19],
+        })
+    return items
+
+
+def _consult_section(question: str, answer: str) -> str:
+    clock = datetime.now().astimezone().strftime("%H:%M")
+    return (f"## {clock}\n\n**我**：{question.strip()}\n\n"
+            f"**私人医生**：{answer.strip()}\n\n---\n")
+
+
+def _report_title(vault_dir: Path | str) -> str:
+    base = f"{health_store.today()} 健康报告"
+    titles = {str(item.get("title") or "") for item in _reports(vault_dir, 200)}
+    if base not in titles:
+        return base
+    index = 2
+    while f"{base}（{index}）" in titles:
+        index += 1
+    return f"{base}（{index}）"
 
 
 def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
-                 kind: str, *, read_only: bool) -> dict[str, Any]:
-    if kind not in REPORT_KINDS:
-        raise HTTPException(422, "报告类型只能是 week 或 month")
+                 days: int = 30, *, read_only: bool) -> dict[str, Any]:
     if role_service is None:
         raise HTTPException(409, "AI 不可用：没有配置 dsh 或 DeepSeek Key")
     try:
         ensure_vault_writable(read_only, "生成健康报告")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    label, span = REPORT_KINDS[kind]
+    span = max(7, min(int(days or 30), 366))
     context, stats = health_store.summary(vault_dir, days=span)
     user_text = (
-        f"请按私人医生模式，基于最近 {span} 天的健康系统记录，写一份{label}。"
-        "先陈述事实（记录天数、指标、趋势），再给解读与最多三条可执行建议；"
-        "数据不足的地方明确说不足，不诊断疾病、不开药。"
-        "输出约定 JSON（title/summary/sections/recommendations/note）。"
+        f"请按私人医生模式，基于最近 {span} 天的记录、最新身体档案与检验记录，"
+        "分析我现在的健康状态，写一份完整的健康报告。"
+        "结构：先陈述事实（记录天数、最新指标、趋势），再解读当前状态，"
+        "最后给最多三条可执行建议与需要补充的数据/检查。"
+        "数据不足的地方明确说不足，不诊断疾病、不开药、不替代就医。"
+        "标题由系统按日期生成，你只需要输出正文。"
+        "输出约定 JSON（summary/sections/recommendations/note.markdown）。"
     )
     try:
         result = role_service.run("health_doctor", "report",
@@ -254,22 +355,146 @@ def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
     structured = extract_json(result.text) or {}
     note_data = structured.get("note") if isinstance(structured, dict) else None
     note_data = note_data if isinstance(note_data, dict) else {}
-    title = str(note_data.get("title") or f"健康{label}-{health_store.today()}")[:120]
+    title = _report_title(vault_dir)
     body = str(note_data.get("markdown") or "").strip() or result.text
     note = pillar_notes.create_note(
         vault_dir, pillar="ops", chapter="health_report", title=title, body=body,
-        note_type="report", tags=["AI", "health", kind], source="AI",
+        note_type="report", tags=["AI", "health", "report"], source="AI",
         extra_metadata={"memory": False, "generated_by": "health_doctor",
-                        "health_kind": kind},
+                        "health_kind": "state", "health_days": span},
     )
-    database.audit("health_report", {"kind": kind, "path": note.get("path", ""),
+    database.audit("health_report", {"days": span, "path": note.get("path", ""),
                                      "chars": len(body)})
     return {
-        "kind": kind, "label": label, "text": result.text,
+        "kind": "state", "label": "健康报告", "text": result.text,
         "structured": structured if isinstance(structured, dict) else {},
         "note": note, "stats": stats, "seconds": getattr(result, "seconds", None),
         "reports": _reports(vault_dir),
     }
+
+
+def _number(value: Any, minimum: float = 0, maximum: float | None = None,
+            default: float = 0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number or number in (float("inf"), float("-inf")):
+        return default
+    number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
+
+
+def _estimate_prompt(kind: str, text: str) -> str:
+    if kind == "food":
+        schema = (
+            '{"items":[{"meal_type":"早餐|午餐|晚餐|加餐","name":"食物名",'
+            '"portion":"份量描述","calories":数字,"protein_g":数字,'
+            '"carbs_g":数字,"fat_g":数字,"confidence":0到1}],'
+            '"note":"一句估算说明"}'
+        )
+    else:
+        schema = (
+            '{"items":[{"kind":"跑步|快走|骑行|游泳|力量|球类|瑜伽|其他",'
+            '"minutes":数字,"calories":数字,"distance_km":数字,"steps":数字,'
+            '"intensity":"低|中|高","note":"一句话","confidence":0到1}],'
+            '"note":"一句估算说明"}'
+        )
+    return (
+        f"任务：估算{'饮食' if kind == 'food' else '运动'}。\n"
+        f"用户描述：{text}\n"
+        "按常见中式份量/常见运动强度估算；不确定时给一个合理中值，并在 note 说明。"
+        "只输出一个 JSON 对象，不要解释，不要 Markdown。\n"
+        f"字段：{schema}"
+    )
+
+
+def _normalize_food_estimate(structured: dict[str, Any]) -> dict[str, Any]:
+    raw_items = structured.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = [structured] if structured.get("name") else []
+    items: list[dict[str, Any]] = []
+    for raw in raw_items[:12]:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()[:60]
+        if not name:
+            continue
+        meal_type = str(raw.get("meal_type") or "加餐").strip()
+        if meal_type not in health_store.MEAL_TYPES:
+            meal_type = "加餐"
+        item = {
+            "meal_type": meal_type, "name": name,
+            "portion": str(raw.get("portion") or "").strip()[:30],
+            "calories": int(round(_number(raw.get("calories"), 0, 5000))),
+            "protein_g": round(_number(raw.get("protein_g"), 0, 500), 1),
+            "carbs_g": round(_number(raw.get("carbs_g"), 0, 500), 1),
+            "fat_g": round(_number(raw.get("fat_g"), 0, 500), 1),
+            "source": "ai",
+        }
+        amount = raw.get("amount_g")
+        if amount is not None:
+            item["amount_g"] = round(_number(amount, 0, 10000), 1)
+        confidence = raw.get("confidence")
+        if confidence is not None:
+            item["confidence"] = round(_number(confidence, 0, 1), 2)
+        items.append(item)
+    if not items:
+        raise HTTPException(502, "AI 没有给出可用的食物估算，请换一种说法或手动填写")
+    totals = {
+        "calories": round(sum(item["calories"] for item in items), 1),
+        "protein_g": round(sum(item["protein_g"] for item in items), 1),
+        "carbs_g": round(sum(item["carbs_g"] for item in items), 1),
+        "fat_g": round(sum(item["fat_g"] for item in items), 1),
+    }
+    return {"items": items, "totals": totals,
+            "note": str(structured.get("note") or "")[:300]}
+
+
+def _normalize_exercise_estimate(structured: dict[str, Any]) -> dict[str, Any]:
+    raw_items = structured.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = [structured] if structured.get("kind") else []
+    items: list[dict[str, Any]] = []
+    for raw in raw_items[:8]:
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("kind") or "其他").strip()
+        if kind not in health_store.TRAINING_KINDS:
+            kind = "其他"
+        item = {
+            "kind": kind,
+            "minutes": int(round(_number(raw.get("minutes"), 0, 600))),
+            "calories": int(round(_number(raw.get("calories"), 0, 5000))),
+            "distance_km": round(_number(raw.get("distance_km"), 0, 200), 1),
+            "steps": int(round(_number(raw.get("steps"), 0, 100000))),
+            "source": "ai",
+        }
+        intensity = str(raw.get("intensity") or "").strip()
+        if intensity:
+            item["intensity"] = intensity[:10]
+        note = str(raw.get("note") or "").strip()
+        if note:
+            item["note"] = note[:200]
+        confidence = raw.get("confidence")
+        if confidence is not None:
+            item["confidence"] = round(_number(confidence, 0, 1), 2)
+        if not item["minutes"] and not item["calories"] and not item["steps"]:
+            continue
+        items.append(item)
+    if not items:
+        raise HTTPException(502, "AI 没有给出可用的运动估算，请换一种说法或手动填写")
+    totals = {
+        "minutes": round(sum(item["minutes"] for item in items), 1),
+        "calories": round(sum(item["calories"] for item in items), 1),
+        "distance_km": round(sum(item["distance_km"] for item in items), 1),
+        "steps": round(sum(item["steps"] for item in items), 1),
+        "sessions": float(len(items)),
+    }
+    return {"items": items, "totals": totals,
+            "note": str(structured.get("note") or "")[:300]}
 
 
 def create_health_router(database: Database, vault_dir: Path | str, *,
@@ -287,46 +512,194 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
     def overview(day: str = Query(default="")):
         target_day = health_store.validate_day(day or health_store.today())
         profile = health_store.read_profile(vault_dir)
-        days = health_store.list_days(vault_dir, start=health_store.shift_day(target_day, -6),
-                                      end=target_day, limit=7)
-        by_date = {item["date"]: item for item in days}
+        history = _history(vault_dir, target_day, span=90)
+        by_date = {item["date"]: item for item in history}
         current = by_date.get(target_day) or health_store.empty_day(target_day)
-        history = _history(vault_dir, target_day)
         payload = _payload(vault_dir, profile, current, history)
+        latest = health_store.latest_payload(vault_dir, target_day, lookback=90)
+        current_score = health_score.current_score(profile, history, target_day, latest)
+        week_start = health_store.shift_day(
+            target_day, -date.fromisoformat(target_day).weekday())
         week = []
         for offset in range(7):
-            key = health_store.shift_day(target_day, offset - 6)
+            key = health_store.shift_day(week_start, offset)
             record = by_date.get(key) or health_store.empty_day(key)
-            score = health_score.score_day(record, profile, days)
-            sleep = (record.get("sections") or {}).get("sleep") or {}
-            body = (record.get("sections") or {}).get("body") or {}
-            activity = (record.get("sections") or {}).get("activity") or {}
-            mind = (record.get("sections") or {}).get("mind") or {}
+            sections = record.get("sections") or {}
+            score = health_score.score_day(record, profile, history)
+            sleep = sections.get("sleep") or {}
+            body = sections.get("body") or {}
+            activity = sections.get("activity") or {}
+            totals = health_store.training_totals(record)
             week.append({
-                "date": key, "has_data": record.get("exists", False),
+                "date": key,
+                "has_data": bool(record.get("exists")),
+                "recorded": bool(record.get("exists") and (
+                    any(sections.get(section) for section in health_store.SECTIONS)
+                    or record.get("meals") or record.get("training"))),
                 "score": score.get("total"),
                 "sleep_minutes": sleep.get("duration_min"),
                 "weight_kg": body.get("weight_kg"),
                 "steps": activity.get("steps"),
-                "mood": mind.get("mood"),
+                "exercise_minutes": totals["minutes"],
+                "calories": health_store.nutrition_totals(record).get("calories"),
+                "is_today": key == health_store.today(),
             })
         labs = health_store.read_labs(vault_dir)
         abnormal = [row for row in labs.get("rows") or [] if row.get("abnormal")]
         latest_lab = max((row["date"] for row in labs.get("rows") or []), default="")
+        effective_body = (latest.get("body") or {}).get("values") or {}
         return {
             "day": target_day,
+            "today_date": health_store.today(),
+            "week_start": week_start,
+            "week_end": health_store.shift_day(week_start, 6),
             "profile": profile,
             "catalog": health_catalog.catalog(),
             "today": payload,
+            "effective": latest,
+            "current": current_score,
             "week": week,
-            "targets": health_score.targets(profile, current),
+            "targets": health_score.targets(profile, {"sections": {"body": effective_body}}),
             "missing": _missing(current),
             "labs": {"count": len(labs.get("rows") or []),
                      "latest_date": latest_lab,
                      "abnormal": abnormal[-6:]},
-            "reports": _reports(vault_dir),
+            "reports": _reports(vault_dir, limit=8),
+            "archive": {
+                "days": len(history),
+                "first": history[0]["date"] if history else "",
+                "last": history[-1]["date"] if history else "",
+            },
             "capabilities": {"write": not read_only, "ai": role_service is not None},
         }
+
+    @router.get("/week")
+    def week(day: str = Query(default="")):
+        target_day = health_store.validate_day(day or health_store.today())
+        week_start = health_store.shift_day(
+            target_day, -date.fromisoformat(target_day).weekday())
+        records = health_store.list_days(
+            vault_dir, start=week_start, end=health_store.shift_day(week_start, 6), limit=7)
+        by_date = {item["date"]: item for item in records}
+        rows = []
+        for offset in range(7):
+            key = health_store.shift_day(week_start, offset)
+            record = by_date.get(key) or health_store.empty_day(key)
+            sections = record.get("sections") or {}
+            totals = health_store.training_totals(record)
+            rows.append({
+                "date": key, "has_data": bool(record.get("exists")),
+                "recorded": bool(record.get("exists") and (
+                    any(sections.get(section) for section in health_store.SECTIONS)
+                    or record.get("meals") or record.get("training"))),
+                "sleep_minutes": (sections.get("sleep") or {}).get("duration_min"),
+                "weight_kg": (sections.get("body") or {}).get("weight_kg"),
+                "steps": (sections.get("activity") or {}).get("steps"),
+                "exercise_minutes": totals["minutes"],
+                "calories": health_store.nutrition_totals(record).get("calories"),
+                "is_today": key == health_store.today(),
+            })
+        return {"week_start": week_start,
+                "week_end": health_store.shift_day(week_start, 6),
+                "days": rows}
+
+    @router.get("/archive")
+    def archive(day: str = Query(default="")):
+        target_day = health_store.validate_day(day or health_store.today())
+        profile = health_store.read_profile(vault_dir)
+        history = _history(vault_dir, target_day, span=365)
+        latest = health_store.latest_payload(vault_dir, target_day, lookback=365)
+        current_score = health_score.current_score(profile, history, target_day, latest)
+        labs = health_store.read_labs(vault_dir)
+        reports = _reports(vault_dir, limit=50)
+        consults = _consults(vault_dir, limit=20)
+        return {
+            "day": target_day,
+            "profile": profile,
+            "latest": latest,
+            "current": current_score,
+            "targets": health_score.targets(profile),
+            "labs": {**labs,
+                     "abnormal_count": sum(1 for row in labs.get("rows") or []
+                                           if row.get("abnormal")),
+                     "categories": list(health_catalog.LAB_CATEGORIES),
+                     "tests": [dict(item) for item in health_catalog.LAB_TESTS]},
+            "reports": reports,
+            "consults": consults,
+            "archive": {
+                "days": len(history),
+                "first": history[0]["date"] if history else "",
+                "last": history[-1]["date"] if history else "",
+            },
+            "capabilities": {"write": not read_only, "ai": role_service is not None},
+        }
+
+    @router.get("/doctor")
+    def doctor():
+        profile = health_store.read_profile(vault_dir)
+        history = _history(vault_dir, health_store.today(), span=90)
+        latest = health_store.latest_payload(vault_dir, health_store.today(), lookback=90)
+        labs = health_store.read_labs(vault_dir)
+        reports = _reports(vault_dir, limit=20)
+        consults = _consults(vault_dir, limit=20)
+        current_score = health_score.current_score(
+            profile, history, health_store.today(), latest)
+        context, stats = health_store.summary(vault_dir, days=90)
+        return {
+            "day": health_store.today(),
+            "scope": {
+                "days": stats.get("days", 0),
+                "latest": stats.get("latest", {}),
+                "labs": len(labs.get("rows") or []),
+                "reports": len(reports),
+                "consults": len(consults),
+                "profile": bool(profile.get("exists")),
+                "context_chars": len(context),
+            },
+            "profile": {key: profile.get(key) for key in
+                        ("name", "gender", "birth_date", "height_cm", "blood_type")},
+            "current": current_score,
+            "reports": reports,
+            "consults": consults,
+            "capabilities": {"write": not read_only, "ai": role_service is not None},
+        }
+
+    @router.get("/foods")
+    def foods(q: str = Query(default="", max_length=60),
+              limit: int = Query(default=80, ge=1, le=200)):
+        return {"items": health_catalog.food_items(q, limit)}
+
+    @router.post("/estimate")
+    def estimate(payload: EstimateRequest):
+        if role_service is None:
+            raise HTTPException(409, "AI 不可用：没有配置 dsh 或 DeepSeek Key")
+        kind = str(payload.kind or "food").strip().lower()
+        if kind not in {"food", "exercise"}:
+            raise HTTPException(422, "只能估算饮食或运动")
+        prompt = _estimate_prompt(kind, payload.text)
+        try:
+            result = role_service.run_once(ESTIMATE_ROLE, "estimate", prompt,
+                                           entry="health.report")
+        except KeyError as error:
+            raise HTTPException(409, "AI 估算角色未安装：请重启 dsh 后重试") from error
+        except ValueError as error:
+            raise HTTPException(409, f"AI 估算角色不可用：{error}") from error
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from error
+        except Exception as error:
+            raise HTTPException(getattr(error, "status_code", 503), str(error)) from error
+        structured = (result.get("structured") if isinstance(result, dict) else None)
+        if not isinstance(structured, dict) or not structured:
+            raw_text = result.get("text") if isinstance(result, dict) else ""
+            structured = extract_json(raw_text) or {}
+        if not isinstance(structured, dict):
+            raise HTTPException(502, "AI 没有返回可用的估算结果，请重试或手动填写")
+        normalized = (_normalize_food_estimate(structured) if kind == "food"
+                      else _normalize_exercise_estimate(structured))
+        database.audit("health_estimate", {"kind": kind, "text_chars": len(payload.text),
+                                          "items": len(normalized["items"])})
+        return {**normalized, "kind": kind,
+                "seconds": result.get("seconds") if isinstance(result, dict) else None}
 
     @router.get("/day/{day}")
     def read_day(day: str):
@@ -388,6 +761,32 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
         data = health_store.read_day(vault_dir, target_day)
         return {"day": target_day, "record": _payload(vault_dir, profile, data,
                                                       _history(vault_dir, target_day))}
+
+    @router.put("/day/{day}/diet")
+    def save_diet(day: str, payload: DietSaveRequest):
+        guard("保存饮食记录")
+        target_day = health_store.validate_day(day)
+        data = health_store.replace_diet(
+            vault_dir, target_day, food_text=payload.food_text,
+            water_ml=payload.water_ml,
+            meals=[item.model_dump() for item in payload.meals],
+            expected_revision=payload.revision)
+        profile = health_store.read_profile(vault_dir)
+        return {"day": target_day, "record": _payload(
+            vault_dir, profile, data, _history(vault_dir, target_day))}
+
+    @router.put("/day/{day}/exercise")
+    def save_exercise(day: str, payload: ExerciseSaveRequest):
+        guard("保存运动记录")
+        target_day = health_store.validate_day(day)
+        data = health_store.replace_exercise(
+            vault_dir, target_day, exercise_text=payload.exercise_text,
+            steps=payload.steps,
+            sessions=[item.model_dump() for item in payload.sessions],
+            expected_revision=payload.revision)
+        profile = health_store.read_profile(vault_dir)
+        return {"day": target_day, "record": _payload(
+            vault_dir, profile, data, _history(vault_dir, target_day))}
 
     @router.get("/profile")
     def read_profile():
@@ -501,14 +900,79 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
 
     @router.get("/reports")
     def reports():
-        return {"reports": _reports(vault_dir, limit=20)}
+        return {"reports": _reports(vault_dir, limit=50)}
 
     @router.post("/report")
     def report(payload: ReportRequest):
         if payload.confirm is not True:
             raise HTTPException(422, "请明确确认生成并保存报告")
-        return _report_body(database, vault_dir, role_service, payload.kind,
+        return _report_body(database, vault_dir, role_service, payload.days,
                             read_only=read_only)
+
+    @router.delete("/reports")
+    def delete_report(path: str = Query(min_length=1, max_length=2048),
+                      revision: str = Query(default="", max_length=64)):
+        guard("删除健康报告")
+        try:
+            chapter = vault_layout.chapter_key_of(path)
+        except Exception as error:
+            raise HTTPException(422, "这条报告路径不可用") from error
+        if chapter != "health_report":
+            raise HTTPException(422, "只能删除「健康报告」本子里的文档")
+        result = pillar_notes.trash_note(vault_dir, path, expected_revision=revision)
+        database.audit("health_report_deleted", {"path": path,
+                                                 "trash": result.get("trash_path", "")})
+        return {**result, "reports": _reports(vault_dir, limit=50)}
+
+    @router.get("/consults")
+    def consults():
+        return {"consults": _consults(vault_dir, limit=50)}
+
+    @router.post("/consult")
+    def save_consult(payload: ConsultRequest):
+        guard("记录问诊")
+        day = health_store.validate_day(payload.day or health_store.today())
+        title = f"{day} 问诊记录"
+        section = _consult_section(payload.question, payload.answer)
+        existing = next((item for item in _consults(vault_dir, 200)
+                         if item.get("title") == title), None)
+        try:
+            if existing:
+                note = pillar_notes.read_note(vault_dir, existing["path"])
+                body = (note.get("body") or "").rstrip() + "\n\n" + section
+                saved = pillar_notes.update_note(
+                    vault_dir, existing["path"], body=body,
+                    expected_revision=note.get("revision") or "")
+            else:
+                saved = pillar_notes.create_note(
+                    vault_dir, pillar="ops", chapter="health_consult", title=title,
+                    body=f"# {title}\n\n{section}", note_type="health_consult",
+                    tags=["健康", "问诊"], date=day,
+                    extra_metadata={"memory": False, "generated_by": "health_doctor",
+                                    "health_kind": "consult"})
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(500, "问诊记录保存失败") from error
+        database.audit("health_consult_saved", {
+            "day": day, "path": saved.get("path", ""),
+            "question_chars": len(payload.question), "answer_chars": len(payload.answer)})
+        return {"note": saved, "consults": _consults(vault_dir, limit=50)}
+
+    @router.delete("/consults")
+    def delete_consult(path: str = Query(min_length=1, max_length=2048),
+                       revision: str = Query(default="", max_length=64)):
+        guard("删除问诊记录")
+        try:
+            chapter = vault_layout.chapter_key_of(path)
+        except Exception as error:
+            raise HTTPException(422, "这条问诊记录路径不可用") from error
+        if chapter != "health_consult":
+            raise HTTPException(422, "只能删除「问诊记录」本子里的文档")
+        result = pillar_notes.trash_note(vault_dir, path, expected_revision=revision)
+        database.audit("health_consult_deleted", {"path": path,
+                                                   "trash": result.get("trash_path", "")})
+        return {**result, "consults": _consults(vault_dir, limit=50)}
 
     return router
 

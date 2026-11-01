@@ -74,6 +74,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
         if not directory:
             raise HTTPException(422, "未知章节")
         roots = [vault / directory]
+    elif pillar == vault_layout.LOVE_PILLAR:
+        roots = [vault / vault_layout.LOVE_MEMORY_DIR]
     elif pillar:
         directory = vault_layout.PILLAR_DIRS.get(pillar)
         if not directory:

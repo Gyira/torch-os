@@ -18,8 +18,9 @@
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
 | `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
 | `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
-| `love_master` | 恋爱大师 | `advice` | new_note、new_task |
+| `love_master` | 恋爱大师 | `advice` / `portrait` / `deep` / `report` / `journal_batch` / `bazi` | new_note、new_task |
 | `health_doctor` | 私人医生 | `report` / `advice` | health_report |
+| `health_estimator` | 健康估算助手 | `estimate` | — |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 忆灵与苏格拉底是**同一个 agent 的两种模式**：同一份画像、同一套身份权威；
@@ -99,17 +100,21 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 - `{"entry":"note","path":"03_知识库/01_主题笔记/xxx.md"}`
 - `{"entry":"journal","day":"YYYY-MM-DD"}`
 - `{"entry":"tasks","day":"YYYY-MM-DD"}`
-- `{"entry":"health"}` / `{"entry":"finance"}` / `{"entry":"love"}`：只读摘要（恋爱不读原始聊天）
+- `{"entry":"health"}` / `{"entry":"finance"}`：只读摘要
+- `{"entry":"love"}`：恋爱系统七个页面的只读摘要 + **脱敏后的最近聊天原文**；
+  经期只提供阶段/预计日期等聚合信息，不提供每日症状明细
 
 `memory_card/proposal/share` 在后续阶段接入。每类来源有字符预算，
-总预算 16k、硬上限 24k；截断会在响应 `truncated` 与界面提示里说明。
+总预算 24k、硬上限 80k；恋爱大师角色卡单独申请 60k；截断会在响应 `truncated`
+与界面提示里说明。
 
 空 `selectors` = 不发送任何用户资料。角色对话会按角色补默认上下文（忆灵=身份+今日日记+任务；
-生活管家=任务+身份+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱摘要；
+生活管家=任务+身份+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱数据摘要+最近聊天；
 私人医生=健康系统摘要）；一次性能力（润色/判类）不自动带资料，避免把身份信息顺手发给模型。
 
-健康系统的 `{"entry":"health"}` 摘要来自 `health_store.summary()`：最近 90 天的睡眠/体重/
-步数/情绪/训练与检验异常 + 身体档案，不含每日正文；报告落
+健康系统的 `{"entry":"health"}` 摘要来自 `health_store.summary()`：身体档案 + 最新沿用
+状态 + 最近 90 天的睡眠/体重/饮食/运动/检验，不含每日正文；`health_estimator` 只用于
+「一句话饮食/运动」估算，结果先在界面预览、确认后才落盘。报告落
 `02_生活运营/02_健康系统/00_健康报告`，`memory: false`。
 
 `selection_text` / `selection_source` / `draft_text` 是浏览器选区与未保存草稿，单独作为

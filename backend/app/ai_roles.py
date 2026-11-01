@@ -70,6 +70,7 @@ MODE_LABELS = {
     "suggest": "建议",
     "advice": "建议",
     "report": "报告",
+    "estimate": "估算",
 }
 
 DEFAULT_TIMEOUT = 120

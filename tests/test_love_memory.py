@@ -125,7 +125,7 @@ def test_generate_draft_edits_and_writes_note(tmp_path: Path,
     assert written.status_code == 200, written.text
     result = written.json()
     assert result["status"] == "written"
-    assert result["note_path"] == "02_生活运营/05_情感与记忆/2026-05-20 恋爱记忆.md"
+    assert result["note_path"] == "02_生活运营/07_情感与记忆/2026-05-20 恋爱记忆.md"
     path = tmp_path / "vault" / result["note_path"]
     text = path.read_text(encoding="utf-8")
     assert "很期待明天" in text
@@ -241,7 +241,12 @@ def test_love_memory_chapter_is_additive() -> None:
     manifest = vault_layout.chapter_manifest()
     ops = next(item for item in manifest["pillars"] if item["key"] == "ops")
     chapter = next(item for item in ops["chapters"] if item["key"] == "love_memory")
-    assert chapter["path"] == "02_生活运营/05_情感与记忆"
+    assert chapter["path"] == "02_生活运营/07_情感与记忆"
     assert chapter["default_type"] == "memory"
-    assert len(vault_layout.CHAPTERS) == 47
+    # 2026-11-01 恋爱系统 v2 新增「恋爱日志」「AI 草稿」两个记忆章节；
+    # 它们不进入四库首页（love 不在 PILLAR_ORDER），但会出现在写作章节清单里。
+    assert len(vault_layout.CHAPTERS) == 48
+    assert vault_layout.LOVE_JOURNAL_CHAPTER in vault_layout.CHAPTER_BY_KEY
+    assert vault_layout.LOVE_DRAFT_CHAPTER in vault_layout.CHAPTER_BY_KEY
     assert manifest["layout_version"] == "pillars-v2"
+

@@ -13,7 +13,7 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -36,6 +36,8 @@ TZ = ZoneInfo("Asia/Shanghai")
 
 KYFW_HOST = "kyfw.12306.cn"
 KYFW_BASE = f"https://{KYFW_HOST}"
+SEARCH_HOST = "search.12306.cn"
+SEARCH_URL = f"https://{SEARCH_HOST}/search/v1/train/search"
 INIT_URL = f"{KYFW_BASE}/otn/leftTicket/init?linktypeid=dc"
 QUERY_URL = f"{KYFW_BASE}/otn/leftTicket/queryZ"
 STOPS_URL = f"{KYFW_BASE}/otn/czxx/queryByTrainNo"
@@ -309,7 +311,7 @@ def train_status(train: dict[str, Any], now: datetime | None = None) -> dict[str
 
 def _check_host(url: str) -> None:
     parsed = httpx.URL(url)
-    if parsed.scheme != "https" or parsed.host != KYFW_HOST:
+    if parsed.scheme != "https" or parsed.host not in {KYFW_HOST, SEARCH_HOST}:
         raise TrainSyncError("只允许访问 12306 官方 HTTPS 接口。")
 
 
@@ -351,6 +353,51 @@ def _station_map(client: httpx.Client) -> dict[str, str]:
     return stations
 
 
+def _search_train_no(client: httpx.Client, code: str, date_text: str,
+                     from_station: str, to_station: str) -> str:
+    """按车次号查内部 train_no（2026-11-01 起）。
+
+    余票接口（leftTicket）在列车**发车后**会把当天车次从结果里移除，导致 12:00 发车的
+    G335 在 12:45 同步失败；`search.12306.cn` 的车次搜索按日期返回车次本身，不受发车
+    影响，先用它拿 `train_no`，失败再退回原来的余票查询。
+    """
+    response = _get(client, SEARCH_URL, params={
+        "keyword": code,
+        "date": date_text.replace("-", ""),
+    }, max_bytes=MAX_HTTP_BYTES)
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise TrainSyncError("12306 车次搜索接口返回了非 JSON 内容。") from error
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise TrainSyncError("12306 车次搜索接口返回格式不正确。")
+    exact = [
+        item for item in items
+        if isinstance(item, dict)
+        and str(item.get("station_train_code") or "").strip().upper() == code.upper()
+    ]
+    if not exact:
+        raise TrainSyncError(f"12306 车次搜索里没有找到 {code}。")
+
+    def station(value: Any) -> str:
+        return str(value or "").strip().removesuffix("站")
+
+    from_name, to_name = station(from_station), station(to_station)
+    if from_name or to_name:
+        matched = [
+            item for item in exact
+            if (not from_name or station(item.get("from_station")) == from_name)
+            and (not to_name or station(item.get("to_station")) == to_name)
+        ]
+        if matched:
+            exact = matched
+    train_no = str(exact[0].get("train_no") or "").strip()
+    if not train_no:
+        raise TrainSyncError("12306 车次搜索没有返回 train_no。")
+    return train_no
+
+
 def _query_train_no(client: httpx.Client, code: str, date_text: str,
                     from_station: str, to_station: str,
                     stations: dict[str, str]) -> str:
@@ -385,7 +432,7 @@ def _query_train_no(client: httpx.Client, code: str, date_text: str,
                     return train_no
         raise TrainSyncError(
             f"12306 在 {date_text} 的「{from_station} → {to_station}」里没有找到 {code}；"
-            "可能当天不开行，或起止站填错了。"
+            "可能当天不开行、已经发车，或起止站填错了。可以换明天的日期再试，或直接导入时刻表。"
         )
     raise TrainSyncError("12306 查询入口一直在切换，稍后再试。")
 
@@ -419,10 +466,25 @@ def fetch_12306_train(code: str, from_station: str, to_station: str,
         raise TrainSyncError("本地没有这趟车的起止站；请在同步表单里填写出发站和到达站。")
     client = _client()
     try:
-        _bootstrap(client)
-        stations = _station_map(client)
-        train_no = _query_train_no(
-            client, code, date_text, from_station.strip(), to_station.strip(), stations)
+        try:
+            # 新路径：车次搜索按日期返回车次本身，发车后仍可用；也不需要先拿余票会话。
+            train_no = _search_train_no(client, code, date_text,
+                                        from_station.strip(), to_station.strip())
+        except TrainSyncError:
+            # 旧路径：余票查询 + 车站表。只在车次搜索失败时使用。
+            _bootstrap(client)
+            stations = _station_map(client)
+            try:
+                train_no = _query_train_no(
+                    client, code, date_text, from_station.strip(), to_station.strip(), stations)
+            except TrainSyncError:
+                # 当天这趟车已经发车时，余票接口可能不再返回它；用明天的车次拿 train_no，
+                # 经停站仍按用户选的日期查询（时刻表按天相同）。
+                if date_text != _today_text():
+                    raise
+                tomorrow = (date.fromisoformat(date_text) + timedelta(days=1)).isoformat()
+                train_no = _query_train_no(
+                    client, code, tomorrow, from_station.strip(), to_station.strip(), stations)
         raw_stops = _query_stops(client, train_no, date_text)
     finally:
         client.close()

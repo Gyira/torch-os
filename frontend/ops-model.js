@@ -5,7 +5,7 @@ import { buildNotebookCards } from "./notebook-model.js";
 export const OPS_SYSTEM_CARDS = Object.freeze([
   {
     key: "love", title: "恋爱系统", eyebrow: "RELATIONSHIP", icon: "爱",
-    description: "聊天分析、画像、恋爱日志、经期关怀与恋爱大师。",
+    description: "恋爱记忆、微信聊天、排班、经期关怀、相册、八字与恋爱大师。",
     status: "ready", statusLabel: "可用",
   },
   {

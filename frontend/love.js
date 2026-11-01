@@ -1,117 +1,82 @@
-// 「恋爱系统」= 原生重做进「生活运营」的二级分区。
-// 数据来自原有 love_analysis.db，由 torch 后端直接读写；这里只做界面与交互。
-// 不在前端保存任何聊天内容：所有渲染都来自本机 API，页面刷新后重新读取。
-import { $, api, escapeHtml, jsonBody, openDialog, confirmAction, toast } from "./core.js";
+// 「恋爱系统」v2（2026-11-01）：七个页面。
+// 数据全部来自本机 API；聊天原文与照片只保存在 02_生活运营/01_恋爱系统/。
+import { api, confirmAction, escapeHtml, openDialog, toast } from "./core.js";
 import { openRoleDrawer } from "./roles.js";
 import { COMPANIONS } from "./ai-companions.js";
-import { renderLoveCycle, handleLoveCycleAction, cycleDashboardMarkup } from "./love-cycle.js";
+import { renderLoveCycle, handleLoveCycleAction } from "./love-cycle.js";
+import { invalidateChapterCache, openNoteEditor } from "./note-editor.js";
 
 const PAGE_TITLES = {
-  dashboard: "总览",
+  memories: "恋爱记忆",
+  chat: "微信聊天",
+  schedule: "排班日历",
   cycle: "经期关怀",
-  import: "导入聊天",
-  wechat: "微信同步",
-  stats: "统计分析",
-  analysis: "AI 深度分析",
-  profile: "画像",
-  journal: "恋爱日志",
-  memory: "每日记忆",
-  report: "报告",
-  schedule: "值班日历",
+  gallery: "恋爱相册",
   bazi: "八字合婚",
-  settings: "设置",
+  master: "恋爱大师",
 };
-const CONSENT_KEY = "torch-os:love-consent-v2";
-const PROJECT_KEY = "torch-os:love-project";
-const MOODS = [
-  ["happy", "开心", "😊"], ["love", "心动", "❤️"], ["miss", "想念", "💭"],
-  ["excited", "兴奋", "🎉"], ["neutral", "平静", "😐"], ["sad", "难过", "😢"],
-  ["angry", "生气", "😠"],
-];
-const MOOD_LABEL = Object.fromEntries(MOODS.map(([value, label, icon]) => [value, `${icon} ${label}`]));
-const IMPACTS = { positive: "正向", negative: "负向", neutral: "中性" };
-const SEVERITIES = { high: "高风险", medium: "中风险", low: "低风险" };
+const CONSENT_KEY = "torch-os:love-consent-v3";
+const MONTH_KEY = "torch-os:love-schedule-month";
+const CHAT_MONTH_KEY = "torch-os:love-chat-month";
+const PAGE_KEYS = Object.keys(PAGE_TITLES);
 
 const love = {
   inited: false,
   loading: false,
-  loadingProjects: false,
-  page: "dashboard",
-  projectId: "",
-  projects: [],
-  status: null,
-  settings: null,
+  page: "memories",
   consent: false,
-  pendingFile: null,
-  trend: "day",
-  analysisLogs: [],
-  selectedAnalysisId: "",
-  analysisPoll: 0,
-  lastReport: null,
+  status: null,
+  memory: null,
+  memoryNotebook: "",
+  memoryNotes: [],
+  chatStatus: null,
+  chatCalendar: null,
+  chatMonth: "",
+  chatDay: "",
+  chatDayData: null,
+  chatSessions: null,
+  chatSessionsLoading: false,
+  chatSessionsError: "",
+  chatKeyword: "",
+  chatLog: null,
+  chatPoll: 0,
+  chatRebinding: false,
   scheduleMonth: "",
   scheduleData: null,
-  wechatStatus: null,
-  wechatSource: null,
-  wechatSessions: null,
-  wechatSessionsLoading: false,
-  wechatSessionsError: "",
-  wechatSelectedSession: "",
-  wechatPendingFile: null,
-  wechatFilePreview: null,
-  wechatSyncLog: null,
-  wechatSyncPoll: 0,
-  wechatPreviewSince: null,
-  memoryDays: [],
-  memoryDate: "",
-  memoryDraftId: "",
-  memoryDraft: null,
+  gallery: null,
+  galleryView: "all",
+  galleryAlbum: 0,
+  galleryKind: "",
+  galleryItems: null,
+  gallerySelection: new Set(),
+  baziHistory: [],
+  baziSelectedId: 0,
+  baziDraft: null,
+  master: null,
+  masterRuns: [],
+  masterSelectedId: 0,
+  masterPoll: 0,
 };
 
-// ── 小工具 ─────────────────────────────────────────────────────────
-
+const $id = (id) => document.getElementById(id);
 const numberFormat = new Intl.NumberFormat("zh-CN");
-
-function node(id) { return document.getElementById(id); }
 
 function readStorage(key) {
   try { return window.localStorage.getItem(key); } catch { return null; }
 }
-
 function writeStorage(key, value) {
   try { window.localStorage.setItem(key, value); } catch { /* private mode */ }
 }
-
-function removeStorage(key) {
-  try { window.localStorage.removeItem(key); } catch { /* ignore */ }
-}
-
 function formatInt(value) {
   const number = Number(value);
   return Number.isFinite(number) ? numberFormat.format(Math.round(number)) : "—";
 }
-
-function formatSeconds(value) {
-  const seconds = Number(value);
-  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
-  if (seconds < 60) return `${Math.round(seconds)} 秒`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
-  if (seconds < 86400) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.round((seconds % 3600) / 60);
-    return `${hours} 小时${minutes ? ` ${minutes} 分` : ""}`;
-  }
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.round((seconds % 86400) / 3600);
-  return `${days} 天${hours ? ` ${hours} 小时` : ""}`;
-}
-
 function formatDate(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeZone: "Asia/Shanghai" }).format(date);
 }
-
 function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -120,57 +85,48 @@ function formatDateTime(value) {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Shanghai",
   }).format(date);
 }
-
 function formatMonth(value) {
   const match = /^(\d{4})-(\d{2})$/.exec(String(value || ""));
   return match ? `${match[1]} 年 ${Number(match[2])} 月` : String(value || "");
 }
-
 function weekday(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("zh-CN", { weekday: "long", timeZone: "Asia/Shanghai" }).format(date);
 }
-
 function percent(value, digits = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? `${(number * 100).toFixed(digits)}%` : "—";
 }
-
-// CSP 的 style-src 只有 'self'：不能写内联 style 属性。
-// 用预置宽度类表达进度，既满足内容安全策略，也避免样式被浏览器丢弃。
-function widthClass(value) {
-  const number = Number(value);
-  const step = Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number / 5) * 5)) : 0;
-  return `love-width-${step}`;
-}
-
-function wordSizeClass(weight) {
-  const number = Number(weight);
-  const bucket = Number.isFinite(number) ? Math.max(1, Math.min(6, Math.ceil(number * 6))) : 1;
-  return `love-word-s${bucket}`;
-}
-
 function todayText() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
 }
-
 function currentMonthText() {
   return todayText().slice(0, 7);
 }
-
+function shiftMonth(month, delta) {
+  const [year, monthNumber] = String(month).split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function monthLabel(month) {
+  const [year, monthNumber] = String(month).split("-");
+  return `${year}年${Number(monthNumber)}月`;
+}
+function monthLeadingBlanks(month) {
+  const [year, monthNumber] = String(month).split("-").map(Number);
+  const day = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
+  return (day + 6) % 7;
+}
 function loadingBox(text = "正在读取本机数据…") {
   return `<div class="state-message love-loading"><strong>${escapeHtml(text)}</strong><p>恋爱系统的数据只在本机读取，不联网。</p></div>`;
 }
-
 function errorBox(message) {
   return `<div class="state-message error-state"><strong>暂时无法读取</strong><p>${escapeHtml(message)}</p><button class="text-button" type="button" data-love-action="retry-page">重试</button></div>`;
 }
-
 function emptyBox(title, text, actions = "") {
   return `<div class="love-empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p>${actions ? `<div class="love-empty-actions">${actions}</div>` : ""}</div>`;
 }
-
 function card(title, body, { eyebrow = "", subtitle = "", actions = "", className = "" } = {}) {
   return `<article class="settings-card love-card ${escapeHtml(className)}">
     <div class="settings-card-head">
@@ -182,19 +138,9 @@ function card(title, body, { eyebrow = "", subtitle = "", actions = "", classNam
     ${body}
   </article>`;
 }
-
-function currentProject() {
-  return love.projects.find((project) => project.id === love.projectId) || null;
-}
-
-function projectQuery(path) {
-  return `/api/love/projects/${encodeURIComponent(love.projectId)}${path}`;
-}
-
 function loveApi(path, options = {}) {
   return api(path, { timeoutMs: 120000, ...options });
 }
-
 function withBusy(button, label, fn) {
   if (!button || button.disabled) return Promise.resolve();
   const original = button.textContent;
@@ -207,38 +153,22 @@ function withBusy(button, label, fn) {
     }
   });
 }
-
-function stopAnalysisPoll() {
-  if (love.analysisPoll) {
-    window.clearTimeout(love.analysisPoll);
-    love.analysisPoll = 0;
+function stopChatPoll() {
+  if (love.chatPoll) {
+    window.clearTimeout(love.chatPoll);
+    love.chatPoll = 0;
   }
 }
-
-function stopWechatPoll() {
-  if (love.wechatSyncPoll) {
-    window.clearTimeout(love.wechatSyncPoll);
-    love.wechatSyncPoll = 0;
+function stopMasterPoll() {
+  if (love.masterPoll) {
+    window.clearTimeout(love.masterPoll);
+    love.masterPoll = 0;
   }
 }
-
-function resetWechatSourceState() {
-  love.wechatSource = null;
-  love.wechatSessions = null;
-  love.wechatSessionsError = "";
-  love.wechatSelectedSession = "";
-  love.wechatPendingFile = null;
-  love.wechatFilePreview = null;
-  love.wechatSyncLog = null;
-  love.wechatPreviewSince = null;
-  stopWechatPoll();
-}
-
-function resetMemoryState() {
-  love.memoryDays = [];
-  love.memoryDate = "";
-  love.memoryDraftId = "";
-  love.memoryDraft = null;
+function widthClass(value) {
+  const number = Number(value);
+  const step = Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number / 5) * 5)) : 0;
+  return `love-width-${step}`;
 }
 
 // ── 生命周期 ───────────────────────────────────────────────────────
@@ -247,40 +177,34 @@ export function initLovePane() {
   if (love.inited) return;
   love.inited = true;
   love.consent = readStorage(CONSENT_KEY) === "accepted";
-
   document.querySelectorAll("[data-love-page]").forEach((button) => {
     button.addEventListener("click", () => setLovePage(button.dataset.lovePage));
   });
-  node("love-project-select")?.addEventListener("change", (event) => {
-    love.projectId = event.target.value || "";
-    if (love.projectId) writeStorage(PROJECT_KEY, love.projectId);
-    stopAnalysisPoll();
-    resetWechatSourceState();
-    resetMemoryState();
-    love.selectedAnalysisId = "";
-    love.lastReport = null;
-    renderLovePage();
-  });
-  node("love-refresh")?.addEventListener("click", () => reloadLove({ quiet: true }));
-  node("love-master-open")?.addEventListener("click", () => {
-    openRoleDrawer({
-      ...COMPANIONS.love,
-      selectors: [{ entry: "love" }],
-      prompt: "基于最近的恋爱分析摘要，给我三条今天能做的建议。",
-    });
-  });
-  node("love-consent-accept")?.addEventListener("click", () => {
+  $id("love-refresh")?.addEventListener("click", () => reloadLove({ quiet: true }));
+  $id("love-settings-open")?.addEventListener("click", () => openLoveSettings());
+  $id("love-settings-close")?.addEventListener("click", () => closeLoveSettings());
+  $id("love-settings-backdrop")?.addEventListener("click", () => closeLoveSettings());
+  $id("love-consent-accept")?.addEventListener("click", () => {
     love.consent = true;
     writeStorage(CONSENT_KEY, "accepted");
     applyConsent();
     renderLovePage();
   });
-
-  const content = node("love-content");
+  const content = $id("love-content");
   content?.addEventListener("click", (event) => {
     Promise.resolve(handleLoveAction(event)).catch((error) => {
       toast(`操作失败：${error.message}`, "error");
     });
+  });
+  document.addEventListener("torch:notes-changed", (event) => {
+    if (love.page !== "memories") return;
+    if (event.detail?.pillar === "love" || String(event.detail?.path || "").includes("/01_恋爱系统/")) {
+      renderLovePage();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !love.settingsOpen) return;
+    closeLoveSettings();
   });
 }
 
@@ -288,127 +212,47 @@ export async function loadLovePane() {
   if (!love.inited) initLovePane();
   if (love.loading) return;
   love.loading = true;
-  const content = node("love-content");
-  if (content && !love.consent) {
-    content.innerHTML = `<div class="state-message"><strong>恋爱系统</strong><p>请先阅读数据边界说明。</p></div>`;
-  }
   applyConsent();
   try {
-    const [status, projectData, settings] = await Promise.all([
-      loveApi("/api/love/status", { timeoutMs: 20000 }),
-      loveApi("/api/love/projects", { timeoutMs: 20000 }),
-      loveApi("/api/love/settings", { timeoutMs: 20000 }),
-    ]);
-    love.status = status;
-    love.settings = settings;
-    love.projects = Array.isArray(projectData.projects) ? projectData.projects : [];
-    chooseProject();
-    syncProjectPicker();
-    updateMenuStatus();
-    if (love.consent) await renderLovePage();
-  } catch (error) {
-    if (content) content.innerHTML = errorBox(error.message);
-    updateMenuStatus(error.message, "error");
-  } finally {
-    love.loading = false;
+    love.status = await loveApi("/api/love/status", { timeoutMs: 20000 });
+  } catch {
+    love.status = null;
   }
+  love.loading = false;
+  if (!love.consent) {
+    renderConsentPlaceholder();
+    return;
+  }
+  await renderLovePage();
 }
 
 async function reloadLove({ quiet = false } = {}) {
-  if (love.loadingProjects) return;
-  love.loadingProjects = true;
-  try {
-    const [status, projectData, settings] = await Promise.all([
-      loveApi("/api/love/status", { timeoutMs: 20000 }),
-      loveApi("/api/love/projects", { timeoutMs: 20000 }),
-      loveApi("/api/love/settings", { timeoutMs: 20000 }),
-    ]);
-    love.status = status;
-    love.settings = settings;
-    love.projects = Array.isArray(projectData.projects) ? projectData.projects : [];
-    chooseProject();
-    syncProjectPicker();
-    updateMenuStatus();
-    await renderLovePage();
-  } catch (error) {
-    if (!quiet) toast(`刷新失败：${error.message}`, "error");
-    else {
-      const content = node("love-content");
-      if (content) content.innerHTML = errorBox(error.message);
-    }
-  } finally {
-    love.loadingProjects = false;
-  }
+  if (quiet) stopChatPoll();
+  await renderLovePage();
 }
 
-function chooseProject() {
-  const ids = love.projects.map((project) => project.id);
-  const stored = readStorage(PROJECT_KEY);
-  if (love.projectId && ids.includes(love.projectId)) return;
-  if (stored && ids.includes(stored)) {
-    love.projectId = stored;
-    return;
+function renderConsentPlaceholder() {
+  const content = $id("love-content");
+  if (content) {
+    content.innerHTML = `<div class="state-message"><strong>恋爱系统</strong><p>请先阅读数据边界说明。</p></div>`;
   }
-  love.projectId = ids[0] || "";
-  if (love.projectId) writeStorage(PROJECT_KEY, love.projectId);
-}
-
-function syncProjectPicker() {
-  const select = node("love-project-select");
-  if (!select) return;
-  select.replaceChildren();
-  if (!love.projects.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "还没有项目";
-    select.append(option);
-    select.disabled = true;
-    return;
-  }
-  select.disabled = false;
-  for (const project of love.projects) {
-    const option = document.createElement("option");
-    option.value = project.id;
-    option.textContent = `${project.name} · ${formatInt(project.message_count)} 条`;
-    select.append(option);
-  }
-  select.value = love.projectId;
-}
-
-function updateMenuStatus(message = "", tone = "") {
-  const target = node("love-menu-status");
-  if (!target) return;
-  if (message) {
-    target.textContent = message;
-    target.dataset.tone = tone;
-    return;
-  }
-  const status = love.status;
-  if (!status) {
-    target.textContent = "正在读取本机数据…";
-    target.dataset.tone = "";
-    return;
-  }
-  if (!status.available) {
-    target.textContent = status.error || "恋爱数据库不可用";
-    target.dataset.tone = "error";
-    return;
-  }
-  target.textContent = `${love.projects.length} 个项目 · ${formatInt(status.message_count)} 条消息 · 本机`;
-  target.dataset.tone = "ok";
 }
 
 function applyConsent() {
-  const overlay = node("love-consent");
+  const overlay = $id("love-consent");
   if (overlay) overlay.hidden = love.consent;
+  document.querySelectorAll("[data-love-page]").forEach((button) => {
+    button.disabled = !love.consent;
+  });
 }
 
 function setLovePage(page) {
-  if (!PAGE_TITLES[page]) return;
-  if (love.page !== page) {
-    stopAnalysisPoll();
-    stopWechatPoll();
-    love.page = page;
+  const next = PAGE_KEYS.includes(String(page)) ? String(page) : "memories";
+  love.page = next;
+  const overlay = $id("love-consent");
+  if (!love.consent) {
+    if (overlay) overlay.hidden = false;
+    return;
   }
   renderLovePage();
 }
@@ -420,952 +264,225 @@ function renderLoveNav() {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  const title = node("love-title");
-  if (title) title.textContent = PAGE_TITLES[love.page] || "恋爱系统";
+  const title = $id("love-title");
+  if (title) title.textContent = PAGE_TITLES[love.page] || "恋爱记忆";
+  const status = $id("love-menu-status");
+  if (status) {
+    const paths = love.status?.paths?.root;
+    status.textContent = paths ? `本机数据 · ${paths.split(/[\\/]/).slice(-2).join("/")}` : "本机数据 · 不联网";
+    status.dataset.tone = "";
+  }
 }
 
 async function renderLovePage() {
-  stopAnalysisPoll();
-  stopWechatPoll();
-  renderLoveNav();
-  applyConsent();
-  const content = node("love-content");
-  if (!content) return;
   if (!love.consent) {
-    content.innerHTML = "";
+    renderConsentPlaceholder();
     return;
   }
-  if (!PAGE_TITLES[love.page]) love.page = "dashboard";
+  renderLoveNav();
+  const content = $id("love-content");
+  if (!content) return;
   content.innerHTML = loadingBox();
-  const page = love.page;
   try {
-    const renderer = PAGE_RENDERERS[page];
-    if (renderer) await renderer(content);
-    if (love.page !== page) return;
+    if (love.page === "cycle") {
+      await renderLoveCycle(content, {
+        card,
+        isActive: () => love.page === "cycle",
+        rerender: renderLovePage,
+      });
+      return;
+    }
+    const renderer = PAGE_RENDERERS[love.page] || renderMemories;
+    await renderer(content);
   } catch (error) {
-    if (love.page !== page) return;
+    if (love.page === "cycle") return;
     content.innerHTML = errorBox(error.message);
   }
 }
 
-// ── 八字合婚（只读，数据在 .torch-os/love/bazi.json）──────────────
+// ── 恋爱记忆 ───────────────────────────────────────────────────────
 
-const WX_CLASS = { 木: "mu", 火: "huo", 土: "tu", 金: "jin", 水: "shui" };
-
-function wxClass(value) {
-  return `wx-${WX_CLASS[value] || "none"}`;
+function greetingForHour() {
+  const hour = new Date().getHours();
+  if (hour < 6) return "夜深了";
+  if (hour < 11) return "早上好";
+  if (hour < 14) return "中午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
 }
 
-function wxChips(values) {
-  return (Array.isArray(values) ? values : []).map((value) =>
-    `<span class="love-bazi-chip ${wxClass(value)}">${escapeHtml(value)}</span>`).join("");
+function memoryDateLabel(note) {
+  const day = String(note?.date || "").slice(0, 10);
+  if (day) return day;
+  return "";
 }
 
-function baziPillarMarkup(pillar) {
-  return `<div class="love-bazi-pillar">
-    <span class="love-bazi-slot">${escapeHtml(pillar.slot || "")}</span>
-    <b class="love-bazi-gan ${wxClass(pillar.gan_wx)}">${escapeHtml(pillar.gan || "")}</b>
-    <b class="love-bazi-zhi ${wxClass(pillar.zhi_wx)}">${escapeHtml(pillar.zhi || "")}</b>
-    <small>${escapeHtml(pillar.gan_ss || "")} · ${escapeHtml(pillar.zhi_ss || "")}</small>
-    <em>藏 ${escapeHtml(pillar.hidden || "—")}</em>
+function memoryHeatmap(dates = {}) {
+  const today = new Date(`${todayText()}T12:00:00+08:00`);
+  const weeks = 16;
+  const days = weeks * 7;
+  const start = new Date(today);
+  start.setDate(start.getDate() - (days - 1) - ((start.getDay() + 6) % 7));
+  const cells = [];
+  let max = 1;
+  const values = [];
+  for (let index = 0; index < days + 6; index += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    const key = day.toISOString().slice(0, 10);
+    const count = Number(dates[key] || 0);
+    max = Math.max(max, count);
+    values.push({ key, count, day });
+  }
+  for (const item of values) {
+    const level = item.count === 0 ? 0 : Math.min(4, 1 + Math.floor((item.count / max) * 3));
+    cells.push(`<span class="love-heat-cell level-${level}" title="${escapeHtml(`${item.key} · ${item.count} 篇`)}" aria-label="${escapeHtml(`${item.key}，${item.count} 篇记忆`)}"></span>`);
+  }
+  return `<div class="love-heatmap-wrap">
+    <div class="love-heatmap" role="img" aria-label="恋爱记忆热力图">${cells.join("")}</div>
+    <div class="love-heatmap-legend"><span>少</span><i class="level-0"></i><i class="level-1"></i><i class="level-2"></i><i class="level-3"></i><i class="level-4"></i><span>多</span></div>
   </div>`;
 }
 
-function baziChartMarkup(person, role) {
-  const pillars = (Array.isArray(person.pillars) ? person.pillars : [])
-    .map(baziPillarMarkup).join("");
-  return `<article class="love-bazi-chart is-${role}">
-    <header class="love-bazi-chart-head">
-      <div>
-        <span class="eyebrow">${role === "him" ? "HIM · 男命" : "HER · 女命"}</span>
-        <h3>${escapeHtml(person.name || "")}</h3>
-        <p>${escapeHtml(person.birth || "")}</p>
-        <p class="love-bazi-place">${escapeHtml(person.place || "")}</p>
-      </div>
-      <span class="love-bazi-master">${escapeHtml(person.day_master || "")}</span>
-    </header>
-    <div class="love-bazi-pillars">${pillars}</div>
-    <dl class="love-bazi-meta">
-      <div><dt>格局</dt><dd>${escapeHtml(person.pattern || "")}</dd></div>
-      <div><dt>喜</dt><dd>${wxChips(person.favor)}</dd></div>
-      <div><dt>忌</dt><dd>${wxChips(person.avoid)}</dd></div>
-      <div><dt>大运</dt><dd>${escapeHtml(person.dayun || "")}</dd></div>
-    </dl>
-    ${person.time_note ? `<p class="love-bazi-note">${escapeHtml(person.time_note)}</p>` : ""}
-  </article>`;
-}
-
-function baziHeroMarkup(data) {
-  const hehun = data.hehun || {};
-  return `<section class="love-bazi-hero">
-    <div class="love-bazi-seal" aria-hidden="true">合</div>
-    <div class="love-bazi-hero-text">
-      <span class="eyebrow">BAZI · 合婚参考</span>
-      <h2>${escapeHtml(hehun.kicker || "合婚")}</h2>
-      <p>${escapeHtml(hehun.summary || "")}</p>
-      <div class="love-bazi-hero-tags">
-        <span class="love-bazi-verdict">${escapeHtml(hehun.verdict || "")}</span>
-        ${hehun.score ? `<span class="love-badge ok">${escapeHtml(hehun.score)}</span>` : ""}
-        <span class="love-badge">本机只读</span>
-      </div>
-    </div>
-  </section>`;
-}
-
-function baziPointsMarkup(points) {
-  return `<div class="love-bazi-points">${(Array.isArray(points) ? points : []).map((item) =>
-    `<article>
-      <span class="love-bazi-glyph" aria-hidden="true">${escapeHtml(item.glyph || "☯")}</span>
-      <h3>${escapeHtml(item.title || "")}</h3>
-      <p>${escapeHtml(item.body || "")}</p>
-    </article>`).join("")}</div>`;
-}
-
-function baziYearsMarkup(years) {
-  return `<ol class="love-bazi-years">${(Array.isArray(years) ? years : []).map((item) =>
-    `<li data-tone="${escapeHtml(item.tone || "flat")}">
-      <span class="love-bazi-year">${escapeHtml(item.year || "")}</span>
-      <b>${escapeHtml(item.gz || "")}</b>
-      <p>${escapeHtml(item.text || "")}</p>
-    </li>`).join("")}</ol>`;
-}
-
-function baziAdviceMarkup(advice) {
-  return `<div class="love-bazi-advice">${(Array.isArray(advice) ? advice : []).map((item, index) =>
-    `<article>
-      <span class="love-bazi-index" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>
-      <h3>${escapeHtml(item.title || "")}</h3>
-      <p>${escapeHtml(item.body || "")}</p>
-    </article>`).join("")}</div>`;
-}
-
-function baziHerMarkup(her) {
-  const sections = (Array.isArray(her.sections) ? her.sections : []).map((section) =>
-    `<article>
-      <h3>${escapeHtml(section.title || "")}</h3>
-      <p>${escapeHtml(section.body || "")}</p>
-    </article>`).join("");
-  return `<section class="love-bazi-her">
-    <div class="love-bazi-section-head">
-      <span class="eyebrow">HER · 命盘详解</span>
-      <h2>${escapeHtml(her.name || "她")}的盘</h2>
-      <p>${escapeHtml(her.day_master_note || "")}</p>
-    </div>
-    <div class="love-bazi-details">${sections}</div>
-  </section>`;
-}
-
-function baziMarkup(data) {
-  const hehun = data.hehun || {};
-  return `<div class="love-bazi-page">
-    ${baziHeroMarkup(data)}
-    <div class="love-bazi-pair">
-      ${baziChartMarkup(data.him || {}, "him")}
-      ${baziChartMarkup(data.her || {}, "her")}
-    </div>
-    ${card("三条依据", baziPointsMarkup(hehun.points), {
-      eyebrow: "WHY", subtitle: "天干、地支、五行，三条都指向同一件事。",
-    })}
-    <aside class="love-bazi-review">
-      <span class="eyebrow">NOTE</span>
-      <strong>口径说明</strong>
-      <p>${escapeHtml(hehun.review || "")}</p>
-    </aside>
-    ${card("关键年份", baziYearsMarkup(hehun.years), {
-      eyebrow: "TIMELINE", subtitle: "只标大节点；具体到月要看当年流月。",
-    })}
-    ${card("相处建议", baziAdviceMarkup(hehun.advice), {
-      eyebrow: "HOW", subtitle: "三条就够，做到比知道有用。",
-    })}
-    ${baziHerMarkup(data.her || {})}
-    <p class="love-bazi-boundary">${escapeHtml(hehun.boundary || "")}</p>
+function memoryNotebookCard(notebook) {
+  const deleteButton = notebook.custom
+    ? `<button class="love-notebook-delete" type="button" data-love-action="memory-delete-notebook" data-key="${escapeHtml(notebook.key)}" data-title="${escapeHtml(notebook.title)}" aria-label="删除本子 ${escapeHtml(notebook.title)}">删除</button>`
+    : "";
+  const latest = notebook.latest
+    ? `最近：${escapeHtml(notebook.latest.title || "")}`
+    : "还没有记录，打开写下第一篇";
+  return `<div class="love-notebook-card-wrap">
+    <button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}" data-love-action="memory-notebook" data-key="${escapeHtml(notebook.key)}">
+      <span class="notebook-card-top"><span class="notebook-icon" aria-hidden="true">${escapeHtml(notebook.icon || "本")}</span><span class="notebook-count">${Number(notebook.count) || 0} 篇</span></span>
+      <span class="notebook-title">${escapeHtml(notebook.title)}</span>
+      <span class="notebook-desc">${escapeHtml(notebook.description || "")}</span>
+      <span class="notebook-latest">${latest}</span>
+      <span class="notebook-open">打开本子 <i aria-hidden="true">→</i></span>
+    </button>
+    ${deleteButton}
   </div>`;
 }
 
-async function renderBazi(content) {
-  const data = await loveApi("/api/love/bazi", { timeoutMs: 30000 });
-  if (love.page !== "bazi") return;
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("八字资料格式不正确");
-  }
-  content.innerHTML = baziMarkup(data);
+function memoryNoteCard(note) {
+  const day = memoryDateLabel(note);
+  const tags = Array.isArray(note.tags) && note.tags.length
+    ? `<span class="love-memory-tags">${note.tags.slice(0, 3).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>`
+    : "";
+  return `<button type="button" class="love-memory-note" data-love-action="memory-open" data-path="${escapeHtml(note.path)}">
+    <span class="love-memory-note-date">${escapeHtml(day ? day.slice(5) : "—")}<small>${escapeHtml(day ? day.slice(0, 4) : "")}</small></span>
+    <span class="love-memory-note-body">
+      <strong>${escapeHtml(note.title || "未命名记忆")}</strong>
+      <p>${escapeHtml(note.excerpt || "还没有正文")}</p>
+      ${tags}
+    </span>
+  </button>`;
 }
 
-// ── 总览 ───────────────────────────────────────────────────────────
-
-async function renderDashboard(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = card("恋爱系统", emptyBox(
-      "还没有聊天项目",
-      "导入一份微信聊天记录，就能开始统计、画像、AI 分析和恋爱日志。经期关怀不需要聊天项目，也可以单独使用；数据都保存在本机。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天记录</button>'
-      + '<button class="button secondary" type="button" data-love-action="goto" data-page="cycle">经期关怀</button>',
-    ), {
-      eyebrow: "RELATIONSHIP OS",
-      subtitle: "原有项目会直接出现在这里；新导入的数据继续写入同一份本机数据库。",
-    });
-    return;
+async function renderMemories(content) {
+  const data = await loveApi("/api/love/memory/overview", { timeoutMs: 30000 });
+  love.memory = data;
+  const notebooks = Array.isArray(data.notebooks) ? data.notebooks : [];
+  let notes = Array.isArray(data.recent) ? data.recent : [];
+  if (love.memoryNotebook) {
+    const listed = await loveApi(`/api/love/memory/notes?limit=200&notebook=${encodeURIComponent(love.memoryNotebook)}`, { timeoutMs: 30000 });
+    notes = Array.isArray(listed.items) ? listed.items : [];
   }
-  const [overview, latest, cycleOverview] = await Promise.all([
-    loveApi(projectQuery("/stats/overview"), { timeoutMs: 45000 }),
-    loveApi(projectQuery("/analysis/latest"), { timeoutMs: 45000 }),
-    loveApi("/api/love/cycle/overview", { timeoutMs: 20000 }).catch(() => null),
-  ]);
-  if (love.page !== "dashboard") return;
-  const analysis = latest?.result || null;
-  const status = latest?.status || "none";
-  const analysisBadge = status === "completed"
-    ? `<span class="love-badge ok">已完成${analysis?.relationship_stage ? ` · ${escapeHtml(analysis.relationship_stage)}` : ""}</span>`
-    : status === "running"
-      ? '<span class="love-badge warn">分析中</span>'
-      : status === "failed"
-        ? '<span class="love-badge error">上次失败</span>'
-        : '<span class="love-badge">尚未分析</span>';
-
-  const projectRows = love.projects.map((item) => {
-    const active = item.id === love.projectId;
-    const last = item.latest_analysis_status === "completed" ? "已分析"
-      : item.latest_analysis_status === "running" ? "分析中"
-        : item.latest_analysis_status === "failed" ? "分析失败" : "未分析";
-    return `<li class="love-project-row${active ? " active" : ""}">
-      <button class="love-project-pick" type="button" data-love-action="switch-project" data-id="${escapeHtml(item.id)}">
-        <span class="love-project-name">${escapeHtml(item.name)}</span>
-        <span class="meta">${escapeHtml(item.partner_a)} × ${escapeHtml(item.partner_b)} · ${formatInt(item.message_count)} 条 · ${escapeHtml(last)}</span>
-      </button>
-      <button class="small-button reject" type="button" data-love-action="project-delete" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}">删除</button>
-    </li>`;
-  }).join("");
-
-  const latestJournal = Number(project.journal_count || 0);
+  love.memoryNotes = notes;
+  const activeNotebook = notebooks.find((item) => item.key === love.memoryNotebook);
+  const exportTarget = love.memoryNotebook || "";
   content.innerHTML = `
-    <div class="love-stat-grid">
-      <article class="love-stat"><span>总消息</span><strong>${formatInt(overview.total_messages)}</strong><small>${formatInt(overview.total_days)} 天 · 日均 ${formatInt(overview.avg_daily_messages)}</small></article>
-      <article class="love-stat"><span>${escapeHtml(overview.sender_a.name)}</span><strong>${formatInt(overview.sender_a.messages)}</strong><small>${percent(overview.sender_a.ratio, 1)} 的消息</small></article>
-      <article class="love-stat"><span>${escapeHtml(overview.sender_b.name)}</span><strong>${formatInt(overview.sender_b.messages)}</strong><small>${percent(overview.sender_b.ratio, 1)} 的消息</small></article>
-      <article class="love-stat"><span>恋爱日志</span><strong>${formatInt(latestJournal)}</strong><small>${analysisBadge}</small></article>
-    </div>
-    ${cycleDashboardMarkup(cycleOverview, card)}
-    <div class="love-dashboard-grid">
-      ${card("这段关系", `
-        <dl class="love-facts">
-          <div><dt>项目</dt><dd>${escapeHtml(project.name)}</dd></div>
-          <div><dt>对话</dt><dd>${escapeHtml(project.partner_a)} × ${escapeHtml(project.partner_b)}</dd></div>
-          <div><dt>时间范围</dt><dd>${formatDate(overview.date_range_start)} ~ ${formatDate(overview.date_range_end)}</dd></div>
-          <div><dt>最近分析</dt><dd>${analysisBadge}${latest?.completed_at ? ` · ${formatDateTime(latest.completed_at)}` : ""}</dd></div>
-        </dl>
+    <section class="love-memory-hero">
+      <div class="love-memory-hero-main">
+        <p class="eyebrow">${escapeHtml(greetingForHour())} · ${escapeHtml(weekday(todayText()))}</p>
+        <h3>把今天记下来。</h3>
+        <p class="love-memory-copy">本子是普通 Markdown 文件夹；写在应用里，Obsidian 里也能改。AI 批量补日记会先放进「AI 草稿」，你确认后再移入正式本子。</p>
         <div class="love-inline-actions">
-          <button class="button primary" type="button" data-love-action="goto" data-page="analysis">打开 AI 分析</button>
-          <button class="button secondary" type="button" data-love-action="goto" data-page="stats">看统计</button>
-          <button class="button secondary" type="button" data-love-action="goto" data-page="journal">翻恋爱日志</button>
-        </div>`, {
-        eyebrow: "CURRENT PROJECT",
-        subtitle: "所有页面都围绕当前选中的项目工作。",
-      })}
-      ${card("项目", `<ul class="love-project-list">${projectRows}</ul>`, {
-        eyebrow: "PROJECTS",
-        subtitle: "切换项目只改变当前视图，不会复制或移动数据。",
-        actions: '<button class="small-button" type="button" data-love-action="goto" data-page="import">导入新聊天</button>',
-      })}
-    </div>
-    <div class="love-tip-strip">
-      <span>🔒</span>
-      <p>聊天、画像与日志只保存在当前个人数据库的 <code>.torch-os/love/</code> 里，不参与普通导出；拷贝整个个人数据库即可迁移。AI 分析只发送脱敏后的内容。</p>
-    </div>`;
-}
-
-// ── 导入 ───────────────────────────────────────────────────────────
-
-async function renderImport(content) {
-  content.innerHTML = card("导入聊天记录", `
-    <div class="love-import-zone" id="love-import-zone">
-      <input id="love-file" type="file" accept=".txt,text/plain" hidden />
-      <button class="love-import-pick" type="button" data-love-action="pick-file">
-        <span class="love-import-icon" aria-hidden="true">↥</span>
-        <strong>选择微信聊天记录 .txt</strong>
-        <small>支持 UTF-8 / GBK / UTF-16；单文件不超过 40MB。文件只在本机解析。</small>
-      </button>
-    </div>
-    <div id="love-import-preview" class="love-import-preview" hidden></div>
-    <div class="love-tip-strip"><span>i</span><p>导入会新建一个独立项目，原有项目和消息不会被覆盖。系统会自动合并同一文件内的完全重复行。</p></div>`, {
-    eyebrow: "IMPORT",
-    subtitle: "和原来的「恋爱分析助手」使用同一套解析规则；导入后的数据直接写入本机原有数据库。",
-  });
-  node("love-file")?.addEventListener("change", handleImportFile);
-}
-
-async function handleImportFile(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (file.size > 40 * 1024 * 1024) {
-    toast("文件超过 40MB 上限。", "error");
-    event.target.value = "";
-    return;
-  }
-  love.pendingFile = file;
-  const preview = node("love-import-preview");
-  if (!preview) return;
-  preview.hidden = false;
-  preview.innerHTML = loadingBox(`正在解析 ${file.name}…`);
-  const form = new FormData();
-  form.append("file", file);
-  try {
-    const data = await loveApi("/api/love/import/preview", { method: "POST", body: form, timeoutMs: 180000 });
-    const lines = (data.lines || []).map((line) => escapeHtml(line)).join("\n");
-    preview.innerHTML = `
-      <div class="love-preview-head">
-        <div><span class="eyebrow">PREVIEW</span><h3>${escapeHtml(file.name)}</h3></div>
-        <span class="love-badge ${data.message_count ? "ok" : "error"}">${formatInt(data.message_count)} 条可导入消息</span>
-      </div>
-      <div class="love-preview-stats">
-        <span>编码 <strong>${escapeHtml(data.encoding || "—")}</strong></span>
-        <span>发送者 <strong>${(data.senders || []).map(escapeHtml).join(" / ") || "未识别"}</strong></span>
-        <span>时间范围 <strong>${formatDate(data.date_range_start)} ~ ${formatDate(data.date_range_end)}</strong></span>
-        <span>行数 <strong>${formatInt(data.line_count)}</strong></span>
-      </div>
-      <label class="field"><span>项目名称（可选）</span><input id="love-import-name" maxlength="200" placeholder="留空则自动按对话双方和日期命名" /></label>
-      <details class="love-preview-lines"><summary>查看前 30 行原文</summary><pre>${lines || "（空）"}</pre></details>
-      <div class="love-inline-actions">
-        <button class="button primary" type="button" data-love-action="import-confirm">确认导入</button>
-        <button class="button secondary" type="button" data-love-action="import-reset">换一个文件</button>
-      </div>`;
-    if (!data.message_count) {
-      toast("没有解析到消息，请确认是聊天记录 TXT。", "warning");
-    }
-  } catch (error) {
-    preview.innerHTML = errorBox(error.message);
-  }
-}
-
-async function confirmImport(button) {
-  if (!love.pendingFile) return;
-  const nameInput = node("love-import-name");
-  const form = new FormData();
-  form.append("file", love.pendingFile);
-  form.append("project_name", nameInput?.value?.trim() || "");
-  await withBusy(button, "正在导入…", async () => {
-    try {
-      const result = await loveApi("/api/love/import", { method: "POST", body: form, timeoutMs: 240000 });
-      love.pendingFile = null;
-      toast(`已导入 ${formatInt(result.message_count)} 条消息。`, "success");
-      love.projectId = result.project_id;
-      writeStorage(PROJECT_KEY, result.project_id);
-      await reloadLove({ quiet: true });
-      love.page = "stats";
-      await renderLovePage();
-    } catch (error) {
-      toast(`导入失败：${error.message}`, "error");
-    }
-  });
-}
-
-// ── 统计 ───────────────────────────────────────────────────────────
-
-async function renderStats(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = emptyBox("还没有项目", "先导入聊天记录，才能做统计。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天</button>');
-    return;
-  }
-  const [overview, trends, timing, media, keywords] = await Promise.all([
-    loveApi(projectQuery("/stats/overview"), { timeoutMs: 45000 }),
-    loveApi(projectQuery(`/stats/trends?granularity=${encodeURIComponent(love.trend)}`), { timeoutMs: 45000 }),
-    loveApi(projectQuery("/stats/timing"), { timeoutMs: 45000 }),
-    loveApi(projectQuery("/stats/media"), { timeoutMs: 45000 }),
-    loveApi(projectQuery("/stats/keywords?top_n=100"), { timeoutMs: 60000 }),
-  ]);
-  if (love.page !== "stats") return;
-
-  const distribution = timing.reply_distribution || {};
-  const distributionMax = Math.max(1, ...Object.values(distribution).map(Number));
-  const distributionHtml = Object.entries(distribution).map(([label, count]) => `
-    <li><span>${escapeHtml(label)}</span><div class="love-meter"><i class="${widthClass(Number(count) / distributionMax * 100)}"></i></div><strong>${formatInt(count)}</strong></li>`).join("");
-
-  const mediaTotal = Number(media.text_count || 0) + Number(media.sticker_count || 0) + Number(media.image_count || 0);
-  const mediaSegments = [
-    ["文字", media.text_count, "text"],
-    ["表情", media.sticker_count, "sticker"],
-    ["图片", media.image_count, "image"],
-  ].map(([label, count, kind]) => {
-    const share = mediaTotal ? Number(count) / mediaTotal * 100 : 0;
-    return `<span class="love-media-seg ${kind} ${widthClass(share)}" title="${escapeHtml(label)} ${formatInt(count)} 条">${share >= 8 ? escapeHtml(label) : ""}</span>`;
-  }).join("");
-
-  const words = (keywords.words || []);
-  const wordHtml = words.map((word) => {
-    const weight = Number(word.weight) || 0;
-    return `<span class="love-word ${wordSizeClass(weight)}" title="${escapeHtml(word.word)} · ${formatInt(word.count)} 次">${escapeHtml(word.word)}</span>`;
-  }).join("");
-
-  content.innerHTML = `
-    <div class="love-stat-grid">
-      <article class="love-stat"><span>总消息</span><strong>${formatInt(overview.total_messages)}</strong><small>${formatInt(overview.total_days)} 天 · 日均 ${formatInt(overview.avg_daily_messages)}</small></article>
-      <article class="love-stat"><span>${escapeHtml(overview.sender_a.name)} 发起</span><strong>${percent(overview.sender_a.ratio, 1)}</strong><small>${formatInt(overview.sender_a.messages)} 条</small></article>
-      <article class="love-stat"><span>${escapeHtml(overview.sender_b.name)} 发起</span><strong>${percent(overview.sender_b.ratio, 1)}</strong><small>${formatInt(overview.sender_b.messages)} 条</small></article>
-      <article class="love-stat"><span>平均回复间隔</span><strong>${formatSeconds(timing.avg_reply_interval_seconds)}</strong><small>中位数 ${formatSeconds(timing.median_reply_interval_seconds)}</small></article>
-    </div>
-    <div class="love-stats-grid">
-      ${card("消息趋势", `
-        <div class="love-segmented" role="group" aria-label="趋势粒度">
-          ${[["day", "按天"], ["week", "按周"], ["month", "按月"]].map(([value, label]) =>
-            `<button type="button" class="love-seg${love.trend === value ? " active" : ""}" data-love-action="trend" data-value="${value}">${label}</button>`).join("")}
+          <button class="button primary" type="button" data-love-action="memory-new">✍ 写点什么</button>
+          <a class="button secondary" href="/api/love/memory/export${exportTarget ? `?notebook=${encodeURIComponent(exportTarget)}` : ""}" download>导出 TXT</a>
+          ${data.draft_count ? `<button class="button secondary" type="button" data-love-action="memory-promote-drafts">把 AI 草稿移入恋爱日志（${formatInt(data.draft_count)}）</button>` : ""}
         </div>
-        ${trendChart(trends, overview)}
-      `, { eyebrow: "TRENDS", subtitle: `${escapeHtml(overview.sender_a.name)} 与 ${escapeHtml(overview.sender_b.name)} 的消息量变化。` })}
-      ${card("主动与回应", `
-        <dl class="love-facts">
-          <div><dt>平均回复间隔</dt><dd>${formatSeconds(timing.avg_reply_interval_seconds)}</dd></div>
-          <div><dt>回复中位数</dt><dd>${formatSeconds(timing.median_reply_interval_seconds)}</dd></div>
-          <div><dt>最长沉默</dt><dd>${formatSeconds(timing.longest_silence_seconds)}</dd></div>
-          <div><dt>沉默区间</dt><dd class="meta">${formatDateTime(timing.longest_silence_start)} ~ ${formatDateTime(timing.longest_silence_end)}</dd></div>
-        </dl>
-        <h3 class="love-subhead">回复间隔分布</h3>
-        <ul class="love-meter-list">${distributionHtml || '<li class="meta">消息太少，暂时无法计算。</li>'}</ul>
-      `, { eyebrow: "TIMING", subtitle: "只统计非系统消息；回复间隔按连续不同发送者计算。" })}
-      ${card("消息形态", `
-        <div class="love-media-bar">${mediaSegments}</div>
-        <div class="love-media-legend">
-          <span><i class="text"></i>文字 ${formatInt(media.text_count)}</span>
-          <span><i class="sticker"></i>表情 ${formatInt(media.sticker_count)} · ${percent(media.sticker_ratio, 1)}</span>
-          <span><i class="image"></i>图片 ${formatInt(media.image_count)} · ${percent(media.image_ratio, 1)}</span>
-        </div>
-      `, { eyebrow: "MEDIA", subtitle: "按微信导出里的常见标记分类，只是近似统计。", className: "love-span-2" })}
-      ${card("高频词", `
-        <div class="love-wordcloud">${wordHtml || '<p class="meta">没有足够的文本词频。</p>'}</div>
-        <p class="field-help">使用本地 jieba 分词与停用词过滤；词频不代表关系质量。引擎：${escapeHtml(keywords.engine || "—")}</p>
-      `, { eyebrow: "WORDS", subtitle: "聊天里出现最多的词，帮你回看共同话题。", className: "love-span-2" })}
-    </div>
-    <div class="love-inline-actions love-page-actions">
-      <button class="button primary" type="button" data-love-action="goto" data-page="analysis">进入 AI 深度分析</button>
-      <button class="button secondary" type="button" data-love-action="goto" data-page="profile">查看画像</button>
-      <button class="button secondary" type="button" data-love-action="goto" data-page="journal">恋爱日志</button>
-    </div>`;
-}
-
-function trendChart(trends, overview) {
-  const data = trends?.data || [];
-  if (!data.length) return '<div class="love-empty-small">还没有可供绘制的消息。</div>';
-  const width = 760;
-  const height = 260;
-  const padding = { left: 38, right: 14, top: 16, bottom: 28 };
-  const plotWidth = width - padding.left - padding.right;
-  const plotHeight = height - padding.top - padding.bottom;
-  const max = Math.max(1, ...data.map((item) => Number(item.total) || 0));
-  const step = plotWidth / data.length;
-  const barWidth = Math.max(1, Math.min(12, step * 0.68));
-  const grid = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-    const y = padding.top + plotHeight * (1 - ratio);
-    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="love-grid-line" />
-      <text x="${padding.left - 7}" y="${y + 3}" class="love-axis-text" text-anchor="end">${formatInt(max * ratio)}</text>`;
-  }).join("");
-  const bars = data.map((item, index) => {
-    const x = padding.left + index * step + (step - barWidth) / 2;
-    const a = Number(item.sender_a) || 0;
-    const b = Number(item.sender_b) || 0;
-    const total = a + b;
-    const totalHeight = total / max * plotHeight;
-    const aHeight = total ? a / total * totalHeight : 0;
-    const bHeight = total ? b / total * totalHeight : 0;
-    const y = padding.top + plotHeight - totalHeight;
-    const title = `${item.date}：共 ${total} 条（${overview.sender_a.name} ${a} / ${overview.sender_b.name} ${b}）`;
-    return `<g><title>${escapeHtml(title)}</title>
-      <rect x="${x.toFixed(2)}" y="${(y + bHeight).toFixed(2)}" width="${barWidth.toFixed(2)}" height="${aHeight.toFixed(2)}" class="love-bar-a" />
-      <rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${bHeight.toFixed(2)}" class="love-bar-b" />
-    </g>`;
-  }).join("");
-  const labelEvery = Math.max(1, Math.ceil(data.length / 8));
-  const labels = data.map((item, index) => index % labelEvery === 0
-    ? `<text x="${(padding.left + index * step + step / 2).toFixed(2)}" y="${height - 8}" class="love-axis-text" text-anchor="middle">${escapeHtml(String(item.date).slice(5))}</text>`
-    : "").join("");
-  return `<div class="love-chart-wrap">
-    <svg class="love-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="消息趋势图">
-      ${grid}${bars}${labels}
-    </svg>
-    <div class="love-legend">
-      <span><i class="love-bar-a"></i>${escapeHtml(overview.sender_a.name)}</span>
-      <span><i class="love-bar-b"></i>${escapeHtml(overview.sender_b.name)}</span>
-      <span class="meta">最高 ${formatInt(max)} 条 / 周期</span>
-    </div>
-  </div>`;
-}
-
-// ── AI 分析 ────────────────────────────────────────────────────────
-
-async function renderAnalysis(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = emptyBox("还没有项目", "先导入聊天记录，才能让 AI 分析。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天</button>');
-    return;
-  }
-  const logsData = await loveApi(projectQuery("/analysis/logs"), { timeoutMs: 45000 });
-  if (love.page !== "analysis") return;
-  love.analysisLogs = Array.isArray(logsData.logs) ? logsData.logs : [];
-  const active = love.analysisLogs.find((log) => log.id === love.selectedAnalysisId)
-    || love.analysisLogs[0]
-    || null;
-  if (active && !love.selectedAnalysisId) love.selectedAnalysisId = active.id;
-  const hasKey = Boolean(love.settings?.api_key_configured);
-
-  const keyCard = hasKey
-    ? `<span class="love-badge ok">API Key 已配置</span>`
-    : `<span class="love-badge error">未配置 API Key</span>
-       <button class="text-button" type="button" data-love-action="goto" data-page="settings">去配置</button>`;
-
-  let body = "";
-  if (active?.status === "running") {
-    body = `<div class="love-analysis-running">
-      <div class="love-spinner" aria-hidden="true"></div>
-      <div><strong>正在分析 ${escapeHtml(project.name)}</strong>
-      <p>已开始 ${formatDateTime(active.created_at)}；通常需要 30–120 秒。</p>
-      <p class="meta">页面可以切走，分析在本地服务里继续。</p></div>
-    </div>`;
-    scheduleAnalysisPoll(active.id);
-  } else if (active?.status === "failed") {
-    body = `<div class="state-message error-state"><strong>这次分析没有完成</strong><p>${escapeHtml(active.error || "未知错误")}</p>
-      ${hasKey ? '<button class="text-button" type="button" data-love-action="run-analysis">重新分析</button>' : ""}</div>`;
-  } else if (active?.result) {
-    body = analysisResultHtml(active.result, active);
-  } else if (!hasKey) {
-    body = emptyBox(
-      "还需要一个 DeepSeek API Key",
-      "分析会先把聊天脱敏，再发送给你配置的 DeepSeek 接口。Key 加密保存在本机，不进仓库、不进日志。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="settings">打开设置</button>',
-    );
-  } else {
-    body = emptyBox(
-      "还没有分析记录",
-      "第一次分析会读取最近 8000 条消息（更早的会均匀采样），脱敏后发送给 DeepSeek。",
-      '<button class="button primary" type="button" data-love-action="run-analysis">开始第一次分析</button>',
-    );
-  }
-
-  const history = historyHtml(active);
-  content.innerHTML = `
-    ${card("DeepSeek 深度分析", `
-      <div class="love-analysis-toolbar">
-        <div class="love-analysis-meta">${keyCard}<span class="meta">模型 ${escapeHtml(love.settings?.api_model || "deepseek-chat")}</span></div>
-        <div class="love-inline-actions">
-          ${hasKey ? '<button class="button primary" type="button" data-love-action="run-analysis">重新分析</button>' : ""}
-        </div>
+        <p class="love-memory-stats">共 ${formatInt(data.total)} 篇 · 恋爱日志 ${formatInt(data.journal_count)} · AI 草稿 ${formatInt(data.draft_count)} · 自定义本子 ${formatInt(data.custom_count)}</p>
       </div>
-      <p class="field-help love-analysis-warning">点击分析会把脱敏后的聊天内容发送到 DeepSeek。姓名会替换为「用户A / 用户B」，电话、证件、邮箱、链接、银行卡号会被隐藏；原始记录不出本机。</p>
-      ${body}
-      ${history}
-    `, {
-    eyebrow: "AI ANALYSIS",
-    subtitle: "分析结果会保存到本机数据库；提取出的对方特质会合并进画像，但不会覆盖已锁定的条目。",
-    actions: `<button class="small-button" type="button" data-love-action="goto" data-page="analysis">刷新记录</button>`,
-  })}`;
-}
-
-function scheduleAnalysisPoll(logId) {
-  stopAnalysisPoll();
-  const tick = async () => {
-    const pane = node("love-view");
-    if (love.page !== "analysis" || (pane && pane.hidden)) {
-      love.analysisPoll = 0;
-      return;
-    }
-    try {
-      const status = await loveApi(projectQuery(`/analysis/status/${encodeURIComponent(logId)}`), { timeoutMs: 20000 });
-      if (["completed", "failed"].includes(status.status)) {
-        stopAnalysisPoll();
-        if (status.status === "completed") toast("AI 分析完成。", "success");
-        else toast("AI 分析失败，请查看原因。", "error");
-        await reloadLove({ quiet: true });
-        return;
-      }
-    } catch {
-      // 网络抖动不终止轮询，下一轮再试。
-    }
-    love.analysisPoll = window.setTimeout(tick, 2500);
-  };
-  love.analysisPoll = window.setTimeout(tick, 1200);
-}
-
-function historyHtml(active) {
-  if (!love.analysisLogs.length) return "";
-  const rows = love.analysisLogs.slice(0, 8).map((log) => {
-    const isActive = active?.id === log.id;
-    const label = log.status === "completed" ? "已完成"
-      : log.status === "running" ? "分析中"
-        : log.status === "failed" ? "失败" : log.status;
-    return `<li class="${isActive ? "active" : ""}">
-      <button type="button" class="love-log-link" data-love-action="analysis-log" data-id="${escapeHtml(log.id)}">
-        <span>${formatDateTime(log.created_at)}</span>
-        <span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(label)}</span>
-        <span class="meta">${formatInt(log.prompt_tokens)} + ${formatInt(log.completion_tokens)} tokens</span>
-      </button>
-    </li>`;
-  }).join("");
-  return `<div class="love-log-list"><h3 class="love-subhead">分析记录</h3><ul>${rows}</ul></div>`;
-}
-
-function analysisResultHtml(result, meta) {
-  const tone = result.emotional_tone || {};
-  const patterns = result.communication_patterns || {};
-  const events = (result.key_events || []).map((event) => {
-    const impact = ["positive", "negative", "neutral"].includes(event.impact) ? event.impact : "neutral";
-    return `<li class="love-event impact-${impact}">
-      <span class="love-event-date">${escapeHtml(event.date || "")}</span>
-      <p>${escapeHtml(event.description || "")}</p>
-      <span class="love-badge">${escapeHtml(IMPACTS[impact] || impact)}</span>
-    </li>`;
-  }).join("");
-  const risks = (result.risk_warnings || []).map((risk) => {
-    const severity = ["high", "medium", "low"].includes(risk.severity) ? risk.severity : "low";
-    return `<li class="love-risk risk-${severity}">
-      <div><span class="love-badge ${severity === "high" ? "error" : severity === "medium" ? "warn" : "ok"}">${escapeHtml(SEVERITIES[severity])}</span>
-      <strong>${escapeHtml(risk.aspect || "")}</strong></div>
-      <p>${escapeHtml(risk.detail || "")}</p>
-    </li>`;
-  }).join("");
-  const advice = (result.personalized_advice || []).map((item) => `<li>${escapeHtml(String(item))}</li>`).join("");
-  const traits = (result.partner_traits || []).map((trait) => `
-    <li><span>${escapeHtml(trait.trait || "")}</span><p>${escapeHtml(trait.value || "")}</p>
-    <small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 120))}` : ""}</small></li>`).join("");
-  return `
-    <div class="love-analysis-hero">
-      <div><span class="eyebrow">RELATIONSHIP STAGE</span><strong>${escapeHtml(result.relationship_stage || "未给出")}</strong></div>
-      <div class="meta">分析于 ${formatDateTime(meta.completed_at)} · ${escapeHtml(meta.model || "deepseek-chat")}</div>
-    </div>
-    <div class="love-analysis-tone">
-      <div class="love-tone-card"><span>整体情绪</span><strong>${escapeHtml(tone.overall || "—")}</strong></div>
-      <div class="love-tone-card"><span>情绪波动</span><strong>${percent(tone.fluctuation, 0)}</strong>
-        <div class="love-meter"><i class="${widthClass(Number(tone.fluctuation || 0) * 100)}"></i></div></div>
-      <div class="love-tone-card"><span>情绪趋势</span><strong>${escapeHtml(tone.trend || "—")}</strong></div>
-    </div>
-    <div class="love-analysis-section">
-      <h3>沟通模式</h3>
-      <dl class="love-facts">
-        <div><dt>主动度</dt><dd>${escapeHtml(patterns.initiative_balance || "—")}</dd></div>
-        <div><dt>回应风格</dt><dd>${escapeHtml(patterns.response_style || "—")}</dd></div>
-        <div><dt>主要话题</dt><dd>${(patterns.key_topics || []).map(escapeHtml).join("、") || "—"}</dd></div>
-      </dl>
-    </div>
-    ${events ? `<div class="love-analysis-section"><h3>关键事件</h3><ul class="love-event-list">${events}</ul></div>` : ""}
-    ${risks ? `<div class="love-analysis-section"><h3>需要注意</h3><ul class="love-risk-list">${risks}</ul></div>` : ""}
-    ${advice ? `<div class="love-analysis-section"><h3>给你的建议</h3><ol class="love-advice">${advice}</ol></div>` : ""}
-    ${traits ? `<div class="love-analysis-section"><h3>提取到的对方特质</h3><ul class="love-trait-mini">${traits}</ul><p class="field-help">这些条目已合并进「画像」；已锁定的特质不会被覆盖。</p></div>` : ""}`;
-}
-
-async function runAnalysis(button) {
-  if (!love.projectId) return;
-  const confirmed = await confirmAction({
-    title: "开始一次 AI 深度分析？",
-    message: "这次操作会把脱敏后的聊天内容发送给您配置的 DeepSeek 接口，可能会产生 token 费用。原始聊天记录仍只留在本机。",
-    confirmLabel: "开始分析",
-    cancelLabel: "先算了",
-  });
-  if (!confirmed) return;
-  await withBusy(button, "正在提交…", async () => {
-    try {
-      const result = await loveApi(projectQuery("/analysis"), {
-        method: "POST", body: JSON.stringify({ analysis_type: "deep" }), timeoutMs: 20000,
-      });
-      love.selectedAnalysisId = result.log_id;
-      toast("已开始分析，页面会自动更新。", "info");
-      await renderLovePage();
-    } catch (error) {
-      toast(`无法开始分析：${error.message}`, "error");
-    }
-  });
-}
-
-// ── 画像 ───────────────────────────────────────────────────────────
-
-async function renderProfile(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = emptyBox("还没有项目", "先导入聊天记录，AI 分析后才能形成画像。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天</button>');
-    return;
-  }
-  const profile = await loveApi(projectQuery("/profile"), { timeoutMs: 45000 });
-  if (love.page !== "profile") return;
-  const traits = [...(profile.traits || [])].sort((a, b) => Number(Boolean(b.locked)) - Number(Boolean(a.locked))
-    || Number(b.confidence || 0) - Number(a.confidence || 0));
-  const lockedCount = traits.filter((trait) => trait.locked).length;
-  const rows = traits.map((trait) => {
-    const key = String(trait.trait || "");
-    return `<article class="love-trait ${trait.locked ? "locked" : ""}">
-      <div class="love-trait-head">
-        <div><h3>${trait.locked ? "🔒" : "🔍"} ${escapeHtml(key)}</h3>
-          <span class="meta">${trait.locked ? "已确认，不会被 AI 覆盖" : `置信度 ${percent(trait.confidence, 0)}`}${trait.update_count ? ` · 更新 ${trait.update_count} 次` : ""}</span></div>
-        <div class="love-trait-actions">
-          <button class="small-button" type="button" data-love-action="profile-lock" data-key="${escapeHtml(key)}" data-locked="${trait.locked ? "0" : "1"}">${trait.locked ? "解锁" : "锁定"}</button>
-          <button class="small-button" type="button" data-love-action="profile-edit" data-key="${escapeHtml(key)}">编辑</button>
-          <button class="small-button reject" type="button" data-love-action="profile-delete" data-key="${escapeHtml(key)}">删除</button>
-        </div>
+      <div class="love-memory-hero-side">${memoryHeatmap(data.dates || {})}</div>
+    </section>
+    <section class="notebook-section love-memory-notebooks">
+      <div class="notebook-section-head">
+        <div><p class="eyebrow">NOTEBOOKS</p><h3>我的本子</h3></div>
+        <div class="notebook-section-actions"><button class="button secondary small-create" type="button" data-love-action="memory-create-notebook">＋ 新建本子</button></div>
       </div>
-      <p>${escapeHtml(trait.value || "")}</p>
-      ${trait.evidence ? `<details class="love-evidence"><summary>依据</summary><p>${escapeHtml(trait.evidence)}</p></details>` : ""}
-      ${Array.isArray(trait.alternate_values) && trait.alternate_values.length ? `<p class="meta">已锁定后收到 ${trait.alternate_values.length} 条备选发现，可在数据库里追溯。</p>` : ""}
-    </article>`;
-  }).join("");
-  content.innerHTML = `
-    ${card(`${profile.partner_name || project.partner_b} 的画像`, `
-      <div class="love-profile-summary">
-        <span class="love-badge ok">${lockedCount} 条已确认</span>
-        <span class="love-badge">${traits.length - lockedCount} 条 AI 推测</span>
-        <button class="small-button" type="button" data-love-action="profile-add">添加特质</button>
+      <div class="notebook-grid">
+        ${notebooks.map(memoryNotebookCard).join("")}
+        <button class="notebook-card notebook-create-card" type="button" data-love-action="memory-create-notebook"><span class="notebook-create-plus">＋</span><span class="notebook-title">新建本子</span><span class="notebook-desc">在 01_恋爱记忆 下建一个文件夹</span></button>
       </div>
-      <p class="field-help">锁定的条目会作为「已确认信息」进入下一次 AI 分析；未锁定的条目可能被置信度更高的新分析替换。</p>
-      <div class="love-trait-list">${rows || emptyBox("还没有画像", "运行一次 AI 深度分析，或手动添加一条特质。")}</div>
-    `, {
-      eyebrow: "PROFILE",
-      subtitle: "画像来自 AI 提取和你的手动修正；它不是对任何人的定论。",
-    })}`;
+    </section>
+    <section class="recent-section love-memory-notes">
+      <div class="notebook-section-head">
+        <div><p class="eyebrow">${activeNotebook ? "NOTEBOOK" : "RECENT"}</p><h3>${activeNotebook ? escapeHtml(activeNotebook.title) : "最近写过"}</h3></div>
+        <div class="notebook-section-actions">${activeNotebook ? `<button class="text-button" type="button" data-love-action="memory-clear-filter">看全部</button>` : ""}<span class="meta">${formatInt(notes.length)} 篇</span></div>
+      </div>
+      ${notes.length ? `<div class="love-memory-note-list">${notes.map(memoryNoteCard).join("")}</div>` : emptyBox("还没有记忆", "点「写点什么」留下第一篇。", '<button class="button primary" type="button" data-love-action="memory-new">写点什么</button>')}
+    </section>
+    <div class="love-tip-strip"><span>🔒</span><p>恋爱记忆存放在 <code>02_生活运营/01_恋爱系统/01_恋爱记忆/</code>；删除会进入应用回收站，不会直接消失。</p></div>`;
 }
 
-async function openTraitDialog(mode, traitKey = "") {
-  const project = currentProject();
-  if (!project) return;
-  const profile = await loveApi(projectQuery("/profile"), { timeoutMs: 30000 });
-  const existing = (profile.traits || []).find((trait) => trait.trait === traitKey);
-  const title = mode === "edit" ? "编辑特质" : "添加特质";
-  openDialog(title, `
-    <form id="love-trait-form" class="love-dialog-form">
-      <div class="field"><label for="love-trait-key">特质</label>
-        <input id="love-trait-key" name="trait" maxlength="120" required value="${escapeHtml(existing?.trait || "")}" ${existing ? "readonly" : ""} placeholder="例如：沟通风格、情感需求、雷区" /></div>
-      <div class="field"><label for="love-trait-value">描述</label>
-        <textarea id="love-trait-value" name="value" rows="3" maxlength="2000" required placeholder="具体、可验证的描述">${escapeHtml(existing?.value || "")}</textarea></div>
-      <div class="field"><label for="love-trait-evidence">依据（可选）</label>
-        <textarea id="love-trait-evidence" name="evidence" rows="2" maxlength="2000" placeholder="来自哪些对话或观察">${escapeHtml(existing?.evidence || "")}</textarea></div>
-      <p class="field-help">保存后可以随时锁定，锁定后 AI 不会覆盖这条。</p>
-      <div class="form-actions"><span id="love-trait-feedback" class="status-message" role="status"></span>
-        <div class="love-inline-actions">
-          <button class="button secondary" type="button" id="love-trait-cancel">取消</button>
-          <button class="button primary" type="submit">保存</button>
-        </div>
-      </div>
+async function openMemoryNote(path) {
+  const note = await api(`/api/notes?path=${encodeURIComponent(path)}`, { timeoutMs: 30000 });
+  openNoteEditor({ note, context: "love" });
+}
+
+function openNewMemory() {
+  openNoteEditor({ context: "love", chapter: "love_journal" });
+}
+
+function openNotebookDialog() {
+  openDialog("新建本子", `
+    <form id="love-notebook-form" class="love-dialog-form">
+      <div class="field"><label for="love-notebook-name">本子名称</label><input id="love-notebook-name" name="name" maxlength="48" required placeholder="例如：第一次旅行、日常碎片" /></div>
+      <p class="field-help">会在 <code>01_恋爱记忆/</code> 下创建一个文件夹；之后可以在编辑器里把笔记移进去。</p>
+      <div class="form-actions"><span id="love-notebook-feedback" class="status-message" role="status"></span><div class="love-inline-actions"><button class="button secondary" type="button" id="love-notebook-cancel">取消</button><button class="button primary" type="submit">创建</button></div></div>
     </form>`);
-  node("love-trait-cancel")?.addEventListener("click", () => node("detail-dialog")?.close());
-  node("love-trait-form")?.addEventListener("submit", async (event) => {
+  $id("love-notebook-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
+  $id("love-notebook-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submit = form.querySelector('button[type="submit"]');
-    const key = form.elements.trait.value.trim();
-    const value = form.elements.value.value.trim();
-    if (!key || !value) return;
-    await withBusy(submit, "保存中…", async () => {
+    const name = form.elements.name.value.trim();
+    if (!name) return;
+    await withBusy(submit, "创建中…", async () => {
       try {
-        if (mode === "edit") {
-          await loveApi(projectQuery(`/profile/traits/${encodeURIComponent(key)}`), {
-            method: "PUT",
-            body: JSON.stringify({ value, evidence: form.elements.evidence.value.trim() }),
-            timeoutMs: 30000,
-          });
-        } else {
-          await loveApi(projectQuery("/profile/traits"), {
-            method: "POST",
-            body: JSON.stringify({ trait: key, value, evidence: form.elements.evidence.value.trim() || "手动添加" }),
-            timeoutMs: 30000,
-          });
-        }
-        node("detail-dialog")?.close();
-        toast("画像已更新。", "success");
+        await loveApi("/api/notebooks", { method: "POST", body: JSON.stringify({ pillar: "love", name }), timeoutMs: 30000 });
+        invalidateChapterCache();
+        $id("detail-dialog")?.close();
+        toast("本子已创建。", "success");
         await renderLovePage();
       } catch (error) {
-        const feedback = node("love-trait-feedback");
+        const feedback = $id("love-notebook-feedback");
         if (feedback) feedback.textContent = error.message;
-        toast(`保存失败：${error.message}`, "error");
+        toast(`创建失败：${error.message}`, "error");
       }
     });
   });
 }
 
-async function toggleTraitLock(button) {
+async function deleteMemoryNotebook(button) {
   const key = button.dataset.key || "";
-  const locked = button.dataset.locked === "1";
-  await withBusy(button, "处理中…", async () => {
-    try {
-      await loveApi(projectQuery(`/profile/traits/${encodeURIComponent(key)}/lock`), {
-        method: "PUT", body: JSON.stringify({ locked }), timeoutMs: 30000,
-      });
-      toast(locked ? "已锁定，AI 不会再覆盖。" : "已解锁。", "success");
-      await renderLovePage();
-    } catch (error) {
-      toast(`操作失败：${error.message}`, "error");
-    }
-  });
-}
-
-async function deleteTrait(button) {
-  const key = button.dataset.key || "";
+  const title = button.dataset.title || "这个本子";
   const confirmed = await confirmAction({
-    title: "删除这条画像？", message: `将删除「${key}」。此操作只影响本机画像，不会删除聊天记录。`,
-    confirmLabel: "删除", danger: true,
-  });
-  if (!confirmed) return;
-  try {
-    await loveApi(projectQuery(`/profile/traits/${encodeURIComponent(key)}`), { method: "DELETE", timeoutMs: 30000 });
-    toast("画像条目已删除。", "success");
-    await renderLovePage();
-  } catch (error) {
-    toast(`删除失败：${error.message}`, "error");
-  }
-}
-
-// ── 恋爱日志 ───────────────────────────────────────────────────────
-
-async function renderJournal(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = emptyBox("还没有项目", "导入聊天记录后，才能生成或手写恋爱日志。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天</button>');
-    return;
-  }
-  const data = await loveApi(projectQuery("/journal"), { timeoutMs: 45000 });
-  if (love.page !== "journal") return;
-  const entries = Array.isArray(data.entries) ? data.entries : [];
-  const groups = new Map();
-  for (const entry of entries) {
-    const month = String(entry.date || "").slice(0, 7);
-    if (!groups.has(month)) groups.set(month, []);
-    groups.get(month).push(entry);
-  }
-  const groupsHtml = [...groups.entries()].map(([month, items]) => `
-    <section class="love-journal-month">
-      <h3>${escapeHtml(formatMonth(month))}<span>${items.length} 篇</span></h3>
-      ${items.map((entry) => journalEntryHtml(entry)).join("")}
-    </section>`).join("");
-  content.innerHTML = `
-    ${card("恋爱日志", `
-      <div class="love-journal-toolbar">
-        <div class="love-inline-actions">
-          <button class="button primary" type="button" data-love-action="journal-new">写日志</button>
-          <button class="button secondary" type="button" data-love-action="journal-generate-all">AI 批量补日记</button>
-          <a class="button secondary" href="/api/love/projects/${encodeURIComponent(love.projectId)}/journal/export" download>导出 TXT</a>
-        </div>
-        <span class="meta">共 ${formatInt(entries.length)} 篇 · 保存在本机数据库</span>
-      </div>
-      <div class="love-journal-body">${groupsHtml || emptyBox("还没有日志", "点「写日志」手写，或让 AI 根据当天聊天生成一版再改。")}</div>
-    `, {
-      eyebrow: "JOURNAL",
-      subtitle: "日志与聊天项目关联；AI 只在你点击生成时读取当天的聊天。",
-    })}`;
-}
-
-function journalEntryHtml(entry) {
-  return `<article class="love-journal-entry">
-    <div class="love-journal-date"><strong>${escapeHtml(String(entry.date || "").slice(8, 10))}</strong><span>${escapeHtml(weekday(entry.date))}</span></div>
-    <div class="love-journal-content">
-      <div class="love-journal-head">
-        <div>${entry.mood ? `<span class="love-badge">${escapeHtml(MOOD_LABEL[entry.mood] || entry.mood)}</span>` : '<span class="meta">未标记心情</span>'}
-          <span class="meta">${formatDateTime(entry.updated_at || entry.created_at)}</span></div>
-        <div class="love-trait-actions">
-          <button class="small-button" type="button" data-love-action="journal-edit" data-id="${escapeHtml(entry.id)}">编辑</button>
-          <button class="small-button reject" type="button" data-love-action="journal-delete" data-id="${escapeHtml(entry.id)}">删除</button>
-        </div>
-      </div>
-      <p class="love-journal-text">${escapeHtml(entry.content || "")}</p>
-    </div>
-  </article>`;
-}
-
-async function openJournalDialog(mode, entryId = "") {
-  const project = currentProject();
-  if (!project) return;
-  let entry = null;
-  if (mode === "edit") {
-    const data = await loveApi(projectQuery("/journal"), { timeoutMs: 30000 });
-    entry = (data.entries || []).find((item) => item.id === entryId);
-    if (!entry) {
-      toast("日志不存在，请刷新后重试。", "error");
-      return;
-    }
-  }
-  const moodOptions = MOODS.map(([value, label, icon]) =>
-    `<option value="${value}" ${entry?.mood === value ? "selected" : ""}>${icon} ${label}</option>`).join("");
-  openDialog(mode === "edit" ? "编辑恋爱日志" : "写恋爱日志", `
-    <form id="love-journal-form" class="love-dialog-form">
-      <div class="form-grid">
-        <div class="field"><label for="love-journal-date">日期</label>
-          <input id="love-journal-date" name="date" type="date" required value="${escapeHtml(entry?.date || todayText())}" ${mode === "edit" ? "readonly" : ""} /></div>
-        <div class="field"><label for="love-journal-mood">心情</label>
-          <select id="love-journal-mood" name="mood"><option value="">不标记</option>${moodOptions}</select></div>
-      </div>
-      <div class="field"><label for="love-journal-content">正文</label>
-        <textarea id="love-journal-content" name="content" rows="9" maxlength="5000" required placeholder="今天发生了什么、当时怎么想…">${escapeHtml(entry?.content || "")}</textarea></div>
-      <div class="love-journal-ai">
-        <button class="button secondary" type="button" id="love-journal-generate">用当天聊天生成一版</button>
-        <span id="love-journal-ai-feedback" class="status-message" role="status"></span>
-      </div>
-      <p class="field-help">AI 生成会覆盖正文输入框，可先保存再改。不会自动保存，直到你点「保存」。</p>
-      <div class="form-actions"><span id="love-journal-feedback" class="status-message" role="status"></span>
-        <div class="love-inline-actions">
-          <button class="button secondary" type="button" id="love-journal-cancel">取消</button>
-          <button class="button primary" type="submit">保存</button>
-        </div>
-      </div>
-    </form>`);
-  node("love-journal-cancel")?.addEventListener("click", () => node("detail-dialog")?.close());
-  node("love-journal-generate")?.addEventListener("click", async (event) => {
-    const day = node("love-journal-date")?.value;
-    if (!day) { toast("先选日期。", "warning"); return; }
-    await withBusy(event.currentTarget, "生成中…", async () => {
-      const feedback = node("love-journal-ai-feedback");
-      if (feedback) feedback.textContent = "正在读取当天的聊天并调用 DeepSeek…";
-      try {
-        const result = await loveApi(projectQuery("/journal/generate"), {
-          method: "POST", body: JSON.stringify({ date: day }), timeoutMs: 180000,
-        });
-        const textarea = node("love-journal-content");
-        if (textarea) textarea.value = result.content || "";
-        if (feedback) feedback.textContent = "已生成，可修改后保存。";
-      } catch (error) {
-        if (feedback) feedback.textContent = error.message;
-        toast(`生成失败：${error.message}`, "error");
-      }
-    });
-  });
-  node("love-journal-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const submit = form.querySelector('button[type="submit"]');
-    const payload = {
-      content: form.elements.content.value.trim(),
-      mood: form.elements.mood.value || null,
-    };
-    if (!payload.content) return;
-    await withBusy(submit, "保存中…", async () => {
-      try {
-        if (mode === "edit") {
-          await loveApi(projectQuery(`/journal/${encodeURIComponent(entry.id)}`), {
-            method: "PUT", body: JSON.stringify(payload), timeoutMs: 30000,
-          });
-        } else {
-          await loveApi(projectQuery("/journal"), {
-            method: "POST",
-            body: JSON.stringify({ date: form.elements.date.value, ...payload }),
-            timeoutMs: 30000,
-          });
-        }
-        node("detail-dialog")?.close();
-        toast("日志已保存。", "success");
-        await renderLovePage();
-      } catch (error) {
-        const feedback = node("love-journal-feedback");
-        if (feedback) feedback.textContent = error.message;
-        toast(`保存失败：${error.message}`, "error");
-      }
-    });
-  });
-}
-
-async function deleteJournal(button) {
-  const confirmed = await confirmAction({
-    title: "删除这篇日志？", message: "删除后无法在应用内恢复；聊天记录不会受影响。",
-    confirmLabel: "删除", danger: true,
+    title: `删除「${title}」？`,
+    message: "本子会整体移入应用的本子回收站，里面的笔记不会直接消失；以后可以在回收中心或文件管理器找回。",
+    confirmLabel: "删除本子", danger: true,
   });
   if (!confirmed) return;
   await withBusy(button, "删除中…", async () => {
     try {
-      await loveApi(projectQuery(`/journal/${encodeURIComponent(button.dataset.id)}`), { method: "DELETE", timeoutMs: 30000 });
-      toast("日志已删除。", "success");
+      await loveApi("/api/notebooks/delete", {
+        method: "POST",
+        body: JSON.stringify({ pillar: "love", key, confirm: true }),
+        timeoutMs: 60000,
+      });
+      invalidateChapterCache();
+      if (love.memoryNotebook === key) love.memoryNotebook = "";
+      toast("本子已移入回收站。", "success");
       await renderLovePage();
     } catch (error) {
       toast(`删除失败：${error.message}`, "error");
@@ -1373,251 +490,416 @@ async function deleteJournal(button) {
   });
 }
 
-async function batchGenerateJournals() {
-  openDialog("AI 批量补日记", `
-    <form id="love-batch-form" class="love-dialog-form">
-      <p class="field-help">只会为「有聊天、还没有日志」的日期生成，已有日志不会被覆盖。每篇都会调用一次 DeepSeek。</p>
-      <div class="field"><label for="love-batch-days">最多生成多少天</label>
-        <input id="love-batch-days" type="number" min="1" max="60" step="1" value="10" required></div>
-      <div class="form-actions"><span id="love-batch-feedback" class="status-message"></span>
-        <div class="love-inline-actions">
-          <button class="button secondary" type="button" id="love-batch-cancel">取消</button>
-          <button class="button primary" type="submit">开始生成</button>
-        </div>
+async function promoteAiDrafts(button) {
+  const confirmed = await confirmAction({
+    title: "把 AI 草稿移入恋爱日志？",
+    message: "会把「AI 草稿」本子里的所有笔记移动到「恋爱日志」。移动后仍可再改本子或删除。",
+    confirmLabel: "移入恋爱日志",
+  });
+  if (!confirmed) return;
+  await withBusy(button, "移动中…", async () => {
+    try {
+      const result = await loveApi("/api/love/memory/drafts/promote", { method: "POST", timeoutMs: 60000 });
+      toast(`已移动 ${formatInt(result.moved)} 篇${result.failed?.length ? `，${result.failed.length} 篇失败` : ""}。`, result.failed?.length ? "warning" : "success");
+      await renderLovePage();
+    } catch (error) {
+      toast(`移动失败：${error.message}`, "error");
+    }
+  });
+}
+
+// ── 微信聊天 ───────────────────────────────────────────────────────
+
+function chatMonthValue() {
+  const saved = String(readStorage(CHAT_MONTH_KEY) || "");
+  const stored = /^\d{4}-\d{2}$/.test(String(love.chatMonth || "")) ? love.chatMonth
+    : (/^\d{4}-\d{2}$/.test(saved) ? saved : "");
+  return stored || currentMonthText();
+}
+
+function chatStatusLabel(state) {
+  return { no_chat: "无聊天", synced: "已同步", unsynced: "未同步", future: "" }[state] || state;
+}
+
+function chatCalendarMarkup(data) {
+  const cells = [];
+  for (let index = 0; index < monthLeadingBlanks(data.month); index += 1) {
+    cells.push('<span class="love-chat-day is-empty" aria-hidden="true"></span>');
+  }
+  for (const day of data.days || []) {
+    const classes = ["love-chat-day", `is-${day.state}`];
+    if (day.is_today) classes.push("is-today");
+    if (day.date === love.chatDay) classes.push("is-selected");
+    const label = `${day.date} ${day.weekday}，${chatStatusLabel(day.state)}${day.count ? `，${day.count} 条` : ""}`;
+    cells.push(`<button type="button" class="${classes.join(" ")}" data-love-action="chat-day" data-date="${day.date}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+      <span class="love-chat-day-num">${day.day}</span>
+      ${day.count ? `<span class="love-chat-day-count">${formatInt(day.count)}</span>` : `<span class="love-chat-day-state">${escapeHtml(chatStatusLabel(day.state))}</span>`}
+    </button>`);
+  }
+  return `<div class="love-chat-calendar-wrap">
+    <div class="love-calendar-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map((name) => `<span>${name}</span>`).join("")}</div>
+    <div class="love-chat-calendar">${cells.join("")}</div>
+    <div class="love-calendar-legend love-chat-legend" aria-hidden="true">
+      <span><i class="is-synced"></i>已同步</span>
+      <span><i class="is-no_chat"></i>无聊天</span>
+      <span><i class="is-unsynced"></i>未同步</span>
+    </div>
+  </div>`;
+}
+
+function chatMessageMarkup(message) {
+  const content = escapeHtml(message.content || "");
+  let media = "";
+  if (message.has_media && message.media_url) {
+    if (message.media_kind === "video") {
+      media = `<video class="love-chat-media" controls preload="metadata" src="${escapeHtml(message.media_url)}"></video>`;
+    } else if (message.media_kind === "voice") {
+      media = `<audio class="love-chat-audio" controls preload="none" src="${escapeHtml(message.media_url)}"></audio>`;
+    } else {
+      media = `<a class="love-chat-media-link" href="${escapeHtml(message.media_url)}" target="_blank" rel="noopener"><img class="love-chat-media" src="${escapeHtml(message.media_url)}" alt="${escapeHtml(content || "聊天媒体")}" loading="lazy" /></a>`;
+    }
+  }
+  return `<article class="love-chat-msg ${message.is_send ? "is-me" : "is-other"}">
+    <div class="love-chat-bubble">
+      <div class="love-chat-meta"><span>${escapeHtml(message.is_send ? "我" : "对象")}</span><time>${escapeHtml(message.time || "")}</time></div>
+      ${media}
+      ${content && content !== "[图片]" && content !== "[视频]" && content !== "[语音]" ? `<p>${content}</p>` : ""}
+    </div>
+  </article>`;
+}
+
+async function loadChatSessions({ keyword = "", silent = false } = {}) {
+  if (love.chatSessionsLoading) return;
+  love.chatSessionsLoading = true;
+  love.chatSessionsError = "";
+  try {
+    const data = await loveApi(`/api/love/chat/sessions?keyword=${encodeURIComponent(keyword)}`, { timeoutMs: 40000 });
+    love.chatSessions = Array.isArray(data.items) ? data.items : [];
+    love.chatKeyword = keyword;
+  } catch (error) {
+    love.chatSessions = [];
+    love.chatSessionsError = error.message;
+    if (!silent) toast(`读取联系人失败：${error.message}`, "error");
+  } finally {
+    love.chatSessionsLoading = false;
+  }
+}
+
+function chatTokenForm(status) {
+  return `<form id="love-chat-token-form" class="love-key-form">
+    <div class="form-grid">
+      <div class="field"><label for="love-chat-port">WeFlow API 端口</label><input id="love-chat-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(status.port || 5031))}" required /></div>
+      <div class="field"><label for="love-chat-token">${status.token_configured ? "替换 Access Token（可留空）" : "Access Token"}</label><input id="love-chat-token" name="token" type="password" autocomplete="off" maxlength="400" placeholder="${status.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow → 设置 → API 服务里的 Token"}" /></div>
+    </div>
+    <div class="love-inline-actions"><button class="button primary" type="submit">保存并测试连接</button>${status.token_configured ? '<button class="button secondary" type="button" data-love-action="chat-clear-token">清除 Token</button>' : ""}<button class="text-button" type="button" data-love-action="settings-open">微信组件修复</button></div>
+    <span id="love-chat-token-feedback" class="status-message" role="status"></span>
+    <p class="field-help">只访问 <code>127.0.0.1</code>，Token 加密保存在 <code>02_微信聊天/.credentials.json</code>，不会回显，也不写日志。微信组件过期时报错 101，可在设置抽屉里修复。</p>
+  </form>`;
+}
+
+function chatBindForm(status) {
+  const sessions = Array.isArray(love.chatSessions) ? love.chatSessions : [];
+  const options = sessions.map((item) => `<option value="${escapeHtml(item.id)}" ${love.chatStatus?.contact?.session_id === item.id ? "selected" : ""}>${escapeHtml(item.name || item.id)}${item.message_count ? ` · ${formatInt(item.message_count)} 条` : ""}</option>`).join("");
+  return `<div class="love-chat-bind">
+    <form id="love-chat-search-form" class="love-key-form">
+      <div class="field"><label for="love-chat-keyword">搜索联系人</label><input id="love-chat-keyword" name="keyword" type="search" maxlength="100" value="${escapeHtml(love.chatKeyword || "")}" placeholder="微信备注名或昵称；留空列出最近单聊" /></div>
+      <div class="love-inline-actions"><button class="button secondary" type="submit">搜索</button><span class="field-help">${love.chatSessionsLoading ? "正在读取…" : `已读取 ${sessions.length} 个单聊`}</span></div>
+    </form>
+    ${love.chatSessionsError ? `<p class="inline-error">${escapeHtml(love.chatSessionsError)}</p>` : ""}
+    ${sessions.length ? `<form id="love-chat-bind-form" class="love-key-form">
+      <div class="form-grid">
+        <div class="field"><label for="love-chat-session">要同步的单聊</label><select id="love-chat-session" name="session_id">${options}</select></div>
+        <div class="field"><label for="love-chat-me">你在聊天里的名字</label><input id="love-chat-me" name="me_sender" maxlength="100" value="${escapeHtml(status.contact?.me_sender || "我")}" /></div>
       </div>
-    </form>`);
-  node("love-batch-cancel")?.addEventListener("click", () => node("detail-dialog")?.close());
-  node("love-batch-form")?.addEventListener("submit", async (event) => {
+      <div class="love-inline-actions"><button class="button primary" type="submit">绑定这个联系人</button></div>
+      <p class="field-help">只会读取这一个单聊。换绑会先备份当前 chat.db，再清空旧聊天；不会读取群聊或其他人。</p>
+    </form>` : '<p class="field-help">还没有读取到联系人。确认 WeFlow 和微信都在运行，且 Token 已配置后，点「搜索」。</p>'}
+  </div>`;
+}
+
+async function renderChat(content) {
+  let status;
+  try {
+    status = await loveApi("/api/love/chat/status", { timeoutMs: 20000 });
+  } catch (error) {
+    status = { token_configured: false, port: 5031, contact: {}, error: error.message };
+  }
+  love.chatStatus = status;
+  const month = chatMonthValue();
+  love.chatMonth = month;
+  writeStorage(CHAT_MONTH_KEY, month);
+  const hasHistory = Number(status.total || 0) > 0;
+  const canViewChat = Boolean(status.contact?.session_id) || hasHistory;
+  const calendar = canViewChat
+    ? await loveApi(`/api/love/chat/calendar?month=${encodeURIComponent(month)}`, { timeoutMs: 30000 }).catch(() => null)
+    : null;
+  love.chatCalendar = calendar;
+  if (!love.chatDay) {
+    const days = calendar?.days || [];
+    love.chatDay = days.find((day) => day.is_today)?.date || days[0]?.date || todayText();
+  }
+  if (canViewChat && love.chatDay) {
+    try {
+      love.chatDayData = await loveApi(`/api/love/chat/day?date=${encodeURIComponent(love.chatDay)}`, { timeoutMs: 30000 });
+    } catch {
+      love.chatDayData = null;
+    }
+  } else {
+    love.chatDayData = null;
+  }
+  const hasToken = Boolean(status.token_configured);
+  if (hasToken && !status.contact?.session_id && love.chatSessions === null
+      && !love.chatSessionsLoading) {
+    await loadChatSessions({ silent: true });
+  }
+  const hasContact = Boolean(status.contact?.session_id) && !love.chatRebinding;
+  let setup = "";
+  if (!hasToken) {
+    setup = card("连接微信", chatTokenForm(status), {
+      eyebrow: "WEFLOW",
+      subtitle: "先让 torch 连上本机 WeFlow；微信密码与数据库密钥都不经过 torch。",
+    });
+  } else if (!hasContact) {
+    setup = card("选择你的对象", chatBindForm(status), {
+      eyebrow: "ONE CONTACT",
+      subtitle: "只绑定一个单聊；之后微信聊天页只看这个人的消息。",
+    });
+  }
+  const statusCard = hasContact ? card("当前联系人", `
+    <dl class="love-facts">
+      <div><dt>对象</dt><dd>${escapeHtml(status.contact.display_name || "—")}</dd></div>
+      <div><dt>会话</dt><dd><code>${escapeHtml(status.contact.session_id || "")}</code></dd></div>
+      <div><dt>消息</dt><dd>${formatInt(status.total)} 条${status.first_day ? ` · ${escapeHtml(status.first_day)} 至 ${escapeHtml(status.last_day)}` : ""}</dd></div>
+      <div><dt>上次同步</dt><dd>${status.contact.last_sync_at ? formatDateTime(status.contact.last_sync_at) : "还没有同步"}${status.contact.last_sync_status === "failed" ? " · 上次失败" : ""}</dd></div>
+    </dl>
+    ${status.contact.last_error ? `<p class="inline-error">${escapeHtml(status.contact.last_error)}</p>` : ""}
+    <div class="love-inline-actions">
+      <button class="button primary" type="button" data-love-action="chat-sync-apply">同步到本机</button>
+      <button class="button secondary" type="button" data-love-action="chat-sync-preview">先预览</button>
+      <label class="check-label"><input id="love-chat-full" type="checkbox" /> 从最早消息重新扫描</label>
+      <button class="text-button" type="button" data-love-action="chat-rebind">换绑</button>
+      <button class="text-button" type="button" data-love-action="chat-unbind">解除绑定</button>
+    </div>
+    <div id="love-chat-sync-status" class="love-sync-result">${love.chatLog ? chatSyncLogMarkup(love.chatLog) : ""}</div>
+    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片/视频会复制进库，语音先显示播放器占位。</p>` , {
+    eyebrow: "WECHAT",
+    subtitle: "日历看板用三种状态标出哪天有聊天、哪天还没同步。",
+  }) : "";
+  const calendarCard = canViewChat && calendar ? card("聊天日历", `
+    <div class="love-schedule-toolbar">
+      <div class="love-month-nav"><button class="small-button" type="button" data-love-action="chat-month" data-value="-1" aria-label="上个月">‹</button><strong>${monthLabel(month)}</strong><button class="small-button" type="button" data-love-action="chat-month" data-value="1" aria-label="下个月">›</button><button class="text-button" type="button" data-love-action="chat-month-today">今天</button></div>
+      <span class="meta">已同步 ${formatInt(calendar.total_days)} 天 · 未同步 ${formatInt(calendar.unsynced_days)} 天</span>
+    </div>
+    ${chatCalendarMarkup(calendar)}
+    <p class="field-help">点日期查看当天聊天；「未同步」表示最后成功同步之后，或历史还没有覆盖到的日期。</p>`, {
+    eyebrow: "CALENDAR",
+    subtitle: "一眼看出哪天没同步。",
+  }) : "";
+  const dayCard = canViewChat && love.chatDay ? card(`${love.chatDay} 的聊天`, `
+    <div class="love-inline-actions love-chat-day-actions">
+      <span class="meta">${formatInt(love.chatDayData?.count || 0)} 条消息</span>
+      <a class="text-button" href="/api/love/chat/export?date=${encodeURIComponent(love.chatDay)}&fmt=txt" download>导出当天 TXT</a>
+      <a class="text-button" href="/api/love/chat/export?date=${encodeURIComponent(love.chatDay)}&fmt=json" download>JSON</a>
+      <a class="text-button" href="/api/love/chat/export?date=all&fmt=txt" download>导出全部 TXT</a>
+    </div>
+    <div class="love-chat-messages">
+      ${(love.chatDayData?.messages || []).length ? love.chatDayData.messages.map(chatMessageMarkup).join("") : emptyBox("这一天没有聊天", "可能是没聊，也可能还没同步。先看日历上的状态，再点「同步到本机」。")}
+    </div>`, {
+    eyebrow: "DAY VIEW",
+    subtitle: "媒体会从本机 media 目录直接显示。",
+  }) : "";
+  const weflowWarning = hasToken && status.weflow_ok === false
+    ? `<div class="inline-warning">WeFlow 连接失败：${escapeHtml(status.weflow_error || "请检查 WeFlow 是否运行、组件是否过期（101）。")}<button class="text-button" type="button" data-love-action="settings-open">打开微信组件修复</button></div>`
+    : "";
+  const privacy = card("数据边界", `
+    <ul class="love-advice">
+      <li>微信原文只进 <code>02_微信聊天/chat.db</code>；不会写进恋爱记忆 Markdown。</li>
+      <li>WeFlow 组件过期会报 101；设置抽屉提供开源组件替换、备份与回滚。</li>
+      <li>同步失败不会删除已有聊天；换绑会先备份再清空。</li>
+    </ul>`, { eyebrow: "PRIVACY", subtitle: "只读你选中的一个单聊。" });
+  content.innerHTML = weflowWarning + setup + statusCard + calendarCard + dayCard + privacy;
+  bindChatForms();
+  if (love.chatLog && ["queued", "running"].includes(love.chatLog.status)) {
+    pollChatSync(love.chatLog.id);
+  }
+}
+
+function chatSyncLogMarkup(log) {
+  const labels = { queued: "排队中", running: "同步中", completed: "已完成", failed: "失败" };
+  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
+}
+
+function bindChatForms() {
+  $id("love-chat-token-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submit = form.querySelector('button[type="submit"]');
-    const maxDays = Math.max(1, Math.min(60, Number(form.elements.max_days?.value || node("love-batch-days")?.value || 10)));
-    await withBusy(submit, "生成中…", async () => {
-      const feedback = node("love-batch-feedback");
-      if (feedback) feedback.textContent = "正在逐日生成，可能需要几分钟…";
+    const port = Number(form.elements.port.value) || 5031;
+    const token = form.elements.token.value.trim();
+    await withBusy(submit, "测试连接…", async () => {
       try {
-        const result = await loveApi(projectQuery("/journal/generate-all"), {
-          method: "POST", body: JSON.stringify({ max_days: maxDays }), timeoutMs: 600000,
-        });
-        node("detail-dialog")?.close();
-        toast(result.message || "批量生成完成。", result.failed ? "warning" : "success");
+        await loveApi("/api/love/chat/settings", { method: "PUT", body: JSON.stringify({ port, token }), timeoutMs: 40000 });
+        form.elements.token.value = "";
+        toast("WeFlow 连接成功，Token 已加密保存。", "success");
+        love.chatSessions = null;
         await renderLovePage();
       } catch (error) {
+        const feedback = $id("love-chat-token-feedback");
         if (feedback) feedback.textContent = error.message;
-        toast(`批量生成失败：${error.message}`, "error");
+        toast(`连接失败：${error.message}`, "error");
+      }
+    });
+  });
+  $id("love-chat-search-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    await withBusy(button, "读取中…", async () => {
+      await loadChatSessions({ keyword: form.elements.keyword.value.trim() });
+      await renderLovePage();
+    });
+  });
+  $id("love-chat-bind-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = form.querySelector('button[type="submit"]');
+    const sessionId = form.elements.session_id.value;
+    const meSender = form.elements.me_sender.value.trim() || "我";
+    if (!sessionId) return;
+    await withBusy(submit, "绑定中…", async () => {
+      try {
+        const replace = Boolean(love.chatStatus?.contact?.session_id);
+        const result = await loveApi("/api/love/chat/bind", {
+          method: "POST",
+          body: JSON.stringify({ session_id: sessionId, me_sender: meSender, replace }),
+          timeoutMs: 60000,
+        });
+        love.chatDay = "";
+        love.chatLog = null;
+        love.chatRebinding = false;
+        toast(result.backup ? "已换绑；旧聊天已备份。" : "已绑定这个联系人。", "success");
+        await renderLovePage();
+      } catch (error) {
+        toast(`绑定失败：${error.message}`, "error");
       }
     });
   });
 }
 
-// ── 报告 ───────────────────────────────────────────────────────────
-
-async function renderReport(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = emptyBox("还没有项目", "先导入聊天记录，才能生成报告。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">导入聊天</button>');
-    return;
-  }
-  const latest = await loveApi(projectQuery("/analysis/latest"), { timeoutMs: 45000 });
-  if (love.page !== "report") return;
-  const hasAnalysis = latest?.status === "completed" && latest.result;
-  const previewUrl = `/api/love/projects/${encodeURIComponent(love.projectId)}/report/preview?v=${Date.now()}`;
-  const preview = love.lastReport
-    ? `<div class="love-report-actions">
-         <button class="button primary" type="button" data-love-action="report-download">下载 HTML</button>
-         <button class="button secondary" type="button" data-love-action="report-print">打印 / 另存为 PDF</button>
-         <button class="button secondary" type="button" data-love-action="report-generate">重新生成</button>
-       </div>
-       <iframe id="love-report-frame" class="love-report-frame" title="恋爱分析报告预览" sandbox="allow-same-origin" src="${escapeHtml(previewUrl)}"></iframe>`
-    : `<div class="love-report-cta">
-         <div><strong>生成一份可打印的本地报告</strong>
-         <p>包含数据概览、${hasAnalysis ? "最新一次 AI 分析" : "画像与基础统计"}，不包含原始聊天内容。HTML 文件可以直接保存，或打印成 PDF。</p></div>
-         <button class="button primary" type="button" data-love-action="report-generate">生成报告</button>
-       </div>`;
-  content.innerHTML = `${card("恋爱分析报告", `
-    <div class="love-report-meta">
-      <span class="love-badge ${hasAnalysis ? "ok" : "warn"}">${hasAnalysis ? "包含最新 AI 分析" : "还没有完成的 AI 分析"}</span>
-      <span class="meta">${hasAnalysis ? `分析于 ${formatDateTime(latest.completed_at)}` : "可以先运行一次 AI 深度分析，报告会更完整。"}</span>
-    </div>
-    ${!hasAnalysis ? '<p class="field-help">报告仍会生成，只是 AI 分析部分为空。AI 分析需要先在设置里配置 API Key。</p>' : ""}
-    ${preview}
-    <p class="field-help">报告只在本机浏览器里生成与预览；下载的 HTML 内联全部样式，不依赖网络。</p>
-  `, {
-    eyebrow: "REPORT",
-    subtitle: "把统计、AI 结论与画像整理成一页，适合自己留档或打印。",
-  })}`;
-}
-
-async function generateReport(button) {
-  await withBusy(button, "生成中…", async () => {
+async function startChatSync(mode, button) {
+  const full = Boolean($id("love-chat-full")?.checked);
+  if (mode === "apply" && !love.chatStatus?.contact?.session_id) return;
+  await withBusy(button, mode === "preview" ? "正在预览…" : "正在同步…", async () => {
     try {
-      const result = await loveApi(projectQuery("/report"), { method: "POST", timeoutMs: 60000 });
-      love.lastReport = { html: result.html || "", name: result.project_name || "恋爱分析报告" };
-      toast("报告已生成。", "success");
-      await renderLovePage();
+      const log = await loveApi("/api/love/chat/sync", {
+        method: "POST",
+        body: JSON.stringify({ mode, full }),
+        timeoutMs: 60000,
+      });
+      love.chatLog = { ...log, fetched: 0, inserted: 0, duplicates: 0, matched: 0, warnings: [] };
+      const target = $id("love-chat-sync-status");
+      if (target) target.innerHTML = chatSyncLogMarkup(love.chatLog);
+      pollChatSync(log.log_id);
     } catch (error) {
-      toast(`生成失败：${error.message}`, "error");
+      toast(`同步启动失败：${error.message}`, "error");
     }
   });
 }
 
-function downloadReport() {
-  if (!love.lastReport?.html) return;
-  const blob = new Blob([love.lastReport.html], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${(love.lastReport.name || "恋爱分析报告").replace(/[\\/:*?"<>|]+/g, "_")}.html`;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function printReport() {
-  if (!love.lastReport?.html) return;
-  // 打印视图由后端单独出文档（自带内联样式的窄 CSP），避免把报告塞进工作台
-  // 的严格 CSP；同一来源，浏览器允许在 load 后调用 print()。
-  const url = `/api/love/projects/${encodeURIComponent(love.projectId)}/report/preview?v=${Date.now()}`;
-  const win = window.open(url, "_blank");
-  if (!win) {
-    toast("浏览器拦截了新窗口，请改用「下载 HTML」。", "warning");
-    return;
-  }
-  const trigger = () => {
-    try { win.focus(); win.print(); } catch { /* 用户仍可手动打印 */ }
+function pollChatSync(logId) {
+  stopChatPoll();
+  const tick = async () => {
+    if (love.page !== "chat") {
+      love.chatPoll = 0;
+      return;
+    }
+    try {
+      const log = await loveApi(`/api/love/chat/sync/${logId}`, { timeoutMs: 20000 });
+      love.chatLog = log;
+      const target = $id("love-chat-sync-status");
+      if (target) target.innerHTML = chatSyncLogMarkup(log);
+      if (["completed", "failed"].includes(log.status)) {
+        love.chatPoll = 0;
+        toast(log.status === "completed" ? "微信聊天同步完成。" : "微信聊天同步失败，请查看原因。", log.status === "completed" ? "success" : "error");
+        if (log.status === "completed") await renderLovePage();
+        return;
+      }
+    } catch {
+      // 网络抖动继续轮询
+    }
+    love.chatPoll = window.setTimeout(tick, 1800);
   };
-  try {
-    if (win.document?.readyState === "complete") trigger();
-    else win.addEventListener("load", trigger, { once: true });
-  } catch { /* ignore */ }
-  // 某些浏览器在 window.open 返回前就完成 load；补一次延时兜底。
-  window.setTimeout(() => {
-    try { if (!win.closed && win.document?.readyState === "complete") win.focus(); } catch { /* ignore */ }
-  }, 900);
+  love.chatPoll = window.setTimeout(tick, 1000);
 }
 
-// ── 值班日历 ─────────────────────────────────────────────────────────
+// ── 排班日历 ───────────────────────────────────────────────────────
 
-function currentMonth() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit",
-  }).format(new Date()).slice(0, 7);
+function scheduleMonthValue() {
+  const stored = /^\d{4}-\d{2}$/.test(String(readStorage(MONTH_KEY) || "")) ? readStorage(MONTH_KEY) : "";
+  return /^\d{4}-\d{2}$/.test(String(love.scheduleMonth || "")) ? love.scheduleMonth : (stored || currentMonthText());
 }
 
-function validMonth(value) {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || "")) ? String(value) : "";
-}
-
-function shiftMonth(month, delta) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
-  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(month) {
-  const [year, monthNumber] = month.split("-");
-  return `${year}年${Number(monthNumber)}月`;
-}
-
-/** 周一开头：返回本月 1 号前面要补几个空格。 */
-function monthLeadingBlanks(month) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const weekday = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
-  return (weekday + 6) % 7;
-}
-
-function scheduleToolbar(month) {
-  return `<div class="love-schedule-toolbar">
-    <div class="love-month-nav">
-      <button class="small-button" type="button" data-love-action="schedule-month" data-value="-1" aria-label="上个月">‹</button>
-      <strong>${monthLabel(month)}</strong>
-      <button class="small-button" type="button" data-love-action="schedule-month" data-value="1" aria-label="下个月">›</button>
-      <button class="text-button" type="button" data-love-action="schedule-today">今天</button>
-    </div>
-    <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden />
-    <button class="small-button" type="button" data-love-action="schedule-upload">导入排班表</button>
-  </div>`;
+function scheduleDayLabel(day) {
+  if (day.override) return "手动";
+  if (!day.in_range) return "不在表内";
+  return day.rest ? "休息" : "上班";
 }
 
 async function renderSchedule(content) {
-  const stored = validMonth(readStorage("torch-os:love-schedule-month"));
-  const month = validMonth(love.scheduleMonth) || stored || currentMonth();
+  const month = scheduleMonthValue();
   love.scheduleMonth = month;
-  writeStorage("torch-os:love-schedule-month", month);
+  writeStorage(MONTH_KEY, month);
   const [status, data] = await Promise.all([
     loveApi("/api/love/schedule/status", { timeoutMs: 20000 }),
     loveApi(`/api/love/schedule/month?month=${encodeURIComponent(month)}`, { timeoutMs: 30000 }),
   ]);
-  if (love.page !== "schedule") return;
-  love.scheduleData = data?.found ? data : null;
-  const toolbar = scheduleToolbar(month);
-
+  love.scheduleData = data;
   if (!data.found) {
-    content.innerHTML = card("值班日历", `
-      ${toolbar}
-      <div class="state-message error-state love-schedule-missing">
-        <strong>${escapeHtml(data.error || "还没有排班表")}</strong>
-        <p>把 .xlsx 排班表放进 <code>${escapeHtml(status.excel_dir || ".torch-os/love/xlsx")}</code>，或点「导入排班表」。</p>
+    content.innerHTML = card("排班日历", `
+      <div class="love-schedule-toolbar">
+        <div class="love-month-nav"><button class="small-button" type="button" data-love-action="schedule-month" data-value="-1">‹</button><strong>${monthLabel(month)}</strong><button class="small-button" type="button" data-love-action="schedule-month" data-value="1">›</button><button class="text-button" type="button" data-love-action="schedule-today">今天</button></div>
+        <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden /><button class="small-button" type="button" data-love-action="schedule-upload">导入排班表</button>
       </div>
-    `, { eyebrow: "SCHEDULE", subtitle: "从排班表读取上班/休息和当天值乘车次；点日期可补备注。" });
+      <div class="state-message error-state"><strong>${escapeHtml(data.error || "还没有排班表")}</strong><p>把 .xlsx 排班表放进 <code>03_排班日历/xlsx/</code>，或点「导入排班表」。也可以直接点日期手动覆盖。</p></div>
+    `, { eyebrow: "SCHEDULE", subtitle: "手动覆盖与 Excel 底表分开保存。" });
     bindScheduleFile();
     return;
   }
-
   const cells = [];
-  for (let index = 0; index < monthLeadingBlanks(month); index += 1) {
-    cells.push('<span class="love-day-cell is-empty" aria-hidden="true"></span>');
-  }
-  for (const day of data.days) {
-    const state = day.in_range ? (day.rest ? "休息" : "上班") : "—";
+  for (let index = 0; index < monthLeadingBlanks(month); index += 1) cells.push('<span class="love-day-cell is-empty" aria-hidden="true"></span>');
+  for (const day of data.days || []) {
     const duty = String(day.duty || "").replace(/\s+/g, " ").trim();
     const note = String(day.note || "").replace(/\s+/g, " ").trim();
-    // 用户备注优先；没有用户备注时，直接显示排班表里的当天值乘车次。
-    const parts = [];
-    if (duty) parts.push(duty);
-    if (note) {
-      const extra = duty && note.startsWith(duty)
-        ? note.slice(duty.length).replace(/^[\s·,，;；/]+/, "").trim()
-        : note;
-      if (extra && extra !== duty) parts.push(extra);
-    }
-    const display = parts.join(" · ");
+    const parts = [duty, note].filter(Boolean);
     const classes = ["love-day-cell"];
-    classes.push(day.in_range ? (day.rest ? "is-rest" : "is-work") : "is-out");
+    if (day.in_range) classes.push(day.rest ? "is-rest" : "is-work");
+    else classes.push("is-out");
+    if (day.override) classes.push("is-override");
     if (day.date === data.today) classes.push("is-today");
-    const label = `${day.date} ${state}${duty ? `，值乘：${duty}` : ""}${note && note !== duty ? `，备注：${note}` : ""}`;
-    cells.push(`<button type="button" class="${classes.join(" ")}" data-love-action="schedule-note"
-      data-date="${day.date}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
+    const label = `${day.date} ${scheduleDayLabel(day)}${duty ? `，值乘：${duty}` : ""}${note ? `，备注：${note}` : ""}`;
+    cells.push(`<button type="button" class="${classes.join(" ")}" data-love-action="schedule-day" data-date="${day.date}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">
       <span class="love-day-num">${Number(day.date.slice(8))}</span>
-      <span class="love-day-state">${state}</span>
-      ${display ? `<span class="love-day-note">${escapeHtml(display)}</span>` : ""}
+      <span class="love-day-state">${scheduleDayLabel(day)}</span>
+      ${parts.length ? `<span class="love-day-note">${escapeHtml(parts.join(" · "))}</span>` : ""}
     </button>`);
   }
-  const inRange = data.days.filter((day) => day.in_range).length;
-  const range = data.range || status.date_range;
-  content.innerHTML = card("值班日历", `
-    ${toolbar}
-    ${inRange ? "" : `<p class="inline-warning">本月不在当前排班表范围内${range ? `（覆盖 ${escapeHtml(range.start)} ~ ${escapeHtml(range.end)}）` : ""}。</p>`}
+  content.innerHTML = card("排班日历", `
+    <div class="love-schedule-toolbar">
+      <div class="love-month-nav"><button class="small-button" type="button" data-love-action="schedule-month" data-value="-1">‹</button><strong>${monthLabel(month)}</strong><button class="small-button" type="button" data-love-action="schedule-month" data-value="1">›</button><button class="text-button" type="button" data-love-action="schedule-today">今天</button></div>
+      <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden /><button class="small-button" type="button" data-love-action="schedule-upload">导入排班表</button>
+    </div>
     <div class="love-calendar-wrap">
-      <div class="love-calendar-weekdays" aria-hidden="true">
-        ${["一", "二", "三", "四", "五", "六", "日"].map((name) => `<span>${name}</span>`).join("")}
-      </div>
+      <div class="love-calendar-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map((name) => `<span>${name}</span>`).join("")}</div>
       <div class="love-calendar-grid">${cells.join("")}</div>
     </div>
-    <div class="love-calendar-legend" aria-hidden="true">
-      <span><i class="is-work"></i>上班</span>
-      <span><i class="is-rest"></i>休息</span>
-      <span><i class="is-out"></i>不在表内</span>
-    </div>
-    <p class="field-help">点任意一天写备注；备注只保存在当前个人数据库的 <code>.torch-os/love/</code>。${range ? `当前排班表覆盖 ${escapeHtml(range.start)} ~ ${escapeHtml(range.end)}。` : ""}</p>
-  `, { eyebrow: "SCHEDULE", subtitle: "上班/休息与排班表里的值乘车次会直接显示；点日期可补交接事项。" });
+    <div class="love-calendar-legend" aria-hidden="true"><span><i class="is-work"></i>上班</span><span><i class="is-rest"></i>休息</span><span><i class="is-override"></i>手动覆盖</span><span><i class="is-out"></i>不在表内</span></div>
+    <p class="field-help">点任意一天：可覆盖上班/休息、值乘车次与备注；Excel 仍是底表，覆盖可随时撤销。</p>
+  `, { eyebrow: "SCHEDULE", subtitle: `${data.manual_only ? "当前只有手动排班" : `Excel 覆盖 ${escapeHtml(data.range?.start || "—")} ~ ${escapeHtml(data.range?.end || "—")}`}。` });
   bindScheduleFile();
 }
 
 function bindScheduleFile() {
-  const input = node("love-schedule-file");
+  const input = $id("love-schedule-file");
   if (!input || input.dataset.bound) return;
   input.dataset.bound = "1";
   input.addEventListener("change", async () => {
@@ -1627,9 +909,7 @@ function bindScheduleFile() {
     form.append("file", file);
     try {
       toast("正在导入排班表…", "info");
-      const result = await loveApi("/api/love/schedule/excel", {
-        method: "POST", body: form, timeoutMs: 120000,
-      });
+      const result = await loveApi("/api/love/schedule/excel", { method: "POST", body: form, timeoutMs: 120000 });
       toast(result.message || "排班表已更新。", "success");
       await renderLovePage();
     } catch (error) {
@@ -1638,746 +918,54 @@ function bindScheduleFile() {
   });
 }
 
-function openScheduleNote(day) {
-  const state = day.in_range ? (day.rest ? "休息" : "上班") : "这一天不在排班表范围内";
-  const duty = String(day.duty || "").replace(/\s+/g, " ").trim();
-  const dutyHint = duty ? `，当天值乘 ${duty}` : "";
-  const initial = day.note || duty;
-  openDialog(`${day.date} 值班备注`, `
-    <form id="love-schedule-note-form" class="love-dialog-form">
-      <p class="field-help">${escapeHtml(state)}${escapeHtml(dutyHint)}。车次来自排班表；备注只保存在当前个人数据库，可以补交接事项。</p>
-      <div class="field"><label for="love-schedule-note">备注</label>
-        <textarea id="love-schedule-note" rows="4" maxlength="500" placeholder="例如：G1 / G2，下午交接…">${escapeHtml(initial)}</textarea>
+function openScheduleDay(day) {
+  const baseDuty = String(day.duty || "").trim();
+  const state = day.override ? "已手动覆盖" : (day.in_range ? (day.rest ? "休息" : "上班") : "不在排班表范围内");
+  openDialog(`${day.date} 排班`, `
+    <form id="love-schedule-day-form" class="love-dialog-form">
+      <p class="field-help">${escapeHtml(state)}。Excel 原值：${escapeHtml(day.excel_work ? "上班" : day.excel_rest ? "休息" : "—")}${day.excel_duty ? ` · ${escapeHtml(day.excel_duty)}` : ""}。</p>
+      <div class="form-grid">
+        <div class="field"><label for="love-schedule-status">状态</label><select id="love-schedule-status" name="status"><option value="follow" ${!day.override ? "selected" : ""}>跟随排班表</option><option value="work" ${day.override && day.work ? "selected" : ""}>上班</option><option value="rest" ${day.override && day.rest ? "selected" : ""}>休息</option></select></div>
+        <div class="field"><label for="love-schedule-duty">值乘车次</label><input id="love-schedule-duty" name="duty" maxlength="500" value="${escapeHtml(day.override && day.duty !== undefined ? day.duty : baseDuty)}" placeholder="例如 G1234；留空表示没有车次" /></div>
       </div>
-      <div class="love-inline-actions">
-        <button type="button" class="button secondary" id="love-schedule-note-cancel">取消</button>
-        <button type="submit" class="button primary">保存备注</button>
-      </div>
-      <span id="love-schedule-note-feedback" class="status-message" role="status"></span>
-    </form>
-  `);
-  node("love-schedule-note-cancel")?.addEventListener("click", () => node("detail-dialog")?.close());
-  node("love-schedule-note-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const note = String(node("love-schedule-note")?.value || "");
-    const feedback = node("love-schedule-note-feedback");
-    if (feedback) feedback.textContent = "正在保存…";
+      <div class="field"><label for="love-schedule-note">备注</label><textarea id="love-schedule-note" name="note" rows="4" maxlength="500" placeholder="交接事项、临时调整…">${escapeHtml(day.note || "")}</textarea></div>
+      <div class="form-actions"><span id="love-schedule-feedback" class="status-message" role="status"></span><div class="love-inline-actions"><button class="button secondary" type="button" id="love-schedule-cancel">取消</button>${day.override ? '<button class="text-button" type="button" id="love-schedule-clear">恢复跟随排班表</button>' : ""}<button class="button primary" type="submit">保存</button></div></div>
+    </form>`);
+  $id("love-schedule-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
+  $id("love-schedule-clear")?.addEventListener("click", async () => {
     try {
-      await loveApi("/api/love/schedule/note", jsonBody("PUT", { date: day.date, note }));
-      node("detail-dialog")?.close();
-      toast("备注已保存。", "success");
+      await loveApi(`/api/love/schedule/override?date=${encodeURIComponent(day.date)}`, { method: "DELETE", timeoutMs: 20000 });
+      $id("detail-dialog")?.close();
+      toast("已恢复跟随 Excel。", "success");
       await renderLovePage();
     } catch (error) {
-      if (feedback) {
-        feedback.textContent = `保存失败：${error.message}`;
-        feedback.className = "status-message error";
-      }
+      toast(`操作失败：${error.message}`, "error");
     }
   });
-}
-
-// ── 微信同步（WeFlow 本地 API）──────────────────────────────────────
-
-const WECHAT_SYNC_LABELS = {
-  queued: "排队中", running: "同步中", completed: "已完成", failed: "失败",
-};
-
-function formatEpoch(value) {
-  const seconds = Number(value);
-  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
-  return formatDateTime(new Date(seconds * 1000).toISOString());
-}
-
-function wechatSessionOptions() {
-  const sessions = Array.isArray(love.wechatSessions) ? love.wechatSessions : [];
-  const current = love.wechatSelectedSession || love.wechatSource?.session_id || "";
-  const options = [];
-  if (current && love.wechatSource && !sessions.some((item) => item.id === current)) {
-    options.push(`<option value="${escapeHtml(current)}" selected>${escapeHtml(love.wechatSource.contact_name || "已绑定联系人")}（已绑定）</option>`);
-  }
-  if (!sessions.length) {
-    if (!options.length) options.push('<option value="">还没有读取到联系人</option>');
-    return options.join("");
-  }
-  for (const item of sessions) {
-    const selected = item.id === current ? " selected" : "";
-    const count = item.message_count == null ? "" : ` · ${formatInt(item.message_count)} 条`;
-    options.push(`<option value="${escapeHtml(item.id)}"${selected}>${escapeHtml(item.name)}${count}</option>`);
-  }
-  return options.join("");
-}
-
-function wechatMeOptions(project) {
-  const current = love.wechatSource?.me_sender || project.partner_a || "";
-  return [project.partner_a, project.partner_b]
-    .filter(Boolean)
-    .map((name) => `<option value="${escapeHtml(name)}"${name === current ? " selected" : ""}>${escapeHtml(name)}</option>`)
-    .join("");
-}
-
-async function loadWechatSessions({ keyword = "", silent = false } = {}) {
-  if (love.wechatSessionsLoading) return;
-  love.wechatSessionsLoading = true;
-  try {
-    const suffix = keyword ? `?keyword=${encodeURIComponent(keyword)}` : "";
-    const data = await loveApi(`/api/love/weflow/sessions${suffix}`, { timeoutMs: 60000 });
-    love.wechatSessions = Array.isArray(data.sessions) ? data.sessions : [];
-    love.wechatSessionsError = "";
-    if (!silent) toast(`读取到 ${love.wechatSessions.length} 个单聊联系人。`, "success");
-  } catch (error) {
-    love.wechatSessions = [];
-    love.wechatSessionsError = error.message;
-    if (!silent) toast(`读取联系人失败：${error.message}`, "error");
-  } finally {
-    love.wechatSessionsLoading = false;
-  }
-}
-
-function renderWechatSyncResult() {
-  const target = node("love-weflow-sync-result");
-  if (!target) return;
-  const log = love.wechatSyncLog;
-  if (!log) {
-    target.innerHTML = '<p class="field-help">还没有运行同步。建议先「预览同步」，确认数量后再写入。</p>';
-    return;
-  }
-  const label = WECHAT_SYNC_LABELS[log.status] || log.status || "—";
-  const tone = log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn";
-  const finished = log.finished_at ? ` → ${formatDateTime(log.finished_at)}` : "";
-  target.innerHTML = `
-    <div class="love-sync-result-head">
-      <span class="love-badge ${tone}">${escapeHtml(String(label))}</span>
-      <span class="meta">${log.mode === "apply" ? "写入" : "预览"} · ${formatDateTime(log.started_at)}${finished}</span>
-    </div>
-    <dl class="love-facts">
-      <div><dt>读取</dt><dd>${formatInt(log.fetched)} 条</dd></div>
-      <div><dt>新增</dt><dd>${formatInt(log.inserted)} 条</dd></div>
-      <div><dt>匹配旧消息</dt><dd>${formatInt(log.matched)} 条</dd></div>
-      <div><dt>重复跳过</dt><dd>${formatInt(log.duplicates)} 条</dd></div>
-      <div><dt>需人工确认</dt><dd>${formatInt(log.ambiguous)} 条</dd></div>
-    </dl>
-    ${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}
-    ${log.status === "running" || log.status === "queued" ? '<p class="field-help">正在按页读取并合并；可以留在这个页面看进度。</p>' : ""}
-    ${Number(log.ambiguous) > 0 ? '<p class="inline-warning">有消息同时匹配到多条旧记录，已跳过、没有自动写入，避免张冠李戴。</p>' : ""}
-  `;
-}
-
-function pollWechatSync(logId, mode) {
-  stopWechatPoll();
-  const tick = async () => {
-    if (love.page !== "wechat") return;
-    try {
-      const log = await loveApi(`/api/love/weflow/sync/${encodeURIComponent(logId)}`, { timeoutMs: 20000 });
-      love.wechatSyncLog = log;
-      renderWechatSyncResult();
-      if (log.status === "queued" || log.status === "running") {
-        love.wechatSyncPoll = window.setTimeout(tick, 1200);
-        return;
-      }
-      if (log.status === "failed") {
-        if (mode === "preview") love.wechatPreviewSince = null;
-        toast(`同步失败：${log.error || "未知错误"}`, "error");
-        return;
-      }
-      if (mode === "preview") {
-        toast(`预览完成：新增 ${formatInt(log.inserted)} 条，匹配旧消息 ${formatInt(log.matched)} 条。`, "success");
-        return;
-      }
-      love.wechatPreviewSince = null;
-      toast(`同步完成：新增 ${formatInt(log.inserted)} 条，匹配 ${formatInt(log.matched)} 条。`, "success");
-      await reloadLove({ quiet: true });
-    } catch (error) {
-      toast(`读取同步进度失败：${error.message}`, "error");
-    }
-  };
-  tick();
-}
-
-async function renderWechat(content) {
-  const project = currentProject();
-  try {
-    love.wechatStatus = await loveApi("/api/love/weflow/status", { timeoutMs: 20000 });
-  } catch (error) {
-    love.wechatStatus = {
-      token_configured: false, port: 5031, last_sync_at: null, error: error.message,
-    };
-  }
-  const status = love.wechatStatus || {};
-  if (project) {
-    try {
-      const data = await loveApi(
-        `/api/love/weflow/project?project_id=${encodeURIComponent(project.id)}`,
-        { timeoutMs: 20000 },
-      );
-      love.wechatSource = data.source?.session_id ? data.source : null;
-    } catch {
-      love.wechatSource = null;
-    }
-  } else {
-    love.wechatSource = null;
-  }
-  if (status.token_configured && love.wechatSessions === null) {
-    await loadWechatSessions({ silent: true });
-  }
-  if (love.page !== "wechat") return;
-
-  const source = love.wechatSource;
-  const sessions = Array.isArray(love.wechatSessions) ? love.wechatSessions : [];
-  const tokenBadge = status.token_configured
-    ? '<span class="love-badge ok">已配置，加密存储</span>'
-    : '<span class="love-badge error">未配置</span>';
-  const sourceFacts = source ? `
-    <dl class="love-facts">
-      <div><dt>联系人</dt><dd>${escapeHtml(source.contact_name || source.session_id || "—")}</dd></div>
-      <div><dt>角色映射</dt><dd>我 = ${escapeHtml(source.me_sender || "—")} · 对象 = ${escapeHtml(source.partner_sender || "—")}</dd></div>
-      <div><dt>上次同步</dt><dd>${source.last_sync_at ? formatDateTime(source.last_sync_at) : "还没有同步"}</dd></div>
-      <div><dt>增量位置</dt><dd>${source.watermark ? formatEpoch(source.watermark) : "从最早消息开始"}</dd></div>
-    </dl>` : '<p class="field-help">还没有绑定微信单聊。先在下面读取联系人，再选择你和对象的那个单聊。</p>';
-
-  const settingsCard = card("连接 WeFlow", `
-    <dl class="love-facts">
-      <div><dt>本地服务</dt><dd><code>http://127.0.0.1:${escapeHtml(String(status.port || 5031))}</code></dd></div>
-      <div><dt>Access Token</dt><dd>${tokenBadge}</dd></div>
-      <div><dt>微信</dt><dd>WeFlow 负责读取本机已登录的微信；torch 不保存微信密码</dd></div>
-    </dl>
-    ${status.error ? `<p class="inline-error">${escapeHtml(status.error)}</p>` : ""}
-    <form id="love-weflow-form" class="love-key-form">
-      <div class="form-grid">
-        <div class="field"><label for="love-weflow-port">WeFlow API 端口</label>
-          <input id="love-weflow-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(status.port || 5031))}" required /></div>
-        <div class="field"><label for="love-weflow-token">${status.token_configured ? "替换 Access Token（可留空）" : "Access Token"}</label>
-          <input id="love-weflow-token" name="token" type="password" autocomplete="off" maxlength="300" placeholder="${status.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow → 设置 → API 服务里的 Token"}" /></div>
-      </div>
-      <div class="love-inline-actions">
-        <button class="button primary" type="submit">保存并测试连接</button>
-        <button class="button secondary" type="button" data-love-action="weflow-sessions">读取联系人</button>
-        ${status.token_configured ? '<button class="button secondary" type="button" data-love-action="weflow-clear-token">清除 Token</button>' : ""}
-      </div>
-      <span id="love-weflow-feedback" class="status-message" role="status"></span>
-      <p class="field-help">只访问 127.0.0.1，不连外网；Token 加密保存在 <code>.torch-os/love/</code>，不会回显，也不会写进日志。首次使用前请在 WeFlow 里开启 API 服务。</p>
-    </form>
-  `, { eyebrow: "WEFLOW", subtitle: "WeFlow 只负责从本机微信取数；torch 只读取你选中的一个单聊。" });
-
-  const searchForm = `
-    <form id="love-weflow-search-form" class="love-key-form">
-      <div class="field"><label for="love-weflow-keyword">搜索联系人</label>
-        <input id="love-weflow-keyword" name="keyword" type="search" maxlength="100" placeholder="输入微信备注名或昵称；留空列出最近会话" /></div>
-      <div class="love-inline-actions">
-        <button class="button secondary" type="submit">搜索</button>
-        <span class="field-help">${love.wechatSessionsLoading ? "正在读取…" : `已读取 ${sessions.length} 个单聊`}</span>
-      </div>
-    </form>`;
-  const sessionError = love.wechatSessionsError
-    ? `<p class="inline-error">${escapeHtml(love.wechatSessionsError)}</p>` : "";
-  const emptySessions = '<p class="field-help">还没有读取到联系人。确认 WeFlow 和微信都在运行后，点「读取联系人」。</p>';
-  let sessionCard;
-  if (!project) {
-    const createForm = sessions.length ? `<form id="love-weflow-create-form" class="love-key-form">
-      <div class="form-grid">
-        <div class="field"><label for="love-weflow-create-session">要同步的单聊</label>
-          <select id="love-weflow-create-session" name="session_id">${wechatSessionOptions()}</select></div>
-        <div class="field"><label for="love-weflow-create-me">你在项目里的称呼</label>
-          <input id="love-weflow-create-me" name="me_sender" type="text" maxlength="100" value="我" /></div>
-      </div>
-      <div class="love-inline-actions"><button class="button primary" type="submit">新建项目并绑定</button></div>
-      <p class="field-help">只会读取这一个单聊；新建后可以预览，再写入聊天数据库。</p>
-    </form>` : emptySessions;
-    sessionCard = card("用微信新建项目", `
-      <p class="field-help">当前还没有聊天项目。可以直接用下面这个单聊新建一个；之后也可以在「导入聊天」里继续合并其他记录。</p>
-      ${searchForm}
-      ${sessionError}
-      ${createForm}
-    `, { eyebrow: "WECHAT CONTACT", subtitle: "还没有项目时，从微信单聊开始。" });
-  } else {
-    sessionCard = card("选择单聊", `
-      ${searchForm}
-      ${sessionError}
-      ${sessions.length ? `<form id="love-weflow-connect-form" class="love-key-form">
-        <div class="form-grid">
-          <div class="field"><label for="love-weflow-session">要同步的单聊</label>
-            <select id="love-weflow-session" name="session_id">${wechatSessionOptions()}</select></div>
-          <div class="field"><label for="love-weflow-me">项目里哪个人是你？</label>
-            <select id="love-weflow-me" name="me_sender">${wechatMeOptions(project)}</select></div>
-        </div>
-        <div class="love-inline-actions"><button class="button primary" type="submit">绑定这个单聊</button></div>
-        <p class="field-help">只会拉取这一个单聊；群聊、公众号和其他聊天不会被读取。绑定后，torch 会把「你」映射成项目的用户A，把对方映射成用户B，方便现有 AI 分析继续使用。</p>
-      </form>` : emptySessions}
-      <hr class="love-divider" />
-      ${sourceFacts}
-      ${source ? '<div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="weflow-unbind">解除绑定</button></div>' : ""}
-    `, { eyebrow: "WECHAT CONTACT", subtitle: "只选一个单聊；不会同步群聊或其他人。" });
-  }
-
-  const syncCard = source ? card("同步聊天", `
-    <p class="field-help">按平台消息 ID、内容哈希和 ±2 分钟模糊匹配合并进现有项目；重复消息不会重复写入。每次「写入数据库」前都会先备份恋爱数据库。</p>
-    <label class="check-label"><input id="love-weflow-full" type="checkbox" /> 从最早的消息重新扫描（平时不用勾）</label>
-    <div class="love-inline-actions">
-      <button class="button secondary" type="button" data-love-action="weflow-preview">预览同步</button>
-      <button class="button primary" type="button" data-love-action="weflow-apply">写入数据库</button>
-    </div>
-    <div id="love-weflow-sync-result" class="love-sync-result"></div>
-  `, { eyebrow: "WEFLOW SYNC", subtitle: "先预览，再写入；原文只进恋爱数据库。" }) : "";
-
-  const filePreview = love.wechatFilePreview;
-  const defaultFileMe = project && (filePreview?.senders || []).includes(project.partner_a)
-    ? project.partner_a
-    : (filePreview?.senders || [])[0] || "";
-  const filePreviewHtml = filePreview ? `
-    <dl class="love-facts">
-      <div><dt>文件</dt><dd>${escapeHtml(filePreview.file_name || "—")}</dd></div>
-      <div><dt>消息</dt><dd>${formatInt(filePreview.message_count)} 条</dd></div>
-      <div><dt>日期</dt><dd>${formatDateTime(filePreview.date_range_start)} 至 ${formatDateTime(filePreview.date_range_end)}</dd></div>
-    </dl>
-    <form id="love-weflow-file-confirm-form" class="love-key-form">
-      <div class="field"><label for="love-weflow-file-me">文件里哪个人是你？</label>
-        <select id="love-weflow-file-me" name="me_sender">
-          ${(filePreview.senders || []).map((name) => `<option value="${escapeHtml(name)}"${name === defaultFileMe ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}
-        </select></div>
-      <div class="love-inline-actions"><button class="button primary" type="submit">合并进当前项目</button></div>
-      <p class="field-help">请核对哪一项是你自己的微信昵称；选错会把双方消息对调。只合并进当前项目，不会改绑 WeFlow；重复消息仍按平台消息 ID、内容哈希和模糊匹配跳过。</p>
-    </form>` : "";
-  const fileCard = project ? card("兜底：导入 ChatLab 文件", `
-    <form id="love-weflow-file-form" class="love-key-form">
-      <div class="field"><label for="love-weflow-file">WeFlow 导出的 ChatLab 文件（.json / .jsonl）</label>
-        <input id="love-weflow-file" name="file" type="file" accept=".json,.jsonl,application/json" /></div>
-      <div class="love-inline-actions"><button class="button secondary" type="submit">读取文件</button></div>
-      <p class="field-help">WeFlow API 暂时不可用时用这个兜底；文件只在本机解析。只支持两位发送者的单聊，群聊会被拒绝。</p>
-    </form>
-    ${filePreviewHtml}
-  `, { eyebrow: "CHATLAB FILE", subtitle: "同样只合并消息，不写四库。" }) : "";
-
-  const privacyCard = card("数据边界", `
-    <ul class="love-advice">
-      <li>微信原文只保存在 <code>.torch-os/love/</code> 的恋爱数据库；不会写进四库。</li>
-      <li>AI 只拿脱敏后的当天记录；每日记忆必须由你确认后才写入 <code>02_生活运营/05_情感与记忆</code>。</li>
-      <li>关闭 WeFlow 或清除 Token 后，torch 不会主动读取微信。</li>
-    </ul>
-    <div class="love-inline-actions">
-      <button class="button secondary" type="button" data-love-action="goto" data-page="memory">去每日记忆</button>
-    </div>
-  `, { eyebrow: "PRIVACY", subtitle: "只同步一个单聊，原文与四库分开。" });
-
-  content.innerHTML = settingsCard + sessionCard + syncCard + fileCard + privacyCard;
-  renderWechatSyncResult();
-
-  node("love-weflow-form")?.addEventListener("submit", async (event) => {
+  $id("love-schedule-day-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submit = form.querySelector('button[type="submit"]');
-    const token = form.elements.token.value.trim();
-    const port = Number(form.elements.port.value) || 5031;
-    await withBusy(submit, "测试连接…", async () => {
+    const status = form.elements.status.value;
+    const duty = form.elements.duty.value.trim();
+    const note = form.elements.note.value;
+    await withBusy(submit, "保存中…", async () => {
       try {
-        const next = await loveApi("/api/love/weflow/settings", {
-          method: "PUT", body: JSON.stringify({ token, port }), timeoutMs: 40000,
+        await loveApi("/api/love/schedule/override", {
+          method: "PUT",
+          body: JSON.stringify({ date: day.date, status, duty: duty || null }),
+          timeoutMs: 20000,
         });
-        love.wechatStatus = next;
-        love.wechatSessions = null;
-        love.wechatSessionsError = "";
-        form.elements.token.value = "";
-        toast(token
-          ? "WeFlow 连接成功，Token 已加密保存。"
-          : next.token_configured
-            ? "端口已保存；Token 保持原样。"
-            : "端口已保存；还没有配置 Token。", "success");
+        await loveApi("/api/love/schedule/note", {
+          method: "PUT",
+          body: JSON.stringify({ date: day.date, note }),
+          timeoutMs: 20000,
+        });
+        $id("detail-dialog")?.close();
+        toast("排班已更新。", "success");
         await renderLovePage();
       } catch (error) {
-        const feedback = node("love-weflow-feedback");
-        if (feedback) feedback.textContent = error.message;
-        toast(`连接失败：${error.message}`, "error");
-      }
-    });
-  });
-
-  node("love-weflow-search-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    await withBusy(button, "读取中…", async () => {
-      await loadWechatSessions({ keyword: form.elements.keyword.value.trim() });
-      await renderLovePage();
-    });
-  });
-
-  node("love-weflow-connect-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    const sessionId = form.elements.session_id.value;
-    const meSender = form.elements.me_sender.value;
-    if (!sessionId) {
-      toast("请先选择一个单聊。", "warning");
-      return;
-    }
-    await withBusy(button, "绑定中…", async () => {
-      try {
-        const result = await loveApi("/api/love/weflow/connect", {
-          method: "POST",
-          body: JSON.stringify({
-            project_id: love.projectId, session_id: sessionId, me_sender: meSender,
-          }),
-          timeoutMs: 60000,
-        });
-        love.wechatSource = result.source || null;
-        love.wechatSelectedSession = sessionId;
-        love.wechatSyncLog = null;
-        love.wechatPreviewSince = null;
-        toast(result.swapped
-          ? "已绑定，并把项目里的「我 / 对象」顺序调整为 AI 分析约定。"
-          : "已绑定这个单聊。", "success");
-        await reloadLove({ quiet: true });
-      } catch (error) {
-        toast(`绑定失败：${error.message}`, "error");
-      }
-    });
-  });
-
-  node("love-weflow-create-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    const sessionId = form.elements.session_id.value;
-    const meSender = form.elements.me_sender.value.trim() || "我";
-    if (!sessionId) {
-      toast("请先选择一个单聊。", "warning");
-      return;
-    }
-    await withBusy(button, "新建中…", async () => {
-      try {
-        const result = await loveApi("/api/love/weflow/project", {
-          method: "POST",
-          body: JSON.stringify({ session_id: sessionId, me_sender: meSender }),
-          timeoutMs: 60000,
-        });
-        love.projectId = result.project.id;
-        love.projects = [result.project, ...love.projects];
-        writeStorage(PROJECT_KEY, love.projectId);
-        love.wechatSource = result.source || null;
-        love.wechatSelectedSession = sessionId;
-        love.wechatSyncLog = null;
-        love.wechatPreviewSince = null;
-        syncProjectPicker();
-        toast("已新建项目并绑定这个单聊。", "success");
-        await reloadLove({ quiet: true });
-      } catch (error) {
-        toast(`新建项目失败：${error.message}`, "error");
-      }
-    });
-  });
-
-  node("love-weflow-file-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    const file = form.elements.file.files?.[0];
-    if (!file) {
-      toast("请先选择一个 ChatLab 文件。", "warning");
-      return;
-    }
-    await withBusy(button, "读取中…", async () => {
-      try {
-        const body = new FormData();
-        body.append("file", file);
-        const preview = await loveApi("/api/love/weflow/import-preview", {
-          method: "POST", body, timeoutMs: 120000,
-        });
-        love.wechatPendingFile = file;
-        love.wechatFilePreview = preview;
-        toast(`读取到 ${formatInt(preview.message_count)} 条消息。`, "success");
-        await renderLovePage();
-      } catch (error) {
-        toast(`读取文件失败：${error.message}`, "error");
-      }
-    });
-  });
-
-  node("love-weflow-file-confirm-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    const meSender = form.elements.me_sender.value;
-    if (!love.wechatPendingFile) {
-      toast("文件已不在当前页面，请重新选择。", "warning");
-      return;
-    }
-    await withBusy(button, "合并中…", async () => {
-      try {
-        const body = new FormData();
-        body.append("file", love.wechatPendingFile);
-        body.append("project_id", love.projectId);
-        body.append("me_sender", meSender);
-        const result = await loveApi("/api/love/weflow/import-file", {
-          method: "POST", body, timeoutMs: 180000,
-        });
-        const extra = result.swapped ? "；已调整项目角色顺序" : "";
-        toast(`合并完成：新增 ${formatInt(result.inserted)} 条，匹配 ${formatInt(result.matched)} 条${extra}。`, "success");
-        if (Number(result.ambiguous) > 0) {
-          toast(`有 ${formatInt(result.ambiguous)} 条消息匹配到多条旧记录，已跳过。`, "warning");
-        }
-        love.wechatPendingFile = null;
-        love.wechatFilePreview = null;
-        await reloadLove({ quiet: true });
-      } catch (error) {
-        toast(`合并失败：${error.message}`, "error");
-      }
-    });
-  });
-
-  node("love-weflow-full")?.addEventListener("change", () => {
-    // 换了扫描范围就必须重新预览，避免用旧预览的 since 直接写入。
-    love.wechatPreviewSince = null;
-  });
-
-  if (love.wechatSyncLog && ["queued", "running"].includes(love.wechatSyncLog.status)) {
-    pollWechatSync(love.wechatSyncLog.id, love.wechatSyncLog.mode);
-  }
-}
-
-async function startWechatSync(mode, button) {
-  const project = currentProject();
-  const source = love.wechatSource;
-  if (!project || !source) {
-    toast("请先绑定一个微信单聊。", "warning");
-    return;
-  }
-  const full = Boolean(node("love-weflow-full")?.checked);
-  let since;
-  if (mode === "apply" && love.wechatPreviewSince !== null) since = love.wechatPreviewSince;
-  else if (full) since = 0;
-  if (mode === "apply" && love.wechatPreviewSince === null) {
-    const confirmed = await confirmAction({
-      title: "还没有预览，直接写入？",
-      message: "会按当前增量位置直接合并进现有项目。建议先点「预览同步」确认新增和重复数量。",
-      confirmLabel: "直接写入",
-    });
-    if (!confirmed) return;
-  }
-  await withBusy(button, mode === "preview" ? "正在预览…" : "正在写入…", async () => {
-    try {
-      const body = { project_id: project.id, mode };
-      if (since !== undefined) body.since = since;
-      const log = await loveApi("/api/love/weflow/sync", {
-        method: "POST", body: JSON.stringify(body), timeoutMs: 60000,
-      });
-      love.wechatSyncLog = log;
-      if (mode === "preview") {
-        love.wechatPreviewSince = since === undefined ? Number(source.watermark || 0) : since;
-      }
-      renderWechatSyncResult();
-      pollWechatSync(log.id, mode);
-    } catch (error) {
-      toast(`同步启动失败：${error.message}`, "error");
-    }
-  });
-}
-
-async function clearWechatToken(button) {
-  const confirmed = await confirmAction({
-    title: "清除 WeFlow Token？",
-    message: "清除后不能再读取微信联系人，也不能同步；已经同步的聊天和每日记忆不受影响。",
-    confirmLabel: "清除 Token", danger: true,
-  });
-  if (!confirmed) return;
-  await withBusy(button, "清除中…", async () => {
-    try {
-      const next = await loveApi("/api/love/weflow/token", {
-        method: "DELETE", timeoutMs: 20000,
-      });
-      love.wechatStatus = next;
-      love.wechatSessions = [];
-      love.wechatSessionsError = "";
-      toast("WeFlow Token 已清除。", "success");
-      await renderLovePage();
-    } catch (error) {
-      toast(`清除失败：${error.message}`, "error");
-    }
-  });
-}
-
-async function unbindWechat(button) {
-  const project = currentProject();
-  if (!project) return;
-  const confirmed = await confirmAction({
-    title: "解除这个单聊的绑定？",
-    message: "解除后不会再从 WeFlow 同步新消息；已经合并进项目的聊天记录会保留。",
-    confirmLabel: "解除绑定", danger: true,
-  });
-  if (!confirmed) return;
-  await withBusy(button, "解除中…", async () => {
-    try {
-      await loveApi(`/api/love/weflow/project?project_id=${encodeURIComponent(project.id)}`, {
-        method: "DELETE", timeoutMs: 20000,
-      });
-      love.wechatSource = null;
-      love.wechatSyncLog = null;
-      love.wechatPreviewSince = null;
-      toast("已解除绑定，聊天记录仍在项目里。", "success");
-      await renderLovePage();
-    } catch (error) {
-      toast(`解除失败：${error.message}`, "error");
-    }
-  });
-}
-
-// ── 每日记忆 ───────────────────────────────────────────────────────
-
-function memoryStatusLabel(status) {
-  if (status === "written") return "已写入";
-  if (status === "draft") return "待确认";
-  return "未生成";
-}
-
-function memoryDayButtons() {
-  if (!love.memoryDays.length) {
-    return '<p class="field-help">这个项目还没有可整理的聊天日期。先在「导入聊天」或「微信同步」里准备一些消息。</p>';
-  }
-  return love.memoryDays.map((item) => {
-    const active = item.date === love.memoryDate ? " active" : "";
-    const status = memoryStatusLabel(item.status);
-    return `<button type="button" class="love-memory-day${active}" data-love-action="memory-day" data-date="${escapeHtml(item.date)}">
-      <span>${escapeHtml(item.date)}</span>
-      <small>${formatInt(item.message_count)} 条 · ${status}</small>
-    </button>`;
-  }).join("");
-}
-
-function memoryEditorCard(project) {
-  const draft = love.memoryDraft;
-  if (!draft) {
-    const inRecent = love.memoryDays.some((item) => item.date === love.memoryDate);
-    return card(inRecent ? "还没有草稿" : "这一天还没有草稿", emptyBox(
-      `${love.memoryDate || "这一天"} 还没有记忆草稿`,
-      inRecent
-        ? "生成后先在这里核对、修改，确认无误再写入 02_生活运营/05_情感与记忆。原文不会进入四库。"
-        : "如果这一天有聊天记录，可以点左侧「生成这一天的草稿」；没有记录时不会生成，AI 也不会编造记忆。",
-      '<button class="button primary" type="button" data-love-action="memory-generate-selected">生成这一天的草稿</button>',
-    ), { eyebrow: "MEMORY DRAFT" });
-  }
-  const written = draft.status === "written";
-  const badge = written
-    ? '<span class="love-badge ok">已写入</span>'
-    : '<span class="love-badge warn">待确认</span>';
-  const target = draft.note_path || draft.target_path || "";
-  const targetWarning = draft.target_exists && !draft.target_is_torch
-    ? '<p class="inline-warning">目标文件名已被一篇不是 torch 生成的笔记占用。写入会被拒绝；请先在 Obsidian 里改名。</p>'
-    : "";
-  return card("记忆草稿", `
-    <div class="love-memory-meta">
-      ${badge}
-      <span class="meta">${escapeHtml(draft.date || "")} · 模型整理，需你确认</span>
-    </div>
-    ${targetWarning}
-    <form id="love-memory-editor-form" class="love-key-form">
-      <div class="field"><label for="love-memory-markdown">记忆草稿（可直接修改）</label>
-        <textarea id="love-memory-markdown" name="markdown" class="love-memory-textarea" rows="22" spellcheck="false">${escapeHtml(draft.markdown || "")}</textarea></div>
-      <div class="love-inline-actions">
-        <button class="button secondary" type="submit">保存修改</button>
-        <button class="button primary" type="button" data-love-action="memory-write">${written ? "重新写入四库" : "写入生活运营"}</button>
-        <button class="button secondary" type="button" data-love-action="memory-regenerate">重新生成</button>
-        ${written ? "" : '<button class="text-button" type="button" data-love-action="memory-discard">丢弃草稿</button>'}
-      </div>
-      <p class="field-help">目标：<code>${escapeHtml(target)}</code>。写入后可以在 Obsidian 里继续修改；原始聊天不会进入四库。</p>
-      <span id="love-memory-feedback" class="status-message" role="status"></span>
-    </form>
-    <details class="love-memory-source">
-      <summary>这篇记忆用了多少聊天？</summary>
-      <p class="field-help">${formatInt(draft.content?.message_count)} 条消息 · 生成于 ${formatDateTime(draft.updated_at)}</p>
-    </details>
-  `, { eyebrow: "MEMORY DRAFT", subtitle: "先核对事实，再写入生活运营。" });
-}
-
-async function renderMemory(content) {
-  const project = currentProject();
-  if (!project) {
-    content.innerHTML = card("每日记忆", emptyBox(
-      "还没有聊天项目",
-      "每日记忆会从现有聊天项目里按天整理。先导入聊天或完成一次微信同步。",
-      '<button class="button primary" type="button" data-love-action="goto" data-page="import">去导入聊天</button>',
-    ), { eyebrow: "MEMORY" });
-    return;
-  }
-  const data = await loveApi(
-    `/api/love/memory/days?project_id=${encodeURIComponent(project.id)}`,
-    { timeoutMs: 30000 },
-  );
-  love.memoryDays = Array.isArray(data.days) ? data.days : [];
-  if (!love.memoryDate) love.memoryDate = love.memoryDays[0]?.date || todayText();
-  const selected = love.memoryDays.find((item) => item.date === love.memoryDate);
-  let draftId = selected?.draft_id || "";
-  if (!selected && love.memoryDraft?.date === love.memoryDate) {
-    // 日期列表只取最近 366 天；更早的日期刚生成/写入时仍要保留当前草稿。
-    draftId = love.memoryDraft.id;
-  }
-  if (draftId !== love.memoryDraftId) {
-    love.memoryDraftId = draftId;
-    love.memoryDraft = null;
-  }
-  if (love.memoryDraftId && !love.memoryDraft) {
-    try {
-      love.memoryDraft = await loveApi(
-        `/api/love/memory/drafts/${encodeURIComponent(love.memoryDraftId)}`,
-        { timeoutMs: 20000 },
-      );
-    } catch (error) {
-      love.memoryDraft = null;
-      toast(`读取记忆草稿失败：${error.message}`, "error");
-    }
-  }
-  if (love.page !== "memory") return;
-  content.innerHTML = `
-    <div class="love-memory-layout">
-      <div class="love-memory-side">
-        ${card("选择日期", `
-          <form id="love-memory-generate-form" class="love-key-form">
-            <div class="field"><label for="love-memory-date">日期</label>
-              <input id="love-memory-date" name="date" type="date" value="${escapeHtml(love.memoryDate || todayText())}" required /></div>
-            <div class="love-inline-actions">
-              <button class="button primary" type="submit">生成这一天的草稿</button>
-            </div>
-          </form>
-          <p class="field-help">只整理这一天；当天没有消息时不会生成。AI 用的是脱敏后的聊天记录，生成后你可以逐字修改。</p>
-          <div class="love-memory-day-list">${memoryDayButtons()}</div>
-        `, { eyebrow: "DAILY MEMORY", subtitle: "按天起草，确认后写入四库。" })}
-      </div>
-      <div class="love-memory-main">
-        ${memoryEditorCard(project)}
-        ${card("DSH 与四库", `
-          <ul class="love-advice">
-            <li>批量整理和每日摘要仍走原生 DeepSeek；DSH 是交互式工作台，没有稳定的批处理接口。</li>
-            <li>确认写入后，笔记是普通 Markdown；DSH 可以直接读取 <code>02_生活运营/05_情感与记忆</code> 和四库其他内容继续对话。</li>
-            <li>不想写进四库时，可以只保留草稿或丢弃；原始聊天始终在 <code>.torch-os/love/</code>。</li>
-          </ul>
-        `, { eyebrow: "DSH BOUNDARY" })}
-      </div>
-    </div>
-  `;
-
-  node("love-memory-generate-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const date = form.elements.date.value;
-    const button = form.querySelector('button[type="submit"]');
-    if (!date) return;
-    await generateMemoryDraft(date, button);
-  });
-
-  node("love-memory-editor-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const draft = love.memoryDraft;
-    if (!draft) return;
-    const button = form.querySelector('button[type="submit"]');
-    const markdown = form.elements.markdown.value;
-    await withBusy(button, "保存中…", async () => {
-      try {
-        love.memoryDraft = await loveApi(
-          `/api/love/memory/drafts/${encodeURIComponent(draft.id)}`,
-          { method: "PUT", body: JSON.stringify({ markdown }), timeoutMs: 30000 },
-        );
-        toast("草稿已保存。", "success");
-        await renderLovePage();
-      } catch (error) {
-        const feedback = node("love-memory-feedback");
+        const feedback = $id("love-schedule-feedback");
         if (feedback) feedback.textContent = error.message;
         toast(`保存失败：${error.message}`, "error");
       }
@@ -2385,212 +973,676 @@ async function renderMemory(content) {
   });
 }
 
-async function generateMemoryDraft(date, button, { overwrite = false } = {}) {
-  const project = currentProject();
-  if (!project) return;
-  const run = async (allowOverwrite) => {
-    const draft = await loveApi("/api/love/memory/generate", {
-      method: "POST",
-      body: JSON.stringify({ project_id: project.id, date, overwrite: allowOverwrite }),
-      timeoutMs: 180000,
+// ── 恋爱相册 ───────────────────────────────────────────────────────
+
+function galleryAlbumName(id) {
+  const albums = love.gallery?.albums || [];
+  return albums.find((album) => Number(album.id) === Number(id))?.name || "未分类";
+}
+
+function galleryMediaCard(item) {
+  const selected = love.gallerySelection.has(item.id);
+  const thumb = item.has_thumb
+    ? `<img src="${escapeHtml(item.thumb_url)}" alt="${escapeHtml(item.original_name || "照片")}" loading="lazy" />`
+    : item.kind === "video"
+      ? `<span class="love-gallery-play" aria-hidden="true">▶</span>`
+      : `<span class="love-gallery-no-thumb" aria-hidden="true">▧</span>`;
+  return `<div class="love-gallery-item${selected ? " is-selected" : ""}" data-media-id="${item.id}">
+    <button type="button" class="love-gallery-open" data-love-action="gallery-open" data-id="${item.id}">${thumb}</button>
+    <label class="love-gallery-check"><input type="checkbox" data-gallery-select="${item.id}" ${selected ? "checked" : ""} aria-label="选择 ${escapeHtml(item.original_name || "媒体")}" /></label>
+    <span class="love-gallery-caption">${escapeHtml(item.original_name || (item.kind === "video" ? "视频" : "照片"))}</span>
+  </div>`;
+}
+
+function galleryAlbumCard(album) {
+  const cover = album.cover
+    ? `<img src="${escapeHtml(album.cover)}" alt="" loading="lazy" />`
+    : `<span class="love-gallery-album-empty" aria-hidden="true">▧</span>`;
+  return `<div class="love-gallery-album-wrap">
+    <button type="button" class="love-gallery-album" data-love-action="gallery-album" data-id="${album.id}">
+      <span class="love-gallery-album-cover">${cover}</span>
+      <strong>${escapeHtml(album.name)}</strong>
+      <small>${formatInt(album.photos)} 张照片 · ${formatInt(album.videos)} 个视频</small>
+    </button>
+    ${album.protected ? "" : `<div class="love-gallery-album-actions"><button class="text-button" type="button" data-love-action="gallery-rename-album" data-id="${album.id}" data-name="${escapeHtml(album.name)}">改名</button><button class="text-button reject" type="button" data-love-action="gallery-delete-album" data-id="${album.id}" data-name="${escapeHtml(album.name)}">删除</button></div>`}
+  </div>`;
+}
+
+async function renderGallery(content) {
+  const overview = await loveApi("/api/love/gallery/overview", { timeoutMs: 30000 });
+  love.gallery = overview;
+  const albums = overview.albums || [];
+  if (love.galleryAlbum && !albums.some((album) => Number(album.id) === Number(love.galleryAlbum))) love.galleryAlbum = 0;
+  let items = [];
+  if (love.galleryView !== "albums") {
+    const params = new URLSearchParams();
+    if (love.galleryAlbum) params.set("album_id", String(love.galleryAlbum));
+    if (love.galleryKind) params.set("kind", love.galleryKind);
+    params.set("limit", "300");
+    const data = await loveApi(`/api/love/gallery/media?${params.toString()}`, { timeoutMs: 30000 });
+    items = Array.isArray(data.items) ? data.items : [];
+    love.galleryItems = items;
+  }
+  const albumOptions = albums.map((album) => `<option value="${album.id}" ${Number(love.galleryAlbum) === Number(album.id) ? "selected" : ""}>${escapeHtml(album.name)}</option>`).join("");
+  const viewTabs = [["all", "全部"], ["albums", "相簿"], ["photos", "照片"], ["videos", "视频"]].map(([key, label]) =>
+    `<button type="button" class="love-seg${love.galleryView === key ? " active" : ""}" data-love-action="gallery-view" data-view="${key}">${label}</button>`).join("");
+  const selection = love.gallerySelection.size;
+  content.innerHTML = card("恋爱相册", `
+    <div class="love-gallery-toolbar">
+      <div class="love-segmented" role="group" aria-label="相册视图">${viewTabs}</div>
+      <div class="love-inline-actions">
+        <select id="love-gallery-upload-album" class="love-gallery-select" aria-label="上传到相簿">${albumOptions}</select>
+        <input id="love-gallery-files" type="file" accept="image/*,video/*" multiple hidden />
+        <button class="button primary" type="button" data-love-action="gallery-upload">上传照片/视频</button>
+        <button class="button secondary" type="button" data-love-action="gallery-create-album">＋ 新建相簿</button>
+      </div>
+    </div>
+    ${selection ? `<div class="love-gallery-bulk"><span>已选 ${formatInt(selection)} 项</span><select id="love-gallery-move-target" class="love-gallery-select">${albumOptions}</select><button class="small-button" type="button" data-love-action="gallery-bulk-move">移动</button><button class="small-button reject" type="button" data-love-action="gallery-bulk-delete">删除</button><button class="text-button" type="button" data-love-action="gallery-clear-selection">取消选择</button></div>` : ""}
+    ${love.galleryView === "albums" ? `<div class="love-gallery-albums">${albums.map(galleryAlbumCard).join("")}</div>` : `
+      <div class="love-gallery-meta"><span class="meta">${love.galleryAlbum ? `相簿：${escapeHtml(galleryAlbumName(love.galleryAlbum))}` : "全部媒体"} · ${formatInt(items.length)} 项</span>${love.galleryAlbum ? '<button class="text-button" type="button" data-love-action="gallery-all">看全部</button>' : ""}</div>
+      ${items.length ? `<div class="love-gallery-grid">${items.map(galleryMediaCard).join("")}</div>` : emptyBox("还没有照片或视频", "点右上角「上传照片/视频」；文件会复制进 05_恋爱相册，不引用外部路径。")}
+    `}
+    <p class="field-help">相册文件在 <code>02_生活运营/01_恋爱系统/05_恋爱相册/</code>；删除会同时删除文件和缩略图。</p>
+  `, { eyebrow: "ALBUM", subtitle: "照片和视频都复制进库；一个文件属于一个相簿。", actions: `<span class="meta">${formatInt(overview.total)} 个媒体</span>` });
+  $id("love-gallery-files")?.addEventListener("change", () => {
+    const files = $id("love-gallery-files")?.files;
+    if (files?.length) uploadGalleryFiles(files);
+  });
+  document.querySelectorAll("[data-gallery-select]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = Number(input.dataset.gallerySelect);
+      if (!Number.isFinite(id)) return;
+      if (input.checked) love.gallerySelection.add(id);
+      else love.gallerySelection.delete(id);
+      renderLovePage();
     });
-    love.memoryDate = date;
-    love.memoryDraftId = draft.id;
-    love.memoryDraft = draft;
-    return draft;
-  };
-  await withBusy(button, "AI 正在整理…", async () => {
+  });
+}
+
+async function captureVideoThumb(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.src = url;
+    let settled = false;
+    const finish = (blob) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(blob);
+    };
+    video.addEventListener("loadedmetadata", () => {
+      try { video.currentTime = Math.min(0.2, video.duration || 0.2); } catch { finish(null); }
+    });
+    video.addEventListener("seeked", () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const width = Math.min(480, video.videoWidth || 480);
+        const height = Math.max(1, Math.round((video.videoHeight || 270) * (width / (video.videoWidth || 480))));
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d")?.drawImage(video, 0, 0, width, height);
+        canvas.toBlob((blob) => finish(blob), "image/jpeg", 0.82);
+      } catch { finish(null); }
+    });
+    video.addEventListener("error", () => finish(null));
+    window.setTimeout(() => finish(null), 6000);
+  });
+}
+
+async function uploadGalleryFiles(files) {
+  const albumId = Number($id("love-gallery-upload-album")?.value) || 1;
+  let saved = 0;
+  let failed = 0;
+  toast(`正在上传 ${files.length} 个文件…`, "info");
+  for (const file of files) {
+    const form = new FormData();
+    form.append("files", file);
+    form.append("album_id", String(albumId));
+    if (file.type.startsWith("video/")) {
+      const thumb = await captureVideoThumb(file);
+      if (thumb) form.append("thumbs", thumb, "thumb.jpg");
+    }
     try {
-      await run(overwrite);
-      toast("记忆草稿已生成，请先核对再写入。", "success");
+      const result = await loveApi("/api/love/gallery/upload", { method: "POST", body: form, timeoutMs: 300000 });
+      saved += Array.isArray(result.saved) ? result.saved.length : 0;
+      failed += Array.isArray(result.skipped) ? result.skipped.length : 0;
+    } catch {
+      failed += 1;
+    }
+  }
+  toast(`上传完成：成功 ${saved}，跳过/失败 ${failed}。`, failed ? "warning" : "success");
+  const input = $id("love-gallery-files");
+  if (input) input.value = "";
+  love.gallerySelection.clear();
+  await renderLovePage();
+}
+
+function openGalleryViewer(item) {
+  const media = item.kind === "video"
+    ? `<video class="love-gallery-viewer-media" controls autoplay preload="metadata" src="${escapeHtml(item.file_url)}"></video>`
+    : `<img class="love-gallery-viewer-media" src="${escapeHtml(item.file_url)}" alt="${escapeHtml(item.original_name || "照片")}" />`;
+  openDialog(item.original_name || (item.kind === "video" ? "视频" : "照片"), `
+    <div class="love-gallery-viewer">${media}</div>
+    <dl class="love-facts"><div><dt>相簿</dt><dd>${escapeHtml(galleryAlbumName(item.album_id))}</dd></div><div><dt>大小</dt><dd>${formatInt(Math.round((item.size || 0) / 1024))} KB</dd></div><div><dt>加入时间</dt><dd>${escapeHtml(formatDateTime(item.created_at))}</dd></div></dl>
+    <div class="love-inline-actions"><a class="button secondary" href="${escapeHtml(item.file_url)}" download>下载</a><button class="button secondary" type="button" id="love-gallery-viewer-move">移动</button><button class="button secondary reject" type="button" id="love-gallery-viewer-delete">删除</button><button class="button primary" type="button" id="love-gallery-viewer-close">关闭</button></div>
+  `);
+  $id("love-gallery-viewer-close")?.addEventListener("click", () => $id("detail-dialog")?.close());
+  $id("love-gallery-viewer-delete")?.addEventListener("click", async () => {
+    if (!await confirmAction({ title: "删除这个媒体？", message: "文件和缩略图会从相册目录删除，无法在应用内恢复。", confirmLabel: "删除", danger: true })) return;
+    try {
+      await loveApi(`/api/love/gallery/media/${item.id}`, { method: "DELETE", timeoutMs: 30000 });
+      $id("detail-dialog")?.close();
+      love.gallerySelection.delete(item.id);
+      toast("已删除。", "success");
       await renderLovePage();
-    } catch (error) {
-      if (error.status === 409 && !overwrite) {
-        const confirmed = await confirmAction({
-          title: "重新生成这一天的记忆？",
-          message: "这一天已经写入过四库。重新生成会先变成草稿，原笔记不会立刻改动；最后仍需要你确认覆盖写入。",
-          confirmLabel: "重新生成",
-        });
-        if (!confirmed) return;
-        try {
-          await run(true);
-          toast("已重新生成草稿，请核对后覆盖写入。", "success");
-          await renderLovePage();
-        } catch (secondError) {
-          toast(`生成失败：${secondError.message}`, "error");
-        }
+    } catch (error) { toast(`删除失败：${error.message}`, "error"); }
+  });
+  $id("love-gallery-viewer-move")?.addEventListener("click", () => openGalleryMoveDialog([item.id]));
+}
+
+function openGalleryMoveDialog(ids) {
+  const albums = love.gallery?.albums || [];
+  openDialog("移动到相簿", `
+    <form id="love-gallery-move-form" class="love-dialog-form">
+      <div class="field"><label for="love-gallery-move-album">目标相簿</label><select id="love-gallery-move-album" name="album_id">${albums.map((album) => `<option value="${album.id}">${escapeHtml(album.name)}</option>`).join("")}</select></div>
+      <div class="form-actions"><div class="love-inline-actions"><button class="button secondary" type="button" id="love-gallery-move-cancel">取消</button><button class="button primary" type="submit">移动</button></div></div>
+    </form>`);
+  $id("love-gallery-move-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
+  $id("love-gallery-move-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const albumId = Number($id("love-gallery-move-album")?.value) || 1;
+    try {
+      for (const id of ids) {
+        await loveApi(`/api/love/gallery/media/${id}`, { method: "PATCH", body: JSON.stringify({ album_id: albumId }), timeoutMs: 30000 });
+      }
+      $id("detail-dialog")?.close();
+      love.gallerySelection.clear();
+      toast("已移动。", "success");
+      await renderLovePage();
+    } catch (error) { toast(`移动失败：${error.message}`, "error"); }
+  });
+}
+
+// ── 八字合婚 ───────────────────────────────────────────────────────
+
+const WX_CLASS = { 木: "mu", 火: "huo", 土: "tu", 金: "jin", 水: "shui" };
+function wxClass(value) { return `wx-${WX_CLASS[value] || "none"}`; }
+function wxChips(values) {
+  return (Array.isArray(values) ? values : []).map((value) => `<span class="love-bazi-chip ${wxClass(value)}">${escapeHtml(value)}</span>`).join("");
+}
+function baziPillarMarkup(pillar) {
+  return `<div class="love-bazi-pillar"><span class="love-bazi-slot">${escapeHtml(pillar.slot || "")}</span><b class="love-bazi-gan ${wxClass(pillar.gan_wx)}">${escapeHtml(pillar.gan || "")}</b><b class="love-bazi-zhi ${wxClass(pillar.zhi_wx)}">${escapeHtml(pillar.zhi || "")}</b><small>${escapeHtml(pillar.gan_ss || "")} · ${escapeHtml(pillar.zhi_ss || "")}</small><em>藏 ${escapeHtml(pillar.hidden || "—")}</em></div>`;
+}
+function baziChartMarkup(person, role) {
+  const pillars = (Array.isArray(person.pillars) ? person.pillars : []).map(baziPillarMarkup).join("");
+  return `<article class="love-bazi-chart is-${role}">
+    <header class="love-bazi-chart-head"><div><span class="eyebrow">${role === "him" ? "HIM · 男命" : "HER · 女命"}</span><h3>${escapeHtml(person.name || "")}</h3><p>${escapeHtml(person.birth || "")}</p><p class="love-bazi-place">${escapeHtml(person.place || "")}</p></div><span class="love-bazi-master">${escapeHtml(person.day_master || "")}</span></header>
+    <div class="love-bazi-pillars">${pillars}</div>
+    <dl class="love-bazi-meta"><div><dt>格局</dt><dd>${escapeHtml(person.pattern || "")}</dd></div><div><dt>喜</dt><dd>${wxChips(person.favor)}</dd></div><div><dt>忌</dt><dd>${wxChips(person.avoid)}</dd></div><div><dt>大运</dt><dd>${escapeHtml(person.dayun || "")}</dd></div></dl>
+    ${person.time_note ? `<p class="love-bazi-note">${escapeHtml(person.time_note)}</p>` : ""}
+  </article>`;
+}
+function baziHeroMarkup(data) {
+  const hehun = data.hehun || {};
+  return `<section class="love-bazi-hero"><div class="love-bazi-seal" aria-hidden="true">合</div><div class="love-bazi-hero-text"><span class="eyebrow">BAZI · 合婚参考</span><h2>${escapeHtml(hehun.kicker || "合婚")}</h2><p>${escapeHtml(hehun.summary || "")}</p><div class="love-bazi-hero-tags"><span class="love-bazi-verdict">${escapeHtml(hehun.verdict || "")}</span>${hehun.score ? `<span class="love-badge ok">${escapeHtml(hehun.score)}</span>` : ""}<span class="love-badge">本机生成</span></div></div></section>`;
+}
+function baziPointsMarkup(points) {
+  return `<div class="love-bazi-points">${(Array.isArray(points) ? points : []).map((item) => `<article><span class="love-bazi-glyph" aria-hidden="true">${escapeHtml(item.glyph || "☯")}</span><h3>${escapeHtml(item.title || "")}</h3><p>${escapeHtml(item.body || "")}</p></article>`).join("")}</div>`;
+}
+function baziYearsMarkup(years) {
+  return `<ol class="love-bazi-years">${(Array.isArray(years) ? years : []).map((item) => `<li data-tone="${escapeHtml(item.tone || "flat")}"><span class="love-bazi-year">${escapeHtml(item.year || "")}</span><b>${escapeHtml(item.gz || "")}</b><p>${escapeHtml(item.text || "")}</p></li>`).join("")}</ol>`;
+}
+function baziAdviceMarkup(advice) {
+  return `<div class="love-bazi-advice">${(Array.isArray(advice) ? advice : []).map((item, index) => `<article><span class="love-bazi-index" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span><h3>${escapeHtml(item.title || "")}</h3><p>${escapeHtml(item.body || "")}</p></article>`).join("")}</div>`;
+}
+function baziHerMarkup(her) {
+  const sections = (Array.isArray(her.sections) ? her.sections : []).map((section) => `<article><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></article>`).join("");
+  return `<section class="love-bazi-her"><div class="love-bazi-section-head"><span class="eyebrow">HER · 命盘详解</span><h2>${escapeHtml(her.name || "她")}的盘</h2><p>${escapeHtml(her.day_master_note || "")}</p></div><div class="love-bazi-details">${sections}</div></section>`;
+}
+function baziMarkup(data) {
+  const hehun = data.hehun || {};
+  return `<div class="love-bazi-page">${baziHeroMarkup(data)}<div class="love-bazi-pair">${baziChartMarkup(data.him || {}, "him")}${baziChartMarkup(data.her || {}, "her")}</div>${card("三条依据", baziPointsMarkup(hehun.points), { eyebrow: "WHY", subtitle: "天干、地支、五行，三条都指向同一件事。" })}<aside class="love-bazi-review"><span class="eyebrow">NOTE</span><strong>口径说明</strong><p>${escapeHtml(hehun.review || "")}</p></aside>${card("关键年份", baziYearsMarkup(hehun.years), { eyebrow: "TIMELINE", subtitle: "只标大节点；具体到月要看当年流月。" })}${card("相处建议", baziAdviceMarkup(hehun.advice), { eyebrow: "HOW", subtitle: "三条就够，做到比知道有用。" })}${baziHerMarkup(data.her || {})}<p class="love-bazi-boundary">${escapeHtml(hehun.boundary || "")}</p></div>`;
+}
+
+function baziPersonFields(prefix, label, draft) {
+  return `<fieldset class="love-bazi-fieldset"><legend>${escapeHtml(label)}</legend>
+    <div class="form-grid">
+      <div class="field"><label for="bazi-${prefix}-name">姓名</label><input id="bazi-${prefix}-name" name="${prefix}_name" maxlength="60" required value="${escapeHtml(draft.name || "")}" placeholder="姓名或称呼" /></div>
+      <div class="field"><label for="bazi-${prefix}-date">公历生日</label><input id="bazi-${prefix}-date" name="${prefix}_date" type="date" value="${escapeHtml(draft.birth_date || "")}" /></div>
+      <div class="field"><label for="bazi-${prefix}-time">出生时间</label><input id="bazi-${prefix}-time" name="${prefix}_time" type="time" value="${escapeHtml(draft.birth_time || "")}" /></div>
+      <div class="field"><label for="bazi-${prefix}-place">出生地</label><input id="bazi-${prefix}-place" name="${prefix}_place" maxlength="120" value="${escapeHtml(draft.place || "")}" placeholder="城市即可" /></div>
+    </div>
+    <details class="love-bazi-advanced"><summary>已排好八字？可直接填四柱</summary>
+      <div class="form-grid love-bazi-pillar-inputs">
+        ${[["year", "年柱"], ["month", "月柱"], ["day", "日柱"], ["hour", "时柱"]].map(([key, title]) => `<div class="field"><label for="bazi-${prefix}-${key}">${title}</label><input id="bazi-${prefix}-${key}" name="${prefix}_${key}" maxlength="2" value="${escapeHtml(draft.pillars?.[key] || "")}" placeholder="甲子" /></div>`).join("")}
+      </div>
+      <p class="field-help">四柱都填时优先使用你填的；留空则按生日时间本地排盘。</p>
+    </details>
+  </fieldset>`;
+}
+
+function defaultBaziDraft() {
+  return {
+    him: { name: "", birth_date: "", birth_time: "", place: "", pillars: { year: "", month: "", day: "", hour: "" } },
+    her: { name: "", birth_date: "", birth_time: "", place: "", pillars: { year: "", month: "", day: "", hour: "" } },
+    title: "",
+  };
+}
+
+async function renderBazi(content) {
+  if (!love.baziDraft) love.baziDraft = defaultBaziDraft();
+  const history = await loveApi("/api/love/bazi/history?limit=40", { timeoutMs: 20000 }).catch(() => ({ items: [] }));
+  love.baziHistory = Array.isArray(history.items) ? history.items : [];
+  if (!love.baziSelectedId && love.baziHistory.length) love.baziSelectedId = love.baziHistory[0].id;
+  let report = null;
+  if (love.baziSelectedId) {
+    report = await loveApi(`/api/love/bazi/reports/${love.baziSelectedId}`, { timeoutMs: 30000 }).catch(() => null);
+  }
+  const historyHtml = love.baziHistory.length
+    ? `<div class="love-bazi-history-list">${love.baziHistory.map((item) => `<div class="love-bazi-history-row${Number(item.id) === Number(love.baziSelectedId) ? " active" : ""}"><button type="button" class="love-bazi-history-open" data-love-action="bazi-select" data-id="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.him)} × ${escapeHtml(item.her)} · ${escapeHtml(item.verdict || "分析中")}</span><small>${escapeHtml(formatDateTime(item.created_at))}</small></button><button class="small-button reject" type="button" data-love-action="bazi-delete" data-id="${item.id}" data-title="${escapeHtml(item.title)}">删除</button></div>`).join("")}</div>`
+    : '<p class="field-help">还没有历史页面。填好双方信息后点「AI 分析」。</p>';
+  content.innerHTML = `
+    ${card("合婚输入", `
+      <form id="love-bazi-form" class="love-bazi-form">
+        <div class="love-bazi-pair-inputs">${baziPersonFields("him", "男方", love.baziDraft.him)}${baziPersonFields("her", "女方", love.baziDraft.her)}</div>
+        <div class="field"><label for="bazi-title">标题（可选）</label><input id="bazi-title" name="title" maxlength="120" value="${escapeHtml(love.baziDraft.title || "")}" placeholder="留空自动用双方姓名" /></div>
+        <div class="form-actions"><span id="love-bazi-feedback" class="status-message" role="status"></span><div class="love-inline-actions"><button class="button primary" type="submit">AI 分析</button><button class="button secondary" type="button" data-love-action="bazi-reset">清空输入</button></div></div>
+        <p class="field-help">四柱、十神、藏干、大运在本地计算；AI 只写格局、喜忌与合婚解读。分析会通过 dsh 发送脱敏后的双方信息，不发送照片或聊天原文。</p>
+      </form>`, {
+      eyebrow: "BAZI INPUT",
+      subtitle: "出生信息 + 可选四柱；生成后保存为历史页面。",
+    })}
+    ${card("历史页面", historyHtml, { eyebrow: "HISTORY", subtitle: "可切换查看、删除或打印/导出 HTML。" })}
+    ${report && report.result ? `<div class="love-bazi-result">${baziMarkup(report.result)}<div class="love-inline-actions love-bazi-export"><a class="button secondary" href="/api/love/bazi/reports/${report.id}/html" target="_blank" rel="noopener">打印 / 导出 HTML</a></div></div>` : report?.status === "failed" ? errorBox(report.error || "八字合婚生成失败") : emptyBox("还没有八字页面", "填好双方信息，点「AI 分析」生成第一份。")}
+  `;
+  bindBaziForm();
+}
+
+function bindBaziForm() {
+  const form = $id("love-bazi-form");
+  if (!form) return;
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    generateBazi(form.querySelector('button[type="submit"]'));
+  });
+  form.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const name = input.name || "";
+      const match = /^(him|her)_(name|date|time|place|year|month|day|hour)$/.exec(name);
+      if (!match) {
+        if (name === "title") love.baziDraft.title = input.value;
         return;
       }
+      const [, person, field] = match;
+      if (["year", "month", "day", "hour"].includes(field)) love.baziDraft[person].pillars[field] = input.value.trim();
+      else if (field === "date") love.baziDraft[person].birth_date = input.value;
+      else if (field === "time") love.baziDraft[person].birth_time = input.value;
+      else love.baziDraft[person][field] = input.value;
+    });
+  });
+}
+
+function readBaziPerson(prefix) {
+  const value = (name) => $id(`bazi-${prefix}-${name}`)?.value?.trim() || "";
+  return {
+    name: value("name"),
+    birth_date: value("date"),
+    birth_time: value("time"),
+    place: value("place"),
+    pillars: { year: value("year"), month: value("month"), day: value("day"), hour: value("hour") },
+  };
+}
+
+async function generateBazi(button) {
+  const him = readBaziPerson("him");
+  const her = readBaziPerson("her");
+  if (!him.name || !her.name) {
+    toast("请先填写双方姓名。", "warning");
+    return;
+  }
+  const completePillars = (person) => Object.values(person.pillars).every(Boolean);
+  if (!him.birth_date && !completePillars(him)) {
+    toast("男方需要填写出生日期，或填完整四柱。", "warning");
+    return;
+  }
+  if (!her.birth_date && !completePillars(her)) {
+    toast("女方需要填写出生日期，或填完整四柱。", "warning");
+    return;
+  }
+  const confirmed = await confirmAction({
+    title: "生成八字合婚？",
+    message: "会通过 dsh 调用 AI 写格局、喜忌与合婚分析，可能需要一到几分钟；命盘本身在本地计算，结果会保存为历史页面。",
+    confirmLabel: "开始分析",
+  });
+  if (!confirmed) return;
+  love.baziDraft = { him, her, title: $id("bazi-title")?.value?.trim() || "" };
+  await withBusy(button, "AI 分析中…", async () => {
+    try {
+      const report = await loveApi("/api/love/bazi/generate", {
+        method: "POST",
+        body: JSON.stringify({ him, her, title: love.baziDraft.title }),
+        timeoutMs: 360000,
+      });
+      love.baziSelectedId = report.id;
+      toast("八字合婚已生成。", "success");
+      await renderLovePage();
+    } catch (error) {
+      const feedback = $id("love-bazi-feedback");
+      if (feedback) feedback.textContent = error.message;
       toast(`生成失败：${error.message}`, "error");
     }
   });
 }
 
-async function writeMemoryDraft(button) {
-  const draft = love.memoryDraft;
-  if (!draft) return;
-  const write = (overwrite) => loveApi(
-    `/api/love/memory/drafts/${encodeURIComponent(draft.id)}/write`,
-    { method: "POST", body: JSON.stringify({ overwrite }), timeoutMs: 30000 },
-  );
-  await withBusy(button, "写入中…", async () => {
+async function deleteBaziReport(button) {
+  const id = Number(button.dataset.id);
+  const title = button.dataset.title || "这份八字合婚";
+  if (!await confirmAction({ title: `删除「${title}」？`, message: "只删除这条历史页面，不影响输入资料。", confirmLabel: "删除", danger: true })) return;
+  try {
+    await loveApi(`/api/love/bazi/reports/${id}`, { method: "DELETE", timeoutMs: 20000 });
+    if (love.baziSelectedId === id) love.baziSelectedId = 0;
+    toast("已删除。", "success");
+    await renderLovePage();
+  } catch (error) { toast(`删除失败：${error.message}`, "error"); }
+}
+
+// ── 恋爱大师 ───────────────────────────────────────────────────────
+
+function masterTrendChart(trend) {
+  const data = Array.isArray(trend) ? trend : [];
+  if (!data.length) return '<div class="love-empty-small">还没有聊天趋势。</div>';
+  const width = 760;
+  const height = 220;
+  const padding = { left: 38, right: 14, top: 16, bottom: 26 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const max = Math.max(1, ...data.map((item) => Number(item.total) || 0));
+  const step = plotWidth / data.length;
+  const barWidth = Math.max(1, Math.min(10, step * 0.66));
+  const bars = data.map((item, index) => {
+    const x = padding.left + index * step + (step - barWidth) / 2;
+    const total = Number(item.total) || 0;
+    const heightValue = total / max * plotHeight;
+    const y = padding.top + plotHeight - heightValue;
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${heightValue.toFixed(2)}" class="love-bar-a"><title>${escapeHtml(`${item.day}：${total} 条`)}</title></rect>`;
+  }).join("");
+  const labels = data.map((item, index) => index % Math.max(1, Math.ceil(data.length / 7)) === 0 ? `<text x="${(padding.left + index * step + step / 2).toFixed(2)}" y="${height - 6}" class="love-axis-text" text-anchor="middle">${escapeHtml(String(item.day || "").slice(5))}</text>` : "").join("");
+  return `<div class="love-chart-wrap"><svg class="love-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="消息趋势">${[0, 0.5, 1].map((ratio) => `<line x1="${padding.left}" y1="${padding.top + plotHeight * (1 - ratio)}" x2="${width - padding.right}" y2="${padding.top + plotHeight * (1 - ratio)}" class="love-grid-line" />`).join("")}${bars}${labels}</svg><div class="love-legend"><span class="meta">最高 ${formatInt(max)} 条 / 天 · 最近 ${data.length} 天</span></div></div>`;
+}
+
+const MASTER_SKILL_LABELS = {
+  portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 补日记",
+};
+const MASTER_STATUS_LABELS = {
+  queued: "排队中", running: "进行中", completed: "已完成", failed: "失败",
+};
+
+function masterResultMarkup(run) {
+  if (!run) return "";
+  if (run.status === "running" || run.status === "queued") {
+    return `<div class="love-analysis-running"><div class="love-spinner" aria-hidden="true"></div><div><strong>正在进行 ${escapeHtml(MASTER_SKILL_LABELS[run.skill] || run.skill)}</strong><p>${escapeHtml(run.progress || "正在整理数据并请求 dsh…")}</p><p class="meta">页面可以切走，任务仍在本地服务里跑。</p></div></div>`;
+  }
+  if (run.status === "failed") return errorBox(run.error || "这次分析没有完成");
+  const result = run.result || {};
+  const structured = result.structured || {};
+  const text = result.text || "";
+  if (run.skill === "portrait") {
+    const traits = Array.isArray(structured.traits) ? structured.traits : [];
+    if (!structured.summary && !traits.length) {
+      return `<pre class="love-master-text">${escapeHtml(text || JSON.stringify(structured, null, 2))}</pre>`;
+    }
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">PORTRAIT</span><strong>${escapeHtml(structured.summary || "对象画像")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div>
+      <div class="love-master-grid"><div><h3>画像条目</h3>${traits.length ? `<div class="love-trait-list">${traits.map((trait) => `<article class="love-trait"><h3>${escapeHtml(trait.trait || "")}</h3><p>${escapeHtml(trait.value || "")}</p><small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 160))}` : ""}</small></article>`).join("")}</div>` : '<p class="meta">没有提取到画像条目。</p>'}</div><div><h3>沟通与照顾</h3><p>${escapeHtml(structured.communication_style || "")}</p><ul class="love-advice">${(structured.care_tips || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><h3>需要留意</h3><ul class="love-risk-list">${(structured.risks || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>没有明显风险。</li>"}</ul></div></div>`;
+  }
+  if (run.skill === "deep_analysis") {
+    const tone = structured.emotional_tone || {};
+    const patterns = structured.communication_patterns || {};
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">DEEP ANALYSIS</span><strong>${escapeHtml(structured.relationship_stage || "关系分析")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div>
+      <div class="love-analysis-tone"><div class="love-tone-card"><span>整体情绪</span><strong>${escapeHtml(tone.overall || "—")}</strong></div><div class="love-tone-card"><span>情绪波动</span><strong>${percent(tone.fluctuation, 0)}</strong></div><div class="love-tone-card"><span>趋势</span><strong>${escapeHtml(tone.trend || "—")}</strong></div></div>
+      <div class="love-analysis-section"><h3>沟通模式</h3><dl class="love-facts"><div><dt>主动度</dt><dd>${escapeHtml(patterns.initiative_balance || "—")}</dd></div><div><dt>回应风格</dt><dd>${escapeHtml(patterns.response_style || "—")}</dd></div><div><dt>主要话题</dt><dd>${(patterns.key_topics || []).map(escapeHtml).join("、") || "—"}</dd></div></dl></div>
+      ${(structured.key_events || []).length ? `<div class="love-analysis-section"><h3>关键事件</h3><ul class="love-event-list">${structured.key_events.map((event) => `<li class="love-event impact-${escapeHtml(event.impact || "neutral")}"><span>${escapeHtml(event.date || "")}</span><p>${escapeHtml(event.description || "")}</p></li>`).join("")}</ul></div>` : ""}
+      ${(structured.risk_warnings || []).length ? `<div class="love-analysis-section"><h3>需要注意</h3><ul class="love-risk-list">${structured.risk_warnings.map((risk) => `<li class="love-risk risk-${escapeHtml(risk.severity || "low")}"><strong>${escapeHtml(risk.aspect || "")}</strong><p>${escapeHtml(risk.detail || "")}</p></li>`).join("")}</ul></div>` : ""}
+      ${(structured.personalized_advice || []).length ? `<div class="love-analysis-section"><h3>建议</h3><ol class="love-advice">${structured.personalized_advice.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>` : ""}`;
+  }
+  if (run.skill === "report") {
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">REPORT</span><strong>${escapeHtml(structured.title || "关系阶段报告")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>${escapeHtml(structured.summary || "")}</p>${(structured.sections || []).map((section) => `<div class="love-analysis-section"><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></div>`).join("")}`;
+  }
+  if (run.skill === "journal_batch") {
+    const created = Array.isArray(structured.created) ? structured.created : [];
+    const failed = Array.isArray(structured.failed) ? structured.failed : [];
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">AI DRAFTS</span><strong>${escapeHtml(structured.text || "批量补日记")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>新增 ${formatInt(created.length)} 篇，失败 ${formatInt(failed.length)} 篇。草稿在「恋爱记忆 → AI 草稿」，确认后可一键移入恋爱日志。</p><div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="goto-memory">去恋爱记忆</button></div>`;
+  }
+  return `<pre class="love-master-text">${escapeHtml(text || JSON.stringify(structured, null, 2))}</pre>`;
+}
+
+async function renderMaster(content) {
+  const [overview, runsData] = await Promise.all([
+    loveApi("/api/love/master/overview", { timeoutMs: 40000 }),
+    loveApi("/api/love/master/runs?limit=30", { timeoutMs: 30000 }),
+  ]);
+  love.master = overview;
+  love.masterRuns = Array.isArray(runsData.items) ? runsData.items : [];
+  if (love.masterSelectedId && !love.masterRuns.some((item) => Number(item.id) === Number(love.masterSelectedId))) {
+    love.masterSelectedId = 0;
+  }
+  let selected = null;
+  if (love.masterSelectedId) {
+    selected = await loveApi(`/api/love/master/runs/${love.masterSelectedId}`, { timeoutMs: 30000 }).catch(() => null);
+  }
+  const memory = overview.memory || {};
+  const chat = overview.chat || {};
+  const cycle = overview.cycle || {};
+  const schedule = overview.schedule || {};
+  const gallery = overview.gallery || {};
+  const bazi = overview.bazi || {};
+  const contact = chat.contact || {};
+  const today = schedule.today || {};
+  const statTiles = [
+    ["消息", formatInt(chat.total), `${formatInt(chat.active_days)} 个活跃日`],
+    ["恋爱记忆", formatInt(memory.total), `恋爱日志 ${formatInt(memory.journal_count)}`],
+    ["相册", formatInt(gallery.total), `照片 ${formatInt(gallery.photos)} · 视频 ${formatInt(gallery.videos)}`],
+    ["八字合婚", formatInt(bazi.count), bazi.latest?.verdict || "还没有历史"],
+    ["经期", cycle.has_data ? (cycle.phase_label || "—") : "未记录", cycle.has_data ? `预计 ${cycle.next_expected || "—"}` : "去经期关怀记录"],
+    ["今日排班", today.work ? "上班" : today.rest ? "休息" : "未排班", today.duty || "点排班日历查看"],
+  ].map(([label, value, hint]) => `<article class="love-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></article>`).join("");
+  const skillCards = `
+    <article class="love-skill-card"><span class="eyebrow">PORTRAIT</span><h3>关系画像</h3><p>从记忆、聊天与统计里提炼对象画像、沟通方式和照顾建议。</p><button class="button primary" type="button" data-love-action="master-run" data-skill="portrait">生成画像</button></article>
+    <article class="love-skill-card"><span class="eyebrow">DEEP ANALYSIS</span><h3>深度分析</h3><p>看关系阶段、沟通模式、关键事件与风险。</p><div class="love-inline-actions"><select id="love-master-deep-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="deep_analysis">开始分析</button></div></article>
+    <article class="love-skill-card"><span class="eyebrow">REPORT</span><h3>阶段报告</h3><p>生成可留档的报告，支持查看历史、删除与 HTML 导出。</p><div class="love-inline-actions"><select id="love-master-report-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="report">生成报告</button></div></article>
+    <article class="love-skill-card"><span class="eyebrow">AI JOURNAL</span><h3>AI 批量补日记</h3><p>只补有聊天、还没有记忆的日期，先写进「AI 草稿」。</p><div class="love-inline-actions"><input id="love-master-journal-days" class="love-gallery-select" type="number" min="1" max="60" value="10" aria-label="最多补几天" /><button class="button primary" type="button" data-love-action="master-run" data-skill="journal_batch">开始补写</button></div></article>
+    <article class="love-skill-card"><span class="eyebrow">COACH</span><h3>沟通教练</h3><p>打开右侧恋爱大师角色层，带着当前数据聊今天能怎么做。</p><button class="button primary" type="button" data-love-action="master-chat">和恋爱大师聊聊</button></article>
+    <article class="love-skill-card"><span class="eyebrow">BAZI</span><h3>八字合婚</h3><p>补齐双方出生信息，生成新的合婚页面。</p><button class="button secondary" type="button" data-love-action="goto-bazi">打开八字合婚</button></article>`;
+  const history = love.masterRuns.length
+    ? `<div class="love-master-history">${love.masterRuns.map((run) => `<div class="love-master-history-row${Number(run.id) === Number(love.masterSelectedId) ? " active" : ""}"><button type="button" class="love-master-history-open" data-love-action="master-select" data-id="${run.id}"><span class="love-badge ${run.status === "completed" ? "ok" : run.status === "failed" ? "error" : "warn"}">${escapeHtml(MASTER_STATUS_LABELS[run.status] || run.status)}</span><strong>${escapeHtml(MASTER_SKILL_LABELS[run.skill] || run.skill)}</strong><small>${escapeHtml(formatDateTime(run.created_at))}</small></button>${run.status === "completed" ? `<a class="small-button" href="/api/love/master/runs/${run.id}/html" target="_blank" rel="noopener">HTML</a>` : ""}<button class="small-button reject" type="button" data-love-action="master-delete" data-id="${run.id}">删除</button></div>`).join("")}</div>`
+    : '<p class="field-help">还没有 AI 结果。</p>';
+  content.innerHTML = `
+    <section class="love-master-hero">
+      <div><p class="eyebrow">LOVE MASTER</p><h3>${escapeHtml(contact.display_name || "这段关系")}的关系总览</h3><p class="love-master-copy">数据来自恋爱记忆、微信聊天、排班、经期、相册与八字；右侧角色层是唯一聊天入口，所有 AI 都走 dsh。</p><div class="love-inline-actions"><button class="button primary" type="button" data-love-action="master-chat">和恋爱大师聊聊</button><button class="button secondary" type="button" data-love-action="refresh">刷新看板</button></div></div>
+      <div class="love-master-orbit" aria-hidden="true"><span>♥</span><small>${formatInt(chat.total)} 条消息</small></div>
+    </section>
+    <div class="love-stat-grid love-master-stats">${statTiles}</div>
+    <div class="love-master-grid">
+      ${card("消息趋势", masterTrendChart(chat.trend), { eyebrow: "DASHBOARD", subtitle: "最近 90 天；数据来自微信聊天页。" })}
+      ${card("最近记忆", (memory.recent || []).length ? `<div class="love-master-recent">${memory.recent.slice(0, 8).map((note) => `<button type="button" class="love-memory-note small" data-love-action="memory-open" data-path="${escapeHtml(note.path)}"><span class="love-memory-note-date">${escapeHtml(String(note.date || "").slice(5))}</span><span class="love-memory-note-body"><strong>${escapeHtml(note.title || "")}</strong><p>${escapeHtml(note.excerpt || "")}</p></span></button>`).join("")}</div>` : '<p class="field-help">还没有恋爱记忆。</p>', { eyebrow: "MEMORY", subtitle: "最近写下的片段。" })}
+    </div>
+    ${card("数据看板", `
+      <div class="love-master-stat-grid">
+        <div class="love-master-stat"><span>我发出</span><strong>${formatInt(chat.me || 0)}</strong><small>${percent(chat.total ? (chat.me || 0) / chat.total : 0, 1)}</small></div>
+        <div class="love-master-stat"><span>对象发出</span><strong>${formatInt(chat.partner || 0)}</strong><small>${percent(chat.total ? (chat.partner || 0) / chat.total : 0, 1)}</small></div>
+        <div class="love-master-stat"><span>图片</span><strong>${formatInt((chat.media || {}).image || 0)}</strong><small>媒体</small></div>
+        <div class="love-master-stat"><span>视频</span><strong>${formatInt((chat.media || {}).video || 0)}</strong><small>媒体</small></div>
+        <div class="love-master-stat"><span>语音</span><strong>${formatInt((chat.media || {}).voice || 0)}</strong><small>媒体</small></div>
+        <div class="love-master-stat"><span>最活跃</span><strong>${escapeHtml((chat.hours || []).slice().sort((a, b) => Number(b.count) - Number(a.count)).slice(0, 3).map((item) => `${String(item.hour).padStart(2, "0")}:00`).join(" · ") || "—")}</strong><small>按小时</small></div>
+      </div>
+      ${(chat.keywords || []).length ? `<div class="love-keyword-cloud">${chat.keywords.map((item) => `<span class="love-keyword love-word-${Math.min(6, Math.max(1, Math.ceil(Math.log2(Number(item.count) || 1))))}" title="${escapeHtml(item.word)} · ${formatInt(item.count)} 次">${escapeHtml(item.word)}</span>`).join("")}</div>` : ""}
+      <p class="field-help">统计范围：${escapeHtml(formatDate(chat.first_day))} 至 ${escapeHtml(formatDate(chat.last_day))}；${formatInt(chat.active_days || 0)} 个活跃日。</p>
+    `, { eyebrow: "STATS", subtitle: "原有的消息量、双方比例、媒体、活跃时段与高频词。" })}
+    <section class="love-skill-section"><div class="notebook-section-head"><div><p class="eyebrow">SKILLS</p><h3>让恋爱大师做什么</h3></div><span class="meta">全部在恋爱大师页发起</span></div><div class="love-skill-grid">${skillCards}</div></section>
+    ${card("分析历史", history, { eyebrow: "HISTORY", subtitle: "结果保存在 07_恋爱大师/analysis.db。" })}
+    <div id="love-master-detail" class="love-master-detail">${selected ? masterResultMarkup(selected) : ""}</div>
+  `;
+  if (selected && ["running", "queued"].includes(selected.status)) pollMasterRun(selected.id);
+}
+
+async function runMasterSkill(skill, button) {
+  const days = skill === "report"
+    ? Number($id("love-master-report-days")?.value ?? 30)
+    : skill === "deep_analysis"
+      ? Number($id("love-master-deep-days")?.value ?? 30)
+      : 30;
+  const maxDays = Number($id("love-master-journal-days")?.value || 10);
+  const labels = { portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 批量补日记" };
+  if (!await confirmAction({
+    title: `开始${labels[skill] || "分析"}？`,
+    message: "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。",
+    confirmLabel: "开始",
+  })) return;
+  await withBusy(button, "已提交…", async () => {
     try {
-      love.memoryDraft = await write(false);
-      toast(`已写入 ${love.memoryDraft.note_path}`, "success");
+      const result = await loveApi("/api/love/master/run", {
+        method: "POST",
+        body: JSON.stringify({ skill, days, max_days: maxDays }),
+        timeoutMs: 30000,
+      });
+      love.masterSelectedId = result.run_id;
+      toast("已开始，页面会自动更新。", "info");
       await renderLovePage();
+      pollMasterRun(result.run_id);
     } catch (error) {
-      if (error.status === 409 && error.message.includes("目标文件已存在")) {
-        const confirmed = await confirmAction({
-          title: "覆盖已存在的笔记？",
-          message: "目标文件已经存在，可能是上次写入的版本。用当前草稿覆盖它吗？",
-          confirmLabel: "覆盖写入", danger: true,
-        });
-        if (!confirmed) return;
-        try {
-          love.memoryDraft = await write(true);
-          toast(`已覆盖写入 ${love.memoryDraft.note_path}`, "success");
-          await renderLovePage();
-        } catch (secondError) {
-          toast(`写入失败：${secondError.message}`, "error");
-        }
+      toast(`启动失败：${error.message}`, "error");
+    }
+  });
+}
+
+function pollMasterRun(runId) {
+  stopMasterPoll();
+  const tick = async () => {
+    if (love.page !== "master") {
+      love.masterPoll = 0;
+      return;
+    }
+    try {
+      const run = await loveApi(`/api/love/master/runs/${runId}`, { timeoutMs: 20000 });
+      love.masterSelectedId = runId;
+      const target = $id("love-master-detail");
+      if (target) target.innerHTML = masterResultMarkup(run);
+      if (["completed", "failed"].includes(run.status)) {
+        love.masterPoll = 0;
+        toast(run.status === "completed" ? "恋爱大师已完成。" : "恋爱大师失败，请查看原因。", run.status === "completed" ? "success" : "error");
+        await renderLovePage();
         return;
       }
-      toast(`写入失败：${error.message}`, "error");
+    } catch {
+      // 继续轮询
     }
-  });
+    love.masterPoll = window.setTimeout(tick, 2200);
+  };
+  love.masterPoll = window.setTimeout(tick, 1200);
 }
 
-async function discardMemoryDraft(button) {
-  const draft = love.memoryDraft;
-  if (!draft) return;
-  const confirmed = await confirmAction({
-    title: "丢弃这篇草稿？",
-    message: "只删除应用里的草稿，不删除四库中的笔记；原始聊天也不受影响。",
-    confirmLabel: "丢弃草稿", danger: true,
-  });
-  if (!confirmed) return;
-  await withBusy(button, "丢弃中…", async () => {
-    try {
-      await loveApi(`/api/love/memory/drafts/${encodeURIComponent(draft.id)}`, {
-        method: "DELETE", timeoutMs: 20000,
-      });
-      love.memoryDraft = null;
-      love.memoryDraftId = "";
-      toast("草稿已丢弃。", "success");
-      await renderLovePage();
-    } catch (error) {
-      toast(`丢弃失败：${error.message}`, "error");
-    }
-  });
+async function deleteMasterRun(button) {
+  const id = Number(button.dataset.id);
+  if (!await confirmAction({ title: "删除这条分析？", message: "只删除本机保存的分析结果，不影响聊天与记忆。", confirmLabel: "删除", danger: true })) return;
+  try {
+    await loveApi(`/api/love/master/runs/${id}`, { method: "DELETE", timeoutMs: 20000 });
+    if (love.masterSelectedId === id) love.masterSelectedId = 0;
+    toast("已删除。", "success");
+    await renderLovePage();
+  } catch (error) { toast(`删除失败：${error.message}`, "error"); }
 }
 
-async function regenerateMemory(button) {
-  const draft = love.memoryDraft;
-  if (!draft) return;
-  const confirmed = await confirmAction({
-    title: "重新生成这篇记忆？",
-    message: "会用当天聊天重新生成草稿；当前草稿里未保存的修改会丢失。",
-    confirmLabel: "重新生成",
-  });
-  if (!confirmed) return;
-  await generateMemoryDraft(draft.date, button, { overwrite: true });
-}
+// ── 设置抽屉 ───────────────────────────────────────────────────────
 
-// ── 设置 ───────────────────────────────────────────────────────────
-
-async function renderSettings(content) {
-  const status = love.status || await loveApi("/api/love/status", { timeoutMs: 20000 });
-  const settings = love.settings || await loveApi("/api/love/settings", { timeoutMs: 20000 });
-  if (love.page !== "settings") return;
-  const keyConfigured = Boolean(settings.api_key_configured);
-  content.innerHTML = `
-    ${card("DeepSeek API", `
-      <dl class="love-facts">
-        <div><dt>接口地址</dt><dd><code>${escapeHtml(settings.api_base_url || "—")}</code></dd></div>
-        <div><dt>模型</dt><dd><code>${escapeHtml(settings.api_model || "—")}</code></dd></div>
-        <div><dt>API Key</dt><dd>${keyConfigured ? '<span class="love-badge ok">已配置，加密存储</span>' : '<span class="love-badge error">未配置</span>'}</dd></div>
-      </dl>
-      <form id="love-key-form" class="love-key-form">
-        <div class="field"><label for="love-api-key">${keyConfigured ? "替换 API Key" : "填写 DeepSeek API Key"}</label>
-          <input id="love-api-key" name="key" type="password" autocomplete="off" maxlength="300" required placeholder="sk-..." /></div>
-        <div class="love-inline-actions">
-          <button class="button primary" type="submit">保存 Key</button>
-          ${keyConfigured ? '<button class="button secondary" type="button" data-love-action="settings-delete-key">删除 Key</button>' : ""}
-        </div>
-        <span id="love-key-feedback" class="status-message" role="status"></span>
-      </form>
-      <p class="field-help">Key 使用 AES-256-GCM 加密后存进当前个人数据库的恋爱数据库；密钥文件在数据库同目录（<code>.torch-os/love/</code>）。页面不会回显已保存的 Key。</p>
-    `, { eyebrow: "AI SETTINGS", subtitle: "只有 AI 分析、每日记忆、生成日记和报告会用到这把 Key；其余功能完全离线。" })}
-    ${card("数据与存储", `
-      <dl class="love-facts">
-        <div><dt>数据目录</dt><dd class="love-path">${escapeHtml(status.data_dir || "—")}</dd></div>
-        <div><dt>数据库</dt><dd class="love-path">${escapeHtml(status.db_path || "—")}</dd></div>
-        <div><dt>数据库大小</dt><dd>${status.db_size ? `${(Number(status.db_size) / 1024 / 1024).toFixed(1)} MB` : "—"}</dd></div>
-        <div><dt>项目 / 消息 / 日志</dt><dd>${formatInt(status.project_count)} / ${formatInt(status.message_count)} / ${formatInt(status.journal_count)}</dd></div>
-        <div><dt>排班表目录</dt><dd class="love-path">${escapeHtml(status.schedule_excel_dir || "—")}</dd></div>
-        <div><dt>值班备注</dt><dd class="love-path">${escapeHtml(status.schedule_notes || "—")}</dd></div>
-      </dl>
-      <p class="field-help">恋爱系统的数据库、加密 Key、排班表和值班备注都放在当前个人数据库的 <code>.torch-os/love/</code> 里；拷贝整个个人数据库即可带走。API Key 只会保存在本机，不上传。</p>
-      ${(status.migration?.db === "copied" || status.migration?.key
-          || Number(status.migration?.excel) > 0 || status.migration?.stopwords)
-        ? '<p class="inline-warning">已把旧位置的数据复制到当前个人数据库；原文件保留在原处。</p>' : ""}
-      <div class="love-inline-actions">
-        <button class="button secondary" type="button" data-love-action="settings-refresh">重新检查</button>
-        <button class="button secondary" type="button" data-love-action="goto" data-page="schedule">打开值班日历</button>
-      </div>
-    `, { eyebrow: "DATA BOUNDARY", subtitle: "原生接入后仍然只认这一份本机数据，不做云端同步。" })}
-    ${card("怎么用", `
-      <ol class="love-advice">
-        <li>导入聊天记录，或直接使用已存在的项目。</li>
-        <li>在「微信同步」里连接 WeFlow，只绑一个单聊，先预览再合并进现有项目。</li>
-        <li>在「统计分析」里看消息量、回复间隔、媒体和高频词。</li>
-        <li>配置 Key 后运行一次「AI 深度分析」；结论和画像都会保存在本机。</li>
-        <li>在「每日记忆」里按天生成草稿，核对后写入生活运营的「情感与记忆」。</li>
-        <li>用「恋爱日志」按天记录，或让 AI 根据当天聊天先写一版，再自己修改。</li>
-        <li>需要留档时在「报告」里生成 HTML，打印成 PDF。</li>
-      </ol>
-      <p class="field-help">AI 结论只是一种视角。涉及真实关系与安全的问题，请优先相信现实沟通和可信任的人。</p>
-    `, { eyebrow: "GUIDE" })}`;
-  node("love-key-form")?.addEventListener("submit", async (event) => {
+async function openLoveSettings() {
+  const drawer = $id("love-settings-drawer");
+  const backdrop = $id("love-settings-backdrop");
+  if (!drawer) return;
+  love.settingsOpen = true;
+  drawer.hidden = false;
+  if (backdrop) backdrop.hidden = false;
+  document.body.classList.add("love-settings-open");
+  const body = $id("love-settings-body");
+  if (body) body.innerHTML = loadingBox("正在读取设置…");
+  let status = love.status;
+  let chat = love.chatStatus;
+  try {
+    status = await loveApi("/api/love/status", { timeoutMs: 20000 });
+    love.status = status;
+  } catch { /* 保留旧状态 */ }
+  try {
+    chat = await loveApi("/api/love/chat/status", { timeoutMs: 20000 });
+    love.chatStatus = chat;
+  } catch { /* WeFlow 可能没启动 */ }
+  if (!body) return;
+  const paths = status?.paths || {};
+  const pathRows = [
+    ["数据根目录", paths.root],
+    ["恋爱记忆", paths.memory],
+    ["微信聊天", paths.chat],
+    ["排班日历", paths.schedule],
+    ["经期关怀", paths.cycle],
+    ["恋爱相册", paths.gallery],
+    ["八字合婚", paths.bazi],
+    ["恋爱大师", paths.master],
+  ].map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd class="love-path">${escapeHtml(value || "—")}</dd></div>`).join("");
+  const migration = status?.migration || {};
+  body.innerHTML = `
+    ${card("WeFlow 连接", `
+      <form id="love-settings-weflow" class="love-key-form">
+        <div class="form-grid"><div class="field"><label for="love-settings-port">端口</label><input id="love-settings-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(chat?.port || 5031))}" /></div><div class="field"><label for="love-settings-token">Access Token</label><input id="love-settings-token" name="token" type="password" autocomplete="off" maxlength="400" placeholder="${chat?.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow Token"}" /></div></div>
+        <div class="love-inline-actions"><button class="button primary" type="submit">保存并测试</button>${chat?.token_configured ? '<button class="button secondary" type="button" data-love-action="settings-clear-token">清除 Token</button>' : ""}</div>
+        <p class="field-help">${chat?.token_configured ? "Token 已加密保存在 02_微信聊天/.credentials.json。" : "还没有配置 Token。"}${chat?.weflow_ok === false ? ` <span class="inline-error">${escapeHtml(chat.weflow_error || "连接失败")}</span>` : ""}</p>
+      </form>`, { eyebrow: "WEFLOW" })}
+    ${card("微信组件修复", `
+      <p class="field-help">WeFlow 自带的闭源 WCDB 组件有到期校验，过期后会报 101。torch 不会破解它；这里用开源项目 <a href="https://github.com/olansoft/weflow-wcdb-api-oss" target="_blank" rel="noopener">olansoft/weflow-wcdb-api-oss</a> 构建的不过期 DLL 替换，并在替换前备份、失败可回滚。</p>
+      <div id="love-weflow-component-status" class="love-component-status">正在检查…</div>
+      <div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="weflow-component-check">重新检查</button><button class="button primary" type="button" data-love-action="weflow-component-install">选择已构建的 DLL 并替换</button><button class="button secondary" type="button" data-love-action="weflow-component-bundled">使用内置 DLL 一键替换</button><button class="button secondary" type="button" data-love-action="weflow-component-rollback">回滚</button></div>
+      <p class="field-help">当前环境可能没有 C++ 工具链；项目附带构建脚本与图文教程，首次需要先构建一次 wcdb_api.dll。</p>`, { eyebrow: "COMPONENT" })}
+    ${card("数据目录", `<dl class="love-facts">${pathRows}</dl>${migration.status ? `<p class="field-help">迁移状态：${escapeHtml(migration.status)}${migration.source ? ` · 来源 ${escapeHtml(migration.source)}` : ""}${migration.backup ? ` · 备份 ${escapeHtml(migration.backup)}` : ""}</p>` : ""}`, { eyebrow: "DATA" })}
+    ${card("AI 与隐私", `<dl class="love-facts"><div><dt>dsh</dt><dd>${status?.ai?.available ? '<span class="love-badge ok">可用</span>' : `<span class="love-badge warn">不可用</span> <span class="meta">${escapeHtml(status?.ai?.reason || "")}</span>`}</dd></div><div><dt>只读模式</dt><dd>${status?.read_only ? "开启" : "关闭"}</dd></div></dl><p class="field-help">所有 AI 都走 dsh；聊天原文脱敏后发送，经期只发送聚合阶段，不发送每日症状明细。原始文件仍只在本机。</p>`, { eyebrow: "AI" })}`;
+  $id("love-settings-weflow")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submit = form.querySelector('button[type="submit"]');
-    const key = form.elements.key.value.trim();
-    if (!key) return;
-    await withBusy(submit, "保存中…", async () => {
+    const port = Number(form.elements.port.value) || 5031;
+    const token = form.elements.token.value.trim();
+    await withBusy(submit, "测试中…", async () => {
       try {
-        await loveApi("/api/love/settings/api-key", {
-          method: "POST", body: JSON.stringify({ key }), timeoutMs: 30000,
-        });
-        love.settings = { ...(love.settings || {}), api_key_configured: true };
-        toast("API Key 已保存并加密。", "success");
-        await renderLovePage();
-      } catch (error) {
-        const feedback = node("love-key-feedback");
-        if (feedback) feedback.textContent = error.message;
-        toast(`保存失败：${error.message}`, "error");
-      }
+        await loveApi("/api/love/chat/settings", { method: "PUT", body: JSON.stringify({ port, token }), timeoutMs: 40000 });
+        form.elements.token.value = "";
+        toast("WeFlow 设置已保存。", "success");
+        await openLoveSettings();
+      } catch (error) { toast(`保存失败：${error.message}`, "error"); }
     });
   });
+  checkWeFlowComponent();
 }
 
-async function deleteApiKey(button) {
-  const confirmed = await confirmAction({
-    title: "删除本机保存的 API Key？",
-    message: "删除后 AI 分析与 AI 生成日记会停止工作；聊天记录、画像和日志不受影响。",
-    confirmLabel: "删除 Key", danger: true,
-  });
-  if (!confirmed) return;
-  await withBusy(button, "删除中…", async () => {
-    try {
-      await loveApi("/api/love/settings/api-key", { method: "DELETE", timeoutMs: 30000 });
-      love.settings = { ...(love.settings || {}), api_key_configured: false };
-      toast("API Key 已删除。", "success");
-      await renderLovePage();
-    } catch (error) {
-      toast(`删除失败：${error.message}`, "error");
-    }
-  });
+function closeLoveSettings() {
+  love.settingsOpen = false;
+  const drawer = $id("love-settings-drawer");
+  const backdrop = $id("love-settings-backdrop");
+  if (drawer) drawer.hidden = true;
+  if (backdrop) backdrop.hidden = true;
+  document.body.classList.remove("love-settings-open");
+}
+
+async function checkWeFlowComponent() {
+  const target = $id("love-weflow-component-status");
+  if (!target) return;
+  try {
+    const data = await loveApi("/api/love/weflow/component/status", { timeoutMs: 20000 });
+    love.weflowComponent = data;
+    const installed = data.installed ? "已找到 WeFlow" : "没有找到 WeFlow 安装目录";
+    const expired = data.expired ? " · 组件已过期（101）" : "";
+    const bundled = data.bundled_dll ? " · 已发现内置 DLL" : " · 没有内置 DLL（需先构建）";
+    target.innerHTML = `<span class="love-badge ${data.expired ? "error" : data.installed ? "ok" : "warn"}">${escapeHtml(installed)}${escapeHtml(expired)}</span><p class="field-help">${escapeHtml(data.dll_path || "未检测到 wcdb_api.dll")}${escapeHtml(bundled)}</p>`;
+  } catch (error) {
+    target.innerHTML = `<span class="love-badge warn">组件检查不可用</span><p class="field-help">${escapeHtml(error.message)}</p>`;
+  }
 }
 
 // ── 动作分发 ───────────────────────────────────────────────────────
@@ -2604,191 +1656,310 @@ async function handleLoveAction(event) {
     return;
   }
   switch (action) {
-    case "goto":
-      setLovePage(button.dataset.page);
-      return;
     case "retry-page":
-      await reloadLove({ quiet: true });
-      return;
-    case "pick-file":
-      node("love-file")?.click();
-      return;
-    case "import-confirm":
-      await confirmImport(button);
-      return;
-    case "import-reset":
-      love.pendingFile = null;
       await renderLovePage();
       return;
-    case "trend":
-      love.trend = ["day", "week", "month"].includes(button.dataset.value) ? button.dataset.value : "day";
+    case "refresh":
       await renderLovePage();
       return;
-    case "run-analysis":
-      await runAnalysis(button);
-      return;
-    case "analysis-log":
-      love.selectedAnalysisId = button.dataset.id || "";
+    case "goto-memory":
+      love.page = "memories";
       await renderLovePage();
       return;
-    case "profile-add":
-      await openTraitDialog("add");
-      return;
-    case "profile-edit":
-      await openTraitDialog("edit", button.dataset.key || "");
-      return;
-    case "profile-lock":
-      await toggleTraitLock(button);
-      return;
-    case "profile-delete":
-      await deleteTrait(button);
-      return;
-    case "journal-new":
-      await openJournalDialog("new");
-      return;
-    case "journal-edit":
-      await openJournalDialog("edit", button.dataset.id || "");
-      return;
-    case "journal-delete":
-      await deleteJournal(button);
-      return;
-    case "journal-generate-all":
-      await batchGenerateJournals();
-      return;
-    case "report-generate":
-      await generateReport(button);
-      return;
-    case "report-download":
-      downloadReport();
-      return;
-    case "report-print":
-      printReport();
-      return;
-    case "schedule-month": {
-      const delta = Number(button.dataset.value) < 0 ? -1 : 1;
-      love.scheduleMonth = shiftMonth(love.scheduleMonth || currentMonth(), delta);
-      writeStorage("torch-os:love-schedule-month", love.scheduleMonth);
+    case "goto-bazi":
+      love.page = "bazi";
       await renderLovePage();
       return;
-    }
+    case "settings-open":
+      await openLoveSettings();
+      return;
+    case "memory-new":
+      openNewMemory();
+      return;
+    case "memory-open":
+      await openMemoryNote(button.dataset.path || "");
+      return;
+    case "memory-notebook":
+      love.memoryNotebook = love.memoryNotebook === button.dataset.key ? "" : (button.dataset.key || "");
+      await renderLovePage();
+      return;
+    case "memory-clear-filter":
+      love.memoryNotebook = "";
+      await renderLovePage();
+      return;
+    case "memory-create-notebook":
+      openNotebookDialog();
+      return;
+    case "memory-delete-notebook":
+      await deleteMemoryNotebook(button);
+      return;
+    case "memory-promote-drafts":
+      await promoteAiDrafts(button);
+      return;
+    case "chat-clear-token":
+      if (!await confirmAction({ title: "清除 WeFlow Token？", message: "清除后不能读取微信联系人，也不能同步；已有聊天保留。", confirmLabel: "清除", danger: true })) return;
+      try {
+        await loveApi("/api/love/chat/token", { method: "DELETE", timeoutMs: 20000 });
+        toast("Token 已清除。", "success");
+        await renderLovePage();
+      } catch (error) { toast(`清除失败：${error.message}`, "error"); }
+      return;
+    case "chat-sync-apply":
+      await startChatSync("apply", button);
+      return;
+    case "chat-sync-preview":
+      await startChatSync("preview", button);
+      return;
+    case "chat-rebind":
+      love.chatRebinding = true;
+      love.chatSessions = love.chatSessions || [];
+      if (love.chatStatus?.token_configured) await loadChatSessions({ silent: true });
+      toast("在下方选择新的联系人；换绑会先备份并清空旧聊天。", "info");
+      await renderLovePage();
+      return;
+    case "chat-unbind":
+      if (!await confirmAction({ title: "解除微信绑定？", message: "解除后不再同步新消息；已经同步的聊天保留在 chat.db，可继续查看。", confirmLabel: "解除绑定", danger: true })) return;
+      try {
+        await loveApi("/api/love/chat/bind", { method: "DELETE", timeoutMs: 20000 });
+        love.chatRebinding = false;
+        love.chatDay = "";
+        toast("已解除绑定。", "success");
+        await renderLovePage();
+      } catch (error) { toast(`解除失败：${error.message}`, "error"); }
+      return;
+    case "chat-day":
+      love.chatDay = button.dataset.date || love.chatDay;
+      await renderLovePage();
+      return;
+    case "chat-month":
+      love.chatMonth = shiftMonth(chatMonthValue(), Number(button.dataset.value) < 0 ? -1 : 1);
+      love.chatDay = "";
+      await renderLovePage();
+      return;
+    case "chat-month-today":
+      love.chatMonth = currentMonthText();
+      love.chatDay = "";
+      await renderLovePage();
+      return;
+    case "schedule-month":
+      love.scheduleMonth = shiftMonth(scheduleMonthValue(), Number(button.dataset.value) < 0 ? -1 : 1);
+      await renderLovePage();
+      return;
     case "schedule-today":
-      love.scheduleMonth = currentMonth();
-      writeStorage("torch-os:love-schedule-month", love.scheduleMonth);
+      love.scheduleMonth = currentMonthText();
       await renderLovePage();
       return;
     case "schedule-upload":
-      node("love-schedule-file")?.click();
+      $id("love-schedule-file")?.click();
       return;
-    case "schedule-note": {
+    case "schedule-day": {
       const date = button.dataset.date || "";
       const day = love.scheduleData?.days?.find((item) => item.date === date)
-        || { date, in_range: false, work: null, rest: null, note: "" };
-      openScheduleNote(day);
+        || { date, in_range: false, work: null, rest: null, note: "", duty: "" };
+      openScheduleDay(day);
       return;
     }
-    case "wechat-sessions":
-      await withBusy(button, "读取中…", async () => {
-        const keyword = node("love-weflow-keyword")?.value || "";
-        await loadWechatSessions({ keyword: keyword.trim() });
-        await renderLovePage();
-      });
-      return;
-    case "wechat-clear-token":
-      await clearWechatToken(button);
-      return;
-    case "wechat-preview":
-      await startWechatSync("preview", button);
-      return;
-    case "wechat-apply":
-      await startWechatSync("apply", button);
-      return;
-    case "wechat-unbind":
-      await unbindWechat(button);
-      return;
-    case "memory-day":
-      love.memoryDate = button.dataset.date || love.memoryDate;
-      love.memoryDraftId = "";
-      love.memoryDraft = null;
+    case "gallery-view":
+      love.galleryView = ["all", "albums", "photos", "videos"].includes(button.dataset.view) ? button.dataset.view : "all";
+      love.galleryKind = love.galleryView === "photos" ? "photo" : love.galleryView === "videos" ? "video" : "";
+      love.galleryAlbum = 0;
+      love.gallerySelection.clear();
       await renderLovePage();
       return;
-    case "memory-generate-selected":
-      if (!love.memoryDate) {
-        toast("请先选择日期。", "warning");
-        return;
-      }
-      await generateMemoryDraft(love.memoryDate, button);
-      return;
-    case "memory-write":
-      await writeMemoryDraft(button);
-      return;
-    case "memory-regenerate":
-      await regenerateMemory(button);
-      return;
-    case "memory-discard":
-      await discardMemoryDraft(button);
-      return;
-    case "settings-delete-key":
-      await deleteApiKey(button);
-      return;
-    case "settings-refresh":
-      await reloadLove({ quiet: true });
-      return;
-    case "switch-project":
-      love.projectId = button.dataset.id || "";
-      if (love.projectId) writeStorage(PROJECT_KEY, love.projectId);
-      love.selectedAnalysisId = "";
-      love.lastReport = null;
-      stopWechatPoll();
-      resetWechatSourceState();
-      resetMemoryState();
-      syncProjectPicker();
+    case "gallery-album":
+      love.galleryView = "all";
+      love.galleryAlbum = Number(button.dataset.id) || 0;
+      love.galleryKind = "";
+      love.gallerySelection.clear();
       await renderLovePage();
       return;
-    case "project-delete": {
-      const id = button.dataset.id || "";
-      const name = button.dataset.name || "这个项目";
-      const confirmed = await confirmAction({
-        title: `删除「${name}」？`,
-        message: "会同时删除这个项目的消息、分析记录、画像和恋爱日志，且无法在应用内恢复。建议先确认数据库已有备份。",
-        confirmLabel: "永久删除", danger: true,
+    case "gallery-all":
+      love.galleryAlbum = 0;
+      love.galleryKind = "";
+      love.galleryView = "all";
+      await renderLovePage();
+      return;
+    case "gallery-upload":
+      $id("love-gallery-files")?.click();
+      return;
+    case "gallery-open": {
+      const item = love.galleryItems?.find((media) => Number(media.id) === Number(button.dataset.id));
+      if (item) openGalleryViewer(item);
+      return;
+    }
+    case "gallery-create-album": {
+      openDialog("新建相簿", `<form id="love-gallery-album-form" class="love-dialog-form"><div class="field"><label for="love-gallery-album-name">相簿名称</label><input id="love-gallery-album-name" name="name" maxlength="48" required /></div><div class="form-actions"><div class="love-inline-actions"><button class="button secondary" type="button" id="love-gallery-album-cancel">取消</button><button class="button primary" type="submit">创建</button></div></div></form>`);
+      $id("love-gallery-album-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
+      $id("love-gallery-album-form")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = event.currentTarget.elements.name.value.trim();
+        if (!name) return;
+        try {
+          await loveApi("/api/love/gallery/albums", { method: "POST", body: JSON.stringify({ name }), timeoutMs: 20000 });
+          $id("detail-dialog")?.close();
+          toast("相簿已创建。", "success");
+          await renderLovePage();
+        } catch (error) { toast(`创建失败：${error.message}`, "error"); }
       });
-      if (!confirmed) return;
+      return;
+    }
+    case "gallery-rename-album": {
+      const id = Number(button.dataset.id);
+      openDialog("重命名相簿", `<form id="love-gallery-rename-form" class="love-dialog-form"><div class="field"><label for="love-gallery-rename-name">新名称</label><input id="love-gallery-rename-name" name="name" maxlength="48" required value="${escapeHtml(button.dataset.name || "")}" /></div><div class="form-actions"><div class="love-inline-actions"><button class="button secondary" type="button" id="love-gallery-rename-cancel">取消</button><button class="button primary" type="submit">保存</button></div></div></form>`);
+      $id("love-gallery-rename-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
+      $id("love-gallery-rename-form")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = event.currentTarget.elements.name.value.trim();
+        if (!name) return;
+        try {
+          await loveApi(`/api/love/gallery/albums/${id}`, { method: "PUT", body: JSON.stringify({ name }), timeoutMs: 20000 });
+          $id("detail-dialog")?.close();
+          toast("相簿已改名。", "success");
+          await renderLovePage();
+        } catch (error) { toast(`改名失败：${error.message}`, "error"); }
+      });
+      return;
+    }
+    case "gallery-delete-album": {
+      const id = Number(button.dataset.id);
+      if (!await confirmAction({ title: `删除相簿「${button.dataset.name || ""}」？`, message: "相簿里的照片/视频会移回「未分类」，不会删除文件。", confirmLabel: "删除相簿", danger: true })) return;
       try {
-        await loveApi(`/api/love/projects/${encodeURIComponent(id)}`, {
-          method: "DELETE", body: JSON.stringify({ confirm: true }), timeoutMs: 30000,
-        });
-        toast("项目已删除。", "success");
-        if (love.projectId === id) {
-          removeStorage(PROJECT_KEY);
-          love.projectId = "";
-        }
-        await reloadLove({ quiet: true });
-      } catch (error) {
-        toast(`删除失败：${error.message}`, "error");
-      }
+        await loveApi(`/api/love/gallery/albums/${id}`, { method: "DELETE", timeoutMs: 20000 });
+        toast("相簿已删除，媒体已移回未分类。", "success");
+        await renderLovePage();
+      } catch (error) { toast(`删除失败：${error.message}`, "error"); }
       return;
     }
+    case "gallery-bulk-move":
+      openGalleryMoveDialog([...love.gallerySelection]);
+      return;
+    case "gallery-bulk-delete": {
+      const ids = [...love.gallerySelection];
+      if (!ids.length) return;
+      if (!await confirmAction({ title: `删除选中的 ${ids.length} 项？`, message: "文件和缩略图会从相册目录删除，无法在应用内恢复。", confirmLabel: "删除", danger: true })) return;
+      try {
+        await loveApi("/api/love/gallery/media/bulk", { method: "POST", body: JSON.stringify({ ids, action: "delete" }), timeoutMs: 60000 });
+        love.gallerySelection.clear();
+        toast("已删除。", "success");
+        await renderLovePage();
+      } catch (error) { toast(`删除失败：${error.message}`, "error"); }
+      return;
+    }
+    case "gallery-clear-selection":
+      love.gallerySelection.clear();
+      await renderLovePage();
+      return;
+    case "bazi-generate":
+      await generateBazi(button);
+      return;
+    case "bazi-reset":
+      love.baziDraft = defaultBaziDraft();
+      await renderLovePage();
+      return;
+    case "bazi-select":
+      love.baziSelectedId = Number(button.dataset.id) || 0;
+      await renderLovePage();
+      return;
+    case "bazi-delete":
+      await deleteBaziReport(button);
+      return;
+    case "master-run":
+      await runMasterSkill(button.dataset.skill || "", button);
+      return;
+    case "master-select":
+      love.masterSelectedId = Number(button.dataset.id) || 0;
+      await renderLovePage();
+      return;
+    case "master-delete":
+      await deleteMasterRun(button);
+      return;
+    case "master-chat":
+      openRoleDrawer({
+        ...COMPANIONS.love,
+        selectors: [{ entry: "love" }],
+        prompt: "基于我当前的恋爱数据，给我三条今天能做的具体建议；先说两三行态势。",
+      });
+      return;
+    case "settings-clear-token":
+      if (!await confirmAction({ title: "清除 WeFlow Token？", message: "清除后不能读取联系人，也不能同步；已有聊天保留。", confirmLabel: "清除", danger: true })) return;
+      try {
+        await loveApi("/api/love/chat/token", { method: "DELETE", timeoutMs: 20000 });
+        toast("Token 已清除。", "success");
+        await openLoveSettings();
+      } catch (error) { toast(`清除失败：${error.message}`, "error"); }
+      return;
+    case "weflow-component-check":
+      await checkWeFlowComponent();
+      return;
+    case "weflow-component-install":
+      await installWeFlowComponent(button);
+      return;
+    case "weflow-component-bundled":
+      await installBundledWeFlowComponent(button);
+      return;
+    case "weflow-component-rollback":
+      await rollbackWeFlowComponent(button);
+      return;
     default:
       return;
   }
 }
 
+async function installWeFlowComponent(button) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".dll";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    await withBusy(button, "替换中…", async () => {
+      try {
+        const result = await loveApi("/api/love/weflow/component/replace", { method: "POST", body: form, timeoutMs: 120000 });
+        toast(result.message || "组件已替换；请重启 WeFlow 后重试。", "success");
+        await checkWeFlowComponent();
+      } catch (error) {
+        toast(`替换失败：${error.message}`, "error");
+      }
+    });
+  });
+  input.click();
+}
+
+async function installBundledWeFlowComponent(button) {
+  if (!love.weflowComponent?.bundled_dll) {
+    toast("assets/weflow/wcdb_api.dll 不存在；请先按教程构建，或手动选择 DLL。", "warning");
+    return;
+  }
+  if (!await confirmAction({ title: "使用内置 DLL 替换？", message: "替换前会备份当前 WeFlow 组件；请先完全退出 WeFlow（含托盘）。", confirmLabel: "替换" })) return;
+  await withBusy(button, "替换中…", async () => {
+    try {
+      const result = await loveApi("/api/love/weflow/component/replace", { method: "POST", timeoutMs: 120000 });
+      toast(result.message || "组件已替换；请重启 WeFlow 后重试。", "success");
+      await checkWeFlowComponent();
+    } catch (error) {
+      toast(`替换失败：${error.message}`, "error");
+    }
+  });
+}
+
+async function rollbackWeFlowComponent(button) {
+  if (!await confirmAction({ title: "回滚微信组件？", message: "会把最近一次备份的 wcdb_api.dll 放回 WeFlow 目录，并重启前请先退出 WeFlow。", confirmLabel: "回滚" })) return;
+  await withBusy(button, "回滚中…", async () => {
+    try {
+      const result = await loveApi("/api/love/weflow/component/rollback", { method: "POST", timeoutMs: 60000 });
+      toast(result.message || "已回滚。", "success");
+      await checkWeFlowComponent();
+    } catch (error) { toast(`回滚失败：${error.message}`, "error"); }
+  });
+}
+
 const PAGE_RENDERERS = {
-  dashboard: renderDashboard,
-  cycle: (content) => renderLoveCycle(content, {
-    card,
-    isActive: () => love.page === "cycle",
-    rerender: renderLovePage,
-  }),
-  import: renderImport,
-  wechat: renderWechat,
-  stats: renderStats,
-  analysis: renderAnalysis,
-  profile: renderProfile,
-  journal: renderJournal,
-  memory: renderMemory,
-  report: renderReport,
+  memories: renderMemories,
+  chat: renderChat,
   schedule: renderSchedule,
+  gallery: renderGallery,
   bazi: renderBazi,
-  settings: renderSettings,
+  master: renderMaster,
 };

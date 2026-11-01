@@ -14,6 +14,12 @@ from backend.app.db import Database
 from backend.app.vault_admin import MANIFEST_RELATIVE, PLUGIN_DIR_RELATIVE, PROJECT_ROOT
 
 
+def _four_pillar_chapters():
+    """四库首页/清单包含的章节；恋爱记忆的两个写作章节不在其中。"""
+    return [item for item in vault_layout.CHAPTERS
+            if item[1] in vault_layout.PILLAR_ORDER]
+
+
 def build(tmp_path: Path, runtime_label: str = "personal"):
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -46,7 +52,10 @@ def test_template_lists_the_canonical_four_pillar_layout(tmp_path):
     assert payload["layout_version"] == vault_layout.LAYOUT_VERSION
     assert [pillar["key"] for pillar in payload["pillars"]] == list(vault_layout.PILLAR_ORDER)
     chapters = [chapter for pillar in payload["pillars"] for chapter in pillar["chapters"]]
-    assert len(chapters) == len(vault_layout.CHAPTERS)
+    assert len(chapters) == len(_four_pillar_chapters())
+    # 模板的总章节清单与目录仍覆盖全部 CHAPTERS，包括恋爱记忆的两个写作章节。
+    assert [(row["key"], row["path"]) for row in payload["chapters"]] == [
+        (item[0], item[3]) for item in vault_layout.CHAPTERS]
     assert set(payload["directories"]) == {item[3] for item in vault_layout.CHAPTERS}
     # 人生路 v2：模板直接给出新路径与分组，不复制旧目录。
     assert "00_人生路/02_反思复盘/01_反思" in payload["directories"]
@@ -70,8 +79,11 @@ def test_create_builds_the_full_template_and_registers_it(tmp_path, desktop):
     assert payload["registered"] is True
     assert Path(payload["path"]) == target
 
-    # 四库章节一个不少，且与后端布局完全一致。
+    # 四库章节一个不少；旧只读章节（情感与记忆/财富与记账）不再建空目录。
     for chapter in vault_layout.CHAPTERS:
+        if chapter[0] in vault_layout.LEGACY_CHAPTER_KEYS:
+            assert not (target / chapter[3]).is_dir(), chapter[3]
+            continue
         assert (target / chapter[3]).is_dir(), chapter[3]
     assert (target / "00_人生路" / "02_反思复盘" / "01_反思").is_dir()
     assert (target / "00_人生路" / "05_项目" / "02_项目复盘").is_dir()
@@ -96,7 +108,7 @@ def test_create_builds_the_full_template_and_registers_it(tmp_path, desktop):
     assert manifest["layout_version"] == vault_layout.LAYOUT_VERSION
     listed = [chapter for pillar in manifest["pillars"] for chapter in pillar["chapters"]]
     assert [(row["key"], row["path"]) for row in listed] == [
-        (item[0], item[3]) for item in vault_layout.CHAPTERS]
+        (item[0], item[3]) for item in _four_pillar_chapters()]
 
     identity = target / vault_layout.identity_paths()[0]
     assert identity.is_file()

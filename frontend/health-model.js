@@ -41,6 +41,59 @@ export function shortDate(day) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(day || "")) ? String(day).slice(5).replace("-", "/") : String(day || "");
 }
 
+/** 2026-11-01 -> 11月1日；给档案和卡片用，比 11/01 更像人写的。 */
+export function monthDayLabel(day) {
+  const text = String(day || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  return `${Number(text.slice(5, 7))}月${Number(text.slice(8, 10))}日`;
+}
+
+export function weekdayFull(day) {
+  const date = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  return `周${["日", "一", "二", "三", "四", "五", "六"][date.getDay()] || ""}`;
+}
+
+/** 周一作为一周的第一天；返回 YYYY-MM-DD。 */
+export function mondayOf(day) {
+  const date = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return day;
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  const timezoneOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
+export function durationParts(minutes) {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
+/** 沿用状态：今天 / 沿用 10-31 / 3 天前 / 该更新了。 */
+export function freshnessText(meta, { today = todayText(), window = 0 } = {}) {
+  if (!meta || !meta.date) return "还没记录";
+  const age = Number(meta.age) || 0;
+  const date = String(meta.date);
+  if (date === today || age === 0) return "今天";
+  if (window && age > window) return `该更新了 · 上次 ${monthDayLabel(date)}`;
+  if (age === 1) return `沿用昨天（${monthDayLabel(date)}）`;
+  return `沿用 ${monthDayLabel(date)}`;
+}
+
+export function percentOf(value, target) {
+  if (value === null || value === undefined || value === ""
+      || target === null || target === undefined || target === "") return null;
+  const number = Number(value);
+  const goal = Number(target);
+  if (!Number.isFinite(number) || !Number.isFinite(goal) || goal <= 0) return null;
+  return Math.max(0, Math.min(100, (number / goal) * 100));
+}
+
+export function signedNumber(value, precision = 1, unit = "") {
+  return formatSigned(value, precision, unit);
+}
+
+
 export function formatNumber(value, precision = 0, unit = "") {
   if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
@@ -237,7 +290,7 @@ export function lineChart(series, {
     const lineY = padding.top + innerHeight * ratio;
     const value = globalRange.max - (globalRange.max - globalRange.min) * ratio;
     grid.push(`<line x1="${padding.left}" y1="${lineY.toFixed(1)}" x2="${width - padding.right}" y2="${lineY.toFixed(1)}" class="health-grid-line"/>`);
-    labels.push(`<text x="${padding.left - 6}" y="${(lineY + 3).toFixed(1)}" text-anchor="end" class="health-axis-text">${escapeHtml(shouldNormalize ? `${Math.round(value)}%` : formatNumber(value, Math.abs(value) < 10 ? valuePrecision : 0))}</text>`);
+    labels.push(`<text x="${padding.left - 6}" y="${(lineY + 3).toFixed(1)}" text-anchor="end" class="health-axis-text">${escapeHtml(shouldNormalize ? `${Math.round(value)}%` : formatNumber(value, valuePrecision))}</text>`);
   }
   const xTickIndexes = allDates.length > 4 ? [0, Math.floor((allDates.length - 1) / 2), allDates.length - 1] : allDates.map((_day, index) => index);
   const xLabels = xTickIndexes.map((index) => {
@@ -295,7 +348,7 @@ export function barChart(points, {
     const barHeight = Math.max(1, ((value - range.min) / (range.max - range.min)) * innerHeight);
     const barX = padding.left + slot * index + (slot - barWidth) / 2;
     const barY = padding.top + innerHeight - barHeight;
-    return `<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${escapeHtml(point.color || color)}"><title>${escapeHtml(`${point.date} ${formatNumber(value, 0, unit)}`)}</title></rect>`;
+    return `<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${escapeHtml(point.color || color)}"><title>${escapeHtml(`${point.date} ${formatNumber(value, 1, unit)}`)}</title></rect>`;
   }).join("");
   const labels = list.map((point, index) => {
     if (list.length > 10 && index % Math.ceil(list.length / 6) !== 0 && index !== list.length - 1) return "";

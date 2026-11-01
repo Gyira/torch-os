@@ -2,7 +2,7 @@
 
 - 只读来源：`02_生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
   工作台未完成任务/今日习惯；
-- 报告落盘：健康 → `06_健康报告`，财务 → `07_财务报告`，生活/恋爱建议 → `08_生活建议`；
+- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `04_财务报告`，生活/恋爱建议 → `05_生活建议`；
 - AI 只提议：建议里的 new_task/new_habit 走 `ai_proposals`，用户采纳后才创建；
 - 不修改健康/财务月度表，不替恋爱系统发消息，不控制任何家庭设备。
 """
@@ -145,6 +145,45 @@ def finance_context(vault_dir: Path | str, months: int = 6) -> tuple[str, dict[s
 
 
 def love_context(love_settings: Any) -> tuple[str, dict[str, Any]]:
+    # v2：私人数据在 02_生活运营/01_恋爱系统；LovePaths 对象没有 db_path。
+    if love_settings is not None and hasattr(love_settings, "chat_db"):
+        try:
+            from .love_master import overview_payload
+            data = overview_payload(love_settings)
+        except Exception as error:  # noqa: BLE001 - 汇总失败不能阻断生活运营总览
+            return f"恋爱数据暂时读不到：{error}", {"projects": 0, "analyses": 0}
+        memory = data.get("memory") or {}
+        chat = data.get("chat") or {}
+        cycle = data.get("cycle") or {}
+        gallery = data.get("gallery") or {}
+        bazi = data.get("bazi") or {}
+        runs = data.get("runs") or []
+        contact = chat.get("contact") or {}
+        lines = [
+            f"- 对象：{contact.get('display_name') or '未绑定'}；消息 {chat.get('total', 0)} 条，"
+            f"活跃 {chat.get('active_days', 0)} 天",
+            f"- 恋爱记忆：{memory.get('total', 0)} 篇（恋爱日志 {memory.get('journal_count', 0)}，"
+            f"AI 草稿 {memory.get('draft_count', 0)}）",
+            f"- 相册：{gallery.get('total', 0)} 个媒体；八字合婚历史：{bazi.get('count', 0)} 份",
+        ]
+        if cycle.get("has_data"):
+            lines.append(f"- 经期阶段：{cycle.get('phase_label') or '未知'}；"
+                         f"预计下次 {cycle.get('next_expected') or '—'}")
+        if runs:
+            lines.append("- 最近 AI 结论：" + "、".join(
+                f"{item.get('skill')}（{item.get('status')}）" for item in runs[:3]))
+        if bazi.get("latest"):
+            lines.append(f"- 最近八字合婚：{bazi['latest'].get('title')} / "
+                         f"{bazi['latest'].get('verdict')}")
+        stats = {
+            "projects": 1 if contact else 0,
+            "analyses": len(runs),
+            "messages": chat.get("total", 0),
+            "memory": memory.get("total", 0),
+            "galleries": gallery.get("total", 0),
+            "bazi": bazi.get("count", 0),
+        }
+        return "\n".join(lines), stats
     db_path = Path(getattr(love_settings, "db_path", "") or "")
     if not db_path.is_file():
         return "还没有恋爱分析数据。", {"projects": 0, "analyses": 0}

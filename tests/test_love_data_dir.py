@@ -1,4 +1,4 @@
-"""恋爱系统数据目录必须跟着当前选中的个人数据库，而不是仓库 data/love 或 %LOCALAPPDATA%。"""
+"""恋爱系统 v2：私人数据在 02_生活运营/01_恋爱系统，按页面分目录。"""
 
 from __future__ import annotations
 
@@ -23,31 +23,34 @@ def test_love_data_is_stored_inside_the_selected_personal_database(tmp_path: Pat
     response = client.get("/api/love/status", headers={"x-api-token": "test-token"})
     assert response.status_code == 200, response.text
     payload = response.json()
+    paths = payload["paths"]
 
-    expected = data_dir / "love"
-    assert Path(payload["data_dir"]) == expected
-    assert Path(payload["db_path"]) == expected / "love_analysis.db"
-    assert Path(payload["schedule_excel_dir"]) == expected / "xlsx"
-    assert Path(payload["schedule_notes"]) == expected / "schedule-notes.json"
+    expected = vault / "02_生活运营" / "01_恋爱系统"
+    assert Path(paths["root"]) == expected
+    assert Path(paths["memory"]) == expected / "01_恋爱记忆"
+    assert Path(paths["chat"]) == expected / "02_微信聊天"
+    assert Path(paths["schedule"]) == expected / "03_排班日历"
+    assert Path(paths["cycle"]) == expected / "04_经期关怀"
+    assert Path(paths["gallery"]) == expected / "05_恋爱相册"
+    assert Path(paths["bazi"]) == expected / "06_八字合婚"
+    assert Path(paths["master"]) == expected / "07_恋爱大师"
     assert expected.is_relative_to(vault), "恋爱数据必须位于所选的个人数据库内"
-    assert (expected / "xlsx").is_dir()
-    assert (expected / "love_analysis.db").is_file()  # /status 会确保表结构
-    assert payload["migration"] == {}
+    assert (expected / "01_恋爱记忆" / "恋爱日志").is_dir()
+    assert (expected / "02_微信聊天" / "chat.db").is_file()
+    assert (expected / "04_经期关怀" / "cycle.db").exists() is False
 
-    # 经期关怀与聊天数据同目录；读取不建文件，首次保存时创建 cycle.db。
-    assert (expected / "cycle.db").exists() is False
     overview = client.get(
         "/api/love/cycle/overview", headers={"x-api-token": "test-token"},
     )
     assert overview.status_code == 200, overview.text
-    assert (expected / "cycle.db").exists() is False
+    assert (expected / "04_经期关怀" / "cycle.db").exists() is False
     saved = client.put(
         "/api/love/cycle/profile",
         json={"partner_name": "她"},
         headers={"x-api-token": "test-token"},
     )
     assert saved.status_code == 200, saved.text
-    assert (expected / "cycle.db").is_file()
+    assert (expected / "04_经期关怀" / "cycle.db").is_file()
 
 
 def test_injected_temp_database_does_not_touch_the_real_love_database(tmp_path: Path) -> None:
@@ -60,5 +63,6 @@ def test_injected_temp_database_does_not_touch_the_real_love_database(tmp_path: 
     payload = TestClient(app).get(
         "/api/love/status", headers={"x-api-token": "test-token"},
     ).json()
-    assert Path(payload["data_dir"]) == tmp_path / "love"
-    assert Path(payload["db_path"]).is_relative_to(tmp_path)
+    assert Path(payload["paths"]["root"]) == (
+        tmp_path / "vault" / "02_生活运营" / "01_恋爱系统")
+    assert Path(payload["paths"]["root"]).is_relative_to(tmp_path)

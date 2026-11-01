@@ -5,10 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  average, barChart, clockMinutes, durationBetween, extractMetric, formatDuration,
-  formatNumber, formatSigned, heatmap, lastDates, lineChart, macroProgress,
-  missingFor, pointsFor, progressMarkup, ringMarkup, scoreTone, seriesStats, shiftDay,
-  sparkline, stddev, todayText, weekdayLabel,
+  average, barChart, clockMinutes, durationBetween, durationParts, extractMetric,
+  formatDuration, formatNumber, formatSigned, freshnessText, heatmap, lastDates,
+  lineChart, macroProgress, missingFor, mondayOf, monthDayLabel, percentOf, pointsFor,
+  progressMarkup, ringMarkup, scoreTone, seriesStats, shiftDay, sparkline, stddev,
+  todayText, weekdayFull, weekdayLabel,
 } from "../health-model.js";
 
 const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -136,6 +137,22 @@ test("score ring and progress bars use attributes, never inline styles", () => {
   assert.match(progress, /<progress/);
   assert.match(progress, /value="48.6"/);
   assert.equal(/style=/.test(progress), false);
+});
+
+test("new date, duration and freshness helpers keep the seven-day strip honest", () => {
+  assert.equal(monthDayLabel("2026-11-01"), "11月1日");
+  assert.equal(monthDayLabel("2026-10-31"), "10月31日");
+  assert.equal(weekdayFull("2026-11-01"), "周日");
+  assert.equal(mondayOf("2026-11-01"), "2026-10-26");
+  assert.equal(mondayOf("2026-10-31"), "2026-10-26");
+  assert.deepEqual(durationParts(450), { hours: 7, minutes: 30 });
+  assert.deepEqual(durationParts(0), { hours: 0, minutes: 0 });
+  assert.equal(freshnessText({ date: "2026-11-01", age: 0 }, { today: "2026-11-01", window: 3 }), "今天");
+  assert.equal(freshnessText({ date: "2026-10-31", age: 1 }, { today: "2026-11-01", window: 3 }), "沿用昨天（10月31日）");
+  assert.equal(freshnessText({ date: "2026-10-20", age: 12 }, { today: "2026-11-01", window: 7 }), "该更新了 · 上次 10月20日");
+  assert.equal(percentOf(900, 1800), 50);
+  assert.equal(percentOf(2000, 1800), 100);
+  assert.equal(percentOf(null, 1800), null);
 });
 
 test("health pages keep the workbench CSP: no inline styles or <style> blocks", async () => {

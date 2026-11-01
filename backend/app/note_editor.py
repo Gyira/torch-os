@@ -39,7 +39,11 @@ KNOWLEDGE_CHAPTERS = frozenset({
     "inbox", "topic", "reading", "course", "concept",
     "method_work", "method_general", "output",
 })
-WRITABLE_CHAPTERS = LIFE_CHAPTERS | KNOWLEDGE_CHAPTERS
+# 恋爱记忆：固定「恋爱日志」与「AI 草稿」两个本子；自定义本子走 custom:love:。
+LOVE_CHAPTERS = frozenset({
+    vault_layout.LOVE_JOURNAL_CHAPTER, vault_layout.LOVE_DRAFT_CHAPTER,
+})
+WRITABLE_CHAPTERS = LIFE_CHAPTERS | KNOWLEDGE_CHAPTERS | LOVE_CHAPTERS
 CHAPTER_LABELS = {
     "reflection": "反思", "insight_life": "生活心得", "insight_work": "工作心得",
     "insight_study": "学习心得", "review_week": "周复盘", "review_month": "月复盘",
@@ -50,6 +54,8 @@ CHAPTER_LABELS = {
     "inbox": "收件箱", "topic": "主题笔记", "reading": "读书笔记",
     "course": "课程笔记", "concept": "概念卡片",
     "method_work": "工作方法", "method_general": "通用方法", "output": "输出与作品",
+    vault_layout.LOVE_JOURNAL_CHAPTER: "恋爱日志",
+    vault_layout.LOVE_DRAFT_CHAPTER: "AI 草稿",
 }
 DEFAULT_LIFE_CHAPTER = "reflection"
 DEFAULT_KNOWLEDGE_CHAPTER = "topic"
@@ -89,7 +95,7 @@ def _ensure_custom_notebook_exists(vault_dir: Path | str, chapter: str) -> None:
     directory = vault_layout.chapter_dir(chapter)
     target = Path(vault_dir) / directory if directory else None
     if target is None or not target.is_dir():
-        raise HTTPException(422, "这个本子不存在，请先在人生路新建本子")
+        raise HTTPException(422, "这个本子不存在，请先在本子列表里新建")
     try:
         info = target.lstat()
     except OSError as error:
@@ -349,7 +355,11 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
             return [{"key": key, "title": CHAPTER_LABELS.get(key, key),
                      "path": vault_layout.chapter_dir(key)}
                     for key in sorted(keys) if key not in hidden]
-        result = {"life": rows(LIFE_CHAPTERS), "knowledge": rows(KNOWLEDGE_CHAPTERS)}
+        result = {
+            "life": rows(LIFE_CHAPTERS),
+            "knowledge": rows(KNOWLEDGE_CHAPTERS),
+            "love": rows(LOVE_CHAPTERS),
+        }
         # 自定义本子 = 各库根目录下的文件夹；编辑器里和固定章节一样可作为移动目标。
         for pillar in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
             for name in vault_layout.list_custom_notebooks(vault_dir, pillar):

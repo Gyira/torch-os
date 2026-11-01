@@ -2,17 +2,17 @@
 
 这份文档说明设置 →「Obsidian 库连接」→「个人数据库」创建出来的库长什么样、怎么改、
 怎么切换。模板的唯一来源是 `backend/app/vault_layout.py`（`LAYOUT_VERSION = "pillars-v2"`，
-4 个库 / 43 个章节）；设置页只展示、不复制路径表，也不能在界面里编辑模板。
+4 个库 / 46 个章节）；设置页只展示、不复制路径表，也不能在界面里编辑模板。
 
 卡片本身只渲染后端返回值：当前库路径、可折叠的「模板结构」（摘要显示
-`43 个章节 / layout v2`，即 `pillars-v2`）、父文件夹 + 名称表单，以及主按钮
+`46 个章节 / layout v2`，即 `pillars-v2`）、父文件夹 + 名称表单，以及主按钮
 「创建个人数据库」（卡片描述里写作「创建新的个人数据库」）；没有编辑模板的入口。
 
 ## 一次创建会写什么
 
 创建只写**一个新的文件夹**，内容一次成型：
 
-- 四个库目录（`PILLAR_DIRS`）和 43 个章节目录（`CHAPTERS`），章节目录与四库 1:1 对应；
+- 四个库目录（`PILLAR_DIRS`）和 46 个章节目录（`CHAPTERS`），章节目录与四库 1:1 对应；
 - 任务目录：`02_生活运营/00_待办事项/`，含 `收集箱/`、`已完成/`、`回收站/`、
   每个清单一个文件夹，以及 `_系统/`（清单配置、待办与迁移记录）；
 - `.torch-os/vault-layout.json`：这次创建用到的布局清单（schema 1，见下）；
@@ -27,7 +27,7 @@
 `dashboard*.md`。创建过程先写同级临时目录 `.torch-new-<随机>`，成功后再改名成目标
 文件夹；中途失败会清掉临时目录，不会留下半个库。
 
-## 四个库与 43 个章节
+## 四个库与 46 个章节
 
 路径都相对库根目录，使用 POSIX 分隔符（后端统一，Windows 上由文件系统换算）。
 
@@ -66,7 +66,7 @@
 | 我的八字参考 | `01_自我档案/07_我的八字参考` | `bazi` |
 | 忆灵观察 | `01_自我档案/08_忆灵观察` | `observation` |
 
-### 02_生活运营（14 章）
+### 02_生活运营（13 章）
 
 | 章节 | 路径 | 默认 type |
 |---|---|---|
@@ -76,14 +76,17 @@
 | 身体档案 | `02_生活运营/02_健康系统/02_身体档案` | `health_profile` |
 | 体检与检验 | `02_生活运营/02_健康系统/03_体检与检验` | `health_lab` |
 | 训练记录 | `02_生活运营/02_健康系统/04_训练记录` | `health_train` |
-| 财富与记账 | `02_生活运营/02_财富与记账` | `finance_month` |
-| 体检与医疗 | `02_生活运营/03_体检与医疗` | `medical` |
-| 证件与事务 | `02_生活运营/04_证件与事务` | `document` |
-| 情感与记忆 | `02_生活运营/05_情感与记忆` | `memory` |
 | 健康报告 | `02_生活运营/02_健康系统/00_健康报告` | `report` |
-| 财务报告 | `02_生活运营/07_财务报告` | `report` |
-| 生活建议 | `02_生活运营/08_生活建议` | `advice` |
-| 家庭与智能家居 | `02_生活运营/09_家庭与智能家居` | `family` |
+| 证件与事务 | `02_生活运营/03_证件与事务` | `document` |
+| 财务报告 | `02_生活运营/04_财务报告` | `report` |
+| 生活建议 | `02_生活运营/05_生活建议` | `advice` |
+| 家庭与智能家居 | `02_生活运营/06_家庭与智能家居` | `family` |
+| 情感与记忆（旧只读） | `02_生活运营/07_情感与记忆` | `memory` |
+| 财富与记账（旧只读） | `02_生活运营/08_财富与记账` | `finance_month` |
+
+> `03_体检与医疗` 已退役：启动时它的内容并入 `02_健康系统/03_体检与检验`，
+> 空目录删除；生活运营其余目录压紧编号。旧 `情感与记忆`/`财富与记账` 不再
+> 自动创建空目录，只保留读写兼容。
 
 ### 03_知识库（8 章）
 
@@ -169,17 +172,24 @@
 .torch-os/personal-data.json      # 小组件偏好、常用城市、排序等（首次修改小组件时创建）
 .torch-os/横幅背景/                # 工作台横幅图片（首次在横幅编辑器选图时创建）
 .torch-os/train-tracker/          # 列车追踪时刻表（导入或从 12306 手动同步时创建）
-.torch-os/love/                   # 恋爱系统数据库、经期关怀 cycle.db、加密 Key、排班表、值班备注（首次使用恋爱系统时创建）
+02_生活运营/01_恋爱系统/          # 恋爱系统 v2 私人数据（首次打开恋爱系统时创建）
+  01_恋爱记忆/                    # 恋爱日志（默认）、AI 草稿、自定义本子
+  02_微信聊天/                    # chat.db、加密 Token、media/、exports/
+  03_排班日历/                    # xlsx/、schedule-notes.json、overrides.json
+  04_经期关怀/                    # cycle.db（首次保存时创建）
+  05_恋爱相册/                    # albums.db、照片/、视频/、thumbnails/
+  06_八字合婚/                    # bazi.db
+  07_恋爱大师/                    # analysis.db、reports/
+  _归档/                          # 旧 .torch-os/love 备份、换绑备份、其他聊天项目索引
 ```
 
 `任务/` 与 `_系统/` 在「待办事项」章节内部，章节本身也在 `CHAPTERS` 里。创建时还会
 额外补建四个目录：`任务/`、`_系统/`、`.obsidian/plugins/torch/`、`.torch-os/`；其余目录
 是章节路径的父目录，随章节一起出现。`.torch-os/personal-data.json`、`.torch-os/横幅背景/`
-与 `.torch-os/train-tracker/` 按需创建，不预先放空文件。恋爱系统第一次打开时会在
-`.torch-os/love/` 下创建 `love_analysis.db`、`xlsx/`，值班备注在首次写备注时创建；
-经期关怀的 `cycle.db` 在第一次保存经期或身体状态时才创建，读取不会产生文件。
-旧版数据会从原位置复制过来，原文件保留。车次时刻表不在 `love/` 下，已独立到
-`.torch-os/train-tracker/timetable.json`。
+与 `.torch-os/train-tracker/` 按需创建，不预先放空文件。恋爱系统第一次打开时会创建
+上面七个页面目录；`cycle.db` 在第一次保存经期或身体状态时才创建，读取不会产生文件。
+旧版 `.torch-os/love/` 会自动迁移到 `01_恋爱系统/`，原文件保留。
+车次时刻表不在恋爱系统下，已独立到 `.torch-os/train-tracker/timetable.json`。
 
 顶层规则：四库只放 Markdown 正文；系统配置、小组件个性化数据和横幅图片等非 Markdown
 资源都放 `.torch-os/`。localStorage 只作为当前窗口缓存，启动时从
@@ -195,7 +205,7 @@
   "layout_version": "pillars-v2",
   "created_at": "2026-10-26T01:23:45+08:00",
   "source": "backend/app/vault_layout.py",
-  "plugin_version": "1.0.0",
+  "plugin_version": "2.1.0",
   "pillars": [
     {
       "key": "life",
@@ -212,11 +222,12 @@
 }
 ```
 
-- `pillars[].chapters[]` 与 `vault_layout.CHAPTERS` 逐行对应（key / title / path /
-  default_type），顺序也一致；`pillars[].groups[]` 与 `CHAPTER_GROUPS` 对应（key / title /
-  章节 key 列表，只引用 key、不复制路径，只有人生路非空）；`layout_version` 与
+- `pillars[].chapters[]` 与 `vault_layout.CHAPTERS` 中属于四个库的章节逐行对应（key /
+  title / path / default_type），顺序也一致；恋爱记忆的「恋爱日志」「AI 草稿」两个写作章节
+  不属于四库，不在 `pillars` 清单里。`pillars[].groups[]` 与 `CHAPTER_GROUPS` 对应（key /
+  title / 章节 key 列表，只引用 key、不复制路径，只有人生路非空）；`layout_version` 与
   `plugin_version` 记录创建当时的版本。上面只展开 `life` 的一章与一个分组作示例，实际清单
-  完整包含四个库与 47 章。
+  完整包含四个库 46 章；模板接口的 `chapters` 另含 2 个写作章节，共 48 条。
 - 当前后端**只在创建时写这份清单，运行时不回头读它**；权威映射永远是
   `backend/app/vault_layout.py`。它的用途是给人看、给以后的迁移/校验留证据。
 - 已有库不会被补写这份文件：只有「创建新的个人数据库」会生成它。
@@ -355,3 +366,4 @@
 - SQLite 表与权威源：`docs/DATA_HANDBOOK.md`。
 - 功能清单与设置页行：`docs/FEATURE_MAP.md`。
 - 最近验证结果：`docs/STATUS.md`。
+

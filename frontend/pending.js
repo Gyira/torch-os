@@ -2,7 +2,7 @@
 // 工作台顶部一个常驻数字，点开是带 tab 的弹层；每种类型保留自己的动作。
 // 分工：草稿只标已读/丢弃，事实才写四库，分流只跳去知识库——不把三种决策混成一个按钮。
 // 渲染在 pending-markup.js（纯函数、可在 node 里单测），这里只管取数和动作。
-import { api, confirmAction, jsonBody, toast } from "./core.js";
+import { api, jsonBody, toast } from "./core.js";
 import { pendingListMarkup, pendingStripMarkup, TABS } from "./pending-markup.js";
 
 export { pendingItemMarkup, pendingListMarkup, pendingStripMarkup } from "./pending-markup.js";
@@ -106,31 +106,6 @@ export function openPendingHub() {
       try {
         const result = await api("/api/pending/triage", jsonBody("POST", { path: id, chapter }));
         toast(`已搬到 ${result?.note?.path || "新章节"}。`, "success");
-        await reload();
-      } catch (error) {
-        toast(error.message, "error");
-        button.disabled = false;
-      }
-      return;
-    }
-
-    if (kind === "love") {
-      const endpoint = `/api/love/memory/drafts/${encodeURIComponent(id)}`;
-      button.disabled = true;
-      try {
-        if (action === "write") {
-          await api(`${endpoint}/write`, jsonBody("POST", { overwrite: false }));
-          toast("已写入四库。", "success");
-        } else {
-          const ok = await confirmAction({
-            title: "丢弃这篇记忆草稿？",
-            message: "只删除应用里的草稿，不删除四库中的笔记；原始聊天也不受影响。",
-            confirmLabel: "丢弃草稿", cancelLabel: "保留", danger: true,
-          });
-          if (!ok) { button.disabled = false; return; }
-          await api(endpoint, { method: "DELETE" });
-          toast("草稿已丢弃。", "info");
-        }
         await reload();
       } catch (error) {
         toast(error.message, "error");

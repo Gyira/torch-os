@@ -8,14 +8,13 @@ export const TABS = [
   { key: "draft", label: "草稿", hint: "定时生成的早报/晚报/周报，读过或丢弃即可" },
   { key: "fact", label: "事实", hint: "采纳才会写进身份卡或记忆与自传" },
   { key: "triage", label: "收件箱", hint: "收件箱里还没归类的内容，选个章节搬过去" },
-  { key: "love", label: "恋爱记忆", hint: "每日记忆草稿，写入四库或丢弃" },
 ];
 
 export const ACTION_LABEL = {
   read: "标记已读", dismiss: "丢弃", accept: "采纳", reject: "拒绝",
-  move: "移过去", write: "写入四库", discard: "丢弃",
+  move: "移过去",
 };
-const DESTRUCTIVE = new Set(["dismiss", "reject", "discard"]);
+const DESTRUCTIVE = new Set(["dismiss", "reject"]);
 
 export function pendingStripMarkup(summary) {
   const total = Number(summary?.total) || 0;

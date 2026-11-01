@@ -12,3 +12,7 @@ openpyxl>=3.1,<4
 jieba>=0.42,<1
 chardet>=5,<8
 python-multipart>=0.0.12,<1
+# 恋爱系统 v2：本地排盘、相册缩略图与 HEIC 支持
+lunar-python>=1.4,<2
+pillow>=10,<13
+pillow-heif>=0.18,<2

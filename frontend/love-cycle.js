@@ -533,7 +533,7 @@ function periodFormMarkup({ record = null, presetDate = "" } = {}) {
   const moods = record?.moods || [];
   const notes = record?.notes || "";
   return `<form class="love-cycle-dialog-form" data-cycle-period-form data-period-id="${record ? record.id : ""}">
-    <p class="love-cycle-help">经期数据只保存在本机 <code>.torch-os/love/cycle.db</code>；不会发送给 AI 或外部服务。</p>
+    <p class="love-cycle-help">经期数据只保存在本机 <code>02_生活运营/01_恋爱系统/04_经期关怀/cycle.db</code>；恋爱大师只会收到阶段/预计日期等聚合信息，不发送每日症状明细。</p>
     <div class="love-cycle-dialog-grid">
       <div class="love-cycle-field">
         <label for="cycle-period-start">开始日期</label>

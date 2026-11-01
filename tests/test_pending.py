@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -52,27 +51,6 @@ def add_identity_draft(vault: Path, name: str = "20261027-220000-field-ab12cd34.
                     encoding="utf-8", newline="\n")
     return path
 
-
-def add_love_draft(vault: Path, *, day: str = "2026-10-20", draft_id: str = "d1",
-                   status: str = "draft") -> Path:
-    """恋爱系统自己那套库：中枢只读草稿，写回仍走恋爱系统的接口。"""
-    directory = vault / ".torch-os" / "love"
-    directory.mkdir(parents=True, exist_ok=True)
-    db_path = directory / "love_analysis.db"
-    connection = sqlite3.connect(db_path)
-    try:
-        connection.execute(
-            "CREATE TABLE IF NOT EXISTS memory_drafts (id TEXT PRIMARY KEY, project_id TEXT,"
-            " day TEXT, status TEXT, content_json TEXT, markdown TEXT, usage_json TEXT,"
-            " note_path TEXT, created_at TEXT, updated_at TEXT)")
-        connection.execute(
-            "INSERT OR REPLACE INTO memory_drafts VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (draft_id, "p1", day, status, "{}",
-             f"# {day} 的记忆\n\n今天一起去看了海。\n", "{}", None, "", ""))
-        connection.commit()
-    finally:
-        connection.close()
-    return db_path
 
 
 def test_the_orphaned_drafts_are_visible_again(tmp_path: Path) -> None:
@@ -216,25 +194,11 @@ def test_triage_cannot_move_into_managed_chapters(tmp_path: Path) -> None:
     assert unknown.status_code == 409
 
 
-def test_love_memory_drafts_join_the_same_hub(tmp_path: Path) -> None:
-    client, _database, vault = make_client(tmp_path)
-    add_love_draft(vault)
-    add_love_draft(vault, day="2026-10-19", draft_id="d2", status="written")
-
-    payload = client.get("/api/pending/items?kind=love").json()
-    items = payload["items"]
-
-    assert [item["id"] for item in items] == ["d1"], "只列还没写入的草稿"
-    assert items[0]["actions"] == ["write", "discard"]
-    assert items[0]["title"] == "2026-10-20 · 每日记忆"
-    assert "今天一起去看了海" in items[0]["preview"]
-    assert client.get("/api/pending/summary").json()["love"] == 1
-
-
-def test_month_without_a_love_database_is_empty_not_broken(tmp_path: Path) -> None:
+def test_daily_memory_room_is_removed(tmp_path: Path) -> None:
     client, _database, _vault = make_client(tmp_path)
-    assert client.get("/api/pending/items?kind=love").json()["items"] == []
-    assert client.get("/api/pending/summary").json()["love"] == 0
+    assert client.get("/api/pending/items?kind=love").status_code == 422
+    summary = client.get("/api/pending/summary").json()
+    assert "love" not in summary
 
 def test_unknown_kind_and_bad_fact_id_are_rejected(tmp_path: Path) -> None:
     client, _database, _vault = make_client(tmp_path)
@@ -251,7 +215,7 @@ def test_summary_is_cheap_and_matches_items(tmp_path: Path) -> None:
     summary = client.get("/api/pending/summary").json()
     merged = client.get("/api/pending/items").json()["items"]
 
-    assert summary["draft"] + summary["fact"] + summary["triage"] + summary["love"] == summary["total"]
+    assert summary["draft"] + summary["fact"] + summary["triage"] == summary["total"]
     assert len(merged) == summary["total"]
     assert {item["kind"] for item in merged} == {"draft", "fact"}
 

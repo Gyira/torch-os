@@ -111,9 +111,13 @@ def test_attachment_plan_preview_is_read_only_and_requires_a_selection(tmp_path)
         archive.writestr('附件/图.png', b'not-a-real-image')
         archive.writestr('恋爱/记录.md', '不会读取的虚构敏感内容')
     db = Database(tmp_path / 'app.sqlite3')
-    app = create_app(db, tmp_path / 'vault', security_environ={})
+    vault_dir = tmp_path / 'vault'
+    app = create_app(db, vault_dir, security_environ={})
     client = TestClient(app)
     client.get('/')
+    # 应用启动会初始化恋爱系统空目录；预览只能读取，不能新增/修改任何条目。
+    before = sorted(path.relative_to(vault_dir).as_posix()
+                    for path in vault_dir.rglob('*'))
     archive_id = client.get('/api/imports').json()[0]['id']
     url = f'/api/imports/{archive_id}/attachments/plan'
     assert TestClient(app).post(url, json={'selected_paths': ['笔记/目录.md']}).status_code == 401
@@ -129,8 +133,9 @@ def test_attachment_plan_preview_is_read_only_and_requires_a_selection(tmp_path)
     assert plan['notes'][0]['items'][0]['supported'] is True
     # 预览不写文件、不改数据库。
     assert db.list_documents() == db.list_memories() == []
-    vault_dir = tmp_path / 'vault'
-    assert not vault_dir.exists() or not list(vault_dir.rglob('*'))
+    after = sorted(path.relative_to(vault_dir).as_posix()
+                   for path in vault_dir.rglob('*'))
+    assert after == before
 
 
 def test_attachment_localize_apply_requires_import_then_writes_with_history(tmp_path):
@@ -144,6 +149,7 @@ def test_attachment_localize_apply_requires_import_then_writes_with_history(tmp_
     app = create_app(db, vault, security_environ={})
     client = TestClient(app)
     client.get('/')
+    before = sorted(path.relative_to(vault).as_posix() for path in vault.rglob('*'))
     archive_id = client.get('/api/imports').json()[0]['id']
     apply_url = f'/api/imports/{archive_id}/attachments/apply'
     assert TestClient(app).post(apply_url, json={'selected_paths': ['笔记/目录.md']}).status_code == 401
@@ -152,7 +158,8 @@ def test_attachment_localize_apply_requires_import_then_writes_with_history(tmp_
                        json={'selected_paths': ['笔记/目录.md']}).status_code == 404
     # 尚未导入：整批拒绝，且不写任何文件。
     assert client.post(apply_url, json={'selected_paths': ['笔记/目录.md']}).status_code == 409
-    assert not vault.exists() or not list(vault.rglob('*'))
+    after = sorted(path.relative_to(vault).as_posix() for path in vault.rglob('*'))
+    assert after == before
     imported = client.post(f'/api/imports/{archive_id}/apply', json={'selected_paths': ['笔记/目录.md']})
     assert imported.status_code == 200
     result = client.post(apply_url, json={'selected_paths': ['笔记/目录.md']})

@@ -27,11 +27,10 @@ PORT = int(os.getenv("PORT", "8765"))
 # 插件按库启动的后端实例：库就是工作区，禁止在界面里再切库。
 VAULT_SCOPED = os.getenv("TORCH_VAULT_SCOPED", "").strip().lower() in {"1", "true", "yes", "on"}
 
-# ── 恋爱系统（原生模块）─────────────────────────────────────────────
-# 运行时数据统一放在当前个人数据库的 .torch-os/love/：
-#   love_analysis.db / .api_key.key / xlsx/ / schedule-notes.json / cn_stopwords.txt
-# 车次时刻表已独立到 <Vault>/.torch-os/train-tracker/；LOVE_TIMETABLE_PATH 只作旧文件迁移来源。
-# LOVE_DATA_DIR 可显式覆盖；默认跟着 DATA_DIR（也就是所选个人数据库的 .torch-os）走。
+# ── 恋爱系统（v2）──────────────────────────────────────────────────
+# 运行时私人数据在 <Vault>/02_生活运营/01_恋爱系统/ 的七个页面目录；
+# 下面这些变量只作为旧 .torch-os/love/ 的迁移来源/兼容配置，不再决定新数据路径。
+# 车次时刻表已独立到 <Vault>/.torch-os/train-tracker/。
 LOVE_DATA_DIR = _path_from_env("LOVE_DATA_DIR", DATA_DIR / "love")
 # 旧版位置：只在首次启动迁移时读取，迁移完成后原文件保留、不再作为运行时路径。
 _LOCALAPPDATA = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))

@@ -49,8 +49,6 @@
   --p-invert-bg: #203047;
   /* 反色底上的文字 */
   --p-invert-ink: #fff;
-  /* 深色横条正文 */
-  --p-hero-ink: #ecf1f5;
   /* 深色横条暖色小标题 */
   --p-hero-accent: #e9ac8a;
   /* 横幅（照 Apex Dashboard 1:1 移植）：铺在图片上，明暗两套同值。 */
@@ -225,8 +223,6 @@ html[data-torch-theme="dark"] {
   --p-invert-bg: #f9fafb;
   /* 反色底上的文字 */
   --p-invert-ink: #151517;
-  /* 深色横条正文 */
-  --p-hero-ink: #f9fafb;
   /* 深色横条暖色小标题 */
   --p-hero-accent: #e9ac8a;
   /* 横幅（照 Apex Dashboard 1:1 移植）：铺在图片上，明暗两套同值。 */
@@ -865,11 +861,15 @@ dialog.anniversary-mode { width: min(560px, calc(100vw - 24px)); max-width: min(
 .banner-dialog { border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface); color: var(--p-ink); padding: 20px 22px; width: min(560px, 92vw); }
 .banner-dialog::backdrop { background: var(--p-overlay); }
 .banner-dialog h2 { margin: 0 0 10px; font-size: 18px; color: var(--p-ink-strong); }
-.banner-preview { position: relative; height: 120px; border-radius: 10px; border: 1px solid var(--p-line); background: var(--p-surface-2) center/cover no-repeat; margin: 6px 0 14px; overflow: hidden; display: grid; place-items: center; }
-/* 预览里的样本：直接显示第一句座右铭，字体换成当前选择（选字体当场看得见）。 */
-.banner-preview-label { position: relative; padding: 0 16px; text-align: center; white-space: pre-line; color: var(--p-hero-ink); font-size: 16px; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); letter-spacing: .04em; text-shadow: 0 1px 8px var(--p-overlay); }
+/* 横幅预览（2026-11-01 用户要求）：照片按「实际横幅的宽高比」显示真实取景——
+   宽高比在 banner-editor.js 里从 #workbench-banner 现量，cover + 同一焦点，
+   所以预览里看到的那一条就是工作台上放出来的一条；座右铭样本放在下面（字体照旧当场可选）。 */
+.banner-preview { display: grid; gap: 8px; margin: 6px 0 14px; }
+.banner-preview-photo { position: relative; width: 100%; aspect-ratio: 4.28; border-radius: 10px; border: 1px solid var(--p-line); background: var(--p-surface-2) center/cover no-repeat; overflow: hidden; }
+.banner-preview-label { margin: 0; padding: 0 16px; text-align: center; white-space: pre-line; color: var(--p-ink-2); font-size: 16px; font-family: var(--banner-font, Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "SimSun", serif); letter-spacing: .04em; line-height: 1.6; }
+.banner-preview.banner-empty .banner-preview-photo { background-image: none; }
 .banner-preview.banner-empty .banner-overlay { display: none; }
-.banner-preview.banner-empty .banner-preview-label { color: var(--p-ink-4); text-shadow: none; }
+.banner-preview.banner-empty .banner-preview-label { color: var(--p-ink-4); }
 .banner-mode-field { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
 /* 横幅图片列表：本机图片先上传到 .torch-os/横幅背景，再以库内相对路径写回身份笔记。 */
 .banner-dialog .field-label { font-size: 13px; font-weight: 600; color: var(--p-ink-2); }
@@ -2993,5 +2993,182 @@ dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: mi
   .bookmark-add, .bookmark-manage-row { display: flex; flex-wrap: wrap; }
   .bookmark-add input[data-bookmark-new-name], .bookmark-manage-row input[data-field="name"] { flex: 1 1 120px; }
   .bookmark-add input[data-bookmark-new-url], .bookmark-manage-row input[data-field="url"] { flex: 1 1 100%; }
+}
+
+/* ── 恋爱系统 v2（2026-11-01）──────────────────────────────────────── */
+
+.ops-love .love-memory-hero {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+  gap: 18px; align-items: stretch; padding: 22px; border: 1px solid var(--p-love-accent-line);
+  border-radius: 18px; background:
+    radial-gradient(120% 130% at 0% 0%, var(--p-love-accent-soft), transparent 55%),
+    var(--p-surface);
+  box-shadow: 0 1px 2px var(--p-shadow);
+}
+.ops-love .love-memory-hero-main { display: grid; gap: 8px; align-content: center; min-width: 0; }
+.ops-love .love-memory-hero h3 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.03em; color: var(--p-ink-strong); }
+.ops-love .love-memory-copy { max-width: 620px; margin: 0; color: var(--p-ink-3); font-size: 13px; line-height: 1.75; }
+.ops-love .love-memory-stats { margin: 2px 0 0; color: var(--p-ink-5); font-size: 11.5px; }
+.ops-love .love-memory-hero-side { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.ops-love .love-heatmap-wrap { width: 100%; max-width: 430px; }
+.ops-love .love-heatmap {
+  display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr); gap: 3px;
+  padding: 10px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface-2);
+}
+.ops-love .love-heat-cell { width: 100%; aspect-ratio: 1; border-radius: 2px; background: var(--p-chip); min-width: 6px; }
+.ops-love .love-heat-cell.level-1 { background: color-mix(in srgb, var(--p-love-accent) 28%, var(--p-chip)); }
+.ops-love .love-heat-cell.level-2 { background: color-mix(in srgb, var(--p-love-accent) 48%, var(--p-chip)); }
+.ops-love .love-heat-cell.level-3 { background: color-mix(in srgb, var(--p-love-accent) 72%, var(--p-chip)); }
+.ops-love .love-heat-cell.level-4 { background: var(--p-love-accent); }
+.ops-love .love-heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 7px; color: var(--p-ink-5); font-size: 10px; }
+.ops-love .love-heatmap-legend i { width: 11px; height: 11px; border-radius: 2px; background: var(--p-chip); }
+.ops-love .love-heatmap-legend i.level-1 { background: color-mix(in srgb, var(--p-love-accent) 28%, var(--p-chip)); }
+.ops-love .love-heatmap-legend i.level-2 { background: color-mix(in srgb, var(--p-love-accent) 48%, var(--p-chip)); }
+.ops-love .love-heatmap-legend i.level-3 { background: color-mix(in srgb, var(--p-love-accent) 72%, var(--p-chip)); }
+.ops-love .love-heatmap-legend i.level-4 { background: var(--p-love-accent); }
+.ops-love .love-memory-notebooks, .ops-love .love-memory-notes { display: grid; gap: 12px; }
+.ops-love .love-notebook-card-wrap { position: relative; min-width: 0; }
+.ops-love .love-notebook-card-wrap .notebook-card { width: 100%; height: 100%; }
+.ops-love .love-notebook-delete { position: absolute; top: 8px; right: 8px; z-index: 2; border: 1px solid var(--p-line); border-radius: 999px; background: var(--p-surface); color: var(--p-err-ink); padding: 2px 7px; font-size: 10px; opacity: .82; }
+.ops-love .love-notebook-delete:hover { opacity: 1; }
+.ops-love .love-memory-note-list { display: grid; gap: 8px; }
+.ops-love .love-memory-note { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 12px; width: 100%; text-align: left; border: 1px solid var(--p-line); border-radius: 11px; background: var(--p-surface); padding: 11px 13px; color: var(--p-ink); }
+.ops-love .love-memory-note:hover { border-color: var(--p-love-accent-line); background: var(--p-love-accent-soft); }
+.ops-love .love-memory-note.small { grid-template-columns: 44px minmax(0, 1fr); padding: 8px 10px; }
+.ops-love .love-memory-note-date { align-self: start; display: grid; text-align: center; border-right: 1px solid var(--p-line); padding-right: 9px; color: var(--p-ink-2); font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ops-love .love-memory-note-date small { color: var(--p-ink-5); font-size: 9px; }
+.ops-love .love-memory-note-body { display: grid; gap: 3px; min-width: 0; }
+.ops-love .love-memory-note-body strong { color: var(--p-ink-strong); font-size: 13px; }
+.ops-love .love-memory-note-body p { margin: 0; color: var(--p-ink-4); font-size: 12px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ops-love .love-memory-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.ops-love .love-memory-tags i { font-style: normal; font-size: 9.5px; color: var(--p-love-accent); background: var(--p-love-accent-soft); border-radius: 999px; padding: 1px 6px; }
+
+.ops-love .love-chat-calendar-wrap { display: grid; gap: 8px; }
+.ops-love .love-chat-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.ops-love .love-chat-day { min-height: 70px; display: grid; align-content: space-between; gap: 3px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface); padding: 6px 7px; text-align: left; color: var(--p-ink); }
+.ops-love .love-chat-day.is-empty { visibility: hidden; }
+.ops-love .love-chat-day.is-future { opacity: .42; }
+.ops-love .love-chat-day.is-synced { background: color-mix(in srgb, var(--p-ok-soft) 72%, var(--p-surface)); border-color: color-mix(in srgb, var(--p-ok-ink) 22%, var(--p-line)); }
+.ops-love .love-chat-day.is-unsynced { background: color-mix(in srgb, var(--p-warn-soft) 78%, var(--p-surface)); border-color: color-mix(in srgb, var(--p-warn-ink) 26%, var(--p-line)); }
+.ops-love .love-chat-day.is-no_chat { background: var(--p-surface-2); }
+.ops-love .love-chat-day.is-selected { outline: 2px solid var(--p-love-accent); outline-offset: 1px; }
+.ops-love .love-chat-day.is-today .love-chat-day-num { color: var(--p-love-accent); }
+.ops-love .love-chat-day-num { font-size: 14px; font-weight: 700; }
+.ops-love .love-chat-day-count { font-size: 10px; color: var(--p-ok-ink); font-variant-numeric: tabular-nums; }
+.ops-love .love-chat-day-state { font-size: 9.5px; color: var(--p-ink-5); }
+.ops-love .love-chat-legend i.is-synced { background: color-mix(in srgb, var(--p-ok-soft) 80%, var(--p-surface)); }
+.ops-love .love-chat-legend i.is-no_chat { background: var(--p-surface-2); }
+.ops-love .love-chat-legend i.is-unsynced { background: color-mix(in srgb, var(--p-warn-soft) 85%, var(--p-surface)); }
+.ops-love .love-chat-messages { display: grid; gap: 8px; max-height: 620px; overflow: auto; padding: 4px 2px; }
+.ops-love .love-chat-msg { display: flex; }
+.ops-love .love-chat-msg.is-me { justify-content: flex-end; }
+.ops-love .love-chat-msg.is-other { justify-content: flex-start; }
+.ops-love .love-chat-bubble { max-width: min(76%, 620px); border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 7px 10px; display: grid; gap: 5px; }
+.ops-love .love-chat-msg.is-me .love-chat-bubble { background: var(--p-love-accent-soft); border-color: var(--p-love-accent-line); }
+.ops-love .love-chat-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--p-ink-5); font-size: 9.5px; }
+.ops-love .love-chat-bubble p { margin: 0; color: var(--p-ink-2); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ops-love .love-chat-media { display: block; max-width: 100%; max-height: 300px; border-radius: 8px; }
+.ops-love .love-chat-audio { max-width: 260px; }
+.ops-love .love-chat-media-link { display: block; }
+.ops-love .love-chat-day-actions { justify-content: space-between; }
+.ops-love .love-sync-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--p-ink-3); font-size: 12px; }
+.ops-love .love-chat-bind { display: grid; gap: 10px; }
+
+.ops-love .love-gallery-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ops-love .love-gallery-select { border: 1px solid var(--p-line-input); border-radius: 8px; background: var(--p-surface); color: var(--p-ink); padding: 5px 8px; font-size: 12px; }
+.ops-love .love-gallery-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--p-love-accent-line); border-radius: 10px; background: var(--p-love-accent-soft); margin: 10px 0; font-size: 12px; }
+.ops-love .love-gallery-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 12px 0 8px; }
+.ops-love .love-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.ops-love .love-gallery-item { position: relative; border: 1px solid var(--p-line); border-radius: 11px; overflow: hidden; background: var(--p-surface); }
+.ops-love .love-gallery-item.is-selected { outline: 2px solid var(--p-love-accent); outline-offset: -2px; }
+.ops-love .love-gallery-open { display: block; width: 100%; aspect-ratio: 1; border: 0; padding: 0; background: var(--p-surface-2); color: var(--p-ink-5); }
+.ops-love .love-gallery-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ops-love .love-gallery-play, .ops-love .love-gallery-no-thumb { display: grid; place-items: center; width: 100%; height: 100%; font-size: 30px; color: var(--p-love-accent); }
+.ops-love .love-gallery-check { position: absolute; top: 6px; left: 6px; z-index: 2; background: color-mix(in srgb, var(--p-surface) 85%, transparent); border-radius: 6px; padding: 2px 4px; }
+.ops-love .love-gallery-caption { display: block; padding: 6px 8px; color: var(--p-ink-4); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ops-love .love-gallery-albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+.ops-love .love-gallery-album-wrap { display: grid; gap: 4px; }
+.ops-love .love-gallery-album { display: grid; gap: 4px; text-align: left; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); padding: 8px; color: var(--p-ink); }
+.ops-love .love-gallery-album:hover { border-color: var(--p-love-accent-line); }
+.ops-love .love-gallery-album-cover { display: block; aspect-ratio: 1.35; border-radius: 8px; overflow: hidden; background: var(--p-surface-2); }
+.ops-love .love-gallery-album-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ops-love .love-gallery-album-empty { display: grid; place-items: center; width: 100%; height: 100%; font-size: 26px; color: var(--p-ink-5); }
+.ops-love .love-gallery-album strong { font-size: 13px; }
+.ops-love .love-gallery-album small { color: var(--p-ink-5); font-size: 10px; }
+.ops-love .love-gallery-album-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.ops-love .love-gallery-viewer { display: grid; place-items: center; background: var(--p-sidebar); border-radius: 10px; overflow: hidden; min-height: 220px; }
+.ops-love .love-gallery-viewer-media { max-width: 100%; max-height: 68vh; display: block; }
+
+.ops-love .love-bazi-form { display: grid; gap: 12px; }
+.ops-love .love-bazi-pair-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.ops-love .love-bazi-fieldset { border: 1px solid var(--p-line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; min-width: 0; }
+.ops-love .love-bazi-fieldset legend { padding: 0 6px; color: var(--p-love-accent); font-size: 12px; font-weight: 700; }
+.ops-love .love-bazi-advanced { border-top: 1px dashed var(--p-line); padding-top: 8px; }
+.ops-love .love-bazi-advanced summary { cursor: pointer; color: var(--p-ink-4); font-size: 12px; }
+.ops-love .love-bazi-pillar-inputs { margin-top: 8px; }
+.ops-love .love-bazi-history-list { display: grid; gap: 7px; }
+.ops-love .love-bazi-history-row { display: flex; gap: 8px; align-items: stretch; border: 1px solid var(--p-line); border-radius: 10px; padding: 6px; background: var(--p-surface-2); }
+.ops-love .love-bazi-history-row.active { border-color: var(--p-love-accent-line); background: var(--p-love-accent-soft); }
+.ops-love .love-bazi-history-open { flex: 1; min-width: 0; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; color: var(--p-ink); padding: 3px 5px; }
+.ops-love .love-bazi-history-open strong { font-size: 12.5px; }
+.ops-love .love-bazi-history-open span, .ops-love .love-bazi-history-open small { color: var(--p-ink-5); font-size: 10.5px; }
+.ops-love .love-bazi-result { display: grid; gap: 16px; }
+.ops-love .love-bazi-export { justify-content: flex-end; }
+
+.ops-love .love-master-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px; border: 1px solid var(--p-love-accent-line); border-radius: 18px; background: linear-gradient(135deg, var(--p-love-accent-soft), var(--p-surface) 70%); }
+.ops-love .love-master-hero h3 { margin: 2px 0 6px; font-size: clamp(22px, 3vw, 30px); color: var(--p-ink-strong); }
+.ops-love .love-master-copy { max-width: 680px; margin: 0 0 10px; color: var(--p-ink-3); font-size: 12.5px; line-height: 1.7; }
+.ops-love .love-master-orbit { display: grid; place-items: center; width: 138px; height: 138px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--p-love-accent-line); background: radial-gradient(circle, var(--p-love-accent-soft), transparent 70%); color: var(--p-love-accent); }
+.ops-love .love-master-orbit span { font-size: 38px; line-height: 1; }
+.ops-love .love-master-orbit small { color: var(--p-ink-5); font-size: 10px; }
+.ops-love .love-master-stats { margin: 14px 0; }
+.ops-love .love-master-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.ops-love .love-master-recent { display: grid; gap: 6px; }
+.ops-love .love-master-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.ops-love .love-master-stat { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); min-width: 0; }
+.ops-love .love-master-stat span { color: var(--p-ink-5); font-size: 10.5px; }
+.ops-love .love-master-stat strong { color: var(--p-ink-strong); font-size: 17px; overflow-wrap: anywhere; }
+.ops-love .love-master-stat small { color: var(--p-ink-5); font-size: 10px; }
+.ops-love .love-keyword-cloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.ops-love .love-keyword { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--p-love-accent-soft); color: var(--p-love-accent); font-size: 11px; font-weight: 700; }
+.ops-love .love-keyword.love-word-1 { opacity: .68; }
+.ops-love .love-keyword.love-word-2 { opacity: .78; }
+.ops-love .love-keyword.love-word-3 { opacity: .88; }
+.ops-love .love-keyword.love-word-4 { opacity: .95; }
+.ops-love .love-keyword.love-word-5 { font-size: 12px; }
+.ops-love .love-keyword.love-word-6 { font-size: 13px; }
+.ops-love .love-skill-section { display: grid; gap: 10px; }
+.ops-love .love-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.ops-love .love-skill-card { display: grid; gap: 7px; align-content: start; border: 1px solid var(--p-line); border-radius: 13px; background: var(--p-surface); padding: 14px; min-width: 0; }
+.ops-love .love-skill-card h3 { margin: 0; color: var(--p-ink-strong); font-size: 15px; }
+.ops-love .love-skill-card p { margin: 0; color: var(--p-ink-4); font-size: 12px; line-height: 1.6; }
+.ops-love .love-skill-card .button, .ops-love .love-skill-card .small-button { justify-self: start; }
+.ops-love .love-master-history { display: grid; gap: 6px; }
+.ops-love .love-master-history-row { display: flex; gap: 7px; align-items: center; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); padding: 5px; }
+.ops-love .love-master-history-row.active { border-color: var(--p-love-accent-line); background: var(--p-love-accent-soft); }
+.ops-love .love-master-history-open { flex: 1; min-width: 0; display: flex; gap: 7px; align-items: center; text-align: left; border: 0; background: transparent; color: var(--p-ink); padding: 4px 6px; }
+.ops-love .love-master-history-open strong { font-size: 12px; }
+.ops-love .love-master-history-open small { margin-left: auto; color: var(--p-ink-5); font-size: 10px; }
+.ops-love .love-master-detail { display: grid; gap: 12px; }
+.ops-love .love-master-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 12px; border-radius: 10px; background: var(--p-surface-2); color: var(--p-ink-3); font-size: 12px; }
+
+.ops-love .love-settings-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1200; width: min(520px, 92vw); overflow: auto; background: var(--p-surface); border-left: 1px solid var(--p-line); box-shadow: -18px 0 50px rgba(0,0,0,.18); padding: 18px; display: grid; align-content: start; gap: 12px; }
+.ops-love .love-settings-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ops-love .love-settings-head h3 { margin: 2px 0 0; font-size: 18px; }
+.ops-love .love-settings-body { display: grid; gap: 12px; }
+.ops-love .love-settings-backdrop { position: fixed; inset: 0; z-index: 1190; background: rgba(20, 15, 12, .32); backdrop-filter: blur(2px); }
+.ops-love .love-component-status { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); }
+
+@media (max-width: 980px) {
+  .ops-love .love-memory-hero, .ops-love .love-master-hero { grid-template-columns: minmax(0, 1fr); }
+  .ops-love .love-memory-hero-side { justify-content: flex-start; }
+  .ops-love .love-master-orbit { display: none; }
+  .ops-love .love-master-grid, .ops-love .love-bazi-pair-inputs { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .ops-love .love-chat-calendar { gap: 3px; }
+  .ops-love .love-chat-day { min-height: 54px; padding: 4px 5px; }
+  .ops-love .love-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+  .ops-love .love-settings-drawer { width: 100vw; }
 }
 

@@ -14,9 +14,7 @@ async function source(name) {
 
 test("经期关怀挂在恋爱系统导航里并加载独立样式", async () => {
   const html = await source("index.html");
-  assert.match(html, /data-love-page="cycle"><span>02<\/span>经期关怀/);
-  assert.match(html, /data-love-page="import"><span>03<\/span>导入聊天/);
-  assert.match(html, /data-love-page="settings"><span>13<\/span>设置/);
+  assert.match(html, /data-love-page="cycle"><span>04<\/span>经期关怀/);
   assert.match(html, /<link rel="stylesheet" href="\/assets\/love-cycle\.css"/);
   assert.match(html, /id="love-view"[^>]*data-module="ops"/);
 
@@ -26,27 +24,26 @@ test("经期关怀挂在恋爱系统导航里并加载独立样式", async () =>
   assert.equal(html.includes('data-pane="cycle-view"'), false, "不应新增独立二级分区");
 });
 
-test("同意文案包含经期数据的本机边界与免责声明", async () => {
+test("同意文案包含经期聚合边界与免责声明", async () => {
   const html = await source("index.html");
   const consent = html.slice(html.indexOf('id="love-consent"'), html.indexOf('id="health-view"'));
-  assert.match(consent, /经期\/身体记录/);
-  assert.match(consent, /不会发送给 AI 或任何外部服务/);
+  assert.match(consent, /经期记录只在本机/);
+  assert.match(consent, /阶段、预计日期等聚合信息/);
+  assert.match(consent, /不发送每日症状明细/);
   assert.match(consent, /不是诊断/);
   assert.match(consent, /避孕依据/);
-  assert.match(consent, /\.torch-os\/love\//);
+  assert.match(consent, /02_生活运营\/01_恋爱系统/);
 });
 
-test("恋爱系统注册经期页面、动作与总览入口", async () => {
+test("恋爱系统注册经期页面与动作", async () => {
   const love = await source("love.js");
-  assert.match(love, /import \{ renderLoveCycle, handleLoveCycleAction, cycleDashboardMarkup \} from "\.\/love-cycle\.js"/);
+  assert.match(love, /import \{ renderLoveCycle, handleLoveCycleAction \} from "\.\/love-cycle\.js"/);
   assert.match(love, /cycle: "经期关怀"/);
   assert.match(love, /action\.startsWith\("cycle-"\)/);
   assert.match(love, /handleLoveCycleAction\(event, \{ rerender: renderLovePage \}\)/);
-  assert.match(love, /cycleDashboardMarkup\(cycleOverview, card\)/);
-  assert.match(love, /\/api\/love\/cycle\/overview/);
-  assert.match(love, /data-page="cycle"/);
-  assert.match(love, /CONSENT_KEY = "torch-os:love-consent-v2"/);
-  assert.match(love, /cycle: \(content\) => renderLoveCycle\(content, \{/);
+  assert.match(love, /love\.page === "cycle"/);
+  assert.match(love, /CONSENT_KEY = "torch-os:love-consent-v3"/);
+  assert.match(love, /renderLoveCycle\(content, \{/);
 });
 
 test("经期页面只调用本机经期接口，且不依赖聊天项目", async () => {
