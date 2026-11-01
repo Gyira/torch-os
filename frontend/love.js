@@ -730,9 +730,50 @@ async function renderChat(content) {
   }
 }
 
+function formatDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0));
+  if (value < 60) return `${value} 秒`;
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (minutes < 60) return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} 小时 ${remaining} 分` : `${hours} 小时`;
+}
+
+/** 同步进行中的进度条：有 total 时显示确定进度与预计剩余，没有总量时显示不确定进度 + 速度/已用时间。 */
+function syncProgressMarkup(log) {
+  const status = String(log.status || "");
+  if (!["queued", "running", "completed"].includes(status)) return "";
+  const fetched = Number(log.fetched) || 0;
+  const total = Number(log.total) || 0;
+  if (status === "queued") {
+    return '<progress class="love-sync-progress" aria-label="同步排队中"></progress><span class="love-sync-progress-meta">排队中…</span>';
+  }
+  if (status === "completed") {
+    return `<progress class="love-sync-progress" max="100" value="100" aria-label="同步完成"></progress><span class="love-sync-progress-meta">完成 · 共 ${formatInt(fetched)} 条</span>`;
+  }
+  const percent = log.progress_percent == null ? null : Number(log.progress_percent);
+  let rate = log.rate_per_second == null ? null : Number(log.rate_per_second);
+  const eta = log.eta_seconds == null ? null : Number(log.eta_seconds);
+  const started = Date.parse(log.started_at || "");
+  const elapsed = Number.isFinite(started) ? Math.max(0, (Date.now() - started) / 1000) : null;
+  if ((rate == null || !(rate > 0)) && elapsed && fetched > 0) rate = fetched / elapsed;
+  const parts = [total > 0
+    ? `已处理 ${formatInt(fetched)} / ${formatInt(total)} 条`
+    : `已处理 ${formatInt(fetched)} 条`];
+  if (rate != null && rate > 0) parts.push(`约 ${formatInt(Math.round(rate))} 条/秒`);
+  if (eta != null && eta >= 0) parts.push(`约剩 ${formatDuration(eta)}`);
+  else if (elapsed != null) parts.push(`已用 ${formatDuration(elapsed)}`);
+  const value = total > 0 && percent != null
+    ? ` value="${Math.max(0, Math.min(99, percent))}"` : "";
+  const label = total > 0 ? "同步进度" : "同步进度（总量未知）";
+  return `<progress class="love-sync-progress" max="100"${value} aria-label="${label}"></progress><span class="love-sync-progress-meta">${parts.join(" · ")}</span>`;
+}
+
 function chatSyncLogMarkup(log) {
   const labels = { queued: "排队中", running: "同步中", completed: "已完成", failed: "失败" };
-  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
+  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
 }
 
 function bindChatForms() {

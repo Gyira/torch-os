@@ -145,6 +145,9 @@ def test_wechat_chat_single_contact_calendar_and_export(
         if log.get("status") in {"completed", "failed"}:
             break
     assert log["status"] == "completed", log
+    assert log["total"] == 2
+    assert log["fetched"] == 2
+    assert log["progress_percent"] == 100
     calendar = client.get(
         "/api/love/chat/calendar?month=2026-11", headers=headers).json()
     assert calendar["days"][0]["state"] == "synced"
@@ -154,6 +157,19 @@ def test_wechat_chat_single_contact_calendar_and_export(
     exported = client.get("/api/love/chat/export?date=all&fmt=txt", headers=headers)
     assert exported.status_code == 200
     assert "早安" in exported.text
+
+
+def test_sync_log_progress_percent_rate_and_eta() -> None:
+    started = (dt.now(love_chat.DAY) - love_chat.timedelta(seconds=10)).isoformat(timespec="seconds")
+    payload = love_chat._sync_log_json({
+        "id": 1, "mode": "apply", "status": "running", "total": 100,
+        "fetched": 50, "inserted": 40, "matched": 0, "duplicates": 10,
+        "media_failed": 0, "warnings": "", "error": "",
+        "started_at": started, "finished_at": "",
+    })
+    assert payload["progress_percent"] == 50.0
+    assert 4.5 <= payload["rate_per_second"] <= 5.5
+    assert 9 <= payload["eta_seconds"] <= 11
 
 
 def test_schedule_manual_override(tmp_path: Path) -> None:

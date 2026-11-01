@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS sync_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     mode TEXT NOT NULL,
     status TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
     fetched INTEGER NOT NULL DEFAULT 0,
     inserted INTEGER NOT NULL DEFAULT 0,
     matched INTEGER NOT NULL DEFAULT 0,
@@ -108,6 +109,11 @@ CREATE TABLE IF NOT EXISTS sync_logs (
     finished_at TEXT NOT NULL DEFAULT ''
 );
 """
+
+# 旧库补齐同步进度字段；total=0 表示未知总量（前端显示不确定进度条）。
+_SYNC_LOG_COLUMNS = {
+    "total": "INTEGER NOT NULL DEFAULT 0",
+}
 
 
 def _now() -> str:
@@ -132,6 +138,11 @@ def ensure_chat_schema(path: Path | str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     with _connect(target) as connection:
         connection.executescript(SCHEMA_SQL)
+        existing = {str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(sync_logs)")}
+        for name, sql_type in _SYNC_LOG_COLUMNS.items():
+            if name not in existing:
+                connection.execute(f"ALTER TABLE sync_logs ADD COLUMN {name} {sql_type}")
     return target
 
 
@@ -349,6 +360,21 @@ def _run_sync(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
             pass
 
 
+def _remote_message_total(client: WeFlowClient, session_id: str) -> int:
+    """WeFlow 会话列表里的 messageCount；拿不到就当未知（0）。"""
+    try:
+        sessions = client.sessions(limit=1000)
+    except (WeFlowError, OSError, ValueError):
+        return 0
+    for session in sessions:
+        if session.id == session_id:
+            try:
+                return max(0, int(session.message_count or 0))
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
 def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
     try:
         credentials = load_credentials(paths.chat_credentials)
@@ -371,13 +397,15 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
         session_id = str(contact["session_id"] or "")
         watermark = int(contact["watermark"] or 0)
         me_sender = str(contact["me_sender"] or "")
+        history_start = str(contact["history_start_day"] or "")
     if not session_id:
         with _connect(paths.chat_db) as connection:
             _update_log(connection, log_id, status="failed", finished_at=_now(),
                         error="还没有绑定微信联系人")
         return
 
-    since = 0 if full or watermark <= 0 else max(0, watermark - 120)
+    full_scan = bool(full) or watermark <= 0
+    since = 0 if full_scan else max(0, watermark - 120)
     inserted = matched = duplicates = fetched = media_failed = 0
     warnings: list[str] = []
     media_saved = 0
@@ -387,6 +415,20 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
     try:
         client = WeFlowClient(credentials["token"], credentials["port"])
         client.health()
+        remote_total = _remote_message_total(client, session_id)
+        with _connect(paths.chat_db) as connection:
+            local_total = int(connection.execute(
+                "SELECT COUNT(*) AS count FROM messages").fetchone()["count"] or 0)
+            if remote_total > 0:
+                expected_total = (remote_total if full_scan
+                                  else max(remote_total - local_total, 0))
+            elif full_scan and history_start:
+                # WeFlow 有些版本不返回 messageCount。已经完成过一次全量扫描时，
+                # 本地消息数就是下一轮全量扫描的可靠估算；首次同步则保持未知。
+                expected_total = local_total
+            else:
+                expected_total = 0
+            _update_log(connection, log_id, total=expected_total)
         for page in iter_pages(client, session_id, since=since, retry_empty=True):
             fetched += len(page.messages)
             with _connect(paths.chat_db) as connection:
@@ -524,11 +566,47 @@ def _calendar_payload(connection: sqlite3.Connection, month: str) -> dict[str, A
     }
 
 
+def _parse_log_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=DAY)
+
+
 def _sync_log_json(row: sqlite3.Row | None) -> dict[str, Any]:
     if row is None:
         return {}
     payload = dict(row)
     payload["warnings"] = [line for line in str(payload.get("warnings") or "").splitlines() if line]
+    status = str(payload.get("status") or "")
+    total = int(payload.get("total") or 0)
+    fetched = int(payload.get("fetched") or 0)
+    started = _parse_log_time(payload.get("started_at"))
+    finished = _parse_log_time(payload.get("finished_at"))
+    payload["progress_percent"] = None
+    payload["rate_per_second"] = None
+    payload["eta_seconds"] = None
+    if status == "completed":
+        payload["progress_percent"] = 100.0
+        if started is not None:
+            elapsed = max((finished or datetime.now(DAY)) - started, timedelta(0)).total_seconds()
+            if elapsed > 0:
+                payload["rate_per_second"] = round(fetched / elapsed, 1)
+        return payload
+    if status != "running" or started is None:
+        return payload
+    elapsed = max((datetime.now(DAY) - started).total_seconds(), 0.0)
+    rate = fetched / elapsed if elapsed > 0 and fetched > 0 else 0.0
+    if rate > 0:
+        payload["rate_per_second"] = round(rate, 1)
+    if total > 0:
+        payload["progress_percent"] = round(min(99.0, fetched / total * 100), 1)
+        if rate > 0:
+            payload["eta_seconds"] = max(0, int(round(max(total - fetched, 0) / rate)))
     return payload
 
 
