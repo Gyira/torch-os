@@ -108,6 +108,10 @@ def _fake_weflow(monkeypatch: pytest.MonkeyPatch) -> None:
                 has_more=False,
             )
 
+        def pull_with_media(self, session_id: str, *, since: int = 0, offset: int = 0,
+                            limit: int = 500):
+            return self.pull(session_id, since=since, offset=offset, limit=limit)
+
         def download_media(self, relative_path: str, *, max_bytes: int = 0):
             return b""
 
@@ -157,6 +161,30 @@ def test_wechat_chat_single_contact_calendar_and_export(
     exported = client.get("/api/love/chat/export?date=all&fmt=txt", headers=headers)
     assert exported.status_code == 200
     assert "早安" in exported.text
+
+
+def test_existing_message_gets_media_on_resync_and_emoji_kind(tmp_path: Path) -> None:
+    db = tmp_path / "chat.db"
+    ensure_chat_schema(db)
+    message = WeFlowMessage(
+        "p1", "wxid_partner", "对象", dt(2026, 11, 1, 10, 0), 5, "[表情]", False, False,
+        media_path="http://127.0.0.1:5031/api/v1/media/wxid/emojis/a.jpg",
+    )
+    assert love_chat._media_kind(message) == "emoji"
+    with chat_connect(db) as con:
+        con.execute(
+            "INSERT INTO messages(platform_message_id, sender_id, sender, is_send, "
+            "message_type, content, day, ts, content_hash, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("p1", "wxid_partner", "对象", 0, 5, "[表情]", "2026-11-01", 1,
+             love_chat.content_hash(message), "x"),
+        )
+        assert love_chat._insert_message(con, message, media_relative="2026/11/a.jpg") == "matched"
+        row = con.execute(
+            "SELECT media_path, media_kind FROM messages WHERE platform_message_id='p1'"
+        ).fetchone()
+        assert row["media_path"] == "2026/11/a.jpg"
+        assert row["media_kind"] == "emoji"
 
 
 def test_sync_log_progress_percent_rate_and_eta() -> None:

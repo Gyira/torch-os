@@ -561,15 +561,18 @@ function chatMessageMarkup(message) {
       media = `<video class="love-chat-media" controls preload="metadata" src="${escapeHtml(message.media_url)}"></video>`;
     } else if (message.media_kind === "voice") {
       media = `<audio class="love-chat-audio" controls preload="none" src="${escapeHtml(message.media_url)}"></audio>`;
+    } else if (message.media_kind === "emoji") {
+      media = `<img class="love-chat-emoji" src="${escapeHtml(message.media_url)}" alt="${escapeHtml(content || "收藏表情")}" loading="lazy" />`;
     } else {
       media = `<a class="love-chat-media-link" href="${escapeHtml(message.media_url)}" target="_blank" rel="noopener"><img class="love-chat-media" src="${escapeHtml(message.media_url)}" alt="${escapeHtml(content || "聊天媒体")}" loading="lazy" /></a>`;
     }
   }
+  const placeholders = new Set(["[图片]", "[视频]", "[语音]", "[表情]", "[动画表情]"]);
   return `<article class="love-chat-msg ${message.is_send ? "is-me" : "is-other"}">
     <div class="love-chat-bubble">
       <div class="love-chat-meta"><span>${escapeHtml(message.is_send ? "我" : "对象")}</span><time>${escapeHtml(message.time || "")}</time></div>
       ${media}
-      ${content && content !== "[图片]" && content !== "[视频]" && content !== "[语音]" ? `<p>${content}</p>` : ""}
+      ${content && !placeholders.has(content) ? `<p>${content}</p>` : ""}
     </div>
   </article>`;
 }
@@ -687,7 +690,7 @@ async function renderChat(content) {
       <button class="text-button" type="button" data-love-action="chat-unbind">解除绑定</button>
     </div>
     <div id="love-chat-sync-status" class="love-sync-result">${love.chatLog ? chatSyncLogMarkup(love.chatLog) : ""}</div>
-    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片/视频会复制进库，语音先显示播放器占位。</p>` , {
+    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片、视频、语音和收藏表情会复制进库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
     eyebrow: "WECHAT",
     subtitle: "日历看板用三种状态标出哪天有聊天、哪天还没同步。",
   }) : "";
@@ -773,7 +776,7 @@ function syncProgressMarkup(log) {
 
 function chatSyncLogMarkup(log) {
   const labels = { queued: "排队中", running: "同步中", completed: "已完成", failed: "失败" };
-  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
+  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_saved ? ` · 媒体 ${formatInt(log.media_saved)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
 }
 
 function bindChatForms() {

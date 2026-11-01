@@ -2981,6 +2981,7 @@ dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: mi
 .ops-love .love-chat-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--p-ink-5); font-size: 9.5px; }
 .ops-love .love-chat-bubble p { margin: 0; color: var(--p-ink-2); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ops-love .love-chat-media { display: block; max-width: 100%; max-height: 300px; border-radius: 8px; }
+.ops-love .love-chat-emoji { display: block; width: auto; max-width: 120px; max-height: 120px; }
 .ops-love .love-chat-audio { max-width: 260px; }
 .ops-love .love-chat-media-link { display: block; }
 .ops-love .love-chat-day-actions { justify-content: space-between; }
