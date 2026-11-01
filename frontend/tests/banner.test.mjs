@@ -173,23 +173,22 @@ test("stats render the seven-row heatmap, progress rows and today's total", () =
 });
 
 test("heatmap chooses square-cell days that fit the banner width", () => {
-  // 传入的是横幅实际宽度：宽屏最多 56 天，窄屏递减，但不会低于 14 天。
+  // 传入的是横幅实际宽度：格子更大（13–20px）后，宽屏最多 56 天，窄屏递减。
   assert.equal(heatDaysForWidth(2480), 56);
-  assert.equal(heatDaysForWidth(1694), 56);
-  assert.equal(heatDaysForWidth(1544), 52);
-  assert.equal(heatDaysForWidth(1360), 47);
-  assert.equal(heatDaysForWidth(1120), 39);
-  assert.equal(heatDaysForWidth(712), 30);
-  assert.equal(heatDaysForWidth(344), 18);
-  assert.equal(heatDaysForWidth(280), 15);
-  assert.equal(heatDaysForWidth(0), 15);
-  // 天数随宽度单调不减，且永远在 14–56 之间（后端最多提供 56 天）。
-  let previous = 0;
-  for (const width of [280, 344, 500, 712, 944, 1120, 1360, 1544, 1694, 2480, 4000]) {
+  assert.equal(heatDaysForWidth(1694), 47);
+  assert.equal(heatDaysForWidth(1544), 41);
+  assert.equal(heatDaysForWidth(1360), 34);
+  assert.equal(heatDaysForWidth(1120), 28);
+  assert.equal(heatDaysForWidth(944), 22);
+  assert.equal(heatDaysForWidth(712), 23);
+  assert.equal(heatDaysForWidth(584), 27);
+  assert.equal(heatDaysForWidth(344), 15);
+  assert.equal(heatDaysForWidth(280), 12);
+  assert.equal(heatDaysForWidth(0), 12);
+  // 永远在 12–56 之间（后端最多提供 56 天）；断点处左列收起会让天数略回升。
+  for (const width of [280, 344, 500, 712, 844, 944, 1120, 1360, 1544, 1694, 2480, 4000]) {
     const days = heatDaysForWidth(width);
-    assert.ok(days >= 14 && days <= 56, `${width} -> ${days}`);
-    assert.ok(days >= previous, `${width} 的天数不应比更窄的少`);
-    previous = days;
+    assert.ok(days >= 12 && days <= 56, `${width} -> ${days}`);
   }
 
   const stats = { heatmap: heatmapFixture(4), heat_score: 0.5, activity_today: 2 };

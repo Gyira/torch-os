@@ -182,11 +182,11 @@ function heatLegendHtml() {
 }
 
 /**
- * 按横幅宽度选可见天数（2026-11-01，正方形格子的 GitHub 风格）。
+ * 按横幅宽度选可见天数（2026-11-01 v3，正方形格子的 GitHub 风格）。
  *
- * 格子大小由 CSS 的 clamp 决定（窗口 1vw，最大 18px；手机端 2.6vw、最大 13px），
- * 这里按同样的公式反推中间列放得下多少天：先扣掉左右两列与内边距，再按
- * “一格一天 + 3px 间距”取整。天数越多越接近铺满，但永远不把格子拉成长方形。
+ * 格子大小由 CSS 的 clamp 决定（桌面 1.4vw、13–20px；手机 2.6vw、12–14px），
+ * 上下 / 左右间距都是 4px。这里按同样的公式反推中间列放得下多少天：先扣掉
+ * 左右两列、内边距和标签列，再按「一格一天 + 4px 间距」取整。
  * 传的是横幅元素的实际宽度（不是窗口宽度），侧栏出现/收起时也能算对。
  */
 export function heatDaysForWidth(width) {
@@ -197,14 +197,15 @@ export function heatDaysForWidth(width) {
   const compact = viewport <= 640;  // 左右列都收起
   const left = narrow ? 0 : (viewport <= 900 ? 142 : 190);
   const right = compact ? 0 : (viewport <= 900 ? 206 : 238);
-  const center = Math.max(240, banner - left - right - 40);
+  const pad = compact ? 24 : (viewport <= 900 ? 28 : 40);
+  const center = Math.max(240, banner - left - right - pad);
   const cell = compact
-    ? Math.min(13, Math.max(9, viewport * 0.026))
-    : Math.min(18, Math.max(10, viewport * 0.01));
-  const gap = 3;
-  const label = compact ? 51 : (viewport <= 900 ? 56 : 62);
-  const fit = Math.floor((center - label - 12 + gap) / (cell + gap));
-  return Math.max(14, Math.min(56, fit));
+    ? Math.min(14, Math.max(12, viewport * 0.026))
+    : Math.min(20, Math.max(13, viewport * 0.014));
+  const gap = 4;
+  const label = compact ? 53 : (viewport <= 900 ? 60 : 66);
+  const fit = Math.floor((center - label - 16 + gap) / (cell + gap));
+  return Math.max(12, Math.min(56, fit));
 }
 
 /** 统计模式：左列大数字+底部小条 / 中列铺满的 7 行热力图 / 右列进度条。 */
