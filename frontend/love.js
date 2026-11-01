@@ -351,7 +351,7 @@ function memoryHeatmap(dates = {}) {
 }
 
 function memoryNotebookCard(notebook) {
-  const deleteButton = notebook.custom
+  const deleteButton = notebook.custom && !notebook.protected
     ? `<button class="love-notebook-delete" type="button" data-love-action="memory-delete-notebook" data-key="${escapeHtml(notebook.key)}" data-title="${escapeHtml(notebook.title)}" aria-label="删除本子 ${escapeHtml(notebook.title)}">删除</button>`
     : "";
   const latest = notebook.latest

@@ -129,6 +129,8 @@ def list_notebooks(vault_dir: Path | str, pillar: str = "life") -> dict[str, Any
             "count": len(mine),
             "latest": mine[0] if mine else None,
             "custom": True,
+            "protected": vault_layout.is_protected_notebook(
+                key_pillar, vault_layout.custom_notebook_key(name, key_pillar)),
         })
     return {"pillar": key_pillar, "items": items}
 
@@ -359,6 +361,9 @@ def delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
 
     custom_pillar = vault_layout.custom_notebook_pillar(notebook_key)
     if custom_pillar == key_pillar:
+        if vault_layout.is_protected_notebook(key_pillar, notebook_key):
+            name = vault_layout.custom_notebook_name(notebook_key) or "这个本子"
+            raise HTTPException(422, f"「{name}」是默认本子，不能删除")
         return _delete_custom_notebook(database, vault, key_pillar, notebook_key)
 
     raise HTTPException(422, "只能删除当前库的本子")

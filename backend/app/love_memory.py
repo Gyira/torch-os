@@ -91,13 +91,15 @@ def _custom_rows(vault_dir: Path | str, notes: list[dict[str, Any]]) -> list[dic
             "key": vault_layout.custom_notebook_key(name, vault_layout.LOVE_PILLAR),
             "title": name,
             "description": "自定义本子",
-            "protected": False,
             "custom": True,
             "icon": "本",
             "tone": "slate",
             "count": len(mine),
             "latest": mine[0] if mine else None,
             "path": vault_layout.custom_notebook_path(name, vault_layout.LOVE_PILLAR),
+            "protected": vault_layout.is_protected_notebook(
+                vault_layout.LOVE_PILLAR,
+                vault_layout.custom_notebook_key(name, vault_layout.LOVE_PILLAR)),
         })
     return rows
 

@@ -51,6 +51,18 @@ def test_love_layout_and_markdown_memory(tmp_path: Path) -> None:
     assert protected.status_code == 422, protected.text
     assert (root / "01_恋爱记忆" / "恋爱日志").is_dir()
 
+    # 恋爱大师的三个固定产物本子随应用启动创建，同样是默认本子，不能删。
+    overview = client.get("/api/love/memory/overview", headers=headers).json()
+    for name in ("关系画像", "深度分析", "阶段报告"):
+        row = next(item for item in overview["notebooks"] if item["title"] == name)
+        assert row["protected"] is True
+        blocked = client.post(
+            "/api/notebooks/delete", headers=headers,
+            json={"pillar": "love", "key": row["key"], "confirm": True},
+        )
+        assert blocked.status_code == 422, blocked.text
+        assert (root / "01_恋爱记忆" / name).is_dir()
+
     created = client.post(
         "/api/notebooks", headers=headers,
         json={"pillar": "love", "name": "旅行"},
@@ -82,6 +94,13 @@ def test_love_layout_and_markdown_memory(tmp_path: Path) -> None:
     exported = client.get("/api/love/memory/export", headers=headers)
     assert exported.status_code == 200
     assert "第一次旅行" in exported.text
+
+    # 普通自建本子不受保护，仍可删除。
+    removed = client.post(
+        "/api/notebooks/delete", headers=headers,
+        json={"pillar": "love", "key": key, "confirm": True},
+    )
+    assert removed.status_code == 200, removed.text
 
 
 def _fake_weflow(monkeypatch: pytest.MonkeyPatch) -> None:
