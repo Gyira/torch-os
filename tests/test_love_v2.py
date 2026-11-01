@@ -339,6 +339,15 @@ def test_love_master_overview_and_portrait_run(tmp_path: Path) -> None:
             break
     assert run["status"] == "completed", run
     assert run["result"]["structured"]["summary"] == "画像摘要"
+    note = run["result"].get("note") or {}
+    assert note.get("notebook") == "关系画像"
+    note_path = tmp_path / str(note.get("path") or "")
+    assert note_path.is_file()
+    note_text = note_path.read_text(encoding="utf-8")
+    assert "画像摘要" in note_text and "被听见" in note_text
+    memory_root = tmp_path / "02_生活运营" / "01_恋爱系统" / "01_恋爱记忆"
+    for name in ("关系画像", "深度分析", "阶段报告"):
+        assert (memory_root / name).is_dir()
 
 
 def test_legacy_love_migration(tmp_path: Path) -> None:

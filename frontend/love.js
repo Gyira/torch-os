@@ -1432,6 +1432,17 @@ const MASTER_STATUS_LABELS = {
   queued: "排队中", running: "进行中", completed: "已完成", failed: "失败",
 };
 
+function masterNoteMarkup(result) {
+  const note = result?.note;
+  if (note?.path) {
+    return `<div class="love-analysis-section"><h3>已写入恋爱日志</h3><p>${escapeHtml(note.notebook || "")} / ${escapeHtml(note.title || "")}</p><div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="memory-open" data-path="${escapeHtml(note.path)}">打开笔记</button><button class="button text-button" type="button" data-love-action="goto-memory">去恋爱记忆</button></div></div>`;
+  }
+  if (result?.note_error) {
+    return `<p class="inline-error">分析已保存，但写入恋爱日志失败：${escapeHtml(result.note_error)}</p>`;
+  }
+  return "";
+}
+
 function masterResultMarkup(run) {
   if (!run) return "";
   if (run.status === "running" || run.status === "queued") {
@@ -1447,7 +1458,7 @@ function masterResultMarkup(run) {
       return `<pre class="love-master-text">${escapeHtml(text || JSON.stringify(structured, null, 2))}</pre>`;
     }
     return `<div class="love-analysis-hero"><div><span class="eyebrow">PORTRAIT</span><strong>${escapeHtml(structured.summary || "对象画像")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div>
-      <div class="love-master-grid"><div><h3>画像条目</h3>${traits.length ? `<div class="love-trait-list">${traits.map((trait) => `<article class="love-trait"><h3>${escapeHtml(trait.trait || "")}</h3><p>${escapeHtml(trait.value || "")}</p><small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 160))}` : ""}</small></article>`).join("")}</div>` : '<p class="meta">没有提取到画像条目。</p>'}</div><div><h3>沟通与照顾</h3><p>${escapeHtml(structured.communication_style || "")}</p><ul class="love-advice">${(structured.care_tips || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><h3>需要留意</h3><ul class="love-risk-list">${(structured.risks || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>没有明显风险。</li>"}</ul></div></div>`;
+      <div class="love-master-grid"><div><h3>画像条目</h3>${traits.length ? `<div class="love-trait-list">${traits.map((trait) => `<article class="love-trait"><h3>${escapeHtml(trait.trait || "")}</h3><p>${escapeHtml(trait.value || "")}</p><small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 160))}` : ""}</small></article>`).join("")}</div>` : '<p class="meta">没有提取到画像条目。</p>'}</div><div><h3>沟通与照顾</h3><p>${escapeHtml(structured.communication_style || "")}</p><ul class="love-advice">${(structured.care_tips || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><h3>需要留意</h3><ul class="love-risk-list">${(structured.risks || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>没有明显风险。</li>"}</ul></div></div>${masterNoteMarkup(result)}`;
   }
   if (run.skill === "deep_analysis") {
     const tone = structured.emotional_tone || {};
@@ -1457,10 +1468,10 @@ function masterResultMarkup(run) {
       <div class="love-analysis-section"><h3>沟通模式</h3><dl class="love-facts"><div><dt>主动度</dt><dd>${escapeHtml(patterns.initiative_balance || "—")}</dd></div><div><dt>回应风格</dt><dd>${escapeHtml(patterns.response_style || "—")}</dd></div><div><dt>主要话题</dt><dd>${(patterns.key_topics || []).map(escapeHtml).join("、") || "—"}</dd></div></dl></div>
       ${(structured.key_events || []).length ? `<div class="love-analysis-section"><h3>关键事件</h3><ul class="love-event-list">${structured.key_events.map((event) => `<li class="love-event impact-${escapeHtml(event.impact || "neutral")}"><span>${escapeHtml(event.date || "")}</span><p>${escapeHtml(event.description || "")}</p></li>`).join("")}</ul></div>` : ""}
       ${(structured.risk_warnings || []).length ? `<div class="love-analysis-section"><h3>需要注意</h3><ul class="love-risk-list">${structured.risk_warnings.map((risk) => `<li class="love-risk risk-${escapeHtml(risk.severity || "low")}"><strong>${escapeHtml(risk.aspect || "")}</strong><p>${escapeHtml(risk.detail || "")}</p></li>`).join("")}</ul></div>` : ""}
-      ${(structured.personalized_advice || []).length ? `<div class="love-analysis-section"><h3>建议</h3><ol class="love-advice">${structured.personalized_advice.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>` : ""}`;
+      ${(structured.personalized_advice || []).length ? `<div class="love-analysis-section"><h3>建议</h3><ol class="love-advice">${structured.personalized_advice.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>` : ""}${masterNoteMarkup(result)}`;
   }
   if (run.skill === "report") {
-    return `<div class="love-analysis-hero"><div><span class="eyebrow">REPORT</span><strong>${escapeHtml(structured.title || "关系阶段报告")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>${escapeHtml(structured.summary || "")}</p>${(structured.sections || []).map((section) => `<div class="love-analysis-section"><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></div>`).join("")}`;
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">REPORT</span><strong>${escapeHtml(structured.title || "关系阶段报告")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>${escapeHtml(structured.summary || "")}</p>${(structured.sections || []).map((section) => `<div class="love-analysis-section"><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></div>`).join("")}${masterNoteMarkup(result)}`;
   }
   if (run.skill === "journal_batch") {
     const created = Array.isArray(structured.created) ? structured.created : [];
