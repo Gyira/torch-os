@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -21,6 +22,7 @@ import shutil
 import sqlite3
 import threading
 import uuid
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,16 @@ MEDIA_TYPES = {
 }
 SYNC_LOCK = threading.Lock()
 _SYNC_STARTED = object()
+
+# 快照与自愈：微信记录只增不减，所以「谁多谁是爹」永远成立。
+# 快照放 <恋爱系统>/_归档/聊天备份/snap-<机器>-<时间>.db，文件名带机器，跨机不互相覆盖；
+# 启动时若当前库比某个快照少，就按 content_hash 做并集导入补回来。
+SNAPSHOT_DIRNAME = "聊天备份"
+SNAPSHOT_KEEP_PER_MACHINE = 12
+SNAPSHOT_REPORT = "最近一次自愈.json"
+SNAPSHOT_RE = re.compile(r"^snap-(?P<machine>[0-9A-Za-z_.-]+)-(?P<stamp>\d{8}-\d{6})\.db$")
+
+logger = logging.getLogger(__name__)
 
 
 class ChatError(RuntimeError):
@@ -139,13 +151,16 @@ def _connect(path: Path) -> sqlite3.Connection:
 def ensure_chat_schema(path: Path | str) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with _connect(target) as connection:
+    # 用 closing 而不是裸 with：sqlite3 连接在 with 退出时只提交不关闭，
+    # Windows 上会一直占着文件句柄，快照轮转/替换就会被锁。
+    with closing(_connect(target)) as connection:
         connection.executescript(SCHEMA_SQL)
         existing = {str(row["name"])
                     for row in connection.execute("PRAGMA table_info(sync_logs)")}
         for name, sql_type in _SYNC_LOG_COLUMNS.items():
             if name not in existing:
                 connection.execute(f"ALTER TABLE sync_logs ADD COLUMN {name} {sql_type}")
+        connection.commit()
     return target
 
 
@@ -324,9 +339,212 @@ def _backup_chat_db(paths: LovePaths, label: str) -> Path | None:
         return None
     target = paths.archive / "聊天备份" / f"{label}-{datetime.now(DAY).strftime('%Y%m%d-%H%M%S')}.db"
     target.parent.mkdir(parents=True, exist_ok=True)
-    with _connect(paths.chat_db) as source, _connect(target) as destination:
+    with closing(_connect(paths.chat_db)) as source, closing(_connect(target)) as destination:
         source.backup(destination)
     return target
+
+
+def _machine_tag() -> str:
+    """快照文件名里的机器标识：两台电脑各自留各自的快照，互不覆盖。"""
+    raw = (os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "unknown").strip()
+    tag = re.sub(r"[^0-9A-Za-z_.-]+", "-", raw).strip("-.")
+    return (tag or "unknown")[:24]
+
+
+def _snapshot_dir(paths: LovePaths) -> Path:
+    return paths.archive / SNAPSHOT_DIRNAME
+
+
+def _chat_message_count(path: Path) -> int:
+    """只读统计一个库里的消息条数；损坏或不认识的库算 0。"""
+    if not path.is_file():
+        return 0
+    try:
+        with closing(sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=8)) as con:
+            row = con.execute("SELECT COUNT(*) FROM messages").fetchone()
+        return int(row[0] or 0)
+    except (sqlite3.Error, OSError):
+        return 0
+
+
+def _prune_snapshots(directory: Path, keep: int = SNAPSHOT_KEEP_PER_MACHINE) -> None:
+    """按机器分组保留最近 *keep* 份，避免同步盘被快照撑爆。"""
+    grouped: dict[str, list[Path]] = {}
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return
+    for path in entries:
+        match = SNAPSHOT_RE.match(path.name)
+        if not match:
+            continue
+        grouped.setdefault(match.group("machine"), []).append(path)
+    for files in grouped.values():
+        files.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True)
+        for stale in files[keep:]:
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+
+
+def _drop_snapshots(paths: LovePaths) -> None:
+    """换绑联系人时清空快照：上一个联系人的聊天不该被自愈并集回来。"""
+    directory = _snapshot_dir(paths)
+    if not directory.is_dir():
+        return
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return
+    for path in entries:
+        if SNAPSHOT_RE.match(path.name):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _needs_snapshot(paths: LovePaths, *, hours: int = 20) -> bool:
+    """本机今天还没有快照时也补一份：把别处的库拷回来后不至于一直不落盘。"""
+    directory = _snapshot_dir(paths)
+    if not directory.is_dir():
+        return True
+    machine = _machine_tag()
+    newest: datetime | None = None
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return True
+    for path in entries:
+        match = SNAPSHOT_RE.match(path.name)
+        if not match or match.group("machine") != machine:
+            continue
+        try:
+            stamp = datetime.strptime(match.group("stamp"), "%Y%m%d-%H%M%S").replace(tzinfo=DAY)
+        except ValueError:
+            continue
+        if newest is None or stamp > newest:
+            newest = stamp
+    return newest is None or (datetime.now(DAY) - newest) >= timedelta(hours=hours)
+
+
+def _snapshot_chat_db(paths: LovePaths) -> Path | None:
+    """同步成功后留一份一致快照（SQLite 在线备份，规避 WAL 与写一半）。"""
+    if not paths.chat_db.is_file():
+        return None
+    directory = _snapshot_dir(paths)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    stamp = datetime.now(DAY).strftime("%Y%m%d-%H%M%S")
+    target = directory / f"snap-{_machine_tag()}-{stamp}.db"
+    try:
+        with closing(sqlite3.connect(str(paths.chat_db), timeout=15)) as source, \
+                closing(sqlite3.connect(str(target))) as destination:
+            source.backup(destination)
+    except (sqlite3.Error, OSError) as error:
+        logger.warning("聊天快照失败：%s", error)
+        return None
+    _prune_snapshots(directory)
+    return target
+
+
+def _heal_chat_db(paths: LovePaths) -> dict[str, Any]:
+    """启动自检：从快照把“只增不减”丢掉的消息按 content_hash 补回来。
+
+    消息是单调递增的，且 ``content_hash`` 有唯一约束，所以并集导入天然幂等：
+    快照里多出来的行补进去，已有的行原样不动。只认 ``snap-*``（换绑前备份与
+    别的业务备份不参与），避免把上一个联系人的聊天捞回来。
+    """
+    report: dict[str, Any] = {"checked": 0, "restored": 0, "source": "", "current": 0}
+    directory = _snapshot_dir(paths)
+    if not paths.chat_db.is_file() or not directory.is_dir():
+        return report
+    candidates = []
+    try:
+        for path in directory.iterdir():
+            if SNAPSHOT_RE.match(path.name):
+                candidates.append(path)
+    except OSError:
+        return report
+    if not candidates:
+        return report
+
+    try:
+        with closing(_connect(paths.chat_db)) as connection:
+            current = int(connection.execute(
+                "SELECT COUNT(*) AS count FROM messages").fetchone()["count"] or 0)
+    except sqlite3.Error:
+        return report
+    report["current"] = current
+
+    ranked: list[tuple[int, Path]] = []
+    for path in candidates:
+        count = _chat_message_count(path)
+        if count > current:
+            ranked.append((count, path))
+    if not ranked:
+        return report
+    ranked.sort(key=lambda item: item[0], reverse=True)
+
+    for count, path in ranked[:3]:
+        try:
+            with closing(_connect(paths.chat_db)) as connection:
+                connection.execute("ATTACH DATABASE ? AS snap", (str(path),))
+                try:
+                    before = connection.total_changes
+                    connection.execute(
+                        """INSERT OR IGNORE INTO messages
+                        (platform_message_id, sender_id, sender, is_send, message_type,
+                         content, day, ts, media_path, media_kind, reply_to_message_id,
+                         content_hash, created_at)
+                        SELECT platform_message_id, sender_id, sender, is_send, message_type,
+                               content, day, ts, media_path, media_kind, reply_to_message_id,
+                               content_hash, created_at
+                        FROM snap.messages""")
+                    # 补回媒体指向：正文已存在但媒体路径为空时，用快照里的相对路径。
+                    connection.execute(
+                        """UPDATE messages SET media_path = (
+                               SELECT snap.messages.media_path FROM snap.messages
+                               WHERE snap.messages.content_hash = messages.content_hash
+                                 AND snap.messages.media_path <> '')
+                           WHERE media_path = '' AND EXISTS (
+                               SELECT 1 FROM snap.messages
+                               WHERE snap.messages.content_hash = messages.content_hash
+                                 AND snap.messages.media_path <> '')""")
+                    connection.commit()
+                    added = connection.total_changes - before
+                finally:
+                    try:
+                        connection.execute("DETACH DATABASE snap")
+                    except sqlite3.Error:
+                        pass
+        except sqlite3.Error as error:
+            logger.warning("从快照 %s 恢复聊天失败：%s", path.name, error)
+            continue
+        report["checked"] += 1
+        if added > 0:
+            report["restored"] = int(added)
+            report["source"] = path.name
+            report["from_total"] = count
+            break
+
+    if report["restored"]:
+        logger.warning(
+            "聊天库比快照少，已从 %s 补回 %s 条消息（当前 %s → %s）",
+            report["source"], report["restored"], report["current"],
+            report["current"] + report["restored"])
+        stamp = datetime.now(DAY).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            (directory / SNAPSHOT_REPORT).write_text(
+                json.dumps({"at": stamp, **report}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8", newline="\n")
+        except OSError:
+            pass
+        _snapshot_chat_db(paths)
+    return report
 
 
 def _save_media(client: WeFlowClient, message: WeFlowMessage, media_dir: Path,
@@ -521,6 +739,9 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
                 duplicates=duplicates, media_saved=media_saved,
                 media_failed=media_failed, warnings="\n".join(warnings)[:4000],
             )
+        # 有新增就留一份一致快照：网盘整文件覆盖后，下次启动能按 content_hash 并集补回。
+        if mode == "apply" and (inserted > 0 or media_saved > 0 or _needs_snapshot(paths)):
+            _snapshot_chat_db(paths)
     except (WeFlowError, OSError, sqlite3.Error, ValueError) as error:
         with _connect(paths.chat_db) as connection:
             _update_log(connection, log_id, status="failed", finished_at=_now(),
@@ -701,8 +922,14 @@ class SyncPayload(BaseModel):
 
 def create_chat_router(paths: LovePaths, *, read_only: bool = False,
                        prefix: str = "/api/love/chat") -> APIRouter:
+    repair: dict[str, Any] = {"checked": 0, "restored": 0, "source": "", "current": 0}
     if not read_only:
         ensure_chat_schema(paths.chat_db)
+        # 同步盘整文件覆盖过聊天库时，靠快照把丢掉的消息补回来。
+        try:
+            repair = _heal_chat_db(paths)
+        except Exception as error:  # noqa: BLE001 - 自愈失败不能拖垮启动
+            logger.warning("聊天库自愈自检失败：%s", error)
     router = APIRouter(prefix=prefix, tags=["love-chat"])
 
     def connection() -> sqlite3.Connection:
@@ -739,6 +966,7 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
             "last_day": counts["last_day"] or "",
             "last_log": log,
             **credentials,
+            "repair": repair,
             "paths": {"db": str(paths.chat_db), "media": str(paths.chat_media)},
         }
         if credentials.get("token_configured"):
@@ -824,6 +1052,8 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
                 con.execute("DELETE FROM messages")
                 con.execute("DELETE FROM contact")
                 con.commit()
+                # 旧联系人的快照必须一起清掉，否则下次启动的自愈会把它们并集回来。
+                _drop_snapshots(paths)
                 if backup is not None:
                     try:
                         backup_note = backup.relative_to(paths.root.parent.parent)

@@ -683,6 +683,7 @@ async function renderChat(content) {
       <div><dt>消息</dt><dd>${formatInt(status.total)} 条${status.first_day ? ` · ${escapeHtml(status.first_day)} 至 ${escapeHtml(status.last_day)}` : ""}</dd></div>
       <div><dt>上次同步</dt><dd>${status.contact.last_sync_at ? formatDateTime(status.contact.last_sync_at) : "还没有同步"}${status.contact.last_sync_status === "failed" ? " · 上次失败" : ""}</dd></div>
     </dl>
+    ${status.repair && status.repair.restored > 0 ? `<p class="field-help">启动时检测到聊天库比快照少，已按消息指纹从 <code>${escapeHtml(status.repair.source || "快照")}</code> 补回 ${formatInt(status.repair.restored)} 条。</p>` : ""}
     ${status.contact.last_error ? `<p class="inline-error">${escapeHtml(status.contact.last_error)}</p>` : ""}
     <div class="love-inline-actions">
       <button class="button primary" type="button" data-love-action="chat-sync-apply">同步到本机</button>
