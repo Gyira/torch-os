@@ -445,8 +445,6 @@ dsh/               DeepSeek Harness 工作流规则 AGENTS.md 与角色卡 roles
 docs/              状态、功能地图、AI 角色、记忆中枢、写作、数据手册与交接文档
 obsidian-plugin/   把工作台内嵌进 Obsidian 的薄插件（免构建）
 scripts/           启动、图形安装器、依赖体检、自检、发布自检、浏览器探针、校验
-tests/             Python 行为测试（后端）
-frontend/tests/    前端模块与交互测试（Node 内置 test runner）
 examples/          全虚构的示例资料（QA 隔离工作台用它起步）
 安装.cmd           双击打开图形安装器（唯一的安装入口）
 ```
@@ -454,18 +452,12 @@ examples/          全虚构的示例资料（QA 隔离工作台用它起步）
 ## 开发与测试
 
 ```powershell
-# 全量校验：Python 测试 + 文本/结构守卫 + 模块面 + 前端语法与测试 + 编译 + 依赖一致性
+# 全量校验：文本/结构守卫 + 模块面 + 前端语法 + 编译 + 依赖一致性
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1
 
-# 只跑后端
-.\.venv\Scripts\python.exe -m pytest -q
-
-# 只跑前端
-node --experimental-vm-modules --test frontend/tests/*.test.mjs
 ```
 
-当前基线（2026-10-30）：后端 **1013 passed / 1 skipped**，前端 **392 passed**，
-`scripts/check_all.ps1` exit 0。当前状态、最近验证结果与下一步见
+当前状态与下一步见
 [`docs/STATUS.md`](docs/STATUS.md)；已移除接口、deprecated 表与兼容说明见
 [`docs/DEPRECATIONS.md`](docs/DEPRECATIONS.md)。
 

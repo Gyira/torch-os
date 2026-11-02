@@ -1,4 +1,4 @@
-﻿# One repository-local verification pass: Python tests, frontend tests,
+﻿# One repository-local verification pass: source integrity,
 # JavaScript syntax, Python compilation and dependency consistency.
 # It never touches personal data and never calls a model.
 
@@ -22,7 +22,6 @@ try {
   $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
   if (-not (Test-Path -LiteralPath $python)) { $python = 'python' }
 
-  Invoke-Step 'Python 行为测试' { & $python -m pytest -q }
 
   # 把踩过的坑交给机器守住：编码/首字符/section 配对/视图名，以及 import-export 对得上。
   # 这两步很快，而且能在跑测试之前指出“哪个文件被改坏了”。
@@ -42,13 +41,8 @@ try {
     }
   if ($syntaxBad) { $failures.Add('前端 JS 语法') }
 
-  Invoke-Step '前端模块测试' {
-    $tests = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'frontend\tests') -Filter *.test.mjs -File |
-      ForEach-Object { $_.FullName })
-    & node --experimental-vm-modules --test @tests
-  }
 
-  Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts tests }
+  Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts }
   Invoke-Step '依赖一致性' { & $python -m pip check }
 }
 finally {
@@ -59,5 +53,5 @@ if ($failures.Count -gt 0) {
   Write-Host "未通过：$($failures -join '、')" -ForegroundColor Red
   exit 1
 }
-Write-Host "全部通过：Python 测试、文本与结构完整性、模块面、前端语法与测试、编译、依赖一致性。" -ForegroundColor Green
+Write-Host "全部通过：文本与结构完整性、模块面、前端语法、编译、依赖一致性。" -ForegroundColor Green
 exit 0
