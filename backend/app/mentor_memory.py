@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from . import vault_layout
-from .memory_store import DocumentUpdate, update_document
+from .memory_store import DocumentUpdate, read_document, update_document
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -62,7 +62,8 @@ def _today() -> str:
 
 
 def _path(vault: Path, name: str) -> Path:
-    return safe_note_path(vault, f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/{name}")
+    # Only construct here; the shared reader/writer validates under its lock.
+    return vault / vault_layout.SELF_MENTOR_MEMORY_DIR / name
 
 
 def _ensure_write(read_only: bool, action: str) -> None:
@@ -88,12 +89,14 @@ def _sources(value: Any) -> list[str]:
     return result[:20]
 
 
-def _read(path: Path) -> tuple[dict[str, Any], str]:
-    if not path.is_file():
+def _read(path: Path, vault: Path) -> tuple[dict[str, Any], str]:
+    try:
+        raw = read_document(path, vault_dir=vault)
+    except OSError:
         return {}, ""
     try:
-        return parse_text(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, yaml.YAMLError):
+        return parse_text(raw.decode("utf-8-sig")) if raw is not None else ({}, "")
+    except (ValueError, yaml.YAMLError):
         return {}, ""
 
 
@@ -127,7 +130,7 @@ def ensure_memory(vault_dir: Path | str, *, read_only: bool = False) -> None:
         ("记忆时间线.md", TIMELINE_TYPE, "# 记忆时间线\n"),
         ("问答记忆.md", QA_TYPE, "# 问答记忆\n"),
     ):
-        with update_document(_path(vault, name), MentorMemoryError) as update:
+        with update_document(_path(vault, name), MentorMemoryError, vault_dir=vault) as update:
             if update.original is None:
                 metadata = {"type": kind, "updated_at": _now()}
                 if kind == CORE_TYPE:
@@ -137,7 +140,7 @@ def ensure_memory(vault_dir: Path | str, *, read_only: bool = False) -> None:
 
 def read_core(vault_dir: Path | str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    metadata, body = _read(_path(vault, "核心记忆.md"))
+    metadata, body = _read(_path(vault, "核心记忆.md"), vault)
     return {
         "path": f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/核心记忆.md",
         "exists": bool(body),
@@ -155,13 +158,14 @@ def write_core(vault_dir: Path | str, text: str, *, read_only: bool = False) -> 
         raise MentorMemoryError(f"核心记忆最多 {MAX_CORE_CHARS} 字", 422)
     vault = Path(vault_dir).resolve()
     path = _path(vault, "核心记忆.md")
-    with update_document(path, MentorMemoryError) as update:
+    with update_document(path, MentorMemoryError, vault_dir=vault) as update:
         backup = update.backup(safe_note_path(vault, f"{vault_layout.SELF_MENTOR_HISTORY_DIR}/核心记忆"),
                                f"核心记忆-{_stamp()}")
-        _write_doc(update, {"type": CORE_TYPE, "updated_at": _now()}, clean)
-        result = read_core(vault)
-        result["history_path"] = backup.relative_to(vault).as_posix() if backup else ""
-        return result
+        updated_at = _now()
+        _write_doc(update, {"type": CORE_TYPE, "updated_at": updated_at}, clean)
+        return {"path": f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/核心记忆.md",
+                "exists": True, "text": clean.replace("\r\n", "\n"), "updated_at": updated_at,
+                "history_path": backup.relative_to(vault).as_posix() if backup else ""}
 
 
 def _timeline_entries(body: str) -> list[dict[str, str]]:
@@ -191,7 +195,7 @@ def append_timeline(vault_dir: Path | str, entries: Iterable[Mapping[str, Any]],
     _ensure_write(read_only, "更新人生导师记忆时间线")
     vault = Path(vault_dir).resolve()
     path = _path(vault, "记忆时间线.md")
-    with update_document(path, MentorMemoryError) as update:
+    with update_document(path, MentorMemoryError, vault_dir=vault) as update:
         metadata, body = _read_update(update)
         if not body.strip():
             body = "# 记忆时间线\n"
@@ -236,7 +240,7 @@ def append_qa(vault_dir: Path | str, *, question: str, answer: str,
         raise MentorMemoryError("问题和回答都不能为空", 422)
     vault = Path(vault_dir).resolve()
     path = _path(vault, "问答记忆.md")
-    with update_document(path, MentorMemoryError) as update:
+    with update_document(path, MentorMemoryError, vault_dir=vault) as update:
         metadata, body = _read_update(update)
         if not body.strip():
             body = "# 问答记忆\n"
@@ -263,13 +267,13 @@ def append_qa(vault_dir: Path | str, *, question: str, answer: str,
 
 def read_timeline(vault_dir: Path | str, *, limit: int = 200) -> list[dict[str, str]]:
     vault = Path(vault_dir).resolve()
-    _metadata, body = _read(_path(vault, "记忆时间线.md"))
+    _metadata, body = _read(_path(vault, "记忆时间线.md"), vault)
     return _timeline_entries(body)[-max(1, int(limit)):]
 
 
 def read_qa(vault_dir: Path | str, *, max_chars: int = 8_000) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    metadata, body = _read(_path(vault, "问答记忆.md"))
+    metadata, body = _read(_path(vault, "问答记忆.md"), vault)
     text = body.strip()
     if len(text) > max_chars:
         text = "…" + text[-max_chars:]
@@ -285,7 +289,7 @@ def context_text(vault_dir: Path | str, *, max_chars: int = 13_000) -> str:
     core = read_core(vault_dir)
     timeline = read_timeline(vault_dir, limit=60)
     vault = Path(vault_dir).resolve()
-    _qa_meta, qa_body = _read(_path(vault, "问答记忆.md"))
+    _qa_meta, qa_body = _read(_path(vault, "问答记忆.md"), vault)
     blocks: list[str] = []
     if core["text"]:
         blocks.append("## 核心记忆\n\n" + core["text"][:3_000])

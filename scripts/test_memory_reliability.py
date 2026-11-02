@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import multiprocessing
+import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,6 +162,140 @@ class MemoryReliabilityTests(unittest.TestCase):
         memory.append_timeline(self.vault, [{"text": "kept"}])
         memory.ensure_memory(self.vault)
         self.assertEqual(len(memory.read_timeline(self.vault)), 1)
+
+    def test_reader_handle_does_not_make_concurrent_write_fail(self):
+        # Hold a real read handle open. On Windows it blocks os.replace unless
+        # readers and writers coordinate; no mocked successful replacement.
+        memory.write_core(self.vault, "original")
+        original_open = Path.open
+        reading, release, writing = threading.Event(), threading.Event(), threading.Event()
+        target = self.vault / vault_layout.SELF_MENTOR_MEMORY_DIR / "核心记忆.md"
+
+        @contextmanager
+        def held_read(path, mode="r", *args, **kwargs):
+            with original_open(path, mode, *args, **kwargs) as handle:
+                if path == target and mode in ("r", "rb") and threading.current_thread().name.startswith("reader"):
+                    reading.set()
+                    if not release.wait(5):
+                        raise RuntimeError("reader was not released")
+                yield handle
+
+        def write():
+            writing.set()
+            return memory.write_core(self.vault, "next")
+
+        with patch.object(Path, "open", held_read), ThreadPoolExecutor(1, thread_name_prefix="reader") as readers, ThreadPoolExecutor(1) as writers:
+            reader = readers.submit(memory.read_core, self.vault)
+            try:
+                self.assertTrue(reading.wait(3))
+                writer = writers.submit(write)
+                self.assertTrue(writing.wait(3))
+                time.sleep(.1)
+                self.assertFalse(writer.done(), "writer must wait for the open reader")
+            finally:
+                release.set()
+            self.assertEqual(reader.result(timeout=3)["text"], "original")
+            self.assertEqual(writer.result(timeout=3)["text"], "next")
+        self.assertEqual(memory.read_core(self.vault)["text"], "next")
+
+    def test_file_probe_waits_for_existing_writer(self):
+        # A second writer must not even resolve/stat the target while the first
+        # writer is at commit. These metadata probes also take Windows handles.
+        from backend.app import vault as vault_module
+        memory.append_qa(self.vault, question="first", answer="first", qid="first")
+        original_replace = memory_store.os.replace
+        original_safe = vault_module.safe_note_path
+        committing, release, probe, started = (threading.Event() for _ in range(4))
+
+        def hold_commit(source, target):
+            if threading.current_thread().name.startswith("first"):
+                committing.set()
+                if not release.wait(5):
+                    raise RuntimeError("writer was not released")
+            return original_replace(source, target)
+
+        def observe_probe(*args, **kwargs):
+            if threading.current_thread().name.startswith("second"):
+                probe.set()
+            return original_safe(*args, **kwargs)
+
+        def append(identifier):
+            started.set()
+            return memory.append_qa(self.vault, question=identifier, answer=identifier, qid=identifier)
+
+        with patch.object(memory_store.os, "replace", hold_commit), patch.object(vault_module, "safe_note_path", observe_probe), ThreadPoolExecutor(1, thread_name_prefix="first") as first, ThreadPoolExecutor(1, thread_name_prefix="second") as second:
+            one = first.submit(append, "one")
+            try:
+                self.assertTrue(committing.wait(3))
+                started.clear()
+                two = second.submit(append, "two")
+                self.assertTrue(started.wait(3))
+                self.assertFalse(probe.wait(.1), "target checked before its write lock")
+            finally:
+                release.set()
+            one.result(timeout=3)
+            two.result(timeout=3)
+        qa = memory.read_qa(self.vault)["text"]
+        for identifier in ("first", "one", "two"):
+            self.assertIn(f"## {identifier}\n", qa)
+
+    def test_portrait_concurrent_results_match_committed_versions(self):
+        with ThreadPoolExecutor(4) as pool:
+            results = list(pool.map(lambda i: self_archive.write_portrait(self.vault, f"portrait-{i}"), range(8)))
+        self.assertEqual([row["text"] for row in results], [f"portrait-{i}" for i in range(8)])
+        history = self.vault / vault_layout.SELF_MENTOR_PORTRAIT_HISTORY
+        self.assertEqual(len(list(history.glob("*.md"))), 7)
+        self.assertIn(self_archive.read_portrait(self.vault)["text"], [row["text"] for row in results])
+
+    def test_vault_escape_rejected_without_read_or_write(self):
+        with tempfile.TemporaryDirectory(prefix="torch-outside-") as folder:
+            outside = Path(folder) / "private.md"
+            outside.write_text("unchanged", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                memory_store.read_document(outside, vault_dir=self.vault)
+            with self.assertRaises(ValueError):
+                with memory_store.update_document(outside, memory.MentorMemoryError, vault_dir=self.vault) as update:
+                    update.write("wrong")
+            self.assertEqual(outside.read_text(encoding="utf-8"), "unchanged")
+
+    def test_symlink_memory_rejected(self):
+        memory.ensure_memory(self.vault)
+        target = self.vault / vault_layout.SELF_MENTOR_MEMORY_DIR / "核心记忆.md"
+        outside = self.vault / "other.md"
+        outside.write_text("unchanged", encoding="utf-8")
+        target.unlink()
+        try:
+            os.symlink(outside, target)
+        except OSError as error:
+            self.skipTest(f"symlink unavailable: {error}")
+        with self.assertRaises(ValueError):
+            memory.read_core(self.vault)
+        with self.assertRaises(ValueError):
+            memory.write_core(self.vault, "wrong")
+        self.assertEqual(outside.read_text(encoding="utf-8"), "unchanged")
+
+    def test_link_checks_are_not_bypassed_by_lock_key_normalization(self):
+        memory.write_core(self.vault, "original")
+        target = self.vault / vault_layout.SELF_MENTOR_MEMORY_DIR / "核心记忆.md"
+        for method in ("is_symlink", "is_junction"):
+            if not hasattr(Path, method):
+                continue
+            original = getattr(Path, method)
+            with self.subTest(method=method), patch.object(Path, method,
+                    lambda path: path == target or original(path)):
+                with self.assertRaises(ValueError):
+                    memory.read_core(self.vault)
+                with self.assertRaises(ValueError):
+                    memory.write_core(self.vault, "wrong")
+        self.assertEqual(memory.read_core(self.vault)["text"], "original")
+
+    def test_write_result_retains_read_format(self):
+        for write, read in ((memory.write_core, memory.read_core),
+                            (self_archive.write_portrait, self_archive.read_portrait)):
+            with self.subTest(writer=write.__name__):
+                result = write(self.vault, "第一行\r\n\r\n第二行")
+                result.pop("history_path")
+                self.assertEqual(result, read(self.vault))
 
     def test_read_only_writes_create_nothing(self):
         for call in (

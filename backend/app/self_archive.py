@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from . import vault_layout
-from .memory_store import update_document
+from .memory_store import read_document, update_document
 from .markdown_store import revision as _revision
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -383,16 +383,23 @@ def supersede_entry(vault_dir: Path | str, old_entry_id: str, *,
 
 def read_portrait(vault_dir: Path | str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    path = safe_note_path(vault, vault_layout.SELF_PORTRAIT_RELATIVE)
+    path = vault / vault_layout.SELF_PORTRAIT_RELATIVE
+    try:
+        raw = read_document(path, vault_dir=vault)
+    except OSError:
+        raw = None
+    return _portrait_result(raw)
+
+
+def _portrait_result(raw: bytes | None) -> dict[str, Any]:
     default = {
         "exists": False, "path": vault_layout.SELF_PORTRAIT_RELATIVE,
         "revision": "", "updated_at": "", "sources": [], "confidence": 0,
         "text": "", "body": "",
     }
-    if not path.is_file():
+    if raw is None:
         return default
     try:
-        raw = path.read_bytes()
         metadata, body = parse_text(raw.decode("utf-8-sig"))
     except (OSError, ValueError, yaml.YAMLError):
         return default
@@ -417,7 +424,7 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
     if len(clean) > MAX_PORTRAIT_CHARS:
         clean = clean[: MAX_PORTRAIT_CHARS - 1].rstrip() + "…"
     vault = Path(vault_dir).resolve()
-    path = safe_note_path(vault, vault_layout.SELF_PORTRAIT_RELATIVE)
+    path = vault / vault_layout.SELF_PORTRAIT_RELATIVE
     try:
         value = max(0.0, min(1.0, float(confidence)))
     except (TypeError, ValueError):
@@ -428,11 +435,12 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
         "sources": _sources(sources),
         "confidence": round(value, 2),
     }
-    with update_document(path, SelfArchiveError) as update:
+    with update_document(path, SelfArchiveError, vault_dir=vault) as update:
         backup = update.backup(safe_note_path(vault, vault_layout.SELF_MENTOR_PORTRAIT_HISTORY),
                                f"画像-{_stamp()}")
-        update.write(_entry_text(metadata, clean))
-        result = read_portrait(vault)
+        content = _entry_text(metadata, clean)
+        update.write(content)
+        result = _portrait_result(content.encode("utf-8"))
         result["history_path"] = backup.relative_to(vault).as_posix() if backup else ""
         return result
 
