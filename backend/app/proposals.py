@@ -17,11 +17,13 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from .db import Database, utc_now
+from .role_policy import RolePolicy, merged_action_payload
 
 PROPOSAL_KINDS = frozenset({
     "identity_patch", "new_note", "archive_note", "new_task", "new_habit",
@@ -110,14 +112,30 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 class ProposalService:
     """SQLite-backed proposal state machine; handlers are injected per phase."""
 
-    def __init__(self, database: Database, *, handlers: Mapping[str, ProposalHandler] | None = None):
+    def __init__(self, database: Database, *, vault_dir: Path | str | None = None,
+                 handlers: Mapping[str, ProposalHandler] | None = None):
         self.database = database
+        self.vault_dir = Path(vault_dir) if vault_dir is not None else None
         self.handlers: dict[str, ProposalHandler] = dict(handlers or {})
 
     def register(self, kind: str, handler: ProposalHandler) -> None:
         if kind not in PROPOSAL_KINDS:
             raise ValueError(f"未知提案类型：{kind}")
         self.handlers[kind] = handler
+
+    def _validated_payload(self, role_id: str, kind: str, payload: Mapping[str, Any], *,
+                           edits: Mapping[str, Any] | None = None, sources=None, thread_id="") -> dict:
+        if self.vault_dir is None:
+            raise ProposalError("提案执行器未配置用户库", 409)
+        try:
+            merged = merged_action_payload(kind, dict(payload), dict(edits) if edits else None)
+            policy = RolePolicy.for_role(role_id, self.vault_dir)
+            policy.validate_action(kind, merged, sources=sources, thread_id=thread_id)
+            return merged
+        except HTTPException as exc:
+            raise ProposalError(str(exc.detail), exc.status_code) from exc
+        except (ValueError, TypeError) as exc:
+            raise ProposalError(f"动作参数无效：{exc}", 422) from exc
 
     def create(self, *, kind: str, title: str, payload: Mapping[str, Any],
                summary: str = "", reason: str = "", sources: Any = None,
@@ -132,10 +150,11 @@ class ProposalService:
             raise ProposalError("提案标题不能为空", 422)
         if not isinstance(payload, Mapping):
             raise ProposalError("提案内容必须是对象", 422)
+        sources_list = _clean_sources(sources)
+        payload = self._validated_payload(role_id, kind, payload, sources=sources_list, thread_id=thread_id)
         payload_json = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True)
         if len(payload_json) > 200_000:
             raise ProposalError("提案内容太长", 422)
-        sources_list = _clean_sources(sources)
         verdict_dict = dict(verdict or {})
         key = str(dedupe_key or "").strip()
         if not key:
@@ -213,6 +232,9 @@ class ProposalService:
         if expires_at and expires_at < utc_now():
             self._set_status(proposal_id, "expired")
             raise ProposalError("这个提案已过期，请让 AI 重新生成", 409)
+        # Revalidate old proposals and the final edited payload before state changes or writes.
+        merged = self._validated_payload(existing["role_id"], existing["kind"], existing["payload"],
+                                         edits=edits, sources=existing["sources"], thread_id=existing["thread_id"])
         if existing["requires_dialogue"]:
             stored = self._token(proposal_id)
             if not stored or str(verdict_token or "") != stored:
@@ -220,12 +242,19 @@ class ProposalService:
         handler = self.handlers.get(existing["kind"])
         if handler is None:
             raise ProposalError("这个提案类型还没有启用落盘处理器", 409)
-        self._set_status(proposal_id, "applying")
+        with self.database.connect() as connection:
+            claimed = connection.execute(
+                "UPDATE ai_proposals SET status='applying' WHERE id=? AND status='pending'", (proposal_id,))
+            if claimed.rowcount != 1:
+                raise ProposalError("这个提案正在处理或已经处理过了", 409)
         try:
-            result = handler(existing, dict(edits) if edits else None)
+            result = handler({**existing, "payload": merged}, None)
         except ProposalError:
             self._set_status(proposal_id, "failed")
             raise
+        except HTTPException as exc:
+            self._set_status(proposal_id, "failed")
+            raise ProposalError(str(exc.detail), exc.status_code) from exc
         except Exception as exc:  # keep the proposal visible instead of half-writing
             self._set_status(proposal_id, "failed")
             raise ProposalError(f"应用提案失败：{exc}", 500) from exc
@@ -247,11 +276,13 @@ class ProposalService:
         if existing["status"] not in {"pending", "failed"}:
             raise ProposalError("这个提案已经处理过了", 409)
         with self.database.connect() as connection:
-            connection.execute(
-                "UPDATE ai_proposals SET status='rejected', result_json=?, decided_at=? WHERE id=?",
+            rejected = connection.execute(
+                "UPDATE ai_proposals SET status='rejected', result_json=?, decided_at=? WHERE id=? AND status IN ('pending','failed')",
                 (json.dumps({"reason": _clean_text(reason, limit=MAX_REASON)}, ensure_ascii=False),
                  utc_now(), proposal_id),
             )
+            if rejected.rowcount != 1:
+                raise ProposalError("这个提案正在执行或已经处理过了", 409)
         self.database.audit("proposal_rejected", {
             "proposal_id": proposal_id, "kind": existing["kind"],
         })

@@ -2,7 +2,7 @@
 
 - 只读来源：`02_生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
   工作台未完成任务/今日习惯；
-- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `03_财务系统/财务报告`，生活/恋爱建议 → `04_家庭系统/生活建议`（旧 API 兼容）；
+- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `03_财务系统/财务报告`，生活建议 → `04_家庭系统/生活建议`；恋爱建议 → 恋爱记忆/AI 草稿（旧 API 入口保留）；
 - AI 只提议：建议里的 new_task/new_habit 走 `ai_proposals`，用户采纳后才创建；
 - 不修改健康/财务月度表，不替恋爱系统发消息，不控制任何家庭设备。
 """
@@ -29,7 +29,7 @@ DOMAINS = {"health", "finance", "love", "life"}
 REPORT_CHAPTER = {
     "health": "health_report",
     "finance": "finance_report",
-    "love": "life_advice",
+    "love": vault_layout.LOVE_DRAFT_CHAPTER,
     "life": "life_advice",
 }
 REPORT_TITLE = {
@@ -251,7 +251,7 @@ def life_context(database: Database, vault_dir: Path | str, love_settings: Any =
 
 
 def _create_action_proposals(proposals: Any, structured: dict[str, Any], *,
-                             role_id: str, sources: list[str]) -> list[dict[str, Any]]:
+                             role_id: str, sources: list[str], errors=None) -> list[dict[str, Any]]:
     if proposals is None:
         return []
     created: list[dict[str, Any]] = []
@@ -269,7 +269,9 @@ def _create_action_proposals(proposals: Any, structured: dict[str, Any], *,
                 reason=str(draft.get("reason") or "")[:2000],
                 payload=payload, sources=sources, role_id=role_id,
             )
-        except ProposalError:
+        except ProposalError as exc:
+            if errors is not None:
+                errors.append(f"建议未生成：{exc}")
             continue
         created.append(item)
     return created
@@ -324,37 +326,42 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
         chapter = REPORT_CHAPTER[domain]
     title = str(note_data.get("title") or report_note_title(domain))[:200]
     body = str(note_data.get("markdown") or "").strip() or result.text
+    from .role_policy import RolePolicy
+    RolePolicy.for_role(role_id, vault_dir).check_write_chapter(chapter)
     note = pillar_notes.create_note(
-        vault_dir, pillar="ops", chapter=chapter, title=title, body=body,
+        vault_dir, pillar=vault_layout.pillar_of(vault_layout.chapter_dir(chapter)), chapter=chapter, title=title, body=body,
         note_type="report", tags=["AI", domain], source="AI",
         extra_metadata={"memory": False, "generated_by": role_id},
     )
+    action_errors: list[str] = []
     action_proposals = _create_action_proposals(
         proposals, structured if isinstance(structured, dict) else {},
-        role_id=role_id, sources=[note.get("path", "")])
+        role_id=role_id, sources=[note.get("path", "")], errors=action_errors)
     database.audit("ops_ai_report", {"domain": domain, "role": role_id,
                                      "path": note.get("path", ""),
                                      "proposals": len(action_proposals)})
     return {
         "domain": domain, "role": role_id, "text": result.text,
         "structured": structured if isinstance(structured, dict) else {},
-        "note": note, "proposals": action_proposals, "stats": stats,
+        "note": note, "proposals": action_proposals, "stats": stats, "action_errors": action_errors,
         "seconds": result.seconds,
     }
 
 
 def _report_notes(vault_dir: Path | str, limit: int = 5) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    for chapter in ("health_report", "finance_report", "life_advice"):
+    for chapter in ("health_report", "finance_report", "life_advice", vault_layout.LOVE_DRAFT_CHAPTER):
         try:
             notes = pillar_notes.list_notes(vault_dir, chapter=chapter, limit=limit)
         except Exception:
             notes = []
+        if chapter == vault_layout.LOVE_DRAFT_CHAPTER:
+            notes = [note for note in notes if note.get("type") == "report"]
         items.extend({
             "chapter": chapter, "title": note.get("title", ""),
             "path": note.get("path", ""), "date": note.get("date", ""),
         } for note in notes)
-    return items[: max(1, limit * 3)]
+    return items[: max(1, limit * 4)]
 
 
 def overview(database: Database, vault_dir: Path | str, *, love_settings: Any = None) -> dict[str, Any]:

@@ -468,6 +468,8 @@ def generate_reading(role_service: Any, vault_dir: Path | str, *, topic: str = "
         data["favor"] = chart.get("favor") or []
     if not data.get("avoid"):
         data["avoid"] = chart.get("avoid") or []
+    from .role_policy import RolePolicy
+    RolePolicy.for_role("mentor", vault).check_write_path(vault_layout.SELF_BAZI_READINGS_DIR)
     item = write_reading(
         vault, topic=topic, result=data, chart=chart,
         sources=result.get("sources") or [], read_only=read_only)

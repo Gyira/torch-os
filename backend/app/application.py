@@ -69,7 +69,7 @@ from .journal_chat import create_journal_chat_router
 from .journal_inbox import create_journal_inbox_router
 from .journal_review import create_journal_review_router
 from .todo_note import create_todo_router
-from .tasks import TaskCreate, create_task, create_tasks_router
+from .tasks import create_tasks_router
 from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
 from .weather import create_weather_router
 from .health import create_health_router
@@ -86,7 +86,7 @@ from .love_system import create_system_router
 from .love_weflow_component import create_component_router
 from .train_tracker import create_train_tracker_router
 from .journal_export import create_journal_export_router
-from .habits import HabitCreate, HabitService, create_habits_router
+from .habits import create_habits_router
 from .task_import import create_task_import_router
 from .link_audit import audit_wolai_links
 from .attachment_plan import plan_wolai_attachment_localization
@@ -315,82 +315,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # v1.0 AI 角色层：角色卡属于仓库（dsh/roles），不属于用户库；换库只换数据，不换人格。
     role_registry = RoleRegistry(Path(__file__).resolve().parents[2] / 'dsh' / 'roles')
     ai_enabled = runtime_label == 'personal' and getattr(dsh_runtime, 'enabled', False)
-    proposal_service = ProposalService(database)
-    # P1 只注册“任务/习惯”两个落盘 handler；笔记与身份补丁分别在 P2/P3 接入。
-    def _apply_new_task(proposal, edits):
-        payload = dict(proposal.get("payload") or {})
-        if edits:
-            payload.update(edits)
-        tags = payload.get("tags")
-        result = create_task(
-            vault_dir,
-            TaskCreate(
-                title=str(payload.get("title") or proposal.get("title") or "").strip(),
-                list_name=str(payload.get("list") or payload.get("list_name") or "")[:40],
-                date=str(payload.get("date") or payload.get("due_date") or "")[:10],
-                priority=str(payload.get("priority") or "none")[:10],
-                tags=[str(item) for item in tags] if isinstance(tags, list) else [],
-            ),
-            database, read_only=vault_read_only,
-        )
-        return {"task": result.get("task"), "revision": result.get("revision")}
-
-    def _apply_new_habit(proposal, edits):
-        payload = dict(proposal.get("payload") or {})
-        if edits:
-            payload.update(edits)
-        result = HabitService(database, vault_dir=vault_dir, read_only=vault_read_only).create(
-            HabitCreate(
-                title=str(payload.get("title") or proposal.get("title") or "").strip(),
-                cue=str(payload.get("cue") or "")[:500],
-                minimum_action=str(payload.get("minimum_action") or "")[:500],
-                frequency=payload.get("frequency") if isinstance(payload.get("frequency"), dict) else None,
-                target_days=payload.get("target_days") if isinstance(payload.get("target_days"), int) else None,
-                icon=str(payload.get("icon") or "🌱")[:16],
-                group=str(payload.get("group") or "默认")[:40],
-                reminder=str(payload.get("reminder") or "")[:5],
-            )
-        )
-        return {"habit": result}
-
-    def _apply_new_note(proposal, edits):
-        payload = dict(proposal.get("payload") or {})
-        if edits:
-            payload.update(edits)
-        tags = payload.get("tags")
-        note = note_editor.create_note(
-            database, vault_dir,
-            chapter=str(payload.get("chapter") or "")[:40],
-            title=str(payload.get("title") or proposal.get("title") or "")[:200],
-            body=str(payload.get("body") or ""),
-            tags=[str(item) for item in tags] if isinstance(tags, list) else [],
-            source=str(payload.get("source") or "")[:500],
-            generated_by=str(payload.get("generated_by") or "ai")[:40],
-            read_only=vault_read_only,
-        )
-        return {"note": note}
-
-    def _apply_archive_note(proposal, edits):
-        payload = dict(proposal.get("payload") or {})
-        if edits:
-            payload.update(edits)
-        note = note_editor.move_note(
-            database, vault_dir,
-            path=str(payload.get("path") or "")[:2048],
-            target_chapter=str(payload.get("target_chapter") or payload.get("chapter") or "")[:40],
-            expected_revision=str(payload.get("expected_revision") or "")[:64],
-            read_only=vault_read_only,
-        )
-        return {"note": note}
-
-    proposal_service.register("new_task", _apply_new_task)
-    proposal_service.register("new_habit", _apply_new_habit)
-    proposal_service.register("new_note", _apply_new_note)
-    proposal_service.register("archive_note", _apply_archive_note)
-    proposal_service.register(
-        "identity_patch",
-        lambda proposal, edits: memory_hub.apply_identity_patch(
-            database, vault_dir, proposal, read_only=vault_read_only))
+    from .proposal_actions import register_proposal_handlers
+    proposal_service = ProposalService(database, vault_dir=vault_dir)
+    register_proposal_handlers(proposal_service, database, vault_dir, read_only=vault_read_only)
     ai_service = RoleService(
         role_registry, deepseek_balance,
         enabled=ai_enabled,

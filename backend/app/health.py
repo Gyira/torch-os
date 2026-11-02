@@ -360,6 +360,8 @@ def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
     note_data = note_data if isinstance(note_data, dict) else {}
     title = _report_title(vault_dir)
     body = str(note_data.get("markdown") or "").strip() or result.text
+    from .role_policy import RolePolicy
+    RolePolicy.for_role("health_doctor", vault_dir).check_write_chapter("health_report")
     note = pillar_notes.create_note(
         vault_dir, pillar="ops", chapter="health_report", title=title, body=body,
         note_type="report", tags=["AI", "health", "report"], source="AI",

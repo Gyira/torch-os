@@ -187,6 +187,18 @@ test("角色权限切换提示保留历史，并在后续轮次恢复正常状�
   assert.equal(ctx.snapshot().messages.length, 4);
 });
 
+test("越域建议被拒绝时保留正常回复并显示原因", async () => {
+  const {ctx, requests, input, env} = await roleHarness();
+  await ctx.openRoleDrawer({roleId:"a"});
+  input.value = "讨论笔记";
+  const sending = ctx.sendRoleMessage(input.value);
+  requests[0].resolve({thread_id:"same", reply:"正常分析", proposals:[], action_errors:["建议未生成：写入目标不属于当前角色"]});
+  await sending;
+  assert.match(env.document.getElementById("role-drawer-status").textContent, /写入目标不属于当前角色/);
+  assert.equal(ctx.snapshot().messages.at(-1).content, "正常分析");
+  assert.equal(ctx.snapshot().busy, false);
+});
+
 test("角色旧回复不能污染重开的角色或解除新请求忙碌状态", async () => {
   const {ctx, requests, input} = await roleHarness();
   await ctx.openRoleDrawer({roleId:"a"});

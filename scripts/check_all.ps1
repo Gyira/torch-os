@@ -44,6 +44,7 @@ try {
   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
   Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }
   Invoke-Step '角色资料与会话边界回归' { & $python (Join-Path $projectRoot 'scripts\test_role_boundaries.py') }
+  Invoke-Step '角色写入与受控动作回归' { & $python (Join-Path $projectRoot 'scripts\test_role_actions.py') }
   Invoke-Step '前端目录映射与迁移回归' { & $python (Join-Path $projectRoot 'scripts\test_vault_alignment.py') }
 
   Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts }

@@ -1,0 +1,1066 @@
+diff --git a/backend/app/ai_roles.py b/backend/app/ai_roles.py
+index 71d5e50..afdfcae 100644
+--- a/backend/app/ai_roles.py
++++ b/backend/app/ai_roles.py
+@@ -919,13 +919,15 @@ class RoleService:
+     # ----- proposals / events --------------------------------------------
+ 
+     def _create_proposals(self, reply, role: RoleDefinition, mode: str,
+-                          thread_id: str) -> list[dict[str, Any]]:
++                          thread_id: str, *, sources=None, errors=None) -> list[dict[str, Any]]:
+         if self.proposals is None:
+             return []
+         verdict = reply.identity_verdict
+         created: list[dict[str, Any]] = []
+         for draft in list(reply.proposals or [])[:5]:
+             if draft.kind not in role.proposals:
++                if errors is not None:
++                    errors.append("建议未生成：当前角色没有这个动作能力。")
+                 continue
+             # review_card/hub_event 走忆灵卡片/事件表，不是用户可采纳的动作提案。
+             if draft.kind in {"review_card", "hub_event"}:
+@@ -958,27 +960,36 @@ class RoleService:
+                     except Exception:
+                         base_revision = ""
+             try:
++                policy = RolePolicy.for_role(role.id, self.vault_dir)
++                references = [policy.reference(value, bindings=sources, thread_id=thread_id)
++                              for value in draft.sources]
+                 proposal = self.proposals.create(
+                     kind=draft.kind,
+                     title=draft.title or draft.summary[:60] or "AI 建议",
+                     summary=draft.summary,
+                     reason=draft.reason,
+                     payload=draft.payload or {},
+-                    sources=draft.sources,
++                    sources=references,
+                     role_id=role.id,
+                     thread_id=thread_id,
+                     base_revision=base_revision,
+                     verdict=verdict_payload,
+                     verdict_token=token,
+                 )
+-            except ProposalError:
++            except (ProposalError, HTTPException) as exc:
++                if errors is not None:
++                    errors.append(f"建议未生成：{getattr(exc, 'detail', None) or str(exc)}")
+                 continue
+             created.append(proposal)
+         return created
+ 
+-    def _ingest_events(self, reply, role: RoleDefinition, thread_id: str) -> int:
++    def _ingest_events(self, reply, role: RoleDefinition, thread_id: str, *, sources=None, errors=None) -> int:
+         if self.database is None or not reply.hub_events:
+             return 0
++        if self.read_only:
++            if errors is not None:
++                errors.append("观察未投递：当前数据库为只读模式。")
++            return 0
+         count = 0
+         day = utc_now()[:10]
+         with self.database.connect() as connection:
+@@ -986,8 +997,15 @@ class RoleService:
+                 summary = str(event.summary or "").strip()
+                 if not summary:
+                     continue
++                try:
++                    source_ref = RolePolicy.for_role(role.id, self.vault_dir).reference(
++                        event.source_ref, bindings=sources, thread_id=thread_id)
++                except HTTPException as exc:
++                    if errors is not None:
++                        errors.append(f"观察未投递：{exc.detail}")
++                    continue
+                 key = hashlib.sha256(
+-                    f"{event.kind}|{summary}|{event.source_ref}|{day}".encode("utf-8")
++                    f"{role.id}|{event.kind}|{summary}|{source_ref}|{day}".encode("utf-8")
+                 ).hexdigest()[:40]
+                 cursor = connection.execute(
+                     """INSERT OR IGNORE INTO memory_hub_events
+@@ -995,7 +1013,7 @@ class RoleService:
+                         occurred_at, created_at, status, dedupe_key)
+                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                     (str(event.kind or "observation")[:40], summary[:1000], "{}",
+-                     str(event.source_ref or thread_id)[:500], role.id,
++                     source_ref[:500], role.id,
+                      utc_now(), utc_now(), "new", key),
+                 )
+                 count += max(0, cursor.rowcount or 0)
+@@ -1126,8 +1144,9 @@ class RoleService:
+                                runner=runner)
+         self._assert_policy(thread["id"], policy, mode, claim)
+         reply, structured = parse_reply(result.text)
+-        proposals = self._create_proposals(reply, role, mode, thread["id"])
+-        events = self._ingest_events(reply, role, thread["id"])
++        action_errors: list[str] = []
++        proposals = self._create_proposals(reply, role, mode, thread["id"], sources=context.sources, errors=action_errors)
++        events = self._ingest_events(reply, role, thread["id"], sources=context.sources, errors=action_errors)
+         pending = self._archive_pending(reply, role, thread["id"])
+         memory_errors: list[str] = []
+         memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors)
+@@ -1178,6 +1197,7 @@ class RoleService:
+             "pending": pending,
+             "memory_notes": memory_notes,
+             "memory_errors": memory_errors,
++            "action_errors": action_errors,
+             "question_candidates": question_candidates,
+         }
+ 
+diff --git a/backend/app/application.py b/backend/app/application.py
+index c6b65f1..e707149 100644
+--- a/backend/app/application.py
++++ b/backend/app/application.py
+@@ -69,7 +69,7 @@ from .journal_chat import create_journal_chat_router
+ from .journal_inbox import create_journal_inbox_router
+ from .journal_review import create_journal_review_router
+ from .todo_note import create_todo_router
+-from .tasks import TaskCreate, create_task, create_tasks_router
++from .tasks import create_tasks_router
+ from .dida_sync import DidaSyncService, create_dida_sync_router, dida_sync_loop
+ from .weather import create_weather_router
+ from .health import create_health_router
+@@ -86,7 +86,7 @@ from .love_system import create_system_router
+ from .love_weflow_component import create_component_router
+ from .train_tracker import create_train_tracker_router
+ from .journal_export import create_journal_export_router
+-from .habits import HabitCreate, HabitService, create_habits_router
++from .habits import create_habits_router
+ from .task_import import create_task_import_router
+ from .link_audit import audit_wolai_links
+ from .attachment_plan import plan_wolai_attachment_localization
+@@ -315,82 +315,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None,
+     # v1.0 AI 角色层：角色卡属于仓库（dsh/roles），不属于用户库；换库只换数据，不换人格。
+     role_registry = RoleRegistry(Path(__file__).resolve().parents[2] / 'dsh' / 'roles')
+     ai_enabled = runtime_label == 'personal' and getattr(dsh_runtime, 'enabled', False)
+-    proposal_service = ProposalService(database)
+-    # P1 只注册“任务/习惯”两个落盘 handler；笔记与身份补丁分别在 P2/P3 接入。
+-    def _apply_new_task(proposal, edits):
+-        payload = dict(proposal.get("payload") or {})
+-        if edits:
+-            payload.update(edits)
+-        tags = payload.get("tags")
+-        result = create_task(
+-            vault_dir,
+-            TaskCreate(
+-                title=str(payload.get("title") or proposal.get("title") or "").strip(),
+-                list_name=str(payload.get("list") or payload.get("list_name") or "")[:40],
+-                date=str(payload.get("date") or payload.get("due_date") or "")[:10],
+-                priority=str(payload.get("priority") or "none")[:10],
+-                tags=[str(item) for item in tags] if isinstance(tags, list) else [],
+-            ),
+-            database, read_only=vault_read_only,
+-        )
+-        return {"task": result.get("task"), "revision": result.get("revision")}
+-
+-    def _apply_new_habit(proposal, edits):
+-        payload = dict(proposal.get("payload") or {})
+-        if edits:
+-            payload.update(edits)
+-        result = HabitService(database, vault_dir=vault_dir, read_only=vault_read_only).create(
+-            HabitCreate(
+-                title=str(payload.get("title") or proposal.get("title") or "").strip(),
+-                cue=str(payload.get("cue") or "")[:500],
+-                minimum_action=str(payload.get("minimum_action") or "")[:500],
+-                frequency=payload.get("frequency") if isinstance(payload.get("frequency"), dict) else None,
+-                target_days=payload.get("target_days") if isinstance(payload.get("target_days"), int) else None,
+-                icon=str(payload.get("icon") or "🌱")[:16],
+-                group=str(payload.get("group") or "默认")[:40],
+-                reminder=str(payload.get("reminder") or "")[:5],
+-            )
+-        )
+-        return {"habit": result}
+-
+-    def _apply_new_note(proposal, edits):
+-        payload = dict(proposal.get("payload") or {})
+-        if edits:
+-            payload.update(edits)
+-        tags = payload.get("tags")
+-        note = note_editor.create_note(
+-            database, vault_dir,
+-            chapter=str(payload.get("chapter") or "")[:40],
+-            title=str(payload.get("title") or proposal.get("title") or "")[:200],
+-            body=str(payload.get("body") or ""),
+-            tags=[str(item) for item in tags] if isinstance(tags, list) else [],
+-            source=str(payload.get("source") or "")[:500],
+-            generated_by=str(payload.get("generated_by") or "ai")[:40],
+-            read_only=vault_read_only,
+-        )
+-        return {"note": note}
+-
+-    def _apply_archive_note(proposal, edits):
+-        payload = dict(proposal.get("payload") or {})
+-        if edits:
+-            payload.update(edits)
+-        note = note_editor.move_note(
+-            database, vault_dir,
+-            path=str(payload.get("path") or "")[:2048],
+-            target_chapter=str(payload.get("target_chapter") or payload.get("chapter") or "")[:40],
+-            expected_revision=str(payload.get("expected_revision") or "")[:64],
+-            read_only=vault_read_only,
+-        )
+-        return {"note": note}
+-
+-    proposal_service.register("new_task", _apply_new_task)
+-    proposal_service.register("new_habit", _apply_new_habit)
+-    proposal_service.register("new_note", _apply_new_note)
+-    proposal_service.register("archive_note", _apply_archive_note)
+-    proposal_service.register(
+-        "identity_patch",
+-        lambda proposal, edits: memory_hub.apply_identity_patch(
+-            database, vault_dir, proposal, read_only=vault_read_only))
++    from .proposal_actions import register_proposal_handlers
++    proposal_service = ProposalService(database, vault_dir=vault_dir)
++    register_proposal_handlers(proposal_service, database, vault_dir, read_only=vault_read_only)
+     ai_service = RoleService(
+         role_registry, deepseek_balance,
+         enabled=ai_enabled,
+diff --git a/backend/app/health.py b/backend/app/health.py
+index ecc0998..89aafe7 100644
+--- a/backend/app/health.py
++++ b/backend/app/health.py
+@@ -360,6 +360,8 @@ def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
+     note_data = note_data if isinstance(note_data, dict) else {}
+     title = _report_title(vault_dir)
+     body = str(note_data.get("markdown") or "").strip() or result.text
++    from .role_policy import RolePolicy
++    RolePolicy.for_role("health_doctor", vault_dir).check_write_chapter("health_report")
+     note = pillar_notes.create_note(
+         vault_dir, pillar="ops", chapter="health_report", title=title, body=body,
+         note_type="report", tags=["AI", "health", "report"], source="AI",
+diff --git a/backend/app/life_reports.py b/backend/app/life_reports.py
+index d202fa0..2c89e54 100644
+--- a/backend/app/life_reports.py
++++ b/backend/app/life_reports.py
+@@ -2,7 +2,7 @@
+ 
+ - 只读来源：`02_生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
+   工作台未完成任务/今日习惯；
+-- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `03_财务系统/财务报告`，生活/恋爱建议 → `04_家庭系统/生活建议`（旧 API 兼容）；
++- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `03_财务系统/财务报告`，生活建议 → `04_家庭系统/生活建议`；恋爱建议 → 恋爱记忆/AI 草稿（旧 API 入口保留）；
+ - AI 只提议：建议里的 new_task/new_habit 走 `ai_proposals`，用户采纳后才创建；
+ - 不修改健康/财务月度表，不替恋爱系统发消息，不控制任何家庭设备。
+ """
+@@ -29,7 +29,7 @@ DOMAINS = {"health", "finance", "love", "life"}
+ REPORT_CHAPTER = {
+     "health": "health_report",
+     "finance": "finance_report",
+-    "love": "life_advice",
++    "love": vault_layout.LOVE_DRAFT_CHAPTER,
+     "life": "life_advice",
+ }
+ REPORT_TITLE = {
+@@ -251,7 +251,7 @@ def life_context(database: Database, vault_dir: Path | str, love_settings: Any =
+ 
+ 
+ def _create_action_proposals(proposals: Any, structured: dict[str, Any], *,
+-                             role_id: str, sources: list[str]) -> list[dict[str, Any]]:
++                             role_id: str, sources: list[str], errors=None) -> list[dict[str, Any]]:
+     if proposals is None:
+         return []
+     created: list[dict[str, Any]] = []
+@@ -269,7 +269,9 @@ def _create_action_proposals(proposals: Any, structured: dict[str, Any], *,
+                 reason=str(draft.get("reason") or "")[:2000],
+                 payload=payload, sources=sources, role_id=role_id,
+             )
+-        except ProposalError:
++        except ProposalError as exc:
++            if errors is not None:
++                errors.append(f"建议未生成：{exc}")
+             continue
+         created.append(item)
+     return created
+@@ -324,37 +326,42 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
+         chapter = REPORT_CHAPTER[domain]
+     title = str(note_data.get("title") or report_note_title(domain))[:200]
+     body = str(note_data.get("markdown") or "").strip() or result.text
++    from .role_policy import RolePolicy
++    RolePolicy.for_role(role_id, vault_dir).check_write_chapter(chapter)
+     note = pillar_notes.create_note(
+-        vault_dir, pillar="ops", chapter=chapter, title=title, body=body,
++        vault_dir, pillar=vault_layout.pillar_of(vault_layout.chapter_dir(chapter)), chapter=chapter, title=title, body=body,
+         note_type="report", tags=["AI", domain], source="AI",
+         extra_metadata={"memory": False, "generated_by": role_id},
+     )
++    action_errors: list[str] = []
+     action_proposals = _create_action_proposals(
+         proposals, structured if isinstance(structured, dict) else {},
+-        role_id=role_id, sources=[note.get("path", "")])
++        role_id=role_id, sources=[note.get("path", "")], errors=action_errors)
+     database.audit("ops_ai_report", {"domain": domain, "role": role_id,
+                                      "path": note.get("path", ""),
+                                      "proposals": len(action_proposals)})
+     return {
+         "domain": domain, "role": role_id, "text": result.text,
+         "structured": structured if isinstance(structured, dict) else {},
+-        "note": note, "proposals": action_proposals, "stats": stats,
++        "note": note, "proposals": action_proposals, "stats": stats, "action_errors": action_errors,
+         "seconds": result.seconds,
+     }
+ 
+ 
+ def _report_notes(vault_dir: Path | str, limit: int = 5) -> list[dict[str, Any]]:
+     items: list[dict[str, Any]] = []
+-    for chapter in ("health_report", "finance_report", "life_advice"):
++    for chapter in ("health_report", "finance_report", "life_advice", vault_layout.LOVE_DRAFT_CHAPTER):
+         try:
+             notes = pillar_notes.list_notes(vault_dir, chapter=chapter, limit=limit)
+         except Exception:
+             notes = []
++        if chapter == vault_layout.LOVE_DRAFT_CHAPTER:
++            notes = [note for note in notes if note.get("type") == "report"]
+         items.extend({
+             "chapter": chapter, "title": note.get("title", ""),
+             "path": note.get("path", ""), "date": note.get("date", ""),
+         } for note in notes)
+-    return items[: max(1, limit * 3)]
++    return items[: max(1, limit * 4)]
+ 
+ 
+ def overview(database: Database, vault_dir: Path | str, *, love_settings: Any = None) -> dict[str, Any]:
+diff --git a/backend/app/love_bazi.py b/backend/app/love_bazi.py
+index 7a7beb0..824a69b 100644
+--- a/backend/app/love_bazi.py
++++ b/backend/app/love_bazi.py
+@@ -357,6 +357,9 @@ def create_bazi_router(paths: LovePaths, *, role_service: Any = None,
+             raise HTTPException(409, str(error)) from error
+         if role_service is None:
+             raise HTTPException(503, "AI 不可用：dsh 角色服务没有启用")
++        from .role_policy import RolePolicy
++        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
++            paths.bazi_db.relative_to(paths.root.parent.parent).as_posix())
+         chart_data, notes = _chart_payload(payload.him, payload.her)
+         title = payload.title.strip() or f"{chart_data['him']['name']} × {chart_data['her']['name']} · 八字合婚"
+         now = _now()
+@@ -396,6 +399,8 @@ def create_bazi_router(paths: LovePaths, *, role_service: Any = None,
+                     (str(error)[:1000], _now(), report_id))
+                 con.commit()
+             raise HTTPException(502, f"AI 合婚分析失败：{error}") from error
++        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
++            paths.bazi_db.relative_to(paths.root.parent.parent).as_posix())
+         normalized = _normalize_ai(result.get("structured") or {}, chart_data)
+         if not normalized["hehun"].get("summary"):
+             normalized["hehun"]["summary"] = _text(result.get("text"), 1200)
+diff --git a/backend/app/love_master.py b/backend/app/love_master.py
+index 43d29ab..ec3c76f 100644
+--- a/backend/app/love_master.py
++++ b/backend/app/love_master.py
+@@ -28,6 +28,7 @@ from . import (love_cycle, love_memory, love_schedule, note_editor, notebooks,
+ from .db import Database
+ from .love_layout import LovePaths
+ from .love_privacy import desensitize
++from .role_policy import RolePolicy
+ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
+ 
+ DAY = ZoneInfo("Asia/Shanghai")
+@@ -624,6 +625,7 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
+             body = str(structured.get("body") or result.get("text") or "").strip()
+             if not body:
+                 raise RuntimeError("AI 没有返回正文")
++            RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_chapter(vault_layout.LOVE_DRAFT_CHAPTER)
+             note = note_editor.create_note(
+                 database, str(paths.root.parent.parent),
+                 chapter=vault_layout.LOVE_DRAFT_CHAPTER,
+@@ -788,6 +790,7 @@ def _ensure_master_notebook(paths: LovePaths, database: Database, name: str,
+                             *, read_only: bool = False) -> str:
+     vault = paths.root.parent.parent
+     target = Path(vault) / vault_layout.custom_notebook_path(name, vault_layout.LOVE_PILLAR)
++    RolePolicy.for_role("love_master", vault).check_write_path(target.relative_to(vault).as_posix())
+     if not target.is_dir():
+         notebooks.create_notebook(database, str(vault), name,
+                                   pillar=vault_layout.LOVE_PILLAR, read_only=read_only,
+@@ -857,6 +860,8 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
+                  target_name: str, run_id: int, skill: str,
+                  params: dict[str, Any], read_only: bool) -> None:
+     try:
++        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
++            paths.master_db.relative_to(paths.root.parent.parent).as_posix())
+         with _connect(paths.master_db) as con:
+             con.execute("UPDATE runs SET status='running', progress='正在整理数据' WHERE id=?",
+                         (run_id,))
+diff --git a/backend/app/proposals.py b/backend/app/proposals.py
+index af46dd3..3a336df 100644
+--- a/backend/app/proposals.py
++++ b/backend/app/proposals.py
+@@ -17,11 +17,13 @@ import sqlite3
+ import uuid
+ from datetime import datetime, timedelta, timezone
+ from typing import Any, Callable, Mapping
++from pathlib import Path
+ 
+ from fastapi import APIRouter, HTTPException, Query
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from .db import Database, utc_now
++from .role_policy import RolePolicy, merged_action_payload
+ 
+ PROPOSAL_KINDS = frozenset({
+     "identity_patch", "new_note", "archive_note", "new_task", "new_habit",
+@@ -110,8 +112,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+ class ProposalService:
+     """SQLite-backed proposal state machine; handlers are injected per phase."""
+ 
+-    def __init__(self, database: Database, *, handlers: Mapping[str, ProposalHandler] | None = None):
++    def __init__(self, database: Database, *, vault_dir: Path | str | None = None,
++                 handlers: Mapping[str, ProposalHandler] | None = None):
+         self.database = database
++        self.vault_dir = Path(vault_dir) if vault_dir is not None else None
+         self.handlers: dict[str, ProposalHandler] = dict(handlers or {})
+ 
+     def register(self, kind: str, handler: ProposalHandler) -> None:
+@@ -119,6 +123,20 @@ class ProposalService:
+             raise ValueError(f"未知提案类型：{kind}")
+         self.handlers[kind] = handler
+ 
++    def _validated_payload(self, role_id: str, kind: str, payload: Mapping[str, Any], *,
++                           edits: Mapping[str, Any] | None = None, sources=None, thread_id="") -> dict:
++        if self.vault_dir is None:
++            raise ProposalError("提案执行器未配置用户库", 409)
++        try:
++            merged = merged_action_payload(kind, dict(payload), dict(edits) if edits else None)
++            policy = RolePolicy.for_role(role_id, self.vault_dir)
++            policy.validate_action(kind, merged, sources=sources, thread_id=thread_id)
++            return merged
++        except HTTPException as exc:
++            raise ProposalError(str(exc.detail), exc.status_code) from exc
++        except (ValueError, TypeError) as exc:
++            raise ProposalError(f"动作参数无效：{exc}", 422) from exc
++
+     def create(self, *, kind: str, title: str, payload: Mapping[str, Any],
+                summary: str = "", reason: str = "", sources: Any = None,
+                role_id: str = "", thread_id: str = "", base_revision: str = "",
+@@ -132,10 +150,11 @@ class ProposalService:
+             raise ProposalError("提案标题不能为空", 422)
+         if not isinstance(payload, Mapping):
+             raise ProposalError("提案内容必须是对象", 422)
++        sources_list = _clean_sources(sources)
++        payload = self._validated_payload(role_id, kind, payload, sources=sources_list, thread_id=thread_id)
+         payload_json = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True)
+         if len(payload_json) > 200_000:
+             raise ProposalError("提案内容太长", 422)
+-        sources_list = _clean_sources(sources)
+         verdict_dict = dict(verdict or {})
+         key = str(dedupe_key or "").strip()
+         if not key:
+@@ -213,6 +232,9 @@ class ProposalService:
+         if expires_at and expires_at < utc_now():
+             self._set_status(proposal_id, "expired")
+             raise ProposalError("这个提案已过期，请让 AI 重新生成", 409)
++        # Revalidate old proposals and the final edited payload before state changes or writes.
++        merged = self._validated_payload(existing["role_id"], existing["kind"], existing["payload"],
++                                         edits=edits, sources=existing["sources"], thread_id=existing["thread_id"])
+         if existing["requires_dialogue"]:
+             stored = self._token(proposal_id)
+             if not stored or str(verdict_token or "") != stored:
+@@ -220,12 +242,19 @@ class ProposalService:
+         handler = self.handlers.get(existing["kind"])
+         if handler is None:
+             raise ProposalError("这个提案类型还没有启用落盘处理器", 409)
+-        self._set_status(proposal_id, "applying")
++        with self.database.connect() as connection:
++            claimed = connection.execute(
++                "UPDATE ai_proposals SET status='applying' WHERE id=? AND status='pending'", (proposal_id,))
++            if claimed.rowcount != 1:
++                raise ProposalError("这个提案正在处理或已经处理过了", 409)
+         try:
+-            result = handler(existing, dict(edits) if edits else None)
++            result = handler({**existing, "payload": merged}, None)
+         except ProposalError:
+             self._set_status(proposal_id, "failed")
+             raise
++        except HTTPException as exc:
++            self._set_status(proposal_id, "failed")
++            raise ProposalError(str(exc.detail), exc.status_code) from exc
+         except Exception as exc:  # keep the proposal visible instead of half-writing
+             self._set_status(proposal_id, "failed")
+             raise ProposalError(f"应用提案失败：{exc}", 500) from exc
+@@ -247,11 +276,13 @@ class ProposalService:
+         if existing["status"] not in {"pending", "failed"}:
+             raise ProposalError("这个提案已经处理过了", 409)
+         with self.database.connect() as connection:
+-            connection.execute(
+-                "UPDATE ai_proposals SET status='rejected', result_json=?, decided_at=? WHERE id=?",
++            rejected = connection.execute(
++                "UPDATE ai_proposals SET status='rejected', result_json=?, decided_at=? WHERE id=? AND status IN ('pending','failed')",
+                 (json.dumps({"reason": _clean_text(reason, limit=MAX_REASON)}, ensure_ascii=False),
+                  utc_now(), proposal_id),
+             )
++            if rejected.rowcount != 1:
++                raise ProposalError("这个提案正在执行或已经处理过了", 409)
+         self.database.audit("proposal_rejected", {
+             "proposal_id": proposal_id, "kind": existing["kind"],
+         })
+diff --git a/backend/app/role_policy.py b/backend/app/role_policy.py
+index b046ebb..cfec257 100644
+--- a/backend/app/role_policy.py
++++ b/backend/app/role_policy.py
+@@ -10,12 +10,13 @@ from contextvars import ContextVar
+ from dataclasses import dataclass
+ from pathlib import Path, PurePosixPath
+ from typing import Any
++from urllib.parse import urlsplit
+ 
+ from fastapi import HTTPException
+ 
+ from . import vault_layout as layout
+ 
+-POLICY_VERSION = "B3-1-v1"
++POLICY_VERSION = "B3-2-v1"
+ CURRENT_READ_POLICY: ContextVar[Any] = ContextVar("role_read_policy", default=None)
+ 
+ 
+@@ -50,6 +51,39 @@ ROLE_ROOTS = {
+     "love_master": (layout.LOVE_ROOT,),
+     "life_assistant": (layout.PILLAR_DIRS["ops"],),
+ }
++WRITE_ROOTS = {**ROLE_ROOTS, "mentor": (layout.PILLAR_DIRS["self"],)}
++ROLE_ACTIONS = {
++    "mentor": frozenset(),
++    "journal_companion": frozenset({"new_note", "archive_note"}),
++    "academic_mentor": frozenset({"new_note", "archive_note"}),
++    "life_assistant": frozenset({"new_task", "new_habit", "new_note"}),
++    "love_master": frozenset({"new_task", "new_note"}),
++    "health_doctor": frozenset({"health_report"}),
++    "finance_advisor": frozenset({"finance_report"}),
++}
++ACTION_FIELDS = {
++    "new_task": {"title", "list_name", "date", "priority", "tags"},
++    "new_habit": {"title", "cue", "minimum_action", "frequency", "target_days", "icon", "group", "reminder"},
++    "new_note": {"title", "body", "chapter", "tags", "source", "generated_by"},
++    "archive_note": {"path", "target_chapter", "expected_revision"},
++    "health_report": {"title", "body", "markdown", "chapter"},
++    "finance_report": {"title", "body", "markdown", "chapter"},
++}
++
++
++def merged_action_payload(kind: str, payload: dict, edits: dict | None = None) -> dict:
++    """Normalize aliases on each side before edits override the stored payload."""
++    aliases = {"list": "list_name", "due_date": "date"} if kind == "new_task" else (
++        {"chapter": "target_chapter"} if kind == "archive_note" else {})
++    def normalize(value):
++        result = dict(value or {})
++        for alias, canonical in aliases.items():
++            if alias in result:
++                if canonical in result and result[alias] != result[canonical]:
++                    raise RoleScopeError("动作参数的兼容字段互相冲突，请核对后重试")
++                result[canonical] = result.pop(alias)
++        return result
++    return {**normalize(payload), **normalize(edits)}
+ SOURCE_ROOTS = {
+     "identity": (layout.SELF_ARCHIVE_ROOT,),
+     "journal": (layout.chapter_dir("journal"),),
+@@ -97,7 +131,7 @@ class RolePolicy:
+ 
+     def fingerprint(self, mode: str) -> str:
+         data = [POLICY_VERSION, str(self.vault).casefold(), self.role_id, mode,
+-                ROLE_ROOTS[self.role_id], SOURCE_ROOTS]
++                ROLE_ROOTS[self.role_id], SOURCE_ROOTS, WRITE_ROOTS[self.role_id], sorted(ROLE_ACTIONS[self.role_id])]
+         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+ 
+     def check_path(self, relative: str, *, habit_summary: bool = False,
+@@ -129,6 +163,85 @@ class RolePolicy:
+         # Windows resolution can open a file while a cooperating writer replaces it.
+         return target
+ 
++    def check_write_path(self, relative: str) -> Path:
++        raw = str(relative).replace("\\", "/")
++        if not any(_under(raw, root) for root in WRITE_ROOTS[self.role_id]):
++            raise RoleScopeError("写入目标不属于当前角色；全局读取不代表全局写入")
++        return self.check_path(raw)
++
++    def check_write_chapter(self, chapter: str) -> str:
++        directory = layout.chapter_dir(str(chapter or ""))
++        if not directory:
++            raise RoleScopeError("写入章节不存在")
++        self.check_write_path(directory)
++        return directory
++
++    def reference(self, value: str, *, bindings: list[dict] | None = None,
++                  thread_id: str = "") -> str:
++        raw = str(value or "").strip()
++        if not raw:
++            return thread_id
++        if raw == thread_id:
++            return raw
++        for source in bindings or []:
++            if raw.strip("[]") == source.get("id"):
++                path = str(source.get("path") or "")
++                raw = path if path.lower().endswith(".md") else "context:" + str(source.get("kind") or "")
++                break
++        if raw.startswith("context:"):
++            source = raw.removeprefix("context:")
++            roots = SOURCE_ROOTS.get(source)
++            if not roots:
++                raise RoleScopeError("引用来源未登记")
++            for root in roots:
++                self.check_path(root, habit_summary=source in {"tasks", "ops_summary", "life_report"})
++            return raw
++        # External references are metadata only: this method never fetches URLs.
++        try:
++            parsed = urlsplit(raw)
++        except ValueError as exc:
++            raise RoleScopeError("引用地址格式无效") from exc
++        if parsed.scheme in {"https", "http"} and parsed.netloc and not parsed.username and not parsed.password:
++            return raw
++        self.check_path(raw, note=True)
++        return raw.replace("\\", "/")
++
++    def validate_action(self, kind: str, payload: dict, *, sources: list[str] | None = None,
++                        thread_id: str = "") -> None:
++        if kind not in ROLE_ACTIONS[self.role_id]:
++            raise RoleScopeError("当前角色不能执行这个动作")
++        if set(payload) - ACTION_FIELDS[kind]:
++            raise RoleScopeError("动作包含未开放的参数；不能传入任意路径或执行身份")
++        for source in sources or []:
++            self.reference(source, thread_id=thread_id)
++        if kind == "new_task":
++            # Delegation grants one typed creation, not read/write access to the task tree.
++            from .task_notes import clean_list_name
++            name = str(payload.get("list_name") or "")
++            if name:
++                name = clean_list_name(name)
++            executor = RolePolicy.for_role("life_assistant", self.vault)
++            executor.check_write_path(layout.TASK_ROOT + "/" + name if name else layout.TASK_INBOX_DIR)
++        elif kind == "new_habit":
++            # Only life_assistant has this capability; the habit service owns the path.
++            from . import habit_markdown
++            executor = RolePolicy.for_role("journal_companion", self.vault)
++            for child in (habit_markdown.NOTES_DIR, habit_markdown.LOGS_DIR, habit_markdown.INDEX_NAME):
++                executor.check_write_path(HABITS + "/" + child)
++        else:
++            chapter = payload.get("target_chapter") if kind == "archive_note" else payload.get("chapter")
++            if kind in {"health_report", "finance_report"}:
++                chapter = chapter or kind
++            self.check_write_chapter(str(chapter or ""))
++            if kind == "archive_note":
++                path = str(payload.get("path") or "")
++                self.check_path(path, note=True)
++                self.check_write_path(path)
++            if payload.get("source"):
++                source = str(payload["source"])
++                if "/" in source or "\\" in source or ":" in source or source.lower().endswith(".md"):
++                    self.reference(source, thread_id=thread_id)
++
+     def check_source(self, source: str, *, love_settings: Any = None) -> None:
+         roots = SOURCE_ROOTS.get(source)
+         if roots is None:
+diff --git a/backend/app/self_bazi.py b/backend/app/self_bazi.py
+index 18b40b5..9ebb9a4 100644
+--- a/backend/app/self_bazi.py
++++ b/backend/app/self_bazi.py
+@@ -468,6 +468,8 @@ def generate_reading(role_service: Any, vault_dir: Path | str, *, topic: str = "
+         data["favor"] = chart.get("favor") or []
+     if not data.get("avoid"):
+         data["avoid"] = chart.get("avoid") or []
++    from .role_policy import RolePolicy
++    RolePolicy.for_role("mentor", vault).check_write_path(vault_layout.SELF_BAZI_READINGS_DIR)
+     item = write_reading(
+         vault, topic=topic, result=data, chart=chart,
+         sources=result.get("sources") or [], read_only=read_only)
+diff --git a/frontend/health.js b/frontend/health.js
+index 2f2dfc3..16a18a1 100644
+--- a/frontend/health.js
++++ b/frontend/health.js
+@@ -1234,8 +1234,8 @@ async function sendDoctorMessage(text) {
+       }),
+     });
+     HEALTH.doctorChat.threadId = payload.thread_id || HEALTH.doctorChat.threadId;
+-    HEALTH.doctorChat.contextNotice = payload.context_reset
+-      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "";
++    HEALTH.doctorChat.contextNotice = [payload.context_reset
++      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "", ...(payload.action_errors || [])].filter(Boolean).join(" ");
+     const reply = String(payload.reply || "");
+     HEALTH.doctorChat.messages.push({
+       role: "assistant", content: reply,
+diff --git a/frontend/mentor.js b/frontend/mentor.js
+index 8bdc07c..a635a63 100644
+--- a/frontend/mentor.js
++++ b/frontend/mentor.js
+@@ -256,7 +256,8 @@ async function sendMessage(text) {
+       state.activeTab = "pending";
+     }
+     setBusy(false, [payload.context_reset ? "历史对话保留，从这一轮起按新的资料范围继续。" : "",
+-      payload.truncated ? "部分资料因篇幅被截断。" : ""].filter(Boolean).join(" "));
++      payload.truncated ? "部分资料因篇幅被截断。" : "",
++      ...(payload.action_errors || [])].filter(Boolean).join(" "));
+     try { await loadOverview({ autoOpen: false }); } catch { /* keep current page */ }
+     renderAll();
+     if (payload.memory_errors?.length) {
+diff --git a/frontend/roles.js b/frontend/roles.js
+index 1a6986e..4a95af7 100644
+--- a/frontend/roles.js
++++ b/frontend/roles.js
+@@ -495,7 +495,8 @@ async function sendRoleMessage(text) {
+       proposals: payload.proposals || [],
+     });
+     setBusy(false, [payload.context_reset ? "历史对话保留，从这一轮起按新的资料范围继续。" : "",
+-      payload.truncated ? "部分资料因篇幅被截断。" : ""].filter(Boolean).join(" "));
++      payload.truncated ? "部分资料因篇幅被截断。" : "",
++      ...(payload.action_errors || [])].filter(Boolean).join(" "));
+     if (payload.hub_events) {
+       // 忆灵事件只计数；具体卡片在自我档案里审阅（P3）。
+       el("role-drawer-hint").textContent = `已告诉忆灵 ${payload.hub_events} 条观察；AI 只提议，采纳后才写入。`;
+diff --git a/scripts/check_all.ps1 b/scripts/check_all.ps1
+index 2f3a4b9..0757471 100644
+--- a/scripts/check_all.ps1
++++ b/scripts/check_all.ps1
+@@ -44,6 +44,7 @@ try {
+   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
+   Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }
+   Invoke-Step '角色资料与会话边界回归' { & $python (Join-Path $projectRoot 'scripts\test_role_boundaries.py') }
++  Invoke-Step '角色写入与受控动作回归' { & $python (Join-Path $projectRoot 'scripts\test_role_actions.py') }
+   Invoke-Step '前端目录映射与迁移回归' { & $python (Join-Path $projectRoot 'scripts\test_vault_alignment.py') }
+ 
+   Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts }
+diff --git a/scripts/test_ui_polish.mjs b/scripts/test_ui_polish.mjs
+index 939b3a9..576a2c2 100644
+--- a/scripts/test_ui_polish.mjs
++++ b/scripts/test_ui_polish.mjs
+@@ -187,6 +187,18 @@ test("角色权限切换提示保留历史，并在后续轮次恢复正常状
+   assert.equal(ctx.snapshot().messages.length, 4);
+ });
+ 
++test("越域建议被拒绝时保留正常回复并显示原因", async () => {
++  const {ctx, requests, input, env} = await roleHarness();
++  await ctx.openRoleDrawer({roleId:"a"});
++  input.value = "讨论笔记";
++  const sending = ctx.sendRoleMessage(input.value);
++  requests[0].resolve({thread_id:"same", reply:"正常分析", proposals:[], action_errors:["建议未生成：写入目标不属于当前角色"]});
++  await sending;
++  assert.match(env.document.getElementById("role-drawer-status").textContent, /写入目标不属于当前角色/);
++  assert.equal(ctx.snapshot().messages.at(-1).content, "正常分析");
++  assert.equal(ctx.snapshot().busy, false);
++});
++
+ test("角色旧回复不能污染重开的角色或解除新请求忙碌状态", async () => {
+   const {ctx, requests, input} = await roleHarness();
+   await ctx.openRoleDrawer({roleId:"a"});
+diff --git a/backend/app/proposal_actions.py b/backend/app/proposal_actions.py
+new file mode 100644
+--- /dev/null
++++ b/backend/app/proposal_actions.py
+@@ -0,0 +1,60 @@
++"""Typed backend executors for role proposals; paths are owned by each module."""
++from __future__ import annotations
++
++from . import note_editor
++from .habits import HabitCreate, HabitService
++from .role_policy import RolePolicy
++from .tasks import TaskCreate, create_task
++
++
++def register_proposal_handlers(service, database, vault_dir, *, read_only=False):
++    def checked(proposal):
++        payload = dict(proposal["payload"])
++        RolePolicy.for_role(proposal["role_id"], vault_dir).validate_action(
++            proposal["kind"], payload, sources=proposal.get("sources"),
++            thread_id=proposal.get("thread_id", ""))
++        return payload
++
++    def new_task(proposal, _edits):
++        payload = checked(proposal)
++        result = create_task(vault_dir, TaskCreate(
++            title=str(payload.get("title") or proposal["title"]).strip(),
++            list_name=str(payload.get("list_name") or ""),
++            date=str(payload.get("date") or ""),
++            priority=str(payload.get("priority") or "none"),
++            tags=payload.get("tags") or [],
++        ), database, read_only=read_only)
++        return {"task": result.get("task"), "revision": result.get("revision")}
++
++    def new_habit(proposal, _edits):
++        payload = checked(proposal)
++        result = HabitService(database, vault_dir=vault_dir, read_only=read_only).create(HabitCreate(
++            title=str(payload.get("title") or proposal["title"]).strip(),
++            cue=str(payload.get("cue") or ""),
++            minimum_action=str(payload.get("minimum_action") or ""),
++            **({"frequency": payload["frequency"]} if payload.get("frequency") is not None else {}),
++            target_days=payload.get("target_days"),
++            icon=str(payload.get("icon") or "🌱"), group=str(payload.get("group") or "默认"),
++            reminder=str(payload.get("reminder") or ""),
++        ))
++        return {"habit": result}
++
++    def new_note(proposal, _edits):
++        payload = checked(proposal)
++        note = note_editor.create_note(database, vault_dir,
++            chapter=payload["chapter"], title=str(payload.get("title") or proposal["title"]),
++            body=str(payload.get("body") or ""), tags=payload.get("tags") or [],
++            source=str(payload.get("source") or ""), generated_by=proposal["role_id"],
++            read_only=read_only)
++        return {"note": note}
++
++    def archive_note(proposal, _edits):
++        payload = checked(proposal)
++        note = note_editor.move_note(database, vault_dir, path=payload["path"],
++            target_chapter=payload["target_chapter"],
++            expected_revision=str(payload.get("expected_revision") or ""), read_only=read_only)
++        return {"note": note}
++
++    for kind, handler in {"new_task": new_task, "new_habit": new_habit,
++                          "new_note": new_note, "archive_note": archive_note}.items():
++        service.register(kind, handler)
+diff --git a/scripts/test_role_actions.py b/scripts/test_role_actions.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/test_role_actions.py
+@@ -0,0 +1,261 @@
++"""B3-2 regression: actual executors against temporary data, no model/network."""
++from __future__ import annotations
++
++import json
++import sys
++import tempfile
++import threading
++import unittest
++from concurrent.futures import ThreadPoolExecutor
++from pathlib import Path
++from unittest.mock import Mock, patch
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from backend.app import life_reports, note_editor, vault_layout
++from backend.app.ai_gateway import HeadlessResult
++from backend.app.ai_roles import RoleRegistry, RoleService
++from backend.app.ai_schemas import Reply
++from backend.app.db import Database
++from backend.app.love_layout import love_paths
++from backend.app.proposal_actions import register_proposal_handlers
++from backend.app.proposals import ProposalError, ProposalService, create_proposals_router
++from backend.app.role_policy import RolePolicy, RoleScopeError, HEALTH, HABITS
++
++REPO = Path(__file__).resolve().parents[1]
++
++
++class RoleActionTests(unittest.TestCase):
++    def setUp(self):
++        temp = tempfile.TemporaryDirectory(prefix="torch-role-action-test-")
++        self.addCleanup(temp.cleanup)
++        self.vault = Path(temp.name) / "vault"
++        self.vault.mkdir()
++        self.db = Database(Path(temp.name) / "state.sqlite")
++        self.db.initialize()
++        self.proposals = ProposalService(self.db, vault_dir=self.vault)
++        register_proposal_handlers(self.proposals, self.db, self.vault)
++        self.registry = RoleRegistry(REPO / "dsh/roles")
++        self.service = RoleService(self.registry, database=self.db, vault_dir=self.vault,
++                                   proposals=self.proposals, love_settings=love_paths(self.vault))
++        self.service._execute = Mock(return_value=HeadlessResult("回答", "s", .01, 0, ""))
++
++    def proposal(self, role="academic_mentor", kind="new_note", payload=None, **kwargs):
++        return self.proposals.create(role_id=role, kind=kind, title="测试建议",
++                                     payload=payload if payload is not None else {"chapter": "topic", "body": "记录"}, **kwargs)
++
++    def test_mentor_global_read_does_not_grant_global_write(self):
++        policy = RolePolicy.for_role("mentor", self.vault)
++        policy.check_path("03_知识库/01_主题笔记/内容.md", note=True)
++        policy.check_write_path(vault_layout.SELF_MENTOR_MEMORY_DIR)
++        with self.assertRaises(RoleScopeError):
++            policy.check_write_path("03_知识库/01_主题笔记/内容.md")
++
++    def test_create_cross_domain_proposal_is_rejected_without_row_or_file(self):
++        with self.assertRaises(ProposalError) as error:
++            self.proposal(payload={"chapter": "reflection", "body": "bad"})
++        self.assertEqual(error.exception.status_code, 403)
++        self.assertEqual(self.proposals.list(), [])
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++
++    def test_final_edits_revalidated_and_proposal_remains_pending(self):
++        proposal = self.proposal()
++        with self.assertRaises(ProposalError) as error:
++            self.proposals.apply(proposal["id"], confirm=True, edits={"chapter": "reflection"})
++        self.assertEqual(error.exception.status_code, 403)
++        self.assertEqual(self.proposals.get(proposal["id"])["status"], "pending")
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++        saved = self.proposals.apply(proposal["id"], confirm=True, edits={"title": "正确修改"})
++        self.assertEqual(saved["status"], "applied")
++        self.assertTrue((self.vault / saved["result"]["note"]["path"]).exists())
++
++    def test_unknown_or_retired_origin_cannot_apply_old_proposal(self):
++        for role in ("yiling", "", "made_up"):
++            with self.subTest(role=role):
++                proposal = self.proposal(payload={"chapter": "topic", "body": role})
++                with self.db.connect() as con:
++                    con.execute("UPDATE ai_proposals SET role_id=? WHERE id=?", (role, proposal["id"]))
++                with self.assertRaises(ProposalError):
++                    self.proposals.apply(proposal["id"], confirm=True)
++                self.assertEqual(self.proposals.get(proposal["id"])["status"], "pending")
++
++    def test_old_pending_target_is_revalidated(self):
++        proposal = self.proposal()
++        with self.db.connect() as con:
++            con.execute("UPDATE ai_proposals SET payload_json=? WHERE id=?",
++                        (json.dumps({"chapter": "reflection", "body": "old"}), proposal["id"]))
++        with self.assertRaises(ProposalError):
++            self.proposals.apply(proposal["id"], confirm=True)
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++
++    def test_move_checks_source_and_edited_destination_before_read_or_write(self):
++        source = note_editor.create_note(self.db, self.vault, chapter="topic", title="原文", body="keep")
++        proposal = self.proposal(kind="archive_note", payload={"path": source["path"], "target_chapter": "reading"})
++        for edits in ({"path": "00_人生路/06_随笔/他人.md"}, {"chapter": "reflection"}):
++            with self.subTest(edits=edits), patch.object(note_editor, "move_note") as writer:
++                with self.assertRaises(ProposalError):
++                    self.proposals.apply(proposal["id"], confirm=True, edits=edits)
++                writer.assert_not_called()
++        result = self.proposals.apply(proposal["id"], confirm=True)
++        self.assertFalse((self.vault / source["path"]).exists())
++        self.assertTrue((self.vault / result["result"]["note"]["path"]).exists())
++
++    def test_love_creates_task_through_typed_executor_without_task_read_scope(self):
++        proposal = self.proposal("love_master", "new_task", {"title": "准备约会", "list": "约会", "due_date": "2026-11-05"})
++        result = self.proposals.apply(proposal["id"], confirm=True, edits={"list_name": "", "date": "2026-11-06"})
++        task = result["result"]["task"]
++        self.assertTrue(task["path"].startswith(vault_layout.TASK_ROOT + "/"))
++        self.assertEqual(task["list_name"], "收集箱")
++        self.assertEqual(task["date"], "2026-11-06")
++        with self.assertRaises(RoleScopeError):
++            RolePolicy.for_role("love_master", self.vault).check_path(task["path"], note=True)
++
++    def test_life_creates_habit_without_opening_life_notes(self):
++        proposal = self.proposal("life_assistant", "new_habit", {"title": "散步", "minimum_action": "走五分钟"})
++        result = self.proposals.apply(proposal["id"], confirm=True)
++        self.assertEqual(result["status"], "applied")
++        self.assertTrue(list((self.vault / HABITS).rglob("*.md")))
++        with self.assertRaises(RoleScopeError):
++            RolePolicy.for_role("life_assistant", self.vault).check_path("00_人生路/06_随笔/记录.md", note=True)
++
++    def test_task_and_habit_cannot_receive_paths_or_actor_overrides(self):
++        for kind in ("new_task", "new_habit"):
++            proposal = self.proposal("life_assistant", kind, {"title": kind})
++            for field in ("path", "target_chapter", "role_id", "vault_dir", "generated_by"):
++                with self.subTest(kind=kind, field=field), self.assertRaises(ProposalError):
++                    self.proposals.apply(proposal["id"], confirm=True, edits={field: "other"})
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++
++    def test_task_list_traversal_is_rejected(self):
++        with self.assertRaises(ProposalError):
++            self.proposal("love_master", "new_task", {"title": "bad", "list_name": "../../逃逸"})
++
++    def test_replaced_destination_link_is_rejected_before_executor(self):
++        proposal = self.proposal()
++        target = self.vault / vault_layout.chapter_dir("topic")
++        target.mkdir(parents=True)
++        original = Path.lstat
++        def linked(path, *args, **kwargs):
++            value = original(path, *args, **kwargs)
++            if path == target:
++                return type("Link", (), {"st_mode": value.st_mode, "st_file_attributes": 0x400})()
++            return value
++        with patch.object(Path, "lstat", linked), patch.object(note_editor, "create_note") as writer:
++            with self.assertRaises(ProposalError):
++                self.proposals.apply(proposal["id"], confirm=True)
++            writer.assert_not_called()
++        self.assertEqual(self.proposals.get(proposal["id"])["status"], "pending")
++
++    def test_unimplemented_report_actions_stay_disabled(self):
++        proposal = self.proposal("health_doctor", "health_report", {"body": "report"})
++        with self.assertRaises(ProposalError) as error:
++            self.proposals.apply(proposal["id"], confirm=True)
++        self.assertEqual(error.exception.status_code, 409)
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++
++    def test_domain_roles_cannot_borrow_other_action_kinds(self):
++        for role, kind in [("academic_mentor", "new_task"), ("love_master", "new_habit"), ("health_doctor", "new_note")]:
++            with self.subTest(role=role), self.assertRaises(ProposalError):
++                self.proposal(role, kind, {"title": "no", "chapter": "topic"})
++
++    def test_generated_by_is_the_real_role(self):
++        proposal = self.proposal(payload={"chapter": "topic", "body": "note", "generated_by": "mentor"})
++        result = self.proposals.apply(proposal["id"], confirm=True)
++        self.assertEqual(result["result"]["note"]["raw_metadata"]["generated_by"], "academic_mentor")
++
++    def test_read_only_executor_writes_no_notes(self):
++        register_proposal_handlers(self.proposals, self.db, self.vault, read_only=True)
++        proposal = self.proposal()
++        with self.assertRaises(ProposalError):
++            self.proposals.apply(proposal["id"], confirm=True)
++        self.assertEqual(list(self.vault.rglob("*.md")), [])
++
++    def test_double_apply_claims_executor_once(self):
++        proposal = self.proposal()
++        started, release = threading.Event(), threading.Event()
++        def writer(*args):
++            started.set()
++            self.assertTrue(release.wait(5))
++            return {"done": True}
++        handler = Mock(side_effect=writer)
++        self.proposals.register("new_note", handler)
++        with ThreadPoolExecutor(2) as pool:
++            first = pool.submit(self.proposals.apply, proposal["id"], confirm=True)
++            self.assertTrue(started.wait(5))
++            try:
++                with self.assertRaises(ProposalError):
++                    self.proposals.apply(proposal["id"], confirm=True)
++                with self.assertRaises(ProposalError):
++                    self.proposals.reject(proposal["id"])
++            finally:
++                release.set()
++            self.assertEqual(first.result()["status"], "applied")
++        handler.assert_called_once()
++        self.proposals.apply(proposal["id"], confirm=True)
++        handler.assert_called_once()
++
++    def test_proposal_sources_resolve_then_revalidate(self):
++        reply = Reply.model_validate({"proposals": [{"kind": "new_note", "title": "建议", "payload": {"chapter": "topic", "body": "text"}, "sources": ["S1"]}]})
++        role = self.registry.get("academic_mentor")
++        source = "03_知识库/01_主题笔记/来源.md"
++        items = self.service._create_proposals(reply, role, "discuss", "", sources=[{"id": "S1", "path": source}])
++        self.assertEqual(items[0]["sources"], [source])
++        with self.db.connect() as con:
++            con.execute("UPDATE ai_proposals SET sources_json=? WHERE id=?", (json.dumps([HEALTH + "/私密.md"]), items[0]["id"]))
++        with self.assertRaises(ProposalError):
++            self.proposals.apply(items[0]["id"], confirm=True)
++
++    def test_event_is_one_way_and_rejects_foreign_sources(self):
++        thread = self.service._create_thread("health_doctor", "advice", "")
++        reply = Reply.model_validate({"hub_events": [
++            {"summary": "健康观察", "source_ref": "S1"},
++            {"summary": "越域观察", "source_ref": vault_layout.SELF_IDENTITY_RELATIVE},
++            {"summary": "伪造会话", "source_ref": "thread_someone_else"},
++            {"summary": "错误地址", "source_ref": "https://[invalid"}]})
++        errors = []
++        count = self.service._ingest_events(reply, self.registry.get("health_doctor"), thread["id"],
++            sources=[{"id": "S1", "kind": "health", "path": ""}], errors=errors)
++        self.assertEqual(count, 1)
++        self.assertEqual(len(errors), 3)
++        with self.db.connect() as con:
++            row = con.execute("SELECT source_kind,source_ref FROM memory_hub_events").fetchone()
++        self.assertEqual(tuple(row), ("health_doctor", "context:health"))
++        self.assertFalse((self.vault / vault_layout.SELF_ARCHIVE_ROOT).exists())
++
++    def test_read_only_role_does_not_post_events(self):
++        self.service.read_only = True
++        errors = []
++        reply = Reply.model_validate({"hub_events": [{"summary": "observation"}]})
++        self.assertEqual(self.service._ingest_events(reply, self.registry.get("health_doctor"), "", errors=errors), 0)
++        self.assertTrue(errors)
++        with self.db.connect() as con:
++            self.assertEqual(con.execute("SELECT COUNT(*) FROM memory_hub_events").fetchone()[0], 0)
++
++    def test_cross_domain_model_output_returns_explicit_errors_and_keeps_reply(self):
++        self.service._execute.return_value = HeadlessResult(json.dumps({"reply": "正常回答", "proposals": [{"kind": "new_note", "title": "越域", "payload": {"chapter": "reflection"}}]}), "", .01, 0, "")
++        result = self.service.chat("academic_mentor", "discuss", "问题")
++        self.assertEqual(result["reply"], "正常回答")
++        self.assertEqual(result["proposals"], [])
++        self.assertEqual(len(result["action_errors"]), 1)
++
++    def test_love_legacy_report_targets_love_and_stays_in_overview(self):
++        self.service._execute.return_value = HeadlessResult('{"note":{"chapter":"life_advice","markdown":"恋爱报告"}}', "", .01, 0, "")
++        result = life_reports.generate_report(self.db, self.vault, self.service, self.proposals, "love", love_settings=self.service.love_settings)
++        path = result["note"]["path"]
++        self.assertTrue(path.startswith(vault_layout.LOVE_DRAFT_DIR + "/"))
++        self.assertIn(path, [item["path"] for item in life_reports._report_notes(self.vault)])
++
++    def test_http_denial_has_stable_code_and_keeps_pending(self):
++        proposal = self.proposal()
++        app = FastAPI()
++        app.include_router(create_proposals_router(self.proposals))
++        with TestClient(app) as client:
++            response = client.post(f"/api/proposals/{proposal['id']}/apply", json={"confirm": True, "edits": {"chapter": "reflection"}})
++        self.assertEqual(response.status_code, 403)
++        self.assertIn("role_scope_denied", response.json()["detail"])
++        self.assertEqual(self.proposals.get(proposal["id"])["status"], "pending")
++
++
++if __name__ == "__main__":
++    unittest.main(verbosity=2)

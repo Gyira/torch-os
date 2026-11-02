@@ -919,13 +919,15 @@ class RoleService:
     # ----- proposals / events --------------------------------------------
 
     def _create_proposals(self, reply, role: RoleDefinition, mode: str,
-                          thread_id: str) -> list[dict[str, Any]]:
+                          thread_id: str, *, sources=None, errors=None) -> list[dict[str, Any]]:
         if self.proposals is None:
             return []
         verdict = reply.identity_verdict
         created: list[dict[str, Any]] = []
         for draft in list(reply.proposals or [])[:5]:
             if draft.kind not in role.proposals:
+                if errors is not None:
+                    errors.append("建议未生成：当前角色没有这个动作能力。")
                 continue
             # review_card/hub_event 走忆灵卡片/事件表，不是用户可采纳的动作提案。
             if draft.kind in {"review_card", "hub_event"}:
@@ -958,26 +960,35 @@ class RoleService:
                     except Exception:
                         base_revision = ""
             try:
+                policy = RolePolicy.for_role(role.id, self.vault_dir)
+                references = [policy.reference(value, bindings=sources, thread_id=thread_id)
+                              for value in draft.sources]
                 proposal = self.proposals.create(
                     kind=draft.kind,
                     title=draft.title or draft.summary[:60] or "AI 建议",
                     summary=draft.summary,
                     reason=draft.reason,
                     payload=draft.payload or {},
-                    sources=draft.sources,
+                    sources=references,
                     role_id=role.id,
                     thread_id=thread_id,
                     base_revision=base_revision,
                     verdict=verdict_payload,
                     verdict_token=token,
                 )
-            except ProposalError:
+            except (ProposalError, HTTPException) as exc:
+                if errors is not None:
+                    errors.append(f"建议未生成：{getattr(exc, 'detail', None) or str(exc)}")
                 continue
             created.append(proposal)
         return created
 
-    def _ingest_events(self, reply, role: RoleDefinition, thread_id: str) -> int:
+    def _ingest_events(self, reply, role: RoleDefinition, thread_id: str, *, sources=None, errors=None) -> int:
         if self.database is None or not reply.hub_events:
+            return 0
+        if self.read_only:
+            if errors is not None:
+                errors.append("观察未投递：当前数据库为只读模式。")
             return 0
         count = 0
         day = utc_now()[:10]
@@ -986,8 +997,15 @@ class RoleService:
                 summary = str(event.summary or "").strip()
                 if not summary:
                     continue
+                try:
+                    source_ref = RolePolicy.for_role(role.id, self.vault_dir).reference(
+                        event.source_ref, bindings=sources, thread_id=thread_id)
+                except HTTPException as exc:
+                    if errors is not None:
+                        errors.append(f"观察未投递：{exc.detail}")
+                    continue
                 key = hashlib.sha256(
-                    f"{event.kind}|{summary}|{event.source_ref}|{day}".encode("utf-8")
+                    f"{role.id}|{event.kind}|{summary}|{source_ref}|{day}".encode("utf-8")
                 ).hexdigest()[:40]
                 cursor = connection.execute(
                     """INSERT OR IGNORE INTO memory_hub_events
@@ -995,7 +1013,7 @@ class RoleService:
                         occurred_at, created_at, status, dedupe_key)
                        VALUES (?,?,?,?,?,?,?,?,?)""",
                     (str(event.kind or "observation")[:40], summary[:1000], "{}",
-                     str(event.source_ref or thread_id)[:500], role.id,
+                     source_ref[:500], role.id,
                      utc_now(), utc_now(), "new", key),
                 )
                 count += max(0, cursor.rowcount or 0)
@@ -1126,8 +1144,9 @@ class RoleService:
                                runner=runner)
         self._assert_policy(thread["id"], policy, mode, claim)
         reply, structured = parse_reply(result.text)
-        proposals = self._create_proposals(reply, role, mode, thread["id"])
-        events = self._ingest_events(reply, role, thread["id"])
+        action_errors: list[str] = []
+        proposals = self._create_proposals(reply, role, mode, thread["id"], sources=context.sources, errors=action_errors)
+        events = self._ingest_events(reply, role, thread["id"], sources=context.sources, errors=action_errors)
         pending = self._archive_pending(reply, role, thread["id"])
         memory_errors: list[str] = []
         memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors)
@@ -1178,6 +1197,7 @@ class RoleService:
             "pending": pending,
             "memory_notes": memory_notes,
             "memory_errors": memory_errors,
+            "action_errors": action_errors,
             "question_candidates": question_candidates,
         }
 

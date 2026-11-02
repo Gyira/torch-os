@@ -357,6 +357,9 @@ def create_bazi_router(paths: LovePaths, *, role_service: Any = None,
             raise HTTPException(409, str(error)) from error
         if role_service is None:
             raise HTTPException(503, "AI 不可用：dsh 角色服务没有启用")
+        from .role_policy import RolePolicy
+        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
+            paths.bazi_db.relative_to(paths.root.parent.parent).as_posix())
         chart_data, notes = _chart_payload(payload.him, payload.her)
         title = payload.title.strip() or f"{chart_data['him']['name']} × {chart_data['her']['name']} · 八字合婚"
         now = _now()
@@ -396,6 +399,8 @@ def create_bazi_router(paths: LovePaths, *, role_service: Any = None,
                     (str(error)[:1000], _now(), report_id))
                 con.commit()
             raise HTTPException(502, f"AI 合婚分析失败：{error}") from error
+        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
+            paths.bazi_db.relative_to(paths.root.parent.parent).as_posix())
         normalized = _normalize_ai(result.get("structured") or {}, chart_data)
         if not normalized["hehun"].get("summary"):
             normalized["hehun"]["summary"] = _text(result.get("text"), 1200)

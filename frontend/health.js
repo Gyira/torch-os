@@ -1234,8 +1234,8 @@ async function sendDoctorMessage(text) {
       }),
     });
     HEALTH.doctorChat.threadId = payload.thread_id || HEALTH.doctorChat.threadId;
-    HEALTH.doctorChat.contextNotice = payload.context_reset
-      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "";
+    HEALTH.doctorChat.contextNotice = [payload.context_reset
+      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "", ...(payload.action_errors || [])].filter(Boolean).join(" ");
     const reply = String(payload.reply || "");
     HEALTH.doctorChat.messages.push({
       role: "assistant", content: reply,

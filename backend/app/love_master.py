@@ -28,6 +28,7 @@ from . import (love_cycle, love_memory, love_schedule, note_editor, notebooks,
 from .db import Database
 from .love_layout import LovePaths
 from .love_privacy import desensitize
+from .role_policy import RolePolicy
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 DAY = ZoneInfo("Asia/Shanghai")
@@ -624,6 +625,7 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
             body = str(structured.get("body") or result.get("text") or "").strip()
             if not body:
                 raise RuntimeError("AI 没有返回正文")
+            RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_chapter(vault_layout.LOVE_DRAFT_CHAPTER)
             note = note_editor.create_note(
                 database, str(paths.root.parent.parent),
                 chapter=vault_layout.LOVE_DRAFT_CHAPTER,
@@ -788,6 +790,7 @@ def _ensure_master_notebook(paths: LovePaths, database: Database, name: str,
                             *, read_only: bool = False) -> str:
     vault = paths.root.parent.parent
     target = Path(vault) / vault_layout.custom_notebook_path(name, vault_layout.LOVE_PILLAR)
+    RolePolicy.for_role("love_master", vault).check_write_path(target.relative_to(vault).as_posix())
     if not target.is_dir():
         notebooks.create_notebook(database, str(vault), name,
                                   pillar=vault_layout.LOVE_PILLAR, read_only=read_only,
@@ -857,6 +860,8 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
                  target_name: str, run_id: int, skill: str,
                  params: dict[str, Any], read_only: bool) -> None:
     try:
+        RolePolicy.for_role("love_master", paths.root.parent.parent).check_write_path(
+            paths.master_db.relative_to(paths.root.parent.parent).as_posix())
         with _connect(paths.master_db) as con:
             con.execute("UPDATE runs SET status='running', progress='正在整理数据' WHERE id=?",
                         (run_id,))

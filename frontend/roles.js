@@ -495,7 +495,8 @@ async function sendRoleMessage(text) {
       proposals: payload.proposals || [],
     });
     setBusy(false, [payload.context_reset ? "历史对话保留，从这一轮起按新的资料范围继续。" : "",
-      payload.truncated ? "部分资料因篇幅被截断。" : ""].filter(Boolean).join(" "));
+      payload.truncated ? "部分资料因篇幅被截断。" : "",
+      ...(payload.action_errors || [])].filter(Boolean).join(" "));
     if (payload.hub_events) {
       // 忆灵事件只计数；具体卡片在自我档案里审阅（P3）。
       el("role-drawer-hint").textContent = `已告诉忆灵 ${payload.hub_events} 条观察；AI 只提议，采纳后才写入。`;
