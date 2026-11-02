@@ -42,6 +42,7 @@ try {
   if ($syntaxBad) { $failures.Add('前端 JS 语法') }
 
   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
+  Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }
 
   Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts }
   Invoke-Step '依赖一致性' { & $python -m pip check }

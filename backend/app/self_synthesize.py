@@ -88,14 +88,14 @@ def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool) -> int:
     if timeline:
         try:
             count += len(mentor_memory.append_timeline(vault, timeline, read_only=read_only))
-        except Exception:
-            pass
+        except Exception as error:
+            raise SynthesizeError(f"记忆时间线保存失败；此前完成的画像或档案步骤仍保留：{error}", 500) from error
     if core_text:
         try:
             mentor_memory.write_core(vault, core_text[:3_000], read_only=read_only)
             count += 1
-        except Exception:
-            pass
+        except Exception as error:
+            raise SynthesizeError(f"核心记忆保存失败；此前完成的画像或档案步骤仍保留：{error}", 500) from error
     return count
 
 
@@ -105,7 +105,7 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
         raise SynthesizeError("AI 不可用：请先在 dsh 里配置模型", 503)
     days = max(7, min(int(range_days or 14), 30))
     vault = Path(vault_dir).resolve()
-    mentor_memory.ensure_memory(vault)
+    mentor_memory.ensure_memory(vault, read_only=read_only)
     try:
         mentor_questions.ensure_bank(vault, read_only=read_only)
     except Exception:

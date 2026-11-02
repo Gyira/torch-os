@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from . import vault_layout
+from .memory_store import update_document
 from .markdown_store import revision as _revision
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -417,15 +418,6 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
         clean = clean[: MAX_PORTRAIT_CHARS - 1].rstrip() + "…"
     vault = Path(vault_dir).resolve()
     path = safe_note_path(vault, vault_layout.SELF_PORTRAIT_RELATIVE)
-    if path.is_file():
-        stamp = datetime.now(SHANGHAI).strftime("%Y%m%d-%H%M%S")
-        backup = safe_note_path(
-            vault, f"{vault_layout.SELF_MENTOR_PORTRAIT_HISTORY}/画像-{stamp}.md")
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            backup.write_bytes(path.read_bytes())
-        except OSError:
-            pass
     try:
         value = max(0.0, min(1.0, float(confidence)))
     except (TypeError, ValueError):
@@ -436,8 +428,13 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
         "sources": _sources(sources),
         "confidence": round(value, 2),
     }
-    _atomic_write(path, _entry_text(metadata, clean))
-    return read_portrait(vault)
+    with update_document(path, SelfArchiveError) as update:
+        backup = update.backup(safe_note_path(vault, vault_layout.SELF_MENTOR_PORTRAIT_HISTORY),
+                               f"画像-{_stamp()}")
+        update.write(_entry_text(metadata, clean))
+        result = read_portrait(vault)
+        result["history_path"] = backup.relative_to(vault).as_posix() if backup else ""
+        return result
 
 
 def context_text(vault_dir: Path | str, *, max_chars: int = 12_000) -> str:

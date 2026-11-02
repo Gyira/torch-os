@@ -1,6 +1,18 @@
 /* v1.0 P1：页面内 AI 角色抽屉 + 提案卡片 + 小组件管理。
    沿用 styles.css 的 --p-* 设计变量；不写内联样式，符合严格 CSP。 */
 
+.role-drawer-modal { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0; padding: 0; border: 0; background: transparent; color: var(--p-ink); overflow: hidden; }
+.role-drawer-modal::backdrop { background: var(--p-shadow); }
+.role-drawer-modal[open] .role-drawer { animation: ui-drawer-in 220ms cubic-bezier(.2,.8,.2,1); }
+body:has(.role-drawer-modal[open]) { overflow: hidden; }
+#role-drawer-send { min-inline-size: 88px; }
+.role-drawer-identity { min-width: 0; }
+.role-drawer-head-actions { flex-shrink: 0; }
+.role-drawer :is(.role-chip, .role-context-clear):active { background: var(--p-fill-strong); }
+@media (pointer: coarse) {
+  .role-drawer button { min-inline-size: 44px; min-block-size: 44px; }
+}
+
 .role-drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -52,7 +64,7 @@
   min-height: 20px;
   margin: 0;
   padding: 6px 20px;
-  color: var(--p-ink-faint);
+  color: var(--p-ink-3);
   font-size: 12px;
 }
 
@@ -184,7 +196,7 @@
 
 .role-drawer-form textarea:focus {
   border-color: var(--p-accent);
-  outline: 2px solid var(--p-accent-soft);
+  outline: 2px solid var(--p-focus-ring);
   outline-offset: 1px;
 }
 

@@ -1476,6 +1476,7 @@ function openCompanion(selection = null) {
     host: "editor",
     selectors,
     getSelectors: selectorsForCompanion,
+    draftContext: state.path || (state.journalDay ? `journal:${state.journalDay}` : ""),
     getDraftText: () => (dirty() ? currentBody() : ""),
     selection: quote,
     prompt: quote ? "帮我看看这段。" : "",

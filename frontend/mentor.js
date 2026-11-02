@@ -258,7 +258,10 @@ async function sendMessage(text) {
     setBusy(false, payload.truncated ? "部分资料因篇幅被截断。" : "");
     try { await loadOverview({ autoOpen: false }); } catch { /* keep current page */ }
     renderAll();
-    if (payload.pending?.length) {
+    if (payload.memory_errors?.length) {
+      setStatus("回复已收到，但长期记忆保存失败；请检查存储后再处理。", "error");
+      toast(`长期记忆保存失败：${payload.memory_errors.join("；")}`, "error");
+    } else if (payload.pending?.length) {
       toast(`导师生成了 ${payload.pending.length} 条档案修改，待你确认。`, "success");
     } else if (payload.memory_notes || payload.question_candidates?.length) {
       toast(`已记下 ${payload.memory_notes || 0} 条长期记忆。`, "info");

@@ -941,7 +941,7 @@ class RoleService:
             return []
         return [card]
 
-    def _ingest_memory_notes(self, reply, role: RoleDefinition) -> int:
+    def _ingest_memory_notes(self, reply, role: RoleDefinition, *, errors: list[str] | None = None) -> int:
         if role.id != "mentor" or self.vault_dir is None or not reply.memory_notes:
             return 0
         entries = [
@@ -953,7 +953,9 @@ class RoleService:
         try:
             added = mentor_memory.append_timeline(
                 self.vault_dir, entries, read_only=self.read_only)
-        except Exception:
+        except Exception as error:
+            if errors is not None:
+                errors.append(str(error))
             return 0
         return len(added)
 
@@ -1021,7 +1023,8 @@ class RoleService:
         proposals = self._create_proposals(reply, role, mode, thread["id"])
         events = self._ingest_events(reply, role, thread["id"])
         pending = self._archive_pending(reply, role, thread["id"])
-        memory_notes = self._ingest_memory_notes(reply, role)
+        memory_errors: list[str] = []
+        memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors)
         question_candidates = self._append_question_candidates(reply, role)
         turn_context: dict[str, Any] = {}
         if selection_text.strip():
@@ -1067,6 +1070,7 @@ class RoleService:
             "hub_events": events,
             "pending": pending,
             "memory_notes": memory_notes,
+            "memory_errors": memory_errors,
             "question_candidates": question_candidates,
         }
 

@@ -28,9 +28,28 @@ const state = {
   getSelectors: null,
   onError: null,
   trigger: null,
+  draftContext: null,
 };
 let rolesCache = null;
 let initialized = false;
+let roleSession = 0;
+const drafts = new Map();
+function draftKey() {
+  if (state.draftContext === "") return ""; // 未保存的新文档没有稳定身份，不跨打开暂存。
+  return state.role ? JSON.stringify([state.role.id, state.mode, state.entry, state.draftContext ?? [state.note?.path || "", state.selectors]]) : "";
+}
+function rememberDraft() {
+  const key = draftKey();
+  if (!key) return;
+  drafts.delete(key);
+  const value = el("role-drawer-input")?.value || "";
+  if (value) drafts.set(key, value);
+  if (drafts.size > 20) drafts.delete(drafts.keys().next().value);
+}
+function showRoleSurface() {
+  const modal = el("role-drawer-modal");
+  if (state.host === "body" && modal && !modal.open) modal.showModal();
+}
 
 function el(id) { return document.getElementById(id); }
 function drawer() { return el("role-drawer"); }
@@ -42,7 +61,14 @@ export function initRoleDrawer() {
   initialized = true;
   initProposals();
   el("role-drawer-close")?.addEventListener("click", closeRoleDrawer);
-  el("role-drawer-backdrop")?.addEventListener("click", closeRoleDrawer);
+  const modal = el("role-drawer-modal");
+  modal?.addEventListener("cancel", (event) => { event.preventDefault(); closeRoleDrawer(); });
+  let backdropPressed = false;
+  modal?.addEventListener("pointerdown", (event) => { backdropPressed = event.target === modal; });
+  modal?.addEventListener("click", (event) => {
+    if (backdropPressed && event.target === modal) closeRoleDrawer();
+    backdropPressed = false;
+  });
   el("role-drawer-dock")?.addEventListener("click", toggleRoleDock);
   el("role-drawer-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -54,15 +80,10 @@ export function initRoleDrawer() {
     event.preventDefault();
     sendRoleMessage(event.target.value || "");
   });
+  el("role-drawer-input")?.addEventListener("input", () => { rememberDraft(); syncSendState(); });
   el("role-drawer-context")?.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-role-clear-selection]")) {
       setRoleSelection(null);
-    }
-  });
-  window.addEventListener("keydown", (event) => {
-    // 编辑器宿主的 Escape 由 note-editor.js 的 capture 监听处理，避免同时关掉编辑器。
-    if (event.key === "Escape" && !drawer()?.hidden && state.host !== "editor") {
-      closeRoleDrawer();
     }
   });
   document.addEventListener("torch:open-role", (event) => {
@@ -85,6 +106,7 @@ function mountRoleHost(host) {
   const dialog = editorDialog();
   const slot = editorSlot();
   if (host === "editor" && slot && dialog?.open) {
+    el("role-drawer-modal")?.close();
     if (node.parentElement !== slot) slot.append(node);
     slot.hidden = false;
     node.classList.add("is-embedded");
@@ -96,7 +118,8 @@ function mountRoleHost(host) {
     if (dock) dock.hidden = false;
     return "editor";
   }
-  if (node.parentElement !== document.body) document.body.append(node);
+  const modal = el("role-drawer-modal");
+  if (modal && node.parentElement !== modal) modal.append(node);
   if (slot) slot.hidden = true;
   node.classList.remove("is-embedded", "is-docked");
   if (dialog) dialog.classList.remove("has-companion", "has-companion-dock");
@@ -210,10 +233,15 @@ export async function openRoleDrawer(options = {}) {
   if (!node || state.busy) return false;
   const roleId = String(options.roleId || "").trim();
   if (!roleId) return false;
+  const session = ++roleSession;
+  const trigger = document.activeElement;
+  const previousDraftKey = draftKey();
+  rememberDraft();
   const requestedHost = options.host === "editor" ? "editor" : "body";
 
   // 已经开着同一个角色：保留对话，只更新选区/草稿 getter 和宿主。
   if (!node.hidden && state.role?.id === roleId) {
+    state.draftContext = requestedHost === "editor" ? options.draftContext || "" : null;
     state.trigger = state.trigger || document.activeElement;
     state.getDraftText = typeof options.getDraftText === "function"
       ? options.getDraftText : state.getDraftText;
@@ -227,7 +255,7 @@ export async function openRoleDrawer(options = {}) {
     }
     // 换了一份上下文（另一篇文档，或从文档回到无文档）就换一段对话：旧轮次带的是旧资料。
     const nextNote = normalizeNote(options.note);
-    const noteChanged = (nextNote?.path || "") !== (state.note?.path || "");
+    const noteChanged = (nextNote?.path || "") !== (state.note?.path || "") || previousDraftKey !== draftKey();
     if (noteChanged) {
       state.threadId = "";
       state.messages = [];
@@ -239,6 +267,7 @@ export async function openRoleDrawer(options = {}) {
       state.chips = normalizeChips(options.chips);
     }
     state.note = nextNote;
+    if (previousDraftKey !== draftKey()) el("role-drawer-input").value = drafts.get(draftKey()) || "";
     if (options.title) el("role-drawer-title").textContent = options.title;
     el("role-drawer-subtitle").textContent = drawerSubtitle(state.role, state.mode, state.note);
     if (options.hint) {
@@ -260,6 +289,7 @@ export async function openRoleDrawer(options = {}) {
       el("role-drawer-input").value = options.prompt;
     }
     renderRoleDrawer();
+    showRoleSurface();
     el("role-drawer-input")?.focus();
     return true;
   }
@@ -270,9 +300,11 @@ export async function openRoleDrawer(options = {}) {
   try {
     status = await api("/api/ai/status");
   } catch (error) {
+    if (session !== roleSession) return false;
     reportRoleError(`AI 角色不可用：${error.message}`);
     return false;
   }
+  if (session !== roleSession) return false;
   if (!status?.available) {
     reportRoleError(status?.reason || "AI 角色暂不可用，请先在 dsh 里配置 DeepSeek Key。");
     return false;
@@ -280,14 +312,18 @@ export async function openRoleDrawer(options = {}) {
   let items;
   try {
     if (!rolesCache) {
-      rolesCache = (await api("/api/ai/roles")).items || [];
+      const response = await api("/api/ai/roles");
+      if (session !== roleSession) return false;
+      rolesCache = response.items || [];
     }
     items = rolesCache;
   } catch (error) {
+    if (session !== roleSession) return false;
     reportRoleError(`读取角色失败：${error.message}`);
     return false;
   }
   const role = items.find((item) => item.id === roleId);
+  if (requestedHost === "editor" && !editorDialog()?.open) return false;
   if (!role) {
     reportRoleError("没有找到这个 AI 角色。");
     return false;
@@ -297,6 +333,7 @@ export async function openRoleDrawer(options = {}) {
     ? options.mode
     : (modes[0]?.id || "");
   state.role = role;
+  state.draftContext = requestedHost === "editor" ? options.draftContext || "" : null;
   state.mode = mode;
   state.entry = options.entry || (Array.isArray(role.entry) ? role.entry[0] : "") || "";
   state.selectors = Array.isArray(options.selectors) ? options.selectors : [];
@@ -310,7 +347,7 @@ export async function openRoleDrawer(options = {}) {
   state.getSelectors = typeof options.getSelectors === "function"
     ? options.getSelectors : null;
   state.onError = typeof options.onError === "function" ? options.onError : null;
-  state.trigger = document.activeElement;
+  state.trigger = trigger;
   state.selection = normalizeSelection(options.selection);
   const host = mountRoleHost(requestedHost);
   state.docked = host === "editor" ? Boolean(options.dock) : false;
@@ -324,7 +361,7 @@ export async function openRoleDrawer(options = {}) {
   el("role-drawer-status").textContent = "";
   el("role-drawer-preview").textContent = "";
   el("role-drawer-preview").hidden = true;
-  el("role-drawer-input").value = options.prompt || "";
+  el("role-drawer-input").value = drafts.get(draftKey()) || options.prompt || "";
   el("role-drawer-hint").textContent = options.hint
     || (state.note
       ? noteHint(state.note)
@@ -336,11 +373,15 @@ export async function openRoleDrawer(options = {}) {
   if (backdrop) backdrop.hidden = host === "editor";
   document.body?.classList?.add("role-drawer-open");
   renderRoleDrawer();
+  showRoleSurface();
   el("role-drawer-input")?.focus();
   return true;
 }
 
 export function closeRoleDrawer() {
+  rememberDraft();
+  ++roleSession;
+  el("role-drawer-modal")?.close();
   const node = drawer();
   if (node) node.hidden = true;
   const backdrop = el("role-drawer-backdrop");
@@ -398,6 +439,7 @@ function withNoteSelector(list) {
 async function sendRoleMessage(text) {
   const message = String(text || "").trim();
   if (!message || state.busy || !state.role) return;
+  const session = roleSession;
   const selection = state.selection;
   const draftText = currentDraftText();
   let selectors = withNoteSelector(state.selectors);
@@ -417,9 +459,13 @@ async function sendRoleMessage(text) {
     } : null,
   });
   const input = el("role-drawer-input");
-  if (input) input.value = "";
-  setBusy(true, "AI 正在想…");
-  renderRoleDrawer();
+  const submittedInput = input?.value || "";
+  const fromInput = submittedInput.trim() === message;
+  if (input && fromInput) input.value = "";
+  if (el("role-drawer-chips")?.contains(document.activeElement)) input?.focus();
+  rememberDraft();
+  setBusy(true, "AI 正在想…关闭后将不再显示本轮回复。");
+  renderRoleDrawer(true);
   try {
     const payload = await api("/api/ai/chat", {
       method: "POST",
@@ -436,6 +482,7 @@ async function sendRoleMessage(text) {
       }),
       timeoutMs: 180000,
     });
+    if (session !== roleSession) return;
     state.threadId = payload.thread_id || "";
     const reply = String(payload.reply || "");
     const rendered = renderMarkdownDocument(reply);
@@ -452,21 +499,30 @@ async function sendRoleMessage(text) {
       el("role-drawer-hint").textContent = `已告诉忆灵 ${payload.hub_events} 条观察；AI 只提议，采纳后才写入。`;
     }
   } catch (error) {
+    if (session !== roleSession) return;
+    if (fromInput && input && !input.value) input.value = submittedInput;
+    rememberDraft();
     setBusy(false, "");
     reportRoleError(`这一轮没有成功：${error.message}`);
   } finally {
-    state.busy = false;
-    renderRoleDrawer();
-    if (!state.docked) el("role-drawer-input")?.focus();
+    if (session === roleSession) {
+      state.busy = false;
+      renderRoleDrawer();
+    }
   }
 }
 
-function setBusy(busy, message) {
+function syncSendState() {
   const send = el("role-drawer-send");
-  if (send) {
-    send.disabled = busy;
-    send.textContent = busy ? "思考中…" : "发送";
-  }
+  if (!send) return;
+  send.disabled = state.busy || !el("role-drawer-input")?.value.trim();
+  send.setAttribute("aria-busy", String(state.busy));
+  send.textContent = state.busy ? "思考中…" : "发送";
+}
+
+function setBusy(busy, message) {
+  state.busy = busy;
+  syncSendState();
   const status = el("role-drawer-status");
   if (status) status.textContent = message || "";
 }
@@ -494,30 +550,42 @@ function renderRoleContext() {
   host.hidden = !chips.length;
 }
 
-function renderRoleDrawer() {
+function renderRoleDrawer(forceScroll = false) {
+  syncSendState();
   const messages = el("role-drawer-messages");
   if (!messages) return;
+  const previousScroll = messages.scrollTop;
+  const followBottom = forceScroll || messages.scrollHeight - messages.clientHeight - messages.scrollTop < 64;
+  let markup;
   if (!state.messages.length) {
-    messages.innerHTML = emptyMarkup(state.role?.name || "AI 角色", state.note);
+    markup = emptyMarkup(state.role?.name || "AI 角色", state.note);
   } else {
-    messages.innerHTML = state.messages.map((message) => {
+    markup = state.messages.map((message) => {
       const proposals = message.proposals?.length
         ? `<div class="role-proposals">${proposalsMarkup(message.proposals)}</div>`
         : "";
       return messageMarkup(message) + proposals;
     }).join("");
   }
-  messages.scrollTop = messages.scrollHeight;
+  if (messages.innerHTML !== markup) messages.innerHTML = markup;
+  messages.scrollTop = followBottom ? messages.scrollHeight : previousScroll;
   const chips = el("role-drawer-chips");
   if (chips) {
     // 带着文档时，先把「贴着这篇文档」的问题放在前面；不再混入泛泛的角色默认问题。
     const docChips = Array.isArray(state.chips) ? state.chips : [];
     const values = docChips.length ? docChips : quickChips(state.role?.id, state.mode);
-    chips.innerHTML = values.map((value) =>
-      `<button type="button" class="role-chip" data-role-chip="${escapeAttr(value)}">${escapeAttr(value)}</button>`
-    ).join("");
+    const signature = JSON.stringify(values);
+    if (chips.dataset.values !== signature) {
+      chips.dataset.values = signature;
+      chips.innerHTML = values.map((value) =>
+        `<button type="button" class="role-chip" data-role-chip="${escapeAttr(value)}">${escapeAttr(value)}</button>`
+      ).join("");
+      chips.querySelectorAll("[data-role-chip]").forEach((button) => {
+        button.addEventListener("click", () => sendRoleMessage(button.dataset.roleChip));
+      });
+    }
     chips.querySelectorAll("[data-role-chip]").forEach((button) => {
-      button.addEventListener("click", () => sendRoleMessage(button.dataset.roleChip));
+      button.disabled = state.busy;
     });
   }
   renderRoleContext();

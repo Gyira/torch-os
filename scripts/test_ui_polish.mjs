@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import * as editorModel from "../frontend/editor-model.js";
 import * as taskModel from "../frontend/tasks-model.js";
+import * as roleModel from "../frontend/roles-model.js";
 
 class Element {
   constructor(tag, doc) {
@@ -133,6 +134,104 @@ async function load(name, env, setup = "") {
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+test("导师回复成功但记忆写入失败时保留回复并明确提示失败", async () => {
+  const env = environment();
+  const messages = env.add("mentor-test-messages", "div"); messages.setAttribute("data-mentor-messages", "");
+  const status = env.add("mentor-test-status", "p"); status.setAttribute("data-mentor-status", "");
+  const input = env.add("mentor-test-input"); input.setAttribute("data-mentor-input", "");
+  const notices = [];
+  env.toast = (text, tone) => notices.push({text, tone});
+  env.messageMarkup = item => `<p>${item.content}</p>`;
+  env.renderMarkdownDocument = text => ({html: text});
+  env.api = async path => path === "/api/ai/chat"
+    ? {thread_id:"test", reply:"正常回复", memory_errors:["历史备份失败"], memory_notes:0}
+    : {};
+  const ctx = await load("mentor.js", env, "state.host = document.body;");
+  await ctx.sendMessage("请记住这件事");
+  assert.match(messages.textContent, /正常回复/);
+  assert.match(status.textContent, /长期记忆保存失败/);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].tone, "error");
+  assert.match(notices[0].text, /历史备份失败/);
+});
+
+async function roleHarness() {
+  const env = environment();
+  Object.assign(env, roleModel, { initProposals() {}, toast() {}, proposalsMarkup: () => "", renderMarkdownDocument: text => ({html: text}) });
+  for (const id of ["modal", "input", "send", "title", "subtitle", "eyebrow", "avatar", "hint", "status", "preview", "messages", "chips", "context", "dock", "close", "form"]) env.add(`role-drawer-${id}`, id === "modal" ? "dialog" : "div");
+  env.add("role-drawer", "aside").hidden = true;
+  const requests = [];
+  env.api = async path => {
+    if (path.endsWith("status")) return {available: true};
+    if (path.endsWith("roles")) return {items: [{id:"a", name:"角色 A"}, {id:"b", name:"角色 B"}]};
+    const request = deferred(); requests.push(request); return request.promise;
+  };
+  const ctx = await load("roles.js", env, "globalThis.snapshot = () => ({role: state.role?.id, busy: state.busy, thread: state.threadId, messages: [...state.messages]});");
+  return { env, ctx, requests, input: env.document.getElementById("role-drawer-input") };
+}
+
+test("角色旧回复不能污染重开的角色或解除新请求忙碌状态", async () => {
+  const {ctx, requests, input} = await roleHarness();
+  await ctx.openRoleDrawer({roleId:"a"});
+  input.value = "旧问题";
+  const oldSend = ctx.sendRoleMessage(input.value);
+  ctx.closeRoleDrawer();
+  await ctx.openRoleDrawer({roleId:"b"});
+  input.value = "新问题";
+  const newSend = ctx.sendRoleMessage(input.value);
+  requests[0].resolve({thread_id:"old", reply:"旧回复"}); await oldSend;
+  assert.equal(ctx.snapshot().role, "b");
+  assert.equal(ctx.snapshot().busy, true);
+  assert.equal(ctx.snapshot().messages.length, 1);
+  requests[1].resolve({thread_id:"new", reply:"新回复"}); await newSend;
+  assert.equal(ctx.snapshot().thread, "new");
+  assert.equal(ctx.snapshot().busy, false);
+});
+
+test("角色失败恢复原文但保留后续输入；快捷提问不清草稿；关闭重开恢复草稿", async () => {
+  const {ctx, requests, input, env} = await roleHarness();
+  await ctx.openRoleDrawer({roleId:"a"});
+  input.value = "  原文  ";
+  const first = ctx.sendRoleMessage(input.value);
+  requests[0].reject(new Error("超时")); await first;
+  assert.equal(input.value, "  原文  ");
+  const second = ctx.sendRoleMessage(input.value);
+  input.value = "新草稿";
+  requests[1].reject(new Error("失败")); await second;
+  assert.equal(input.value, "新草稿");
+  const quick = ctx.sendRoleMessage("快捷问题");
+  assert.equal(input.value, "新草稿");
+  env.document.body.focus();
+  requests[2].resolve({reply:"完成"}); await quick;
+  assert.equal(env.document.activeElement, env.document.body, "完成不抢焦点");
+  ctx.closeRoleDrawer();
+  await ctx.openRoleDrawer({roleId:"b"}); assert.equal(input.value, "");
+  await ctx.openRoleDrawer({roleId:"a"}); assert.equal(input.value, "新草稿");
+});
+
+test("关闭令待打开角色请求失效，迟到响应不会重开抽屉", async () => {
+  const {ctx, env} = await roleHarness();
+  const request = deferred(); env.api = () => request.promise;
+  const opening = ctx.openRoleDrawer({roleId:"a"});
+  ctx.closeRoleDrawer(); request.resolve({available:true});
+  assert.equal(await opening, false);
+  assert.equal(env.document.getElementById("role-drawer").hidden, true);
+});
+
+test("编辑器角色草稿按文档隔离，正文脏状态改变不会丢失同文档草稿", async () => {
+  const {ctx, env, input} = await roleHarness();
+  env.add("note-editor-dialog", "dialog").showModal();
+  env.add("note-editor-companion-slot", "div");
+  await ctx.openRoleDrawer({roleId:"a", host:"editor", draftContext:"a.md", selectors:[{path:"a.md"}]});
+  input.value = "A 的草稿";
+  await ctx.openRoleDrawer({roleId:"a", host:"editor", draftContext:"b.md", selectors:[]});
+  assert.equal(input.value, "");
+  input.value = "B 的草稿";
+  await ctx.openRoleDrawer({roleId:"a", host:"editor", draftContext:"a.md", selectors:[]});
+  assert.equal(input.value, "A 的草稿");
+  assert.equal(env.document.getElementById("role-drawer-modal").open, false);
+});
 
 test("设置抽屉关闭后丢弃旧响应；重开时旧请求不能覆盖当前加载状态", async () => {
   const env = environment();
