@@ -53,6 +53,51 @@ export const STYLE_PRESETS = Object.freeze([
 const LAYER_LABELS = Object.fromEntries(ROLE_LAYERS.map((item) => [item.id, item.label]));
 let skillSequence = 0;
 
+// Fixed paths come from backend role_policy; this map only translates them for
+// display. Unknown paths fall back to the raw value rather than hiding scope.
+export const ROOT_LABELS = Object.freeze({
+  "00_人生路": "人生路",
+  "01_自我档案": "自我档案",
+  "02_生活运营": "生活运营",
+  "03_知识库": "知识库",
+  "02_生活运营/01_恋爱系统": "恋爱系统",
+  "02_生活运营/02_健康系统": "健康系统",
+  "02_生活运营/03_财务系统": "财务系统",
+  "00_人生路/04_目标/04_习惯追踪": "习惯追踪",
+  "01_自我档案/01_档案": "自我档案条目",
+  "01_自我档案/02_人生导师/记忆": "导师记忆",
+  "01_自我档案/02_人生导师/提问": "每日提问",
+});
+export const ACTION_LABELS = Object.freeze({
+  new_note: "新建笔记",
+  archive_note: "移动笔记",
+  new_task: "新建待办",
+  new_habit: "新建习惯",
+  health_report: "保存健康报告",
+  finance_report: "保存财务报告",
+});
+
+export function scopeLabel(value) {
+  const key = String(value || "").trim();
+  if (!key) return "无";
+  return ROOT_LABELS[key] || key;
+}
+
+export function policyReadLabels(policy) {
+  const roots = Array.isArray(policy?.read_roots) ? policy.read_roots : [];
+  return roots.map(scopeLabel);
+}
+
+export function policyWriteLabels(policy) {
+  const roots = Array.isArray(policy?.write_roots) ? policy.write_roots : [];
+  return roots.map(scopeLabel);
+}
+
+export function policyActionLabels(policy) {
+  const actions = Array.isArray(policy?.actions) ? policy.actions : [];
+  return actions.map((value) => ACTION_LABELS[value] || value);
+}
+
 export function layerLabel(layer) {
   const key = String(layer || "");
   return LAYER_LABELS[key] || key || "通用";

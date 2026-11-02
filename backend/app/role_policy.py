@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from . import vault_layout as layout
 
-POLICY_VERSION = "B3-2-v1"
+POLICY_VERSION = "B4b-v1"
 CURRENT_READ_POLICY: ContextVar[Any] = ContextVar("role_read_policy", default=None)
 
 

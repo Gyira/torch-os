@@ -180,7 +180,7 @@ async function runSynthesis(button) {
   if (state.busy) return;
   const ok = await confirmAction({
     title: "更新自我档案？",
-    message: "人生导师会读一遍自我档案、记忆、最近日记、任务和知识库，生成画像与待确认补丁。可能耗时 1–3 分钟，会消耗 DeepSeek token；不会自动改档案。",
+    message: "人生导师会读一遍自我档案、记忆、最近日记、任务和知识库，生成画像并更新有依据的档案条目；事实与推断分开标注，旧判断保留为成长历史。可能耗时 1–3 分钟，会消耗 DeepSeek token。",
     confirmLabel: "开始整理",
   });
   if (!ok) return;
@@ -192,7 +192,12 @@ async function runSynthesis(button) {
       body: JSON.stringify({ confirm: true, range_days: 30 }),
       timeoutMs: 360000,
     });
-    toast(`画像已更新；${result.patches?.length || 0} 条档案补丁待确认。`, "success");
+    const updates = Array.isArray(result.archive_updates) ? result.archive_updates : [];
+    const failed = updates.filter((item) => item && !item.ok).length;
+    toast(updates.length
+      ? `画像已更新；${updates.length - failed} 项档案已更新${failed ? `，${failed} 项失败` : ""}。`
+      : `画像已更新；${result.patches?.length || 0} 条档案补丁待确认。`,
+    failed ? "error" : "success");
     if (typeof callbacks.onChanged === "function") callbacks.onChanged(result);
     if (state.bookKey) await openBook(state.bookKey, state.history);
     else await loadArchiveOverview();

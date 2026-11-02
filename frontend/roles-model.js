@@ -63,20 +63,25 @@ export function messageMarkup(message) {
   </article>`;
 }
 
-export function emptyMarkup(roleName = "AI 角色", note = null) {
+export function emptyMarkup(roleName = "AI 角色", note = null, roleId = "") {
+  const mentor = String(roleId || "") === "mentor";
   const noteTitle = String(note?.title || "").trim();
   if (noteTitle) {
     return `<div class="role-empty">
     <p class="eyebrow">ROLE</p>
     <h3>${escapeRoleText(roleName)}</h3>
     <p>已经读完《${escapeRoleText(noteTitle)}》。直接问这篇里的任何东西，不用先复述内容。</p>
-    <p class="role-empty-hint">它只提议；要改正文时，仍由你决定。</p>
+    <p class="role-empty-hint">${mentor
+      ? "普通提议采纳后写入；导师的档案更新经服务端校验后直接提交。"
+      : "它只提议；要改正文时，仍由你决定。"}</p>
   </div>`;
   }
   return `<div class="role-empty">
     <p class="eyebrow">ROLE</p>
     <h3>${escapeRoleText(roleName)}</h3>
-    <p>说说你现在想理清的事。它只提议，采纳后才写入你的库。</p>
+    <p>说说你现在想理清的事。${mentor
+      ? "普通提议采纳后写入；导师的档案更新经服务端校验后直接提交。"
+      : "它只提议，采纳后才写入你的库。"}</p>
   </div>`;
 }
 

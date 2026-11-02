@@ -230,6 +230,44 @@ def append_timeline(vault_dir: Path | str, entries: Iterable[Mapping[str, Any]],
         return added
 
 
+def _qa_block(identifier: str, *, question: str, answer: str, section: str,
+              sources: list[str], entry_id: str) -> list[str]:
+    block = [
+        f"## {identifier}" + (f" · {section}" if section else ""),
+        "",
+        f"- 问题：{question}",
+        f"- 回答：{answer}",
+        f"- 日期：{_today()}",
+    ]
+    if sources:
+        block.append("- 来源：" + "、".join(sources))
+    block.append(f"- 已整理进档案：{entry_id or '否'}")
+    return block
+
+
+def _replace_qa_block(body: str, identifier: str, block: list[str]) -> str | None:
+    """Replace the block with the same qid; returns None when it is absent."""
+    lines = body.rstrip().splitlines()
+    start = -1
+    prefix = f"## {identifier}"
+    for index, line in enumerate(lines):
+        if line.strip() == prefix or line.strip().startswith(prefix + " ·"):
+            start = index
+            break
+    if start < 0:
+        return None
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].strip().startswith("## "):
+            end = index
+            break
+    known = ("- 问题：", "- 回答：", "- 日期：", "- 来源：", "- 已整理进档案：")
+    extra = [line.strip() for line in lines[start + 1:end]
+             if line.strip() and not line.strip().startswith(known)]
+    merged = [*block[:-1], *extra, block[-1]]
+    return "\n".join([*lines[:start], *merged, *lines[end:]]).rstrip()
+
+
 def append_qa(vault_dir: Path | str, *, question: str, answer: str,
               qid: str = "", section: str = "", sources: Any = None,
               entry_id: str = "", read_only: bool = False) -> dict[str, Any]:
@@ -245,24 +283,49 @@ def append_qa(vault_dir: Path | str, *, question: str, answer: str,
         if not body.strip():
             body = "# 问答记忆\n"
         identifier = str(qid or _stamp()).strip()
-        block = [
-            "",
-            f"## {identifier}" + (f" · {section}" if section else ""),
-            "",
-            f"- 问题：{question}",
-            f"- 回答：{answer}",
-            f"- 日期：{_today()}",
-        ]
-        if sources:
-            block.append("- 来源：" + "、".join(_sources(sources)))
-        if entry_id:
-            block.append(f"- 已整理进档案：{entry_id}")
-        else:
-            block.append("- 已整理进档案：否")
-        _write_doc(update, {**metadata, "type": QA_TYPE, "updated_at": _now()},
-                   body.rstrip() + "\n" + "\n".join(block))
+        block = _qa_block(identifier, question=question, answer=answer,
+                          section=section, sources=_sources(sources),
+                          entry_id=entry_id)
+        replaced = _replace_qa_block(body, identifier, block)
+        content = replaced if replaced is not None else body.rstrip() + "\n\n" + "\n".join(block)
+        _write_doc(update, {**metadata, "type": QA_TYPE, "updated_at": _now()}, content)
         return {"qid": identifier, "section": section, "answer": answer,
-                "path": f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/问答记忆.md"}
+                "path": f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/问答记忆.md",
+                "updated_existing": replaced is not None}
+
+
+def link_qa_entry(vault_dir: Path | str, qid: str, entry_id: str, *,
+                  read_only: bool = False) -> bool:
+    """Best-effort: record the archive entry id on an already-saved answer."""
+    _ensure_write(read_only, "关联人生导师问答记忆")
+    identifier = str(qid or "").strip()
+    if not identifier or not entry_id:
+        return False
+    vault = Path(vault_dir).resolve()
+    path = _path(vault, "问答记忆.md")
+    with update_document(path, MentorMemoryError, vault_dir=vault) as update:
+        metadata, body = _read_update(update)
+        if not body.strip():
+            return False
+        lines = body.rstrip().splitlines()
+        prefix = f"## {identifier}"
+        start = next((index for index, line in enumerate(lines)
+                      if line.strip() == prefix or line.strip().startswith(prefix + " ·")), -1)
+        if start < 0:
+            return False
+        end = next((index for index in range(start + 1, len(lines))
+                    if lines[index].strip().startswith("## ")), len(lines))
+        changed = False
+        for index in range(start + 1, end):
+            if lines[index].startswith("- 已整理进档案："):
+                lines[index] = f"- 已整理进档案：{entry_id}"
+                changed = True
+                break
+        if not changed:
+            lines.insert(end, f"- 已整理进档案：{entry_id}")
+        _write_doc(update, {**metadata, "type": QA_TYPE, "updated_at": _now()},
+                   "\n".join(lines))
+        return True
 
 
 def read_timeline(vault_dir: Path | str, *, limit: int = 200) -> list[dict[str, str]]:
@@ -324,6 +387,6 @@ def overview(vault_dir: Path | str) -> dict[str, Any]:
 
 __all__ = [
     "MentorMemoryError", "KIND_LABELS", "ensure_memory", "read_core", "write_core",
-    "append_timeline", "append_qa", "read_timeline", "read_qa", "context_text",
-    "overview",
+    "append_timeline", "append_qa", "link_qa_entry", "read_timeline", "read_qa",
+    "context_text", "overview",
 ]

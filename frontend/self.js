@@ -6,7 +6,7 @@ import { BOOKS } from "./self-archive-model.js";
 import {
   initSelfArchive, loadArchiveOverview, openBook, currentBookKey,
 } from "./self-archive.js";
-import { initMentor, loadMentor, openMentorChat } from "./mentor.js";
+import { initMentor, leaveMentor, loadMentor, openMentorChat } from "./mentor.js";
 import { initSelfBazi, loadSelfBazi } from "./self-bazi.js";
 
 const RAIL_STORAGE = "torch:self-rail";
@@ -84,7 +84,7 @@ function shellMarkup() {
       <div>
         <p class="eyebrow">四库 · 自我档案</p>
         <h2>自我档案</h2>
-        <p class="pillar-subtitle">把经历沉淀成「我是谁」；只有人生导师能写，你逐条确认。</p>
+        <p class="pillar-subtitle">把经历沉淀成「我是谁」；人生导师整理并更新，事实与推断分开标注，旧判断保留为成长历史。</p>
       </div>
     </div>
     <div class="pillar-head-actions">
@@ -171,7 +171,10 @@ async function renderArchiveView() {
 }
 
 async function navigate(page, sub = "", options = {}) {
+  const previousPage = state.page;
   const validPage = ["archive", "mentor", "bazi"].includes(page) ? page : "archive";
+  // 离开导师页时让页面级异步回调失效；服务端历史和草稿都保留。
+  if (previousPage === "mentor" && validPage !== "mentor") leaveMentor();
   state.page = validPage;
   state.sub = sub || (validPage === "archive" ? "overview" : validPage === "mentor" ? "chat" : "chart");
   if (validPage === "archive") {
@@ -214,7 +217,7 @@ async function runHeaderSynthesis(button) {
   const { confirmAction } = await import("./core.js");
   const ok = await confirmAction({
     title: "更新自我档案？",
-    message: "人生导师会读一遍档案、记忆、最近日记、任务和知识库，生成画像与待确认补丁；不会自动改档案。",
+    message: "人生导师会读一遍档案、记忆、最近日记、任务和知识库，生成画像并更新有依据的档案条目；事实与推断分开标注，旧判断保留为成长历史。可能耗时 1–3 分钟，会消耗 DeepSeek token。",
     confirmLabel: "开始整理",
   });
   if (!ok) return;
@@ -225,9 +228,16 @@ async function runHeaderSynthesis(button) {
       method: "POST", body: JSON.stringify({ confirm: true, range_days: 30 }),
       timeoutMs: 360000,
     });
-    toast(`画像已更新；${result.patches?.length || 0} 条档案补丁待确认。`, "success");
+    const updates = Array.isArray(result.archive_updates) ? result.archive_updates : [];
+    const failed = updates.filter((item) => item && !item.ok).length;
+    const pendingCount = result.patches?.length || 0;
+    toast(updates.length
+      ? `画像已更新；${updates.length - failed} 项档案已更新${failed ? `，${failed} 项失败` : ""}。`
+      : `画像已更新；${pendingCount} 条档案补丁待确认。`,
+    failed ? "error" : "success");
     await refreshOverview({ render: state.page === "archive" });
-    await navigate("mentor", "pending");
+    // 自主更新是页内非阻塞反馈；只有兼容模式的旧待确认卡才切过去。
+    if (pendingCount) await navigate("mentor", "pending");
   } catch (error) {
     toast(`整理失败：${error.message}`, "error");
   } finally {

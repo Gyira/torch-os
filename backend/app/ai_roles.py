@@ -37,9 +37,11 @@ from .ai_gateway import AIError, HeadlessResult, headless_environment, run_headl
 from .ai_schemas import extract_json, parse_reply
 from .db import Database, utc_now
 from .dsh_web import resolve_command
+from . import mentor_archive
 from .proposals import ProposalError, ProposalService
 from .vault import parse_text
-from .role_policy import (POLICY_VERSION, PreparedContext, RolePolicy, RoleScopeError,
+from .role_policy import (POLICY_VERSION, ROLE_ACTIONS, ROLE_ROOTS, WRITE_ROOTS,
+                          PreparedContext, RolePolicy, RoleScopeError,
                           active_role, scoped_reads)
 
 _THREAD_LOCKS = tuple(threading.RLock() for _ in range(64))
@@ -555,7 +557,8 @@ class RoleService:
                  vault_dir: Path | str | None = None,
                  proposals: ProposalService | None = None,
                  love_settings: Any = None,
-                 read_only: bool = False):
+                 read_only: bool = False,
+                 autonomous_archive: bool = True):
         self.registry = registry
         self.balance = balance
         self.enabled = bool(enabled)
@@ -568,6 +571,9 @@ class RoleService:
         # 恋爱系统的只读摘要来源；application 在 love_settings 建好后回填。
         self.love_settings = love_settings
         self.read_only = bool(read_only)
+        # B4b: validated mentor archive updates commit directly. Set False to
+        # fall back to the old pending-card flow without deleting any history.
+        self.autonomous_archive = bool(autonomous_archive)
         self._context_owner = object()
 
     def _command(self):
@@ -625,13 +631,35 @@ class RoleService:
             "internal_roles": sum(1 for role in self.registry.roles.values()
                                   if role.internal),
             "role_errors": list(self.registry.errors),
+            "mentor_autonomous_archive": self.autonomous_archive,
         }
 
     def manifest(self) -> dict[str, Any]:
-        return self.registry.manifest()
+        payload = self.registry.manifest()
+        for item in payload.get("items", []):
+            role_id = str(item.get("id") or "")
+            if role_id not in ROLE_ROOTS:
+                continue
+            item["policy"] = {
+                "version": POLICY_VERSION,
+                "read_roots": list(ROLE_ROOTS[role_id]),
+                "write_roots": list(WRITE_ROOTS[role_id]),
+                "actions": sorted(ROLE_ACTIONS[role_id]),
+            }
+        payload["mentor_autonomous_archive"] = self.autonomous_archive
+        return payload
 
     def profile(self, role_id: str) -> dict[str, Any]:
-        return self.registry.profile(role_id)
+        profile = self.registry.profile(role_id)
+        if profile.get("id") in ROLE_ROOTS:
+            key = profile["id"]
+            profile["policy"] = {
+                "version": POLICY_VERSION,
+                "read_roots": list(ROLE_ROOTS[key]),
+                "write_roots": list(WRITE_ROOTS[key]),
+                "actions": sorted(ROLE_ACTIONS[key]),
+            }
+        return profile
 
     def save_profile(self, role_id: str, **fields: Any) -> dict[str, Any]:
         return self.registry.save_profile(role_id, **fields)
@@ -1021,37 +1049,62 @@ class RoleService:
 
     # ----- mentor: pending / memory / questions --------------------------
 
-    def _archive_pending(self, reply, role: RoleDefinition,
-                         thread_id: str) -> list[dict[str, Any]]:
-        """mentor 明确“被说服”时，把档案补丁落成待确认卡；不直接写档案。"""
+    def _apply_archive(self, reply, role: RoleDefinition, thread_id: str, *,
+                       sources: list[dict[str, Any]] | None = None,
+                       errors: list[str] | None = None) -> dict[str, list[dict[str, Any]]]:
+        """Validate mentor archive output and either commit it or keep cards.
+
+        B4b: when ``autonomous_archive`` is on, each item is committed through
+        ``mentor_archive`` (the existing entry model + B4a operation ids).
+        When off, the same candidates become old-style pending cards.
+        """
+        result: dict[str, list[dict[str, Any]]] = {"updates": [], "pending": []}
         if role.id != "mentor" or self.vault_dir is None:
-            return []
+            return result
+        raw_items: list[Any] = list(reply.archive_updates or [])
         verdict = reply.archive_verdict
-        if verdict is None or verdict.decision != "accept":
-            return []
-        new_text = str(verdict.new_text or "").strip()
-        if not new_text or not str(verdict.section or "").strip():
-            return []
-        try:
-            card = mentor_pending.create_pending(self.vault_dir, {
-                "section": verdict.section,
-                "action": verdict.action,
-                "entry_id": verdict.entry_id,
-                "entry_type": verdict.entry_type,
-                "confidence": verdict.confidence,
-                "title": verdict.title or "档案修改",
-                "old_text": verdict.old_text,
-                "new_text": new_text,
-                "evidence": verdict.evidence,
-                "counterexample": verdict.counterexample,
-                "verify": verdict.verify,
-                "reason": verdict.reason,
-                "sources": verdict.sources,
-                "verdict": verdict.model_dump(),
-            }, read_only=self.read_only)
-        except Exception:
-            return []
-        return [card]
+        if verdict is not None and verdict.decision == "accept":
+            raw_items.append(verdict)
+        if not raw_items:
+            return result
+        policy = RolePolicy.for_role("mentor", self.vault_dir)
+        prepared: list[tuple[str, Any, Any]] = []
+        seen: set[str] = set()
+        for raw in raw_items[:10]:
+            candidate, error = mentor_archive.normalize_candidate(
+                raw, vault_dir=self.vault_dir, policy=policy,
+                bindings=sources or [], thread_id=thread_id, origin="mentor")
+            if error:
+                prepared.append(("error", raw, error))
+                continue
+            key = mentor_archive.fingerprint(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            prepared.append(("candidate", raw, candidate))
+        candidates = [value for kind, _raw, value in prepared if kind == "candidate"]
+        if not candidates:
+            result["updates"] = [mentor_archive.failure_result(raw, value)
+                                 for kind, raw, value in prepared if kind == "error"]
+            return result
+        if not self.autonomous_archive:
+            cards, pending_errors = mentor_archive.to_pending(
+                self.vault_dir, candidates, read_only=self.read_only)
+            result["pending"] = cards
+            result["updates"] = [mentor_archive.failure_result(raw, value)
+                                 for kind, raw, value in prepared if kind == "error"]
+            if errors is not None:
+                errors.extend(f"档案修改未生成：{item}" for item in pending_errors)
+            return result
+        for kind, raw, value in prepared:
+            if kind == "error":
+                result["updates"].append(mentor_archive.failure_result(raw, value))
+            else:
+                operation_id = mentor_archive.operation_id_for("chat", value)
+                result["updates"].append(mentor_archive.apply_candidate(
+                    self.vault_dir, value, operation_id=operation_id,
+                    read_only=self.read_only))
+        return result
 
     def _ingest_memory_notes(self, reply, role: RoleDefinition, *, errors: list[str] | None = None) -> int:
         if role.id != "mentor" or self.vault_dir is None or not reply.memory_notes:
@@ -1147,7 +1200,10 @@ class RoleService:
         action_errors: list[str] = []
         proposals = self._create_proposals(reply, role, mode, thread["id"], sources=context.sources, errors=action_errors)
         events = self._ingest_events(reply, role, thread["id"], sources=context.sources, errors=action_errors)
-        pending = self._archive_pending(reply, role, thread["id"])
+        archive_result = self._apply_archive(
+            reply, role, thread["id"], sources=context.sources, errors=action_errors)
+        pending = archive_result["pending"]
+        archive_updates = archive_result["updates"]
         memory_errors: list[str] = []
         memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors)
         question_candidates = self._append_question_candidates(reply, role)
@@ -1177,6 +1233,8 @@ class RoleService:
             "chars": len(result.text), "seconds": result.seconds,
             "proposals": len(proposals), "events": events, "structured": structured,
             "pending": len(pending), "memory_notes": memory_notes,
+            "archive_updates": sum(1 for item in archive_updates if item.get("ok")),
+            "archive_update_errors": sum(1 for item in archive_updates if not item.get("ok")),
             "question_candidates": len(question_candidates),
             "selection_chars": len(selection_text),
             "selection_source": str(selection_source or "")[:200],
@@ -1195,6 +1253,7 @@ class RoleService:
             "proposals": proposals,
             "hub_events": events,
             "pending": pending,
+            "archive_updates": archive_updates,
             "memory_notes": memory_notes,
             "memory_errors": memory_errors,
             "action_errors": action_errors,

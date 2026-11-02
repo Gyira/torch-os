@@ -117,7 +117,7 @@ function timelineMarkup(items) {
   return `<section class="archive-timeline" aria-label="自传时间线">
       <h4 class="archive-h4">自传时间线</h4>
       ${rows ? `<ol class="archive-timeline-list">${rows}</ol>`
-             : `<p class="field-help">还没有写进自传。跟「与神对话」聊你的经历，它会先放进「身份待确认」，你点头才落到这里。</p>`}
+             : `<p class="field-help">还没有写进自传。跟「人生导师」聊你的经历，有依据的内容会整理进档案，并保留成长历史。</p>`}
     </section>`;
 }
 

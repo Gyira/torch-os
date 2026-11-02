@@ -24,8 +24,9 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import mentor_memory, self_archive, vault_layout
+from . import mentor_archive, mentor_memory, self_archive, vault_layout
 from .ai_schemas import extract_json
+from .memory_store import operation_lock
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -135,6 +136,8 @@ def _atomic_write(path: Path, text: str) -> None:
     )
     try:
         handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
         handle.close()
         os.replace(handle.name, path)
     except OSError:
@@ -408,6 +411,10 @@ def _serialize_today(day: str, items: Iterable[Mapping[str, Any]]) -> str:
             f"- 拟定来源：{', '.join(item.get('suggested_sources') or [])}",
             f"- 状态：{item.get('status') or 'pending'}",
             f"- 回答：{item.get('answer') or ''}",
+            f"- 回答方式：{item.get('answer_mode') or ''}",
+            f"- 档案状态：{item.get('archive_status') or ''}",
+            f"- 档案条目：{item.get('archive_entry_id') or ''}",
+            f"- 档案错误：{item.get('archive_error') or ''}",
             "",
         ])
     return "\n".join(lines).strip() + "\n"
@@ -435,7 +442,9 @@ def parse_today(text: str) -> list[dict[str, Any]]:
         mapping = {
             "问题": "prompt", "本子": "section", "类型": "entry_type",
             "提示": "hint", "来源": "source", "拟答": "suggested",
-            "状态": "status", "回答": "answer",
+            "状态": "status", "回答": "answer", "回答方式": "answer_mode",
+            "档案状态": "archive_status", "档案条目": "archive_entry_id",
+            "档案错误": "archive_error",
         }
         if key == "拟定来源":
             current["suggested_sources"] = [part.strip() for part in value.split(",") if part.strip()]
@@ -448,6 +457,10 @@ def parse_today(text: str) -> list[dict[str, Any]]:
         item.setdefault("suggested_sources", [])
         item.setdefault("status", "pending")
         item.setdefault("answer", "")
+        item.setdefault("answer_mode", "")
+        item.setdefault("archive_status", "")
+        item.setdefault("archive_entry_id", "")
+        item.setdefault("archive_error", "")
         item.setdefault("section_title",
                         self_archive.BOOK_BY_KEY.get(item.get("section", ""), ("", "", ""))[1])
     return items
@@ -491,15 +504,113 @@ def write_today(vault_dir: Path | str, day: str, items: Iterable[Mapping[str, An
     _atomic_write(_dated_path(vault, day), _serialize_today(day, items))
 
 
-def _find_today(vault: Path, qid: str) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
-    day = _today()
-    items = _read_today(vault, day)
-    if items is None:
-        raise QuestionError("今天还没有生成问题", 404)
-    for item in items:
-        if item.get("id") == qid:
-            return day, items, item
-    raise QuestionError("这个问题不在今天的三问里", 404)
+def _find_question(vault: Path, qid: str, *, days: int = 7) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    """Find the card by id in today or a recent day's file.
+
+    A page left open across midnight keeps its old qid; answering it updates
+    the day that actually contains the card instead of today's questions.
+    """
+    wanted = str(qid or "").strip()
+    if not wanted:
+        raise QuestionError("问题不存在", 404)
+    today = datetime.now(SHANGHAI).date()
+    for offset in range(max(1, int(days))):
+        day = (today - timedelta(days=offset)).isoformat()
+        items = _read_today(vault, day)
+        if items is None:
+            continue
+        for item in items:
+            if item.get("id") == wanted:
+                return day, items, item
+    raise QuestionError("这个问题不在最近的三问里", 404)
+
+
+def _qa_source() -> str:
+    return f"{vault_layout.SELF_MENTOR_MEMORY_DIR}/问答记忆.md"
+
+
+def _answer_candidate(item: Mapping[str, Any], answer_text: str,
+                      mode: str) -> dict[str, Any]:
+    section = str(item.get("section") or "")
+    if section not in self_archive.BOOK_BY_KEY:
+        raise QuestionError("问题没有目标本子", 422)
+    entry_type = str(item.get("entry_type") or "narrative")
+    if entry_type not in self_archive.ENTRY_TYPES:
+        entry_type = "narrative"
+    if mode == "suggested":
+        evidence = "用户采纳导师拟答"
+    elif mode == "suggested-edited":
+        evidence = "用户在导师拟答基础上改后确认"
+    else:
+        evidence = "用户回答每日三问"
+    suggested_sources = [str(value) for value in (item.get("suggested_sources") or [])]
+    if mode != "user" and suggested_sources:
+        evidence += "（原拟答来源：" + "、".join(suggested_sources) + "）"
+    return {
+        "action": "create",
+        "section": section,
+        "entry_id": "",
+        "entry_type": entry_type,
+        "confidence": "medium",
+        "title": str(item.get("prompt") or "问题回答")[:self_archive.MAX_TITLE],
+        "text": answer_text,
+        "evidence": evidence,
+        "counterexample": "",
+        "verify": "",
+        "sources": [_qa_source()],
+        "origin": "question" if mode == "suggested" else "user-answer",
+        "old_text": "",
+        "base_revision": "",
+        "previous_entry_id": "",
+        "previous_path": "",
+        "previous_text": "",
+    }
+
+
+def _apply_answer_archive(vault: Path, day: str, qid: str,
+                          item: dict[str, Any], answer_text: str,
+                          mode: str) -> dict[str, Any]:
+    candidate = _answer_candidate(item, answer_text, mode)
+    result = mentor_archive.apply_candidate(
+        vault, candidate,
+        operation_id=f"question:{day}:{qid}:archive",
+        read_only=False,
+    )
+    item["answer_mode"] = mode
+    if result.get("ok"):
+        item["archive_status"] = "done"
+        item["archive_entry_id"] = result.get("entry_id") or ""
+        item["archive_error"] = ""
+        try:
+            mentor_memory.link_qa_entry(vault, qid, item["archive_entry_id"])
+        except Exception:
+            # The answer memory already exists; a missing backlink is not fatal.
+            pass
+    else:
+        item["archive_status"] = "failed"
+        item["archive_entry_id"] = ""
+        item["archive_error"] = " ".join(
+            str(result.get("error") or "档案整理失败").split())[:500]
+    return result
+
+
+def _answer_payload(item: Mapping[str, Any], qid: str, *, qa: Any = None,
+                    result: Mapping[str, Any] | None = None,
+                    duplicate: bool = False) -> dict[str, Any]:
+    archive_saved = item.get("archive_status") == "done"
+    return {
+        "answered": True,
+        "question": qid,
+        "qa": qa,
+        "entry": result if archive_saved and result else None,
+        "archive_update": dict(result) if result else None,
+        "answer_saved": True,
+        "archive_saved": archive_saved,
+        "archive_status": item.get("archive_status") or "",
+        "archive_entry_id": item.get("archive_entry_id") or "",
+        "archive_error": item.get("archive_error") or "",
+        "duplicate": duplicate,
+    }
 
 
 def draft_today(role_service: Any, vault_dir: Path | str, *, read_only: bool = False) -> dict[str, Any]:
@@ -565,62 +676,89 @@ def answer(vault_dir: Path | str, qid: str, text: str, *,
            accept_suggested: bool = False, read_only: bool = False) -> dict[str, Any]:
     _ensure_write(read_only, "回答今日三问")
     vault = Path(vault_dir).resolve()
-    day, items, item = _find_today(vault, qid)
-    if item.get("status") != "pending":
-        raise QuestionError("这个问题已经处理过了", 409)
-    answer_text = str(text or "").strip()
-    if accept_suggested:
-        # 用户可以在“改后回答”里编辑导师拟答；编辑后的文本同样写进档案。
-        answer_text = answer_text or str(item.get("suggested") or "").strip()
-    if not answer_text:
-        raise QuestionError("回答不能为空", 422)
-    if len(answer_text) > MAX_ANSWER:
-        raise QuestionError("回答过长", 422)
-    section = str(item.get("section") or "")
-    entry_type = str(item.get("entry_type") or "narrative")
-    entry = None
-    if accept_suggested:
-        if section not in self_archive.BOOK_BY_KEY:
-            raise QuestionError("问题没有目标本子", 422)
-        if entry_type not in self_archive.ENTRY_TYPES:
-            entry_type = "narrative"
-        entry = self_archive.create_entry(
-            vault, book_key=section, entry_type=entry_type, confidence="medium",
-            title=str(item.get("prompt") or "问题回答")[:120], text=answer_text,
-            evidence="导师拟答（来源：" + "、".join(item.get("suggested_sources") or []) + "）"
-            if item.get("suggested_sources") else "导师拟答",
-            sources=item.get("suggested_sources") or [], origin="question",
-            read_only=read_only,
+    wanted = str(qid or "").strip()
+    with operation_lock(f"question|{vault}|{wanted}"):
+        day, items, item = _find_question(vault, wanted)
+        status = str(item.get("status") or "pending")
+        if status == "answered":
+            # Duplicate submit, or retry the archive stage after a partial
+            # failure. Never append the answer memory a second time.
+            if item.get("archive_status") in ("failed", "pending") and str(item.get("answer") or "").strip():
+                mode = str(item.get("answer_mode") or
+                           ("suggested" if accept_suggested else "user"))
+                result = _apply_answer_archive(
+                    vault, day, wanted, item, str(item["answer"]), mode)
+                write_today(vault, day, items, read_only=False)
+                return _answer_payload(item, wanted, result=result, duplicate=True)
+            result = None
+            if item.get("archive_status") == "done" and item.get("archive_entry_id"):
+                entry = self_archive.find_entry(
+                    vault, item["archive_entry_id"], include_history=True)
+                result = {"ok": True, "entry_id": item["archive_entry_id"],
+                          "path": (entry or {}).get("path", "")}
+            return _answer_payload(item, wanted, result=result, duplicate=True)
+        if status != "pending":
+            raise QuestionError("这个问题已经处理过了", 409)
+        answer_text = str(text or "").strip()
+        suggested = str(item.get("suggested") or "").strip()
+        if accept_suggested:
+            answer_text = answer_text or suggested
+            mode = "suggested" if answer_text == suggested else "suggested-edited"
+        else:
+            mode = "user"
+        if not answer_text:
+            raise QuestionError("回答不能为空", 422)
+        if len(answer_text) > MAX_ANSWER:
+            raise QuestionError("回答过长", 422)
+        section = str(item.get("section") or "")
+        # Stage 1: answer memory first. It is authoritative for what the user
+        # actually said; archive writing must not be able to lose it.
+        qa = mentor_memory.append_qa(
+            vault, question=str(item.get("prompt") or ""), answer=answer_text,
+            qid=wanted, section=section,
+            sources=item.get("suggested_sources") or [],
+            entry_id="", read_only=False,
         )
-    qa = mentor_memory.append_qa(
-        vault, question=str(item.get("prompt") or ""), answer=answer_text,
-        qid=qid, section=section, sources=item.get("suggested_sources") or [],
-        entry_id=(entry or {}).get("entry_id", ""), read_only=read_only,
-    )
-    item["status"] = "answered"
-    item["answer"] = answer_text
-    write_today(vault, day, items, read_only=read_only)
-    return {"answered": True, "question": qid, "entry": entry, "qa": qa}
+        item["status"] = "answered"
+        item["answer"] = answer_text
+        item["answer_mode"] = mode
+        item["archive_status"] = "pending"
+        item["archive_entry_id"] = ""
+        item["archive_error"] = ""
+        # Persist the answer before the archive stage so a crash leaves a
+        # recoverable "answered but archive pending" card, not a lost answer.
+        write_today(vault, day, items, read_only=False)
+        # Stage 2: archive through the same validated update chain as B4b.
+        result = _apply_answer_archive(vault, day, wanted, item, answer_text, mode)
+        write_today(vault, day, items, read_only=False)
+        return _answer_payload(item, wanted, qa=qa, result=result)
 
 
 def skip(vault_dir: Path | str, qid: str, *, forever: bool = False,
          read_only: bool = False) -> dict[str, Any]:
     _ensure_write(read_only, "跳过今日三问")
     vault = Path(vault_dir).resolve()
-    day, items, item = _find_today(vault, qid)
-    if item.get("status") != "pending":
-        raise QuestionError("这个问题已经处理过了", 409)
-    item["status"] = "declined" if forever else "skipped"
-    write_today(vault, day, items, read_only=read_only)
-    state = load_state(vault)
-    if forever:
-        if qid not in state["declined"]:
-            state["declined"].append(qid)
-        state["skipped"].pop(qid, None)
-    else:
-        state["skipped"][qid] = datetime.now(SHANGHAI).isoformat(timespec="seconds")
-    save_state(vault, state)
-    return {"skipped": True, "forever": bool(forever), "question": qid}
+    wanted = str(qid or "").strip()
+    target = "declined" if forever else "skipped"
+    with operation_lock(f"question|{vault}|{wanted}"):
+        day, items, item = _find_question(vault, wanted)
+        status = str(item.get("status") or "pending")
+        if status == target:
+            return {"skipped": True, "forever": bool(forever),
+                    "question": wanted, "duplicate": True}
+        if status != "pending":
+            raise QuestionError("这个问题已经处理过了", 409)
+        item["status"] = target
+        write_today(vault, day, items, read_only=False)
+        state = load_state(vault)
+        if forever:
+            if wanted not in state["declined"]:
+                state["declined"].append(wanted)
+            state["skipped"].pop(wanted, None)
+        else:
+            state["skipped"][wanted] = datetime.now(SHANGHAI).isoformat(timespec="seconds")
+        save_state(vault, state)
+        return {"skipped": True, "forever": bool(forever), "question": wanted}
 
 
 __all__ = [

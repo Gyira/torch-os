@@ -233,7 +233,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                dsh_runtime: DshWebRuntime | DisabledDshRuntime | None = None,
                enable_dsh: bool | None = None,
                dsh_workspace: Path | None = None,
-               love_legacy_migration: bool | None = None) -> FastAPI:
+               love_legacy_migration: bool | None = None,
+               mentor_autonomous_archive: bool | None = None) -> FastAPI:
     # 只有未注入工作区的真实个人实例才自动迁移旧恋爱数据；测试/QA 的临时库不会碰真实路径。
     provided_paths = database is not None or vault_dir is not None
     if database is None or vault_dir is None:
@@ -252,6 +253,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         raise ValueError('QA runtime must be local-only')
     env_path = Path(env_file) if env_file is not None else Path(__file__).resolve().parents[2] / '.env'
     vault_read_only = read_only_enabled(security_environ)
+    if mentor_autonomous_archive is None:
+        from .config import MENTOR_AUTONOMOUS_ARCHIVE as default_autonomous
+        mentor_autonomous_archive = default_autonomous
     database.initialize()
     vault_dir.mkdir(parents=True, exist_ok=True)
     # 真实个人实例启动时幂等整理任务数据层；测试/显式注入库不自动搬文件。
@@ -274,6 +278,17 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         "enabled": layout_repair_enabled, "interval_seconds": 10,
         "last_checked_at": "", "last_created": [], "error": "",
     }
+    # B4a: reconcile interrupted archive supersedes once at startup. Recovery
+    # only completes an operation when the old revision is unchanged; anything
+    # ambiguous is reported and left for explicit inspection.
+    archive_recovery_state: dict[str, Any] = {"status": "skipped"}
+    if runtime_label == "personal" and not provided_paths and not vault_read_only:
+        try:
+            from .self_archive import recover_incomplete_operations
+            archive_recovery_state = recover_incomplete_operations(vault_dir)
+            archive_recovery_state["status"] = "done"
+        except Exception as error:  # noqa: BLE001 - never block startup
+            archive_recovery_state = {"status": "error", "error": type(error).__name__}
 
     def repair_fixed_directories():
         from .vault_layout import ensure_layout
@@ -328,6 +343,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         vault_dir=vault_dir,
         proposals=proposal_service,
         read_only=vault_read_only,
+        autonomous_archive=bool(mentor_autonomous_archive),
     )
     scheduler_service = SchedulerService(database, vault_dir)
     scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
@@ -434,6 +450,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.vault_dir = vault_dir
     app.state.task_layout_bootstrap = task_layout_state
     app.state.ops_layout_bootstrap = ops_layout_state
+    app.state.archive_recovery = archive_recovery_state
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = data_lock
@@ -853,7 +870,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         read_only=vault_read_only))
     # 自我档案 v2 + 人生导师：本子/条目/画像/待确认/每日三问/全量整理。
     app.include_router(create_self_router(
-        vault_dir, read_only=vault_read_only, role_service=ai_service))
+        vault_dir, read_only=vault_read_only, role_service=ai_service,
+        autonomous_archive=bool(mentor_autonomous_archive)))
     # 恋爱系统 v2：私人数据全部在 02_生活运营/01_恋爱系统/，按七个页面分目录；
     # 旧 .torch-os/love/ 只作为迁移来源。AI 统一走 dsh 角色层，不再保存独立 DeepSeek Key。
     train_tracker_legacy: list[Path] = []

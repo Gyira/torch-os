@@ -18,9 +18,10 @@
 | `.torch-os/personal-data.json` | 小组件偏好、常用城市、导航/小组件排序、时间视图等个性化键值 |
 | `.torch-os/忆灵/` | **旧版忆灵**画像、画像历史、复盘卡、事件状态；2026-11-01 起只作历史兼容，新界面不调用 |
 | `01_自我档案/01_档案/` | 自我档案 v2：`00_画像.md`、`身份（identity）.md` 与 11 个固定本子（每个条目一篇 Markdown） |
-| `01_自我档案/02_人生导师/` | 分层记忆（核心/时间线/问答）、待确认补丁、每日三问、旧忆灵历史；全部 Markdown |
+| `01_自我档案/02_人生导师/` | 分层记忆（核心/时间线/问答）、旧模式待确认补丁、每日三问、旧忆灵历史；全部 Markdown |
 | `01_自我档案/03_八字系统/` | `命盘.md`、`解读/*.md`、`历史/`；排盘与解读都在本机 |
 | `.torch-os/ai-runtime/` | 角色子进程的空工作区与临时文件；不是 Vault，不承载用户资料 |
+| `.torch-os/self-archive-ops/` | 档案新建/替代的最小操作记录（operation_id、旧/新 entry_id、revision、阶段、错误）；用于中断恢复与幂等，不保存第二份正文 |
 | `.torch-os/横幅背景/` | 工作台横幅图片；编辑器选图后由后端复制进来，路径写回身份笔记 |
 | `.torch-os/train-tracker/` | 独立列车追踪组件的 `timetable.json`（可导入或手动从 12306 同步） |
 | `02_生活运营/01_恋爱系统/01_恋爱记忆/` | 恋爱记忆 Markdown 本子：`恋爱日志/`（默认）、`AI 草稿/`、自定义本子 |
@@ -107,7 +108,9 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
   会话引用（deprecated，无写入方）。`ai_threads`/`ai_turns` 是 v1.0 角色抽屉的会话与轮次；
   「与神对话」主对话仍由 DeepSeek Harness 自己管理。
 - 建议与提醒：`suggestions` 是旧提醒表；`ai_proposals` 是 AI 角色提出的待确认动作
-  （身份补丁/新笔记/新任务/新习惯），只有用户采纳后才会落盘。
+  （身份补丁/新笔记/新任务/新习惯），只有用户采纳后才会落盘。人生导师的自主档案更新
+  不经过 `ai_proposals`，而是经 `mentor_archive.py` 校验后用 Markdown 条目与
+  `.torch-os/self-archive-ops/` 操作记录完成。
 - 目标与任务：`goals`、`tasks`、`task_import_ledger` 是旧 SQLite 结构（deprecated，无写入方）；
   目标和任务以 Markdown 为权威，任务导入用任务笔记的稳定导入键去重。
 - 每日记录：`journal_entries`、`journal_actions` 是旧 SQLite 日记与动作（deprecated，

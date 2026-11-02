@@ -16,7 +16,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-_THREAD_LOCKS = [threading.Lock() for _ in range(64)]
+# Re-entrant: nested operations (e.g. question -> archive operation) may hash
+# to the same advisory slot in the same thread. The file locks remain separate.
+_THREAD_LOCKS = [threading.RLock() for _ in range(64)]
 
 
 def _read_bytes(path: Path) -> bytes | None:
@@ -70,17 +72,15 @@ class DocumentUpdate:
 
 
 @contextmanager
-def _locked_path(path: Path, vault_dir: Path | None = None):
-    requested = path.absolute()
-    # Do not resolve/stat the leaf before taking its lock: CPython 3.12's
-    # Windows realpath opens it without delete sharing. Resolve only the parent
-    # for a stable key; retain the original path for the Vault link checks.
-    canonical = requested.parent.resolve() / requested.name
-    key = hashlib.sha256(os.path.normcase(str(canonical)).encode("utf-8")).hexdigest()
-    # Local advisory lock files stay outside the user's Markdown hierarchy.
-    # Do not unlink them: another process may already hold the same lock inode.
+def _advisory_lock(key: str, *, namespace: str = "torch-os-locks"):
+    """Thread + OS file lock shared by cooperating torch processes.
+
+    Lock files live in the temp directory, outside the user's Markdown
+    hierarchy. They are never unlinked: another process may hold the same
+    inode while a caller replaces the key file.
+    """
     with _THREAD_LOCKS[int(key[:8], 16) % len(_THREAD_LOCKS)]:
-        lock_dir = Path(tempfile.gettempdir()) / "torch-os-memory-locks"
+        lock_dir = Path(tempfile.gettempdir()) / namespace
         lock_dir.mkdir(parents=True, exist_ok=True)
         with (lock_dir / f"{key}.lock").open("a+b") as handle:
             # Windows byte-range locks may cover EOF. Never initialize a
@@ -93,21 +93,41 @@ def _locked_path(path: Path, vault_dir: Path | None = None):
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
-                if vault_dir is not None:
-                    from .vault import safe_note_path
-                    root = Path(vault_dir).resolve()
-                    checked = safe_note_path(root, requested.relative_to(root).as_posix())
-                else:
-                    if requested.is_symlink() or (hasattr(requested, "is_junction") and requested.is_junction()):
-                        raise ValueError("不读写链接记忆文件")
-                    checked = canonical
-                yield checked
+                yield
             finally:
                 handle.seek(0)
                 if os.name == "nt":
                     msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def operation_lock(key: str):
+    """Serialize one archive operation key across threads and processes."""
+    digest = hashlib.sha256(str(key).encode("utf-8")).hexdigest()
+    with _advisory_lock(digest, namespace="torch-os-operation-locks"):
+        yield
+
+
+@contextmanager
+def _locked_path(path: Path, vault_dir: Path | None = None):
+    requested = path.absolute()
+    # Do not resolve/stat the leaf before taking its lock: CPython 3.12's
+    # Windows realpath opens it without delete sharing. Resolve only the parent
+    # for a stable key; retain the original path for the Vault link checks.
+    canonical = requested.parent.resolve() / requested.name
+    key = hashlib.sha256(os.path.normcase(str(canonical)).encode("utf-8")).hexdigest()
+    with _advisory_lock(key, namespace="torch-os-memory-locks"):
+        if vault_dir is not None:
+            from .vault import safe_note_path
+            root = Path(vault_dir).resolve()
+            checked = safe_note_path(root, requested.relative_to(root).as_posix())
+        else:
+            if requested.is_symlink() or (hasattr(requested, "is_junction") and requested.is_junction()):
+                raise ValueError("不读写链接记忆文件")
+            checked = canonical
+        yield checked
 
 
 def read_document(path: Path, *, vault_dir: Path) -> bytes | None:

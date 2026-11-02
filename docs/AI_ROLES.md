@@ -2,19 +2,23 @@
 
 > 本文记录 v1.0 角色层：角色卡、统一 dsh 网关、上下文装配、页面内角色抽屉与提案协议。
 > P0–P4 已接入；P5 已完成 Windows 进程/编码/并发/超时测试、审计覆盖、备份/导出与浏览器探针。
+> 2026-11-03 B3-3 核对：角色名称、模式、读取范围、受控动作以 `backend/app/role_policy.py`
+> 和真实角色卡为准；政策版本见下文。
 
 ## 1. 一个内核，多张角色卡
 
 - 唯一模型通道仍是本地 **dsh**；角色不是第二个模型，也不是第二个 Key。
 - 角色卡放在仓库 `dsh/roles/*.md`，随仓库走：换库只换数据，不换人格。
-- 「与神对话」主 iframe 仍是唯一自由对话入口；角色抽屉是页面内、带范围的任务型对话。
+- 「与神对话」是 DSH 的自由开发对话入口；**人生导师是独立角色页面**（`frontend/mentor.js`）。
+  两者不是同一个身份：DSH 负责修改项目、加功能、修 Bug；导师负责长期记忆、自我档案与陪伴。
+- 角色抽屉是页面内、带范围的任务型对话；导师页有自己的三栏会话与每日提问。
 - 角色子进程拿不到 Vault 路径、没有工具权限；所有资料由后端拼好后通过 stdin 传入。
 
 ## 2. 当前角色
 
 | id | 名称 | 模式 | 允许提议 |
 |---|---|---|---|
-| `mentor` | 人生导师 | `converse` / `synthesize` / `bazi` / `question_draft` | hub_event（档案补丁走独立 Markdown 待确认） |
+| `mentor` | 人生导师 | `converse` / `synthesize` / `bazi` / `question_draft` | hub_event；档案/记忆更新经服务端校验后提交（旧待确认模式可回退） |
 | `yiling` | 忆灵 / 苏格拉底（历史兼容） | 仅查看既有会话 | 不再新推理或生成提议 |
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
 | `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
@@ -24,11 +28,33 @@
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 2026-11-01 起，新入口统一为 `mentor`（人生导师）：对话、整理、八字、拟答四种模式，
-读自我档案/分层记忆/三库；档案写入走 `01_自我档案/02_人生导师/待确认/`。
+读自我档案/分层记忆/三库。2026-11-03 B4b 起，导师在对话与全量整理中返回的
+`archive_updates` 会先经服务端来源、类型、范围与条目版本校验，再直接写入
+`01_自我档案/01_档案/`；旧 `archive_verdict` 与旧待确认卡仍兼容。
+设置 `TORCH_MENTOR_AUTONOMOUS_ARCHIVE=0` 可回退为“只生成待确认卡”，不会删除已写入条目。
 2026-11-03 B3-1：`yiling` 只保留历史查看，新的推理/旧综合请求返回 409 并指向人生导师。
 健康估算已合并到 `health_doctor/estimate`；旧 `health_estimator` 仅在运行入口作为兼容别名，
 不再注册独立角色，旧历史不删除。具体资料边界与回退见 `DESIGN_B3_ROLE_BOUNDARIES.md`。
 完整设计见 `docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
+
+### 固定读取范围、写入范围与受控动作（B3-3 核对）
+
+政策版本：`B4b-v1`，定义在 `backend/app/role_policy.py`。下表是**代码上限**，不是每次请求
+都会加载整库；角色名字、风格、Skill、模式提示词都不能扩大它。角色管理页显示同一份
+manifest 数据。
+
+| 角色 | 固定读取范围 | 固定写入范围 / 受控动作 |
+| --- | --- | --- |
+| `mentor` 人生导师 | 四库（人生路/自我档案/生活运营/知识库） | 写入自我档案；`ROLE_ACTIONS` 为空，档案/记忆更新走独立校验链 |
+| `journal_companion` 写作伙伴 | `00_人生路` | 人生路内 `new_note` / `archive_note` |
+| `academic_mentor` 学术导师 | `03_知识库` | 知识库内 `new_note` / `archive_note` |
+| `life_assistant` 生活管家 | `02_生活运营`（含健康/财务/恋爱摘要与习惯摘要） | 生活运营内 `new_note`；跨域 `new_task` / `new_habit` 经受控执行器 |
+| `love_master` 恋爱大师 | `02_生活运营/01_恋爱系统` | 恋爱系统内 `new_note`；`new_task` 交给任务服务 |
+| `health_doctor` 私人医生 | `02_生活运营/02_健康系统` | `health_report`（`estimate` 只是模式，不是独立角色） |
+| `finance_advisor` 理财专家 | `02_生活运营/03_财务系统` | `finance_report` |
+| `yiling` 旧忆灵 | 旧会话/记录只读 | 不发起新推理、不新增身份修改 |
+
+导师的“全局读取”不等于“全局写入”：跨域报告、待办、习惯仍按各自角色与受控执行器处理。
 
 ## 3. 角色卡格式
 
@@ -97,7 +123,7 @@ dsh --profile headless --json --session-id <session-torch-...> -
 |---|---|---|
 | GET | `/api/ai/status` | 是否可用、dsh 命令类型、Key 来源（不返回 Key）、角色数、角色文件错误 |
 | GET | `/api/ai/roles` | 活跃角色元数据（不含 prompt 正文；含 tagline、custom 计数、skill_names、legacy_count 与加载错误；legacy 角色不进 items） |
-| GET | `/api/ai/roles/{id}/profile` | 可编辑档案：名字/定位/身份/风格/Skill + 模式/入口/提议 + revision + 文件名 |
+| GET | `/api/ai/roles/{id}/profile` | 可编辑档案：名字/定位/身份/风格/Skill + 模式/入口/提议 + revision + 文件名 + 固定 policy |
 | PUT | `/api/ai/roles/{id}/profile` | 保存身份/风格/Skill；`expected_revision` 必填，冲突 409；模式正文与其它字段不动 |
 | POST | `/api/ai/chat` | 角色对话；`role_id/mode/thread_id/message/entry/selectors/selection_text/selection_source/draft_text` |
 | POST | `/api/ai/run` | 一次性能力；返回 `text` + `structured` |
@@ -144,6 +170,9 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 
 - `backend/app/proposals.py`：`pending → applying → applied | rejected | expired | failed`。
 - 所有提案必须用户 `confirm=true` 才 apply；重复 apply 幂等；
+- 导师的 `archive_updates` / `memory_notes` **不是提案**：它们走
+  `backend/app/mentor_archive.py` → `self_archive.py` 的受控写入链，有来源校验、
+  条目版本校验和 B4a 操作幂等键；旧 `archive_verdict` 生成的待确认卡仍按提案/卡片流程处理。
 - 身份补丁：
   - 忆灵审核路径：用户看 diff + 来源后直接采纳（`verdict.requires_dialogue=false`）；
   - 苏格拉底路径：必须带 AI 的 `verdict_token`（`requires_dialogue=true`）。
@@ -155,9 +184,12 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 
 ## 7. 前端入口（P1）
 
+- **自我档案 → 人生导师**：独立导师页 `frontend/mentor.js`，三栏会话 + 今日提问 +
+  记忆 + 资料 + 旧待确认卡；档案更新在对话内显示事实/推断、依据、操作 ID 与历史链接；
 - **顶部「AI 角色」管理页（2.2）**：`role-admin.js` + `role-admin.css` + 纯逻辑
   `role-admin-model.js`；搜索/分层筛选、身份/风格/专属 Skill 编辑、revision 冲突提示、
-  未保存切换/离页确认，保存后清空角色抽屉缓存。当前角色卡仍属于程序仓库，所有数据库共用；
+  未保存切换/离页确认，保存后清空角色抽屉缓存；角色卡原有设定里显示后端固定的
+  读取范围、写入范围、受控动作与政策版本。当前角色卡仍属于程序仓库，所有数据库共用；
 - 工作台 → 时间管理顶部「生活管家」→ `life_assistant/tasks` 抽屉；
 - 人生路/知识库/生活运营/恋爱系统的首页卡片分别打开写作伙伴/学术导师/生活管家/恋爱大师；
 - 阅读器右上角有「问…」入口：打开对应角色时自动带上当前文档（`note` 选择器，每轮读取最新正文），

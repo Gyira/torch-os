@@ -67,6 +67,22 @@ class ArchiveVerdict(_Loose):
     sources: list[str] = Field(default_factory=list, max_length=20)
 
 
+class ArchiveUpdate(_Loose):
+    """B4b: one validated entry the mentor wants to create or supersede."""
+
+    action: Literal["create", "supersede"] = "create"
+    section: str = Field(default="", max_length=60)
+    entry_id: str = Field(default="", max_length=80)
+    entry_type: str = Field(default="inference", max_length=20)
+    confidence: str = Field(default="medium", max_length=20)
+    title: str = Field(default="", max_length=120)
+    text: str = Field(default="", max_length=8000)
+    evidence: str = Field(default="", max_length=2000)
+    counterexample: str = Field(default="", max_length=2000)
+    verify: str = Field(default="", max_length=2000)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+
+
 class MemoryNote(_Loose):
     kind: str = Field(default="observation", max_length=40)
     text: str = Field(default="", max_length=300)
@@ -98,6 +114,7 @@ class Reply(_Loose):
     proposals: list[ProposalDraft] = Field(default_factory=list, max_length=20)
     identity_verdict: IdentityVerdict | None = None
     archive_verdict: ArchiveVerdict | None = None
+    archive_updates: list[ArchiveUpdate] = Field(default_factory=list, max_length=10)
     memory_notes: list[MemoryNote] = Field(default_factory=list, max_length=20)
     questions: list[QuestionDraft] = Field(default_factory=list, max_length=10)
     hub_events: list[HubEvent] = Field(default_factory=list, max_length=20)
@@ -141,11 +158,12 @@ def parse_reply(text: str) -> tuple[Reply, bool]:
         return Reply(reply=raw), False
     if not reply.reply and not (reply.proposals or reply.findings
                                 or reply.identity_verdict or reply.archive_verdict
+                                or reply.archive_updates
                                 or reply.memory_notes or reply.questions):
         reply.reply = raw
     return reply, True
 
 
 __all__ = ["Finding", "ProposalDraft", "IdentityVerdict", "HubEvent", "Reply",
-           "ArchiveVerdict", "MemoryNote", "QuestionDraft", "SynthesisResult",
-           "extract_json", "parse_reply"]
+           "ArchiveVerdict", "ArchiveUpdate", "MemoryNote", "QuestionDraft",
+           "SynthesisResult", "extract_json", "parse_reply"]

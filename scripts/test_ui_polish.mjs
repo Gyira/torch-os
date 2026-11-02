@@ -7,6 +7,8 @@ import { readFile } from "node:fs/promises";
 import * as editorModel from "../frontend/editor-model.js";
 import * as taskModel from "../frontend/tasks-model.js";
 import * as roleModel from "../frontend/roles-model.js";
+import * as mentorModel from "../frontend/mentor-model.js";
+import * as roleAdminModel from "../frontend/role-admin-model.js";
 
 class Element {
   constructor(tag, doc) {
@@ -134,6 +136,205 @@ async function load(name, env, setup = "") {
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+test("导师档案更新卡片区分事实/推断、成功/失败并给历史链接", () => {
+  const html = mentorModel.messageMarkup({
+    role: "assistant", content: "我记下了本轮变化。",
+    archive_updates: [
+      { ok: true, operation_id: "chat:ok", action: "supersede",
+        entry_type_label: "推断", section_title: "基础事实", title: "新判断",
+        text: "新的观察", evidence: "依据", sources: ["S1"],
+        path: "01_自我档案/01_档案/01_基础事实/new.md",
+        previous_path: "01_自我档案/01_档案/01_基础事实/old.md" },
+      { ok: false, operation_id: "chat:bad", action: "create",
+        entry_type_label: "事实", section_title: "基础事实", title: "无来源事实",
+        error: "事实条目必须有明确来源" },
+    ],
+  });
+  assert.match(html, /ARCHIVE UPDATES/);
+  assert.match(html, /修正 · 推断/);
+  assert.match(html, /chat:ok/);
+  assert.match(html, /查看旧版/);
+  assert.match(html, /old\.md/);
+  assert.match(html, /is-error/);
+  assert.match(html, /事实条目必须有明确来源/);
+});
+
+test("角色管理页只把后端固定策略翻译成人能读的范围与动作", () => {
+  assert.equal(roleAdminModel.scopeLabel("00_人生路"), "人生路");
+  assert.equal(roleAdminModel.scopeLabel("02_生活运营/02_健康系统"), "健康系统");
+  assert.equal(roleAdminModel.scopeLabel("future/unknown"), "future/unknown");
+  assert.equal(
+    roleAdminModel.policyReadLabels({ read_roots: ["00_人生路", "01_自我档案"] }).join("|"),
+    "人生路|自我档案");
+  assert.equal(
+    roleAdminModel.policyActionLabels({ actions: ["new_note", "new_task"] }).join("|"),
+    "新建笔记|新建待办");
+});
+
+test("每日提问区分回答已保存与档案失败，并提供重试与读屏状态", () => {
+  const failed = mentorModel.questionCardMarkup({
+    id: "q1", prompt: "你通常几点睡？", section_title: "基础事实",
+    status: "answered", answer: "凌晨一点", archive_status: "failed",
+    archive_error: "磁盘只读",
+  });
+  assert.match(failed, /回答已保存，但档案整理失败/);
+  assert.match(failed, /磁盘只读/);
+  assert.match(failed, /data-mentor-q-retry="q1"/);
+  const done = mentorModel.questionCardMarkup({
+    id: "q2", prompt: "问题", status: "answered", answer: "回答",
+    archive_status: "done", archive_entry_id: "ent_1",
+  });
+  assert.match(done, /已整理进档案/);
+  assert.doesNotMatch(done, /data-mentor-q-retry/);
+  const panel = mentorModel.questionsMarkup(
+    { items: [] }, false, { message: "回答已保存，档案已更新。", tone: "success" });
+  assert.match(panel, /role="status"/);
+  assert.match(panel, /回答已保存，档案已更新。/);
+});
+
+async function mentorHarness() {
+  const env = environment();
+  Object.assign(env, mentorModel);
+  env.toast = () => {};
+  env.renderMarkdownDocument = (text) => ({ html: text });
+  const chats = [];
+  const threadRequests = new Map();
+  env.threadRequests = threadRequests;
+  env.api = async (path) => {
+    if (path.startsWith("/api/ai/chat")) {
+      const request = deferred(); chats.push(request); return request.promise;
+    }
+    if (path.startsWith("/api/ai/threads/")) {
+      const request = deferred(); threadRequests.set(decodeURIComponent(path.split("/").pop()), request);
+      return request.promise;
+    }
+    if (path.startsWith("/api/mentor/overview")) {
+      return { thread_id: "", threads: [], legacy_threads: [], pending: [], memory: {}, questions: {} };
+    }
+    return {};
+  };
+  const ctx = await load("mentor.js", env, `
+    state.host = document.body;
+    state.initialized = false;
+    initMentor(document.body);
+    state.active = true;
+    ensureShell();
+    ensureConversationIdentity();
+    globalThis.stateRef = state;
+    globalThis.snapshot = () => ({
+      thread: state.threadId,
+      local: state.localConversationId,
+      messages: state.messages.map((item) => ({ role: item.role, content: item.content })),
+      busy: state.busy,
+      legacy: state.legacyThread,
+      status: document.querySelector("[data-mentor-status]")?.textContent || "",
+      input: document.querySelector("[data-mentor-input]")?.value || "",
+      active: state.active,
+    });
+    globalThis.openThreadNow = async (id) => {
+      const pending = openThread(id);
+      threadRequests.get(id).resolve({ thread: { id, role_id: "mentor", title: id }, turns: [{ role: "user", content: "你好 " + id }] });
+      await pending;
+    };
+  `);
+  return { env, ctx, chats, threadRequests };
+}
+
+test("导师 A 会话迟到回复不写入 B，也不抢 B 的线程与状态", async () => {
+  const { ctx, chats } = await mentorHarness();
+  await ctx.openThreadNow("A");
+  const sendingA = ctx.sendMessage("A 的问题");
+  await ctx.openThreadNow("B");
+  chats[0].resolve({ thread_id: "A", reply: "A 的迟到回复" });
+  await sendingA;
+  const state = ctx.snapshot();
+  assert.equal(state.thread, "B");
+  assert.equal(state.messages.map((item) => item.content).join("|"), "你好 B");
+  assert.equal(state.busy, false);
+  assert.doesNotMatch(state.status, /A 的迟到回复/);
+});
+
+test("导师发送中新建会话，迟到回复不污染新会话的本地身份和草稿", async () => {
+  const { ctx, chats } = await mentorHarness();
+  await ctx.openThreadNow("A");
+  const sending = ctx.sendMessage("A 的问题");
+  ctx.newConversation();
+  const localId = ctx.snapshot().local;
+  chats[0].resolve({ thread_id: "A", reply: "旧回复" });
+  await sending;
+  const state = ctx.snapshot();
+  assert.equal(state.thread, "");
+  assert.equal(state.local, localId);
+  assert.equal(state.messages.length, 0);
+  assert.equal(state.busy, false);
+});
+
+test("导师会话 A/B 乱序返回时保留最后打开的 B", async () => {
+  const { ctx, env } = await mentorHarness();
+  const openingA = ctx.openThread("A");
+  const openingB = ctx.openThread("B");
+  ctx.threadRequests.get("B").resolve({ thread: { id: "B", role_id: "mentor" }, turns: [] });
+  await openingB;
+  ctx.threadRequests.get("A").resolve({ thread: { id: "A", role_id: "mentor" }, turns: [] });
+  await openingA;
+  assert.equal(ctx.snapshot().thread, "B");
+});
+
+test("导师 A 的 finally 不能解除 B 的 busy；B 自己的回复才结束忙碌", async () => {
+  const { ctx, chats } = await mentorHarness();
+  await ctx.openThreadNow("A");
+  const sendingA = ctx.sendMessage("A 问题");
+  await ctx.openThreadNow("B");
+  const sendingB = ctx.sendMessage("B 问题");
+  assert.equal(ctx.snapshot().busy, true);
+  chats[0].resolve({ thread_id: "A", reply: "A 回复" });
+  await sendingA;
+  assert.equal(ctx.snapshot().busy, true);
+  assert.equal(ctx.snapshot().messages.map((item) => item.content).join("|"), "你好 B|B 问题");
+  chats[1].resolve({ thread_id: "B", reply: "B 回复" });
+  await sendingB;
+  assert.equal(ctx.snapshot().busy, false);
+  assert.equal(ctx.snapshot().thread, "B");
+});
+
+test("导师草稿按会话隔离，失败不覆盖后来输入，离开重进仍可恢复", async () => {
+  const { ctx, env, chats } = await mentorHarness();
+  await ctx.openThreadNow("A");
+  const input = env.document.querySelector("[data-mentor-input]");
+  input.value = "A 的草稿";
+  await ctx.openThreadNow("B");
+  assert.equal(input.value, "");
+  input.value = "B 的草稿";
+  await ctx.openThreadNow("A");
+  assert.equal(input.value, "A 的草稿");
+  const sending = ctx.sendMessage("A 的草稿");
+  input.value = "失败后新写的";
+  chats[0].reject(new Error("超时"));
+  await sending;
+  assert.equal(input.value, "失败后新写的");
+  ctx.leaveMentor();
+  ctx.stateRef.active = true;
+  ctx.renderAll();
+  assert.equal(ctx.snapshot().input, "失败后新写的");
+});
+
+test("导师输入法组合中的 Enter 不发送；滚动不让正在阅读的用户跳到底部", async () => {
+  const { ctx, env, chats } = await mentorHarness();
+  await ctx.openThreadNow("A");
+  const input = env.document.querySelector("[data-mentor-input]");
+  input.value = "中文输入";
+  await env.document.body.fire("keydown", { key: "Enter", isComposing: true, target: input });
+  assert.equal(chats.length, 0);
+  const messages = env.document.querySelector("[data-mentor-messages]");
+  messages.scrollTop = 0;
+  messages.scrollHeight = 1000;
+  messages.clientHeight = 100;
+  ctx.renderMessages();
+  assert.equal(messages.scrollTop, 0);
+  await env.document.body.fire("keydown", { key: "Enter", target: input });
+  assert.equal(chats.length, 1);
+});
 
 test("导师回复成功但记忆写入失败时保留回复并明确提示失败", async () => {
   const env = environment();

@@ -6,7 +6,8 @@ import { openRoleDrawer } from "./roles.js";
 import {
   MAX_SKILLS, FIELD_LIMITS, ROLE_LAYERS, STYLE_PRESETS,
   customProfileCount, filterRoles, isProfileDirty, layerLabel,
-  newSkill, preferredPreviewMode, profilePayload, profileSkills, roleInitial,
+  newSkill, preferredPreviewMode, policyActionLabels, policyReadLabels,
+  policyWriteLabels, profilePayload, profileSkills, roleInitial,
   skillCountLabel, totalSkillCount, validateProfile,
 } from "./role-admin-model.js";
 
@@ -28,6 +29,7 @@ const state = {
   registryErrors: [],
   legacyCount: 0,
   internalCount: 0,
+  autonomousArchive: false,
   aiStatus: null,
   selected: "",
   profile: null,
@@ -123,6 +125,7 @@ export async function loadRoleAdmin() {
     state.registryErrors = Array.isArray(manifest?.errors) ? manifest.errors : [];
     state.legacyCount = Math.max(0, Number(manifest?.legacy_count) || 0);
     state.internalCount = Math.max(0, Number(manifest?.internal_count) || 0);
+    state.autonomousArchive = manifest?.mentor_autonomous_archive === true;
     state.aiStatus = aiStatus;
     const legacyNote = el("role-admin-legacy-note");
     if (legacyNote) legacyNote.hidden = !state.legacyCount;
@@ -180,6 +183,8 @@ async function loadProfile(roleId, { force = false } = {}) {
   try {
     const profile = await api(`/api/ai/roles/${encodeURIComponent(roleId)}/profile`);
     if (token !== state.loadToken) return;
+    const manifestItem = state.items.find((item) => item.id === roleId);
+    if (manifestItem?.policy) profile.policy = clone(manifestItem.policy);
     state.selected = roleId;
     state.profile = clone(profile);
     state.profile.skills = profileSkills(profile);
@@ -322,6 +327,11 @@ function renderEditor() {
   const stylePresetActive = STYLE_PRESETS.find((preset) => preset.text === String(profile.style || "").trim());
   const preview = preferredPreviewMode(profile);
   const skills = profileSkills(profile);
+  const policy = profile.policy || {};
+  const readLabels = policyReadLabels(policy);
+  const writeLabels = policyWriteLabels(policy);
+  const actionLabels = policyActionLabels(policy);
+  const isMentor = profile.id === "mentor";
   const custom = {
     identity: Boolean(profile.identity),
     style: Boolean(profile.style),
@@ -397,9 +407,12 @@ function renderEditor() {
           <div><span class="field-label">模式</span><div class="role-admin-chips">${modes.length ? modes.map((mode) => `<span class="role-admin-chip">${escapeHtml(mode)}</span>`).join("") : "<span class=\"meta\">未声明</span>"}</div></div>
           <div><span class="field-label">可用入口</span><div class="role-admin-chips">${entries.length ? entries.map((entry) => `<code class="role-admin-chip">${escapeHtml(entry)}</code>`).join("") : "<span class=\"meta\">无固定入口</span>"}</div></div>
           <div><span class="field-label">可提议</span><div class="role-admin-chips">${proposals.length ? proposals.map((item) => `<span class="role-admin-chip">${escapeHtml(proposalLabel(item))}</span>`).join("") : "<span class=\"meta\">只回答，不提议</span>"}</div></div>
-          <div><span class="field-label">角色卡</span><p class="meta"><code>${escapeHtml(profile.file || `${profile.id}.md`)}</code> · 身份/风格 ${custom.identity || custom.style ? "已自定义" : "沿用原文"} · ${skillCountLabel(skills.length)}</p></div>
+          <div><span class="field-label">固定读取范围</span><p class="meta">${readLabels.length ? escapeHtml(readLabels.join("、")) : "无业务资料"}</p></div>
+          <div><span class="field-label">固定写入范围</span><p class="meta">${writeLabels.length ? escapeHtml(writeLabels.join("、")) : "无直接写入"}</p></div>
+          <div><span class="field-label">受控动作</span><p class="meta">${actionLabels.length ? escapeHtml(actionLabels.join("、")) : (isMentor ? `无提案动作；档案/记忆更新走独立校验链（${state.autonomousArchive ? "当前自主提交" : "旧待确认兼容"}）` : "无")}</p></div>
+          <div><span class="field-label">角色卡</span><p class="meta"><code>${escapeHtml(profile.file || `${profile.id}.md`)}</code> · 身份/风格 ${custom.identity || custom.style ? "已自定义" : "沿用原文"} · ${skillCountLabel(skills.length)}${policy.version ? ` · 策略 ${escapeHtml(policy.version)}` : ""}</p></div>
         </div>
-        <p class="field-help">模式规则与提示词正文仍直接写在角色卡文件里；这里管理的是身份、风格和专属 Skill。改完保存后，下一轮对话生效。</p>
+        <p class="field-help">读取/写入范围与受控动作由后端 <code>role_policy.py</code> 固定；角色名字、风格、Skill 和模式提示词都不能扩大它。跨域动作（如新建待办/习惯）只把业务字段交给固定执行器，不会开放对方目录的任意读写。模式规则与提示词正文仍写在角色卡文件里；这里管理的是身份、风格和专属 Skill。改完保存后，下一轮对话生效。</p>
       </details>
     </div>
 
@@ -578,7 +591,9 @@ function onEditorClick(event) {
       roleId: profile.id,
       mode,
       title: profile.name,
-      hint: "试聊会用刚保存的角色卡。它只提议，采纳后才写入。",
+      hint: profile.id === "mentor"
+        ? "试聊会用刚保存的角色卡。普通提议采纳后写入；导师的档案更新经服务端校验后直接提交。"
+        : "试聊会用刚保存的角色卡。它只提议，采纳后才写入。",
     });
     return;
   }

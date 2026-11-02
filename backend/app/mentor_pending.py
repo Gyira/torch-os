@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from . import self_archive, vault_layout
+from .memory_store import operation_lock
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -52,6 +53,8 @@ def _atomic_write(path: Path, text: str) -> None:
     )
     try:
         handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
         handle.close()
         os.replace(handle.name, path)
     except OSError:
@@ -172,6 +175,8 @@ def create_pending(vault_dir: Path | str, payload: Mapping[str, Any], *,
         old = self_archive.find_entry(vault, entry_id, include_history=False)
         if old is None:
             raise PendingError("要修正的条目不存在或已被取代", 404)
+        if old["section"] != section:
+            raise PendingError("替代条目的本子必须与原条目一致", 422)
         if not base_revision:
             base_revision = old["revision"]
     meta = self_archive.book_meta(section)
@@ -247,13 +252,18 @@ def count_pending(vault_dir: Path | str) -> int:
     return len(list_pending(vault_dir))
 
 
-def _find(vault: Path, pending_id: str) -> Path:
-    directory = _card_dir(vault, vault_layout.SELF_MENTOR_PENDING_PATCHES)
+def _find(vault: Path, pending_id: str, *, include_archived: bool = False) -> Path:
     wanted = str(pending_id or "").strip()
-    for path in directory.glob("*.md") if directory.is_dir() else []:
-        item = _read_card(vault, path)
-        if item is not None and item["pending_id"] == wanted:
-            return path
+    relatives = [vault_layout.SELF_MENTOR_PENDING_PATCHES]
+    if include_archived:
+        relatives += [vault_layout.SELF_MENTOR_PENDING_ACCEPTED,
+                      vault_layout.SELF_MENTOR_PENDING_REJECTED]
+    for relative in relatives:
+        directory = _card_dir(vault, relative)
+        for path in directory.glob("*.md") if directory.is_dir() else []:
+            item = _read_card(vault, path)
+            if item is not None and item["pending_id"] == wanted:
+                return path
     raise PendingError("待确认卡片不存在或已处理", 404)
 
 
@@ -269,6 +279,10 @@ def _move(vault: Path, path: Path, target_dir: str) -> str:
     return destination.resolve().relative_to(vault.resolve()).as_posix()
 
 
+def _relative(vault: Path, path: Path) -> str:
+    return path.resolve().relative_to(vault.resolve()).as_posix()
+
+
 def accept_pending(vault_dir: Path | str, pending_id: str, *,
                    edited_text: str = "", confirm: bool = False,
                    read_only: bool = False) -> dict[str, Any]:
@@ -276,70 +290,90 @@ def accept_pending(vault_dir: Path | str, pending_id: str, *,
         raise PendingError("请明确确认采纳这条档案修改", 422)
     _ensure_write(read_only, "采纳人生导师的档案修改")
     vault = Path(vault_dir).resolve()
-    path = _find(vault, pending_id)
-    item = _read_card(vault, path)
-    if item is None:
-        raise PendingError("待确认卡片损坏", 409)
-    if item["status"] != "pending":
-        raise PendingError("这张卡片已经处理过", 409)
-    text = str(edited_text or "").strip() or item["new_text"]
-    if len(text) > MAX_NEW_TEXT:
-        raise PendingError("补丁正文过长", 422)
-    if item["action"] == "supersede":
-        entry = self_archive.supersede_entry(
-            vault, item["entry_id"],
-            entry_type=item["entry_type"], confidence=item["confidence"],
-            title=item["title"], text=text, evidence=item["evidence"],
-            counterexample=item["counterexample"], verify=item["verify"],
-            sources=item["sources"], origin="mentor",
-            base_revision=item["base_revision"], read_only=read_only,
-        )
-    else:
-        entry = self_archive.create_entry(
-            vault, book_key=item["section"], entry_type=item["entry_type"],
-            confidence=item["confidence"], title=item["title"], text=text,
-            evidence=item["evidence"], counterexample=item["counterexample"],
-            verify=item["verify"], sources=item["sources"], origin="mentor",
-            read_only=read_only,
-        )
-    try:
-        existing_meta, _ = parse_text(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, yaml.YAMLError):
-        existing_meta = {}
-    metadata = dict(existing_meta)
-    metadata["status"] = "accepted"
-    metadata["result_entry_id"] = entry["entry_id"]
-    metadata["decided_at"] = _now()
-    if edited_text.strip():
-        metadata["new_text"] = text
-    _atomic_write(path, _payload_text(metadata))
-    archived = _move(vault, path, vault_layout.SELF_MENTOR_PENDING_ACCEPTED)
-    return {"accepted": True, "pending_id": item["pending_id"],
-            "entry": entry, "archived_as": archived}
+    wanted = str(pending_id or "").strip()
+    # The same card can be submitted twice (double click / retry). Serialize on
+    # the card id and make the archive write idempotent through its operation id.
+    with operation_lock(f"pending|{vault}|{wanted}"):
+        path = _find(vault, wanted, include_archived=True)
+        item = _read_card(vault, path)
+        if item is None:
+            raise PendingError("待确认卡片损坏", 409)
+        if item["status"] != "pending":
+            if item["status"] == "accepted" and item.get("result_entry_id"):
+                entry = self_archive.find_entry(
+                    vault, item["result_entry_id"], include_history=True)
+                if entry is None:
+                    raise PendingError(
+                        "这张卡片已采纳，但对应档案条目不存在；请检查档案", 409)
+                return {"accepted": True, "pending_id": item["pending_id"],
+                        "entry": entry, "archived_as": _relative(vault, path),
+                        "duplicate": True}
+            raise PendingError("这张卡片已经处理过", 409)
+        text = str(edited_text or "").strip() or item["new_text"]
+        if len(text) > MAX_NEW_TEXT:
+            raise PendingError("补丁正文过长", 422)
+        operation_id = f"pending:{item['pending_id']}"
+        if item["action"] == "supersede":
+            entry = self_archive.supersede_entry(
+                vault, item["entry_id"],
+                entry_type=item["entry_type"], confidence=item["confidence"],
+                title=item["title"], text=text, evidence=item["evidence"],
+                counterexample=item["counterexample"], verify=item["verify"],
+                sources=item["sources"], origin="mentor",
+                base_revision=item["base_revision"], read_only=read_only,
+                operation_id=operation_id,
+            )
+        else:
+            entry = self_archive.create_entry(
+                vault, book_key=item["section"], entry_type=item["entry_type"],
+                confidence=item["confidence"], title=item["title"], text=text,
+                evidence=item["evidence"], counterexample=item["counterexample"],
+                verify=item["verify"], sources=item["sources"], origin="mentor",
+                read_only=read_only, operation_id=operation_id,
+            )
+        try:
+            existing_meta, _ = parse_text(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError, yaml.YAMLError):
+            existing_meta = {}
+        metadata = dict(existing_meta)
+        metadata["status"] = "accepted"
+        metadata["result_entry_id"] = entry["entry_id"]
+        metadata["decided_at"] = _now()
+        if edited_text.strip():
+            metadata["new_text"] = text
+        _atomic_write(path, _payload_text(metadata))
+        archived = _move(vault, path, vault_layout.SELF_MENTOR_PENDING_ACCEPTED)
+        return {"accepted": True, "pending_id": item["pending_id"],
+                "entry": entry, "archived_as": archived}
 
 
 def reject_pending(vault_dir: Path | str, pending_id: str, *,
                    reason: str = "", read_only: bool = False) -> dict[str, Any]:
     _ensure_write(read_only, "驳回人生导师的档案修改")
     vault = Path(vault_dir).resolve()
-    path = _find(vault, pending_id)
-    item = _read_card(vault, path)
-    if item is None:
-        raise PendingError("待确认卡片损坏", 409)
-    if item["status"] != "pending":
-        raise PendingError("这张卡片已经处理过", 409)
-    try:
-        existing_meta, _ = parse_text(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, yaml.YAMLError):
-        existing_meta = {}
-    metadata = dict(existing_meta)
-    metadata["status"] = "rejected"
-    metadata["reason"] = _clean(reason, 2_000) or metadata.get("reason", "")
-    metadata["decided_at"] = _now()
-    _atomic_write(path, _payload_text(metadata))
-    archived = _move(vault, path, vault_layout.SELF_MENTOR_PENDING_REJECTED)
-    return {"rejected": True, "pending_id": item["pending_id"],
-            "archived_as": archived}
+    wanted = str(pending_id or "").strip()
+    with operation_lock(f"pending|{vault}|{wanted}"):
+        path = _find(vault, wanted, include_archived=True)
+        item = _read_card(vault, path)
+        if item is None:
+            raise PendingError("待确认卡片损坏", 409)
+        if item["status"] != "pending":
+            if item["status"] == "rejected":
+                return {"rejected": True, "pending_id": item["pending_id"],
+                        "archived_as": _relative(vault, path), "duplicate": True}
+            raise PendingError("这张卡片已经处理过", 409)
+        try:
+            existing_meta, _ = parse_text(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError, yaml.YAMLError):
+            existing_meta = {}
+        metadata = dict(existing_meta)
+        metadata["status"] = "rejected"
+        metadata["reason"] = _clean(reason, 2_000) or metadata.get("reason", "")
+        metadata["decided_at"] = _now()
+        _atomic_write(path, _payload_text(metadata))
+        archived = _move(vault, path, vault_layout.SELF_MENTOR_PENDING_REJECTED)
+        return {"rejected": True, "pending_id": item["pending_id"],
+                "archived_as": archived}
 
 
 __all__ = [

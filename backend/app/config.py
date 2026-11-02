@@ -26,6 +26,10 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))
 # 插件按库启动的后端实例：库就是工作区，禁止在界面里再切库。
 VAULT_SCOPED = os.getenv("TORCH_VAULT_SCOPED", "").strip().lower() in {"1", "true", "yes", "on"}
+# B4b: mentor's validated archive updates are committed directly. Set
+# TORCH_MENTOR_AUTONOMOUS_ARCHIVE=0 to fall back to old pending cards.
+MENTOR_AUTONOMOUS_ARCHIVE = os.getenv(
+    "TORCH_MENTOR_AUTONOMOUS_ARCHIVE", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 # ── 恋爱系统（v2）──────────────────────────────────────────────────
 # 运行时私人数据在 <Vault>/02_生活运营/01_恋爱系统/ 的七个页面目录；

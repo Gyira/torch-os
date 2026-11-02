@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -24,7 +25,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from . import vault_layout
-from .memory_store import read_document, update_document
+from .memory_store import operation_lock, read_document, update_document
 from .markdown_store import revision as _revision
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -48,6 +49,12 @@ MAX_ENTRY_CHARS = 8_000
 MAX_TITLE = 120
 MAX_PORTRAIT_CHARS = 1_200
 MAX_SOURCES = 20
+# Minimal write-ahead metadata for crash recovery; never a second copy of the
+# archive body. Kept under <Vault>/.torch-os as required by the top-level rules.
+OPS_RELATIVE = ".torch-os/self-archive-ops"
+OP_SCHEMA = 1
+OP_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
+OP_OPEN_STATUSES = ("preparing", "new_written")
 
 # key, 标题, 文件夹, 默认条目类型（顺序就是左栏顺序）
 BOOKS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
@@ -99,6 +106,8 @@ def _atomic_write(path: Path, text: str) -> None:
     )
     try:
         handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
         handle.close()
         os.replace(handle.name, path)
     except OSError:
@@ -217,6 +226,27 @@ def _section_from_relative(relative: str) -> str:
     return ""
 
 
+def _split_current_entries(vault: Path, items: list[dict[str, Any]], *,
+                           include_history: bool) -> list[dict[str, Any]]:
+    """Hide a new version whose interrupted supersede still leaves the old one active.
+
+    This keeps a single current version visible even before recovery runs. The
+    new file stays on disk and remains visible in history with a marker.
+    """
+    pending = _incomplete_supersede_ids(vault)
+    active_ids = {item["entry_id"] for item in items if item["status"] == "active"}
+    result: list[dict[str, Any]] = []
+    for item in items:
+        limbo = (item["status"] == "active" and item["entry_id"] in pending
+                 and item.get("supersedes") in active_ids)
+        if limbo:
+            item["operation_pending"] = True
+            if not include_history:
+                continue
+        result.append(item)
+    return result
+
+
 def list_entries(vault_dir: Path | str, book_key: str, *,
                  include_history: bool = False) -> list[dict[str, Any]]:
     vault = Path(vault_dir).resolve()
@@ -231,6 +261,7 @@ def list_entries(vault_dir: Path | str, book_key: str, *,
         if not include_history and item["status"] != "active":
             continue
         entries.append(item)
+    entries = _split_current_entries(vault, entries, include_history=include_history)
     entries.sort(key=lambda item: (item.get("created") or "", item["path"]), reverse=True)
     return entries
 
@@ -266,13 +297,62 @@ def _entry_text(metadata: Mapping[str, Any], body: str) -> str:
     return "\n".join(lines)
 
 
-def create_entry(vault_dir: Path | str, *, book_key: str, entry_type: str,
-                 confidence: str, title: str, text: str,
-                 evidence: str = "", counterexample: str = "", verify: str = "",
-                 sources: Any = None, origin: str = "mentor",
-                 supersedes: str = "", read_only: bool = False) -> dict[str, Any]:
-    """写入一个新条目；本函数不做“用户确认”，确认逻辑在 API/待确认层。"""
-    _ensure_write(read_only, "写入自我档案")
+def _clean_op_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not OP_ID_RE.fullmatch(text):
+        raise SelfArchiveError("操作标识格式无效", 422)
+    return text
+
+
+def _ops_dir(vault: Path) -> Path:
+    return vault / OPS_RELATIVE
+
+
+def _op_path(vault: Path, operation_id: str) -> Path:
+    digest = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:40]
+    return _ops_dir(vault) / f"{digest}.json"
+
+
+def _load_op(vault: Path, operation_id: str) -> dict[str, Any] | None:
+    path = _op_path(vault, operation_id)
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or record.get("operation_id") != operation_id:
+        return None
+    return record
+
+
+def _save_op(vault: Path, record: Mapping[str, Any]) -> None:
+    value = dict(record)
+    value["schema"] = OP_SCHEMA
+    value["updated"] = _now()
+    _atomic_write(_op_path(vault, str(value["operation_id"])),
+                  json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+def _op_records(vault: Path) -> list[dict[str, Any]]:
+    directory = _ops_dir(vault)
+    if not directory.is_dir():
+        return []
+    records: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("operation_id"):
+            records.append(record)
+    return records
+
+
+def _entry_payload(*, book_key: str, entry_type: str, confidence: str,
+                   title: str, text: str, evidence: str,
+                   counterexample: str, verify: str, sources: Any,
+                   origin: str, supersedes: str) -> dict[str, Any]:
     meta = book_meta(book_key)
     entry_type = str(entry_type or "").strip().lower()
     if entry_type not in ENTRY_TYPES:
@@ -291,27 +371,40 @@ def create_entry(vault_dir: Path | str, *, book_key: str, entry_type: str,
     origin = str(origin or "mentor").strip()
     if origin not in ORIGINS:
         origin = "mentor"
-    now = _now()
-    entry_id = "ent_" + uuid.uuid4().hex[:12]
-    metadata = {
-        "type": ENTRY_TYPE,
-        "entry_id": entry_id,
-        "section": meta["key"],
-        "section_title": meta["title"],
-        "entry_type": entry_type,
-        "confidence": confidence,
-        "status": "active",
-        "title": clean_title,
+    return {
+        "meta": meta, "entry_type": entry_type, "confidence": confidence,
+        "title": clean_title, "text": clean_text,
         "evidence": _clean(evidence, 2_000),
         "counterexample": _clean(counterexample, 2_000),
-        "verify": _clean(verify, 2_000),
-        "sources": _sources(sources),
-        "origin": origin,
-        "supersedes": str(supersedes or "").strip(),
+        "verify": _clean(verify, 2_000), "sources": _sources(sources),
+        "origin": origin, "supersedes": str(supersedes or "").strip(),
+    }
+
+
+def _entry_metadata(payload: Mapping[str, Any], entry_id: str) -> dict[str, Any]:
+    now = _now()
+    return {
+        "type": ENTRY_TYPE,
+        "entry_id": entry_id,
+        "section": payload["meta"]["key"],
+        "section_title": payload["meta"]["title"],
+        "entry_type": payload["entry_type"],
+        "confidence": payload["confidence"],
+        "status": "active",
+        "title": payload["title"],
+        "evidence": payload["evidence"],
+        "counterexample": payload["counterexample"],
+        "verify": payload["verify"],
+        "sources": list(payload["sources"]),
+        "origin": payload["origin"],
+        "supersedes": payload["supersedes"],
         "created": now,
         "updated": now,
     }
-    directory = book_dir(vault_dir, meta["key"])
+
+
+def _entry_target(vault: Path, payload: Mapping[str, Any], entry_id: str) -> Path:
+    directory = book_dir(vault, payload["meta"]["key"])
     stem = "条目-" + _stamp() + "-" + entry_id[-6:]
     stem = _FILENAME_UNSAFE.sub("-", stem)
     path = directory / f"{stem}.md"
@@ -319,11 +412,113 @@ def create_entry(vault_dir: Path | str, *, book_key: str, entry_type: str,
     while path.exists():
         path = directory / f"{stem}-{index}.md"
         index += 1
-    _atomic_write(path, _entry_text(metadata, clean_text))
-    item = _parse_entry(Path(vault_dir).resolve(), path)
+    return path
+
+
+def _write_entry_file(vault: Path, path: Path, metadata: Mapping[str, Any],
+                      text: str) -> dict[str, Any]:
+    _atomic_write(path, _entry_text(metadata, text))
+    item = _parse_entry(vault, path)
     if item is None:
         raise SelfArchiveError("条目写入后无法读回", 500)
     return item
+
+
+def _recover_create_operation(vault: Path, record: dict[str, Any], *,
+                              read_only: bool) -> dict[str, Any]:
+    entry_id = str(record.get("new_entry_id") or "")
+    path_text = str(record.get("new_path") or "")
+    if not entry_id or not path_text:
+        return {"status": "failed", "error": "新建操作缺少条目信息"}
+    try:
+        path = safe_note_path(vault, path_text)
+    except (OSError, ValueError):
+        return {"status": "conflict", "error": "新建操作路径无效"}
+    item = _parse_entry(vault, path) if path.is_file() else None
+    if item is None:
+        status = "failed"
+    elif item["entry_id"] != entry_id:
+        status = "conflict"
+    else:
+        status = "done"
+    if status != "done":
+        return {"status": status,
+                "error": "新条目文件与操作记录不一致" if status == "conflict" else "新条目尚未写入"}
+    if not read_only and record.get("status") != "done":
+        record["status"] = "done"
+        record["new_revision"] = item.get("revision") or ""
+        try:
+            _save_op(vault, record)
+        except OSError:
+            pass
+    return {"status": "done", "entry": item}
+
+
+def _create_entry_ledgered(vault: Path, payload: Mapping[str, Any],
+                           operation_id: str) -> dict[str, Any]:
+    existing = _load_op(vault, operation_id)
+    if existing is not None:
+        result = _recover_create_operation(vault, existing, read_only=False)
+        if result["status"] == "done":
+            return result["entry"]
+        if result["status"] == "conflict":
+            raise SelfArchiveConflict("新建操作与已有文件不一致；未覆盖任何文件")
+        if existing.get("status") == "done":
+            raise SelfArchiveError("已完成的新建操作找不到对应条目；请检查档案", 500)
+    entry_id = "ent_" + uuid.uuid4().hex[:12]
+    path = _entry_target(vault, payload, entry_id)
+    metadata = _entry_metadata(payload, entry_id)
+    record = {
+        "schema": OP_SCHEMA, "operation_id": operation_id, "kind": "create",
+        "status": "preparing", "created": _now(),
+        "section": payload["meta"]["key"], "entry_type": payload["entry_type"],
+        "title": payload["title"],
+        "text_sha256": hashlib.sha256(payload["text"].encode("utf-8")).hexdigest(),
+        "new_entry_id": entry_id,
+        "new_path": path.relative_to(vault).as_posix(),
+    }
+    _save_op(vault, record)
+    try:
+        item = _write_entry_file(vault, path, metadata, payload["text"])
+    except Exception:
+        path.unlink(missing_ok=True)
+        record.update(status="failed", error="条目写入失败")
+        try:
+            _save_op(vault, record)
+        except OSError:
+            pass
+        raise
+    record.update(status="done", new_revision=item.get("revision") or "")
+    try:
+        _save_op(vault, record)
+    except OSError:
+        # The entry is already durable; recovery will reconcile the op record.
+        pass
+    return item
+
+
+def create_entry(vault_dir: Path | str, *, book_key: str, entry_type: str,
+                 confidence: str, title: str, text: str,
+                 evidence: str = "", counterexample: str = "", verify: str = "",
+                 sources: Any = None, origin: str = "mentor",
+                 supersedes: str = "", read_only: bool = False,
+                 operation_id: str = "") -> dict[str, Any]:
+    """写入一个新条目；本函数不做“用户确认”，确认逻辑在 API/待确认层。"""
+    _ensure_write(read_only, "写入自我档案")
+    payload = _entry_payload(
+        book_key=book_key, entry_type=entry_type, confidence=confidence,
+        title=title, text=text, evidence=evidence,
+        counterexample=counterexample, verify=verify, sources=sources,
+        origin=origin, supersedes=supersedes)
+    vault = Path(vault_dir).resolve()
+    op_id = _clean_op_id(operation_id)
+    if op_id:
+        with operation_lock(f"create|{vault}|{op_id}"):
+            return _create_entry_ledgered(vault, payload, op_id)
+    entry_id = "ent_" + uuid.uuid4().hex[:12]
+    path = _entry_target(vault, payload, entry_id)
+    return _write_entry_file(vault, path, _entry_metadata(payload, entry_id),
+                             payload["text"])
 
 
 def _rewrite_entry(path: Path, item: Mapping[str, Any], body: str,
@@ -349,36 +544,240 @@ def _rewrite_entry(path: Path, item: Mapping[str, Any], body: str,
     _atomic_write(path, _entry_text(metadata, body))
 
 
-def supersede_entry(vault_dir: Path | str, old_entry_id: str, *,
-                    entry_type: str, confidence: str, title: str, text: str,
-                    evidence: str = "", counterexample: str = "", verify: str = "",
-                    sources: Any = None, origin: str = "mentor",
-                    base_revision: str = "", read_only: bool = False) -> dict[str, Any]:
-    """用新条目取代旧条目；旧条目保留为 superseded，不删除。"""
-    _ensure_write(read_only, "修正自我档案")
-    old = find_entry(vault_dir, old_entry_id, include_history=False)
+def _read_entry_at(vault: Path, relative: str) -> tuple[Path | None, dict[str, Any] | None]:
+    if not relative:
+        return None, None
+    try:
+        path = safe_note_path(vault, relative)
+    except (OSError, ValueError):
+        return None, None
+    if not path.is_file():
+        return path, None
+    return path, _parse_entry(vault, path)
+
+
+def _save_op_quietly(vault: Path, record: Mapping[str, Any]) -> None:
+    try:
+        _save_op(vault, record)
+    except OSError:
+        pass
+
+
+def _recover_supersede_operation(vault: Path, record: dict[str, Any], *,
+                                 read_only: bool) -> dict[str, Any]:
+    """Inspect both files; only complete when the old revision is unchanged.
+
+    Never guesses: an externally edited old entry becomes a conflict and is
+    left as the current version. A new entry written by an interrupted
+    operation is kept on disk but hidden from the current view until resolved.
+    """
+    old_id = str(record.get("old_entry_id") or "")
+    new_id = str(record.get("new_entry_id") or "")
+    old_path, old = _read_entry_at(vault, str(record.get("old_path") or ""))
+    new_path, new = _read_entry_at(vault, str(record.get("new_path") or ""))
+    error = ""
+    if new is not None and new.get("entry_id") != new_id:
+        status = "conflict"
+        error = "新条目文件与操作记录不一致"
+    elif old is not None and old.get("entry_id") != old_id:
+        status = "conflict"
+        error = "旧条目文件与操作记录不一致"
+    elif new is not None and old is not None and old.get("status") == "superseded":
+        status = "done"
+    elif new is not None and old is not None and old.get("status") == "active":
+        if str(old.get("revision") or "") != str(record.get("old_revision") or ""):
+            status = "conflict"
+            error = "旧条目在中断后被外部修改；未覆盖"
+        elif read_only:
+            return {"status": "pending", "entry": None,
+                    "error": "只读模式，未执行恢复写入"}
+        else:
+            # Re-read immediately before the replace; do not use the earlier copy.
+            current_path, current = _read_entry_at(vault, str(record.get("old_path") or ""))
+            if (current_path is None or current is None or current.get("entry_id") != old_id
+                    or current.get("status") != "active"
+                    or str(current.get("revision") or "") != str(record.get("old_revision") or "")):
+                status = "conflict"
+                error = "旧条目在恢复提交前被外部修改；未覆盖"
+            else:
+                _rewrite_entry(current_path, current, current["text"], status="superseded")
+                status = "done"
+    elif new is None and old is not None and old.get("status") == "active":
+        status = "failed"
+        error = "新条目尚未写入；旧条目保持当前版本"
+    elif new is None and old is not None and old.get("status") == "superseded":
+        status = "conflict"
+        error = "旧条目已标记取代，但新条目缺失"
+    else:
+        status = "conflict"
+        error = "新旧条目文件均不完整"
+    if not read_only and record.get("status") != status:
+        record["status"] = status
+        record["error"] = error
+        if status == "done" and new is not None:
+            record["new_revision"] = new.get("revision") or ""
+        _save_op_quietly(vault, record)
+    return {"status": status, "entry": new if status == "done" else None,
+            "error": error}
+
+
+def _supersede_entry_locked(vault: Path, old_entry_id: str, operation_id: str, *,
+                            entry_type: str, confidence: str, title: str, text: str,
+                            evidence: str, counterexample: str, verify: str,
+                            sources: Any, origin: str,
+                            base_revision: str) -> dict[str, Any]:
+    record = _load_op(vault, operation_id)
+    if record is not None:
+        result = _recover_supersede_operation(vault, record, read_only=False)
+        if result["status"] == "done":
+            return result["entry"]
+        if result["status"] == "conflict":
+            raise SelfArchiveConflict(result.get("error") or "这条档案修改存在未解决冲突")
+        if record.get("status") == "done":
+            raise SelfArchiveError("已完成的档案替代找不到对应新条目；请检查档案", 500)
+    old = find_entry(vault, old_entry_id, include_history=False)
     if old is None:
         raise SelfArchiveError("要修正的条目不存在或已被取代", 404)
     if old["status"] != "active":
         raise SelfArchiveError("要修正的条目已不在当前版本", 409)
     if base_revision and str(base_revision) != old["revision"]:
         raise SelfArchiveConflict()
-    vault = Path(vault_dir).resolve()
     old_path = safe_note_path(vault, old["path"])
-    # 先写新条目；旧条目更新失败时回滚新文件，避免出现两个 active。
-    new_entry = create_entry(
-        vault_dir, book_key=old["section"], entry_type=entry_type,
-        confidence=confidence, title=title, text=text, evidence=evidence,
-        counterexample=counterexample, verify=verify, sources=sources,
-        origin=origin, supersedes=old["entry_id"], read_only=read_only,
+    payload = _entry_payload(
+        book_key=old["section"], entry_type=entry_type, confidence=confidence,
+        title=title, text=text, evidence=evidence, counterexample=counterexample,
+        verify=verify, sources=sources, origin=origin,
+        supersedes=old["entry_id"],
     )
-    new_path = safe_note_path(vault, new_entry["path"])
+    new_id = "ent_" + uuid.uuid4().hex[:12]
+    new_path = _entry_target(vault, payload, new_id)
+    metadata = _entry_metadata(payload, new_id)
+    record = {
+        "schema": OP_SCHEMA, "operation_id": operation_id, "kind": "supersede",
+        "status": "preparing", "created": _now(),
+        "section": old["section"], "entry_type": payload["entry_type"],
+        "title": payload["title"],
+        "text_sha256": hashlib.sha256(payload["text"].encode("utf-8")).hexdigest(),
+        "old_entry_id": old["entry_id"], "old_path": old["path"],
+        "old_revision": old["revision"], "base_revision": str(base_revision or ""),
+        "new_entry_id": new_id,
+        "new_path": new_path.relative_to(vault).as_posix(),
+    }
+    _save_op(vault, record)
     try:
-        _rewrite_entry(old_path, old, old["text"], status="superseded")
+        new_entry = _write_entry_file(vault, new_path, metadata, payload["text"])
+        record.update(status="new_written", new_revision=new_entry.get("revision") or "")
+        _save_op_quietly(vault, record)
+        # Commit against a fresh read; an external edit must not be overwritten.
+        current_path, current = _read_entry_at(vault, old["path"])
+        if (current_path is None or current is None
+                or current.get("entry_id") != old["entry_id"]
+                or current.get("status") != "active"
+                or str(current.get("revision") or "") != str(old["revision"])):
+            new_path.unlink(missing_ok=True)
+            record.update(status="conflict", error="旧条目在提交前被外部修改；新版本已撤回")
+            _save_op_quietly(vault, record)
+            raise SelfArchiveConflict("旧条目在提交前被外部修改；本次未覆盖，请刷新后重试")
+        _rewrite_entry(current_path, current, current["text"], status="superseded")
+    except SelfArchiveConflict:
+        raise
     except Exception:
         new_path.unlink(missing_ok=True)
+        record.update(status="failed", error="替代写入失败；旧条目保持当前版本")
+        _save_op_quietly(vault, record)
         raise
+    record.update(status="done", new_revision=new_entry.get("revision") or "")
+    _save_op_quietly(vault, record)
     return new_entry
+
+
+def supersede_entry(vault_dir: Path | str, old_entry_id: str, *,
+                    entry_type: str, confidence: str, title: str, text: str,
+                    evidence: str = "", counterexample: str = "", verify: str = "",
+                    sources: Any = None, origin: str = "mentor",
+                    base_revision: str = "", read_only: bool = False,
+                    operation_id: str = "") -> dict[str, Any]:
+    """用新条目取代旧条目；旧条目保留为 superseded，不删除。
+
+    ``operation_id`` is the idempotency key. Repeated calls with the same key
+    return the already-written new entry instead of applying twice.
+    """
+    _ensure_write(read_only, "修正自我档案")
+    vault = Path(vault_dir).resolve()
+    op_id = _clean_op_id(operation_id) or ("supersede-" + uuid.uuid4().hex)
+    with operation_lock(f"supersede|{vault}|{str(old_entry_id or '').strip()}"):
+        return _supersede_entry_locked(
+            vault, str(old_entry_id or "").strip(), op_id,
+            entry_type=entry_type, confidence=confidence, title=title, text=text,
+            evidence=evidence, counterexample=counterexample, verify=verify,
+            sources=sources, origin=origin, base_revision=base_revision)
+
+
+def recover_incomplete_operations(vault_dir: Path | str, *,
+                                  read_only: bool = False) -> dict[str, Any]:
+    """Resolve recorded archive operations left by an interrupted process.
+
+    Only one completion is automatic: a ``supersede`` whose new file exists,
+    whose old file is still active, and whose old revision is unchanged.
+    Everything else is reported, not guessed or replayed. In read-only mode
+    nothing is written; the current view still hides ambiguous new versions.
+    """
+    vault = Path(vault_dir).resolve()
+    details: list[dict[str, Any]] = []
+    for record in _op_records(vault):
+        if record.get("status") == "done":
+            continue
+        kind = str(record.get("kind") or "")
+        try:
+            if kind == "supersede":
+                with operation_lock(f"supersede|{vault}|{record.get('old_entry_id') or ''}"):
+                    result = _recover_supersede_operation(vault, record, read_only=read_only)
+            elif kind == "create":
+                with operation_lock(f"create|{vault}|{record.get('operation_id')}"):
+                    result = _recover_create_operation(vault, record, read_only=read_only)
+            else:
+                continue
+        except Exception as error:  # noqa: BLE001 - one bad record must not stop the rest
+            result = {"status": "error", "error": type(error).__name__}
+        details.append({
+            "operation_id": record.get("operation_id"),
+            "kind": kind, "status": result.get("status", "error"),
+            "old_entry_id": record.get("old_entry_id") or "",
+            "new_entry_id": record.get("new_entry_id") or "",
+            "error": result.get("error") or "",
+        })
+    counts = {"done": 0, "conflict": 0, "failed": 0, "pending": 0, "error": 0}
+    for item in details:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    return {"checked": len(details), **counts, "read_only": bool(read_only),
+            "items": details}
+
+
+def recovery_status(vault_dir: Path | str) -> dict[str, Any]:
+    vault = Path(vault_dir).resolve()
+    items = [{
+        "operation_id": record.get("operation_id"),
+        "kind": record.get("kind"),
+        "status": record.get("status"),
+        "section": record.get("section") or "",
+        "title": record.get("title") or "",
+        "old_entry_id": record.get("old_entry_id") or "",
+        "new_entry_id": record.get("new_entry_id") or "",
+        "error": record.get("error") or "",
+        "updated": record.get("updated") or "",
+    } for record in _op_records(vault) if record.get("status") != "done"]
+    return {"count": len(items), "items": items}
+
+
+def _incomplete_supersede_ids(vault: Path) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for record in _op_records(vault):
+        if record.get("kind") != "supersede" or record.get("status") == "done":
+            continue
+        new_id = str(record.get("new_entry_id") or "")
+        if new_id:
+            result[new_id] = record
+    return result
 
 
 def read_portrait(vault_dir: Path | str) -> dict[str, Any]:
@@ -503,5 +902,6 @@ __all__ = [
     "SelfArchiveError", "SelfArchiveConflict",
     "book_meta", "book_dir", "list_entries", "all_entries", "find_entry",
     "create_entry", "supersede_entry", "read_portrait", "write_portrait",
-    "context_text", "overview",
+    "context_text", "overview", "recover_incomplete_operations", "recovery_status",
+    "OPS_RELATIVE",
 ]

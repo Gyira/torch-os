@@ -1,0 +1,204 @@
+"""B4b: mentor autonomous archive updates with fake model output.
+
+Temporary vault + SQLite only; no real model, no personal data.
+"""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.app import mentor_pending, self_archive, self_synthesize
+from backend.app.ai_gateway import HeadlessResult
+from backend.app.ai_roles import RoleRegistry, RoleService
+from backend.app.db import Database
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def reply(**fields) -> HeadlessResult:
+    payload = {"reply": "收到", **fields}
+    return HeadlessResult(json.dumps(payload, ensure_ascii=False), "fake-session", 0.01, 0, "")
+
+
+class AutonomousArchiveTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="torch-mentor-auto-")
+        self.addCleanup(temp.cleanup)
+        self.vault = Path(temp.name) / "vault"
+        self.vault.mkdir()
+        self.db = Database(Path(temp.name) / "state.sqlite")
+        self.db.initialize()
+        self.registry = RoleRegistry(REPO / "dsh/roles")
+        self.service = RoleService(
+            self.registry, database=self.db, vault_dir=self.vault,
+            autonomous_archive=True)
+        self.service._execute = Mock(return_value=reply())
+
+    def chat(self, fake: HeadlessResult, message: str = "我最近发现一件事"):
+        self.service._execute = Mock(return_value=fake)
+        return self.service.chat(
+            "mentor", "converse", message, entry="self.mentor",
+            selectors=[{"entry": "self_archive"}])
+
+    def create_old(self):
+        return self_archive.create_entry(
+            self.vault, book_key="self_facts", entry_type="inference",
+            confidence="medium", title="旧判断", text="旧正文")
+
+    def test_chat_commits_fact_and_keeps_operation_result(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "confidence": "high", "title": "作息", "text": "通常凌晨一点睡",
+            "evidence": "用户原话", "sources": ["S1"],
+        }]))
+        updates = result["archive_updates"]
+        self.assertEqual(len(updates), 1)
+        self.assertTrue(updates[0]["ok"], updates[0])
+        self.assertEqual(updates[0]["entry_type_label"], "事实")
+        self.assertTrue(updates[0]["operation_id"].startswith("chat:"))
+        entry = self_archive.find_entry(self.vault, updates[0]["entry_id"])
+        self.assertEqual(entry["entry_type"], "fact")
+        self.assertTrue(entry["sources"])
+
+    def test_fact_without_source_is_rejected_as_inference_not_written(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "confidence": "high", "title": "猜测", "text": "他大概喜欢安静",
+            "sources": [],
+        }]))
+        self.assertFalse(result["archive_updates"][0]["ok"])
+        self.assertIn("来源", result["archive_updates"][0]["error"])
+        self.assertEqual(self_archive.list_entries(self.vault, "self_facts"), [])
+
+    def test_fact_requires_trusted_source_not_just_url_or_missing_path(self):
+        url_result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "title": "外部说法", "text": "网上看到的", "sources": ["https://example.com/proof"],
+        }]))
+        self.assertFalse(url_result["archive_updates"][0]["ok"])
+        missing = "01_自我档案/01_档案/01_基础事实/不存在.md"
+        path_result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "title": "虚构引用", "text": "不存在的笔记", "sources": [missing],
+        }]))
+        self.assertFalse(path_result["archive_updates"][0]["ok"])
+        self.assertIn("来源文件不存在", path_result["archive_updates"][0]["error"])
+        local = self.vault / "01_自我档案/01_档案/01_基础事实/已有记录.md"
+        local.parent.mkdir(parents=True)
+        local.write_text("---\ntitle: 已有记录\n---\n\n用户原话", encoding="utf-8")
+        ok_result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "title": "本地事实", "text": "有本地依据", "sources": [local.relative_to(self.vault).as_posix()],
+        }]))
+        self.assertTrue(ok_result["archive_updates"][0]["ok"], ok_result)
+
+    def test_supersede_links_previous_version_and_keeps_history(self):
+        old = self.create_old()
+        result = self.chat(reply(archive_updates=[{
+            "action": "supersede", "section": "self_facts", "entry_id": old["entry_id"],
+            "entry_type": "inference", "confidence": "high", "title": "新判断",
+            "text": "新正文", "sources": ["S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        self.assertEqual(update["previous_entry_id"], old["entry_id"])
+        current = self_archive.list_entries(self.vault, "self_facts")
+        self.assertEqual([item["entry_id"] for item in current], [update["entry_id"]])
+        history = self_archive.find_entry(
+            self.vault, old["entry_id"], include_history=True)
+        self.assertEqual(history["status"], "superseded")
+
+    def test_partial_failure_is_reported_per_item_and_does_not_block_others(self):
+        result = self.chat(reply(archive_updates=[
+            {"action": "create", "section": "self_facts", "entry_type": "inference",
+             "title": "有效", "text": "有依据的推断", "sources": ["S1"]},
+            {"action": "create", "section": "self_facts", "entry_type": "inference",
+             "title": "无效", "text": "越界来源", "sources": ["C:/secret.md"]},
+        ]))
+        updates = result["archive_updates"]
+        self.assertEqual(len(updates), 2)
+        self.assertEqual([item["ok"] for item in updates], [True, False])
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
+        self.assertEqual(result["pending"], [])
+
+    def test_duplicate_chat_request_writes_one_entry(self):
+        fake = reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "inference",
+            "title": "重复", "text": "同一轮内容", "sources": ["S1"],
+        }])
+        first = self.chat(fake, message="同一句话")
+        second = self.chat(fake, message="同一句话")
+        self.assertEqual(first["archive_updates"][0]["entry_id"],
+                         second["archive_updates"][0]["entry_id"])
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
+
+    def test_switch_off_keeps_pending_card_and_old_accept_flow(self):
+        self.service.autonomous_archive = False
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "inference",
+            "title": "待确认", "text": "先走旧流程", "sources": ["S1"],
+        }]))
+        self.assertEqual(result["archive_updates"], [])
+        self.assertEqual(len(result["pending"]), 1)
+        self.assertEqual(self_archive.list_entries(self.vault, "self_facts"), [])
+        accepted = mentor_pending.accept_pending(
+            self.vault, result["pending"][0]["pending_id"], confirm=True)
+        self.assertTrue(accepted["accepted"])
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
+
+    def test_read_only_chat_reports_failure_without_writing(self):
+        self.service.read_only = True
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "inference",
+            "title": "只读", "text": "不应写入", "sources": ["S1"],
+        }]))
+        self.assertFalse(result["archive_updates"][0]["ok"])
+        self.assertEqual(self_archive.list_entries(self.vault, "self_facts"), [])
+
+    def test_synthesis_commits_patches_and_reports_errors(self):
+        self.service._execute = Mock(return_value=HeadlessResult(json.dumps({
+            "portrait": "画像",
+            "portrait_confidence": 0.6,
+            "archive_patches": [
+                {"section": "self_facts", "action": "create",
+                 "entry_type": "inference", "title": "综合判断",
+                 "new_text": "最近的观察", "sources": ["S1"]},
+                {"section": "self_body", "action": "create",
+                 "entry_type": "fact", "title": "无来源事实",
+                 "new_text": "不应写成事实", "sources": []},
+            ],
+            "memory_updates": [],
+            "question_candidates": [],
+            "gaps": [],
+        }, ensure_ascii=False), "fake", 0.01, 0, ""))
+        result = self_synthesize.synthesize(
+            self.service, self.vault, autonomous_archive=True)
+        self.assertEqual(len(result["archive_updates"]), 2)
+        self.assertEqual([item["ok"] for item in result["archive_updates"]], [True, False])
+        self.assertEqual(result["patches"], [])
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
+        self.assertEqual(self_archive.list_entries(self.vault, "self_body"), [])
+
+    def test_synthesis_switch_off_uses_pending_cards(self):
+        self.service._execute = Mock(return_value=HeadlessResult(json.dumps({
+            "portrait": "", "portrait_confidence": 0.0,
+            "archive_patches": [{
+                "section": "self_facts", "action": "create",
+                "entry_type": "inference", "title": "待确认综合",
+                "new_text": "旧流程", "sources": ["S1"]}],
+            "memory_updates": [], "question_candidates": [], "gaps": [],
+        }, ensure_ascii=False), "fake", 0.01, 0, ""))
+        result = self_synthesize.synthesize(
+            self.service, self.vault, autonomous_archive=False)
+        self.assertEqual(result["archive_updates"], [])
+        self.assertEqual(len(result["patches"]), 1)
+        self.assertEqual(self_archive.list_entries(self.vault, "self_facts"), [])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

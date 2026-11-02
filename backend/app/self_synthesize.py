@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from . import mentor_memory, mentor_pending, mentor_questions, self_archive
+from . import (mentor_archive, mentor_memory, mentor_pending, mentor_questions,
+               self_archive)
 from .ai_schemas import SynthesisResult, extract_json
+from .role_policy import RolePolicy
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_SYNTH_CHARS = 60_000
@@ -70,6 +72,39 @@ def _persist_patches(vault: Path, patches: list[dict[str, Any]], *,
     return created, errors
 
 
+def _apply_patches_autonomous(vault: Path, patches: list[dict[str, Any]], *,
+                              sources: list[dict[str, Any]],
+                              read_only: bool) -> tuple[list[dict[str, Any]], list[str]]:
+    """B4b: validate and commit synthesis patches directly.
+
+    Every item still goes through the same entry schema and B4a operation id.
+    A failed item is reported per item; the remaining items are not replayed.
+    """
+    policy = RolePolicy.for_role("mentor", vault)
+    updates: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for raw in patches[:30]:
+        if not isinstance(raw, dict):
+            continue
+        candidate, error = mentor_archive.normalize_candidate(
+            raw, vault_dir=vault, policy=policy, bindings=sources,
+            thread_id="", origin="mentor")
+        if error:
+            errors.append(f"{str(raw.get('section') or '档案')}：{error}")
+            updates.append(mentor_archive.failure_result(raw, error))
+            continue
+        key = mentor_archive.fingerprint(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        updates.append(mentor_archive.apply_candidate(
+            vault, candidate,
+            operation_id=mentor_archive.operation_id_for("synthesize", candidate),
+            read_only=read_only))
+    return updates, errors
+
+
 def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool) -> int:
     timeline: list[dict[str, Any]] = []
     core_text = ""
@@ -100,7 +135,8 @@ def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool) -> int:
 
 
 def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14,
-               read_only: bool = False) -> dict[str, Any]:
+               read_only: bool = False,
+               autonomous_archive: bool = True) -> dict[str, Any]:
     if role_service is None:
         raise SynthesizeError("AI 不可用：请先在 dsh 里配置模型", 503)
     days = max(7, min(int(range_days or 14), 30))
@@ -148,8 +184,15 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
         except Exception as error:  # noqa: BLE001
             raise SynthesizeError(f"画像写入失败：{error}", 500) from error
 
-    patches, patch_errors = _persist_patches(
-        vault, parsed.archive_patches, read_only=read_only)
+    archive_updates: list[dict[str, Any]] = []
+    if autonomous_archive:
+        archive_updates, patch_errors = _apply_patches_autonomous(
+            vault, parsed.archive_patches,
+            sources=list(result.get("sources") or []), read_only=read_only)
+        patches: list[dict[str, Any]] = []
+    else:
+        patches, patch_errors = _persist_patches(
+            vault, parsed.archive_patches, read_only=read_only)
     memory_count = _persist_memory(vault, parsed.memory_updates, read_only=read_only)
     questions: list[dict[str, Any]] = []
     dynamic_rows = []
@@ -173,6 +216,8 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
         "portrait_written": portrait_written,
         "patches": patches,
         "patch_errors": patch_errors,
+        "archive_updates": archive_updates,
+        "autonomous_archive": bool(autonomous_archive),
         "memory_updates": memory_count,
         "questions": questions,
         "gaps": [str(item) for item in parsed.gaps],

@@ -56,6 +56,12 @@ class MigrationPayload(BaseModel):
     confirm: bool = False
 
 
+class ArchiveRecoveryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm: bool = False
+
+
 class BaziProfilePayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -103,7 +109,8 @@ def _today_payload(vault: Path, *, read_only: bool) -> dict[str, Any]:
 
 
 def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
-                       role_service: Any = None, prefix: str = "/api") -> APIRouter:
+                       role_service: Any = None, prefix: str = "/api",
+                       autonomous_archive: bool = True) -> APIRouter:
     vault = Path(vault_dir)
     router = APIRouter(prefix=prefix, tags=["self"])
 
@@ -123,6 +130,7 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
                 "items": today["items"],
             },
             "migration": self_migration.preview(vault),
+            "archive_operations": self_archive.recovery_status(vault),
             "paths": {
                 "archive": vault_layout.SELF_ARCHIVE_ROOT,
                 "portrait": vault_layout.SELF_PORTRAIT_RELATIVE,
@@ -157,6 +165,17 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
         return _guard(lambda: self_migration.apply(
             vault, confirm=True, read_only=read_only))
 
+    @router.get("/self/archive/operations")
+    def archive_operations():
+        return self_archive.recovery_status(vault)
+
+    @router.post("/self/archive/operations/recover")
+    def archive_operations_recover(payload: ArchiveRecoveryPayload):
+        if payload.confirm is not True:
+            raise HTTPException(422, "请明确确认检查未完成的档案操作")
+        return _guard(lambda: self_archive.recover_incomplete_operations(
+            vault, read_only=read_only))
+
     @router.get("/self/pending")
     def self_pending():
         return {"items": mentor_pending.list_pending(vault),
@@ -179,7 +198,7 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
             raise HTTPException(422, "请明确确认更新自我档案")
         return _guard(lambda: self_synthesize.synthesize(
             role_service, vault, range_days=payload.range_days,
-            read_only=read_only))
+            read_only=read_only, autonomous_archive=autonomous_archive))
 
     # ----- 人生导师 -------------------------------------------------------
 
@@ -197,6 +216,8 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
             "pending_count": len(pending),
             "questions": today,
             "portrait": self_archive.read_portrait(vault),
+            "autonomous_archive": bool(autonomous_archive),
+            "archive_operations": self_archive.recovery_status(vault),
             "threads": threads,
             "legacy_threads": legacy,
             "paths": {

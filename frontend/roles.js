@@ -181,10 +181,17 @@ function normalizeChips(chips) {
     .slice(0, 4);
 }
 
+function writeHint(fallback) {
+  if (state.role?.id === "mentor") {
+    return "普通提议采纳后写入；人生导师的档案更新经服务端校验后直接提交。";
+  }
+  return fallback;
+}
+
 function noteHint(note) {
   return note
-    ? `已自动读取《${note.title}》；AI 只提议，采纳后才写入。`
-    : "AI 只提议，采纳后才写入。";
+    ? writeHint(`已自动读取《${note.title}》；AI 只提议，采纳后才写入。`)
+    : writeHint("AI 只提议，采纳后才写入。");
 }
 
 export function setRoleSelection(selection) {
@@ -275,7 +282,7 @@ export async function openRoleDrawer(options = {}) {
     } else if (noteChanged) {
       el("role-drawer-hint").textContent = state.note
         ? noteHint(state.note)
-        : (typeof options.getDraftText === "function"
+        : writeHint(typeof options.getDraftText === "function"
           ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
           : "AI 只提议，采纳后才写入。");
     }
@@ -365,9 +372,9 @@ export async function openRoleDrawer(options = {}) {
   el("role-drawer-hint").textContent = options.hint
     || (state.note
       ? noteHint(state.note)
-      : typeof options.getDraftText === "function"
+      : writeHint(typeof options.getDraftText === "function"
         ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
-        : "AI 只提议，采纳后才写入。");
+        : "AI 只提议，采纳后才写入。"));
   node.hidden = false;
   const backdrop = el("role-drawer-backdrop");
   if (backdrop) backdrop.hidden = host === "editor";
@@ -499,7 +506,7 @@ async function sendRoleMessage(text) {
       ...(payload.action_errors || [])].filter(Boolean).join(" "));
     if (payload.hub_events) {
       // 忆灵事件只计数；具体卡片在自我档案里审阅（P3）。
-      el("role-drawer-hint").textContent = `已告诉忆灵 ${payload.hub_events} 条观察；AI 只提议，采纳后才写入。`;
+      el("role-drawer-hint").textContent = `已投递 ${payload.hub_events} 条观察；普通动作仍需你采纳。`;
     }
   } catch (error) {
     if (session !== roleSession) return;
@@ -561,7 +568,7 @@ function renderRoleDrawer(forceScroll = false) {
   const followBottom = forceScroll || messages.scrollHeight - messages.clientHeight - messages.scrollTop < 64;
   let markup;
   if (!state.messages.length) {
-    markup = emptyMarkup(state.role?.name || "AI 角色", state.note);
+    markup = emptyMarkup(state.role?.name || "AI 角色", state.note, state.role?.id || "");
   } else {
     markup = state.messages.map((message) => {
       const proposals = message.proposals?.length
