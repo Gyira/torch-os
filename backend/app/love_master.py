@@ -13,9 +13,10 @@ import html
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
@@ -78,12 +79,17 @@ def _today() -> date:
     return datetime.now(DAY).date()
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+@contextmanager
+def _connect(path: Path) -> Iterator[sqlite3.Connection]:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(str(path), timeout=15)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def ensure_master_schema(paths: LovePaths) -> None:
@@ -564,11 +570,11 @@ def _normalize_structured(skill: str, structured: Any, text: str) -> Any:
     return {"text": str(text or "").strip()[:20_000]}
 
 
-def _run_ai_once(role_service: Any, mode: str, prompt: str) -> dict[str, Any]:
+def _run_ai_once(role_service: Any, mode: str, context: Any, task: str = "") -> dict[str, Any]:
     if role_service is None:
         raise RuntimeError("AI 不可用：dsh 角色服务没有启用")
     return role_service.run_once(
-        "love_master", mode, prompt, entry="love.overview", selectors=[])
+        "love_master", mode, task, context=context, entry="love.overview", selectors=[])
 
 
 def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
@@ -580,33 +586,39 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
     # max_days=0 表示全量：补完所有有聊天、还没写过记忆的日期。
     requested = int(params.get("max_days") or 0)
     max_days = None if requested <= 0 else min(36500, requested)
-    existing = _note_dates(paths)
-    candidates = [day for day in _message_days(paths) if day not in existing]
+    def candidate_days():
+        existing = _note_dates(paths)
+        return [day for day in _message_days(paths) if day not in existing]
+    candidates = role_service.prepare_context(
+        "love_master", "love", candidate_days, love_settings=paths).value
     if max_days is not None:
         candidates = candidates[:max_days]
     created: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for index, day in enumerate(candidates, start=1):
-        messages = _day_messages(paths, day, anonymize=False)
-        if not messages:
-            continue
         with _connect(paths.master_db) as con:
             con.execute("UPDATE runs SET progress = ? WHERE id = ?",
                         (f"正在补写 {day}（{index}/{len(candidates)}）", run_id))
             con.commit()
-        prompt = json.dumps({
-            "task": "补写恋爱日记",
-            "date": day,
-            "messages": messages,
-            "输出要求": (
-                "只输出一个 JSON 对象：{title:'...', body:'Markdown 正文', mood:'happy|love|"
-                "miss|excited|neutral|sad|angry'}。用第一人称「我」，对方用聊天里出现的"
-                "真实称呼，不要改写成「对象」；100-300 字，不要出现 AI/根据聊天记录等字样；"
-                "聊天很少时如实写平淡。"
-            ),
-        }, ensure_ascii=False)
+        def journal_prompt():
+            messages = _day_messages(paths, day, anonymize=False)
+            return json.dumps({
+                "task": "补写恋爱日记",
+                "date": day,
+                "messages": messages,
+                "输出要求": (
+                    "只输出一个 JSON 对象：{title:'...', body:'Markdown 正文', mood:'happy|love|"
+                    "miss|excited|neutral|sad|angry'}。用第一人称「我」，对方用聊天里出现的"
+                    "真实称呼，不要改写成「对象」；100-300 字，不要出现 AI/根据聊天记录等字样；"
+                    "聊天很少时如实写平淡。"
+                ),
+            }, ensure_ascii=False)
         try:
-            result = _run_ai_once(role_service, "journal_batch", prompt)
+            context = role_service.prepare_context(
+                "love_master", "love", journal_prompt, love_settings=paths)
+            if not json.loads(context.text).get("messages"):
+                continue
+            result = _run_ai_once(role_service, "journal_batch", context)
             structured = result.get("structured") or {}
             title = str(structured.get("title") or f"恋爱日记 {day}").strip()[:80]
             body = str(structured.get("body") or result.get("text") or "").strip()
@@ -859,8 +871,11 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
                 con.commit()
             return
         days = max(0, min(3650, int(params.get("days") or 30)))
-        context, meta = build_ai_context(paths, target_name, days=days,
-                                         include_chat=skill != "report")
+        context = role_service.prepare_context(
+            "love_master", "love",
+            lambda: build_ai_context(paths, target_name, days=days, include_chat=skill != "report"),
+            love_settings=paths)
+        _, meta = context.value
         with _connect(paths.master_db) as con:
             con.execute("UPDATE runs SET context_meta=?, progress='正在请求 dsh' WHERE id=?",
                         (json.dumps(meta, ensure_ascii=False), run_id))
@@ -870,8 +885,8 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
             "deep_analysis": f"分析最近 {days or '全部'} 天的聊天与记录，给出关系阶段、沟通模式、关键事件、风险和可执行建议。",
             "report": f"生成一份关系阶段报告，覆盖最近 {days or '全部'} 天的总览、变化和建议。",
         }.get(skill, "分析这段关系。")
-        prompt = f"{context}\n\n## 本次任务\n{task}\n只输出一个 JSON 对象；字段见角色卡。"
-        result = _run_ai_once(role_service, MODE_BY_SKILL[skill], prompt)
+        result = _run_ai_once(role_service, MODE_BY_SKILL[skill], context,
+                              f"{task}\n只输出一个 JSON 对象；字段见角色卡。")
         structured = _normalize_structured(skill, result.get("structured"), result.get("text", ""))
         payload = {
             "structured": structured,

@@ -21,7 +21,9 @@ import json
 import re
 import secrets
 import uuid
-from dataclasses import dataclass
+import threading
+from functools import wraps
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -37,6 +39,21 @@ from .db import Database, utc_now
 from .dsh_web import resolve_command
 from .proposals import ProposalError, ProposalService
 from .vault import parse_text
+from .role_policy import (POLICY_VERSION, PreparedContext, RolePolicy, RoleScopeError,
+                          active_role, scoped_reads)
+
+_THREAD_LOCKS = tuple(threading.RLock() for _ in range(64))
+
+
+def _serialized_thread(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        key = str(kwargs.get("thread_id") or "")
+        if not key:
+            return method(self, *args, **kwargs)
+        with _THREAD_LOCKS[hash(key) % len(_THREAD_LOCKS)]:
+            return method(self, *args, **kwargs)
+    return wrapped
 
 ROLE_ID = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 SKILL_ID = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
@@ -551,6 +568,7 @@ class RoleService:
         # 恋爱系统的只读摘要来源；application 在 love_settings 建好后回填。
         self.love_settings = love_settings
         self.read_only = bool(read_only)
+        self._context_owner = object()
 
     def _command(self):
         return resolve_command(dict(self.environ))
@@ -696,7 +714,7 @@ class RoleService:
             return [{"entry": "identity"}, {"entry": "journal"}, {"entry": "tasks"}]
         if role.id == "life_assistant":
             return [
-                {"entry": "tasks"}, {"entry": "identity"},
+                {"entry": "tasks"},
                 {"entry": "health"}, {"entry": "finance"}, {"entry": "love"},
             ]
         if role.id == "journal_companion":
@@ -728,13 +746,42 @@ class RoleService:
             runner=runner,
         )
 
+    def prepare_context(self, role_id: str, source: str, builder: Any, *, love_settings: Any = None) -> PreparedContext:
+        """Internal builders only: authorize before reading any source content."""
+        if self.vault_dir is None:
+            raise RuntimeError("角色用户库未配置")
+        policy = RolePolicy.for_role(role_id, self.vault_dir)
+        policy.check_source(source, love_settings=love_settings if love_settings is not None else self.love_settings)
+        with scoped_reads(policy):
+            value = builder()
+        return PreparedContext(policy.role_id, policy.vault, source, policy.fingerprint(""), value, self._context_owner)
+
+    def _prepared_text(self, role_id: str, context: PreparedContext | None) -> str:
+        if context is None:
+            return ""
+        policy = RolePolicy.for_role(role_id, self.vault_dir)
+        if (not isinstance(context, PreparedContext) or context.owner is not self._context_owner
+                or context.role_id != policy.role_id or context.vault != policy.vault
+                or context.fingerprint != policy.fingerprint("")):
+            raise RoleScopeError("资料没有经过当前角色的来源校验")
+        return context.text
+
+    def format_context(self, context: PreparedContext, formatter: Any) -> PreparedContext:
+        """Format previously authorized source data without changing its provenance."""
+        self._prepared_text(context.role_id, context)
+        return replace(context, value=formatter(context.value))
+
     def run(self, role_id: str, mode: str, *, context_text: str = "",
+            context: PreparedContext | None = None,
             user_text: str = "", session_id: str = "",
             timeout: float | None = None,
             runner: Any = None) -> HeadlessResult:
         """Run one role round without storing a thread (used by run_once)."""
+        role_id = active_role(role_id)
+        if context_text or session_id:
+            raise RoleScopeError("直接运行只接受经校验的资料，不复用外部模型会话")
         role = self.registry.get(role_id)
-        prompt = self.build_prompt(role_id, mode, context_text=context_text,
+        prompt = self.build_prompt(role_id, mode, context_text=self._prepared_text(role_id, context),
                                    user_text=user_text)
         return self._execute(prompt, role, session_id=session_id,
                              timeout=timeout, runner=runner)
@@ -753,6 +800,9 @@ class RoleService:
         return dict(row)
 
     def _create_thread(self, role_id: str, mode: str, title: str) -> dict[str, Any]:
+        role_id = active_role(role_id)
+        if mode not in self.registry.get(role_id).modes:
+            raise ValueError("这个角色不支持该模式")
         if self.database is None:
             raise RuntimeError("角色会话存储未配置")
         thread_id = "thread_" + uuid.uuid4().hex[:24]
@@ -767,10 +817,17 @@ class RoleService:
         return self._thread_row(thread_id)
 
     def _update_thread(self, thread_id: str, *, dsh_session_id: str = "",
-                       title: str = "") -> None:
+                       title: str = "", claim: dict | None = None) -> None:
         if self.database is None:
             return
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if claim is not None:
+                current = connection.execute(
+                    "SELECT request_token, scope_fingerprint FROM ai_thread_policy WHERE thread_id=?",
+                    (thread_id,)).fetchone()
+                if current is None or tuple(current) != (claim["token"], claim["fingerprint"]):
+                    raise HTTPException(409, "role_context_changed: 本轮模型会话未保存，请重新发送。")
             connection.execute(
                 """UPDATE ai_threads
                    SET dsh_session_id=CASE WHEN ?<>'' THEN ? ELSE dsh_session_id END,
@@ -780,14 +837,51 @@ class RoleService:
                 (dsh_session_id, dsh_session_id, str(title or "")[:200],
                  utc_now(), thread_id),
             )
+            if claim is not None:
+                connection.execute("UPDATE ai_thread_policy SET reset_notice_pending=0 WHERE thread_id=?",
+                                   (thread_id,))
 
-    def _history_text(self, thread_id: str) -> str:
+    def _claim_policy(self, thread_id: str, policy: RolePolicy, mode: str) -> dict[str, Any]:
+        fingerprint = policy.fingerprint(mode)
+        request_token = uuid.uuid4().hex
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM ai_thread_policy WHERE thread_id=?",
+                                     (thread_id,)).fetchone()
+            latest = connection.execute(
+                "SELECT COALESCE(MAX(turn_index),0) FROM ai_turns WHERE thread_id=?",
+                (thread_id,)).fetchone()[0]
+            changed = row is None or row["scope_fingerprint"] != fingerprint
+            start = latest + 1 if changed else row["context_start_turn"]
+            notice = bool(changed and latest) or bool(row and row["reset_notice_pending"])
+            if changed:
+                connection.execute("UPDATE ai_threads SET dsh_session_id='' WHERE id=?", (thread_id,))
+            connection.execute(
+                "INSERT INTO ai_thread_policy(thread_id,policy_version,scope_fingerprint,context_start_turn,request_token,reset_notice_pending) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(thread_id) DO UPDATE SET "
+                "policy_version=excluded.policy_version, scope_fingerprint=excluded.scope_fingerprint, "
+                "context_start_turn=excluded.context_start_turn, request_token=excluded.request_token, "
+                "reset_notice_pending=excluded.reset_notice_pending",
+                (thread_id, POLICY_VERSION, fingerprint, start, request_token, int(notice)))
+        return {"fingerprint": fingerprint, "token": request_token, "start": start,
+                "reset": notice}
+
+    def _assert_policy(self, thread_id: str, policy: RolePolicy, mode: str, claim: dict) -> None:
+        with self.database.connect() as connection:
+            row = connection.execute("SELECT * FROM ai_thread_policy WHERE thread_id=?",
+                                     (thread_id,)).fetchone()
+        if (row is None or row["request_token"] != claim["token"]
+                or row["scope_fingerprint"] != claim["fingerprint"]
+                or policy.fingerprint(mode) != claim["fingerprint"]):
+            raise HTTPException(409, "role_context_changed: 资料范围已更新，本轮结果未采用，请重新发送。")
+
+    def _history_text(self, thread_id: str, start: int) -> str:
         if self.database is None:
             return ""
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT role, content FROM ai_turns WHERE thread_id=? "
-                "ORDER BY turn_index DESC LIMIT 8", (thread_id,)
+                "SELECT role, content FROM ai_turns WHERE thread_id=? AND turn_index>=? "
+                "ORDER BY turn_index DESC LIMIT 8", (thread_id, start)
             ).fetchall()
         lines: list[str] = []
         for row in reversed(rows):
@@ -983,10 +1077,13 @@ class RoleService:
 
     # ----- public chat / run / threads -----------------------------------
 
+    @_serialized_thread
     def chat(self, role_id: str, mode: str, message: str, *, entry: str = "",
              selectors: list[dict[str, Any]] | None = None, thread_id: str = "",
              selection_text: str = "", selection_source: str = "",
+             selection_path: str = "",
              draft_text: str = "", runner: Any = None) -> dict[str, Any]:
+        role_id = active_role(role_id)
         role = self.registry.get(role_id)
         if mode not in role.modes:
             raise ValueError(f"角色 {role_id} 不支持模式 {mode}")
@@ -1002,23 +1099,32 @@ class RoleService:
             if thread["role_id"] != role_id or thread["mode"] != mode:
                 raise ValueError("这个会话属于另一个角色或模式")
         else:
-            thread = self._create_thread(role_id, mode, message[:40])
+            thread = None
         selected = list(selectors or []) or self._default_selectors(role, mode, entry)
+        if selection_path:
+            RolePolicy.for_role(role_id, self.vault_dir).check_path(selection_path, note=True)
+            selection_source = selection_path
         context = assemble(
-            self.database, self.vault_dir, selectors=selected,
+            self.database, self.vault_dir, role_id=role_id, selectors=selected,
             entry=entry or (role.entry[0] if role.entry else ""),
             max_chars=self._max_chars(role),
             love_settings=self.love_settings,
         )
+        policy = RolePolicy.for_role(role_id, self.vault_dir)
+        if thread is None:
+            thread = self._create_thread(role_id, mode, message[:40])
+        claim = self._claim_policy(thread["id"], policy, mode)
+        thread = self._thread_row(thread["id"])
         prompt = self.build_prompt(
             role_id, mode, context_text=context.text, user_text=message,
-            history_text=self._history_text(thread["id"]),
+            history_text=self._history_text(thread["id"], claim["start"]),
             selection_text=selection_text, selection_source=selection_source,
             draft_text=draft_text,
         )
         result = self._execute(prompt, role,
                                session_id=str(thread.get("dsh_session_id") or ""),
                                runner=runner)
+        self._assert_policy(thread["id"], policy, mode, claim)
         reply, structured = parse_reply(result.text)
         proposals = self._create_proposals(reply, role, mode, thread["id"])
         events = self._ingest_events(reply, role, thread["id"])
@@ -1046,7 +1152,7 @@ class RoleService:
             structured=reply.model_dump(), seconds=result.seconds,
         )
         self._update_thread(thread["id"], dsh_session_id=result.session_id,
-                            title=thread.get("title") or message[:40])
+                            title=thread.get("title") or message[:40], claim=claim)
         self.database.audit("ai_turn_completed", {
             "role": role_id, "mode": mode, "thread_id": thread["id"],
             "chars": len(result.text), "seconds": result.seconds,
@@ -1061,6 +1167,7 @@ class RoleService:
         })
         return {
             "thread_id": thread["id"],
+            "context_reset": claim["reset"],
             "reply": reply.reply or result.text,
             "seconds": result.seconds,
             "sources": context.sources,
@@ -1075,9 +1182,11 @@ class RoleService:
         }
 
     def run_once(self, role_id: str, mode: str, input_text: str, *, entry: str = "",
+                 context: PreparedContext | None = None,
                  selectors: list[dict[str, Any]] | None = None,
                  max_chars: int | None = None,
                  runner: Any = None) -> dict[str, Any]:
+        role_id = active_role(role_id)
         role = self.registry.get(role_id)
         if mode not in role.modes:
             raise ValueError(f"角色 {role_id} 不支持模式 {mode}")
@@ -1087,15 +1196,17 @@ class RoleService:
             raise RuntimeError("角色或用户库未配置")
         budget = max_chars or self._max_chars(role)
         budget = max(1_000, min(int(budget), MAX_TOTAL_CHARS))
+        prepared_text = self._prepared_text(role_id, context)
         context = assemble(
-            self.database, self.vault_dir, selectors=selectors,
+            self.database, self.vault_dir, role_id=role_id, selectors=selectors,
             entry=entry or (role.entry[0] if role.entry else ""),
             max_chars=budget,
             love_settings=self.love_settings,
         )
-        prompt = self.build_prompt(role_id, mode, context_text=context.text,
+        prompt = self.build_prompt(role_id, mode, context_text="\n\n".join(filter(None, [prepared_text, context.text])),
                                    user_text=input_text)
-        result = self._execute(prompt, role, runner=runner)
+        result = self._execute(prompt, role, runner=runner,
+                               timeout=60 if role_id == "health_doctor" and mode == "estimate" else None)
         structured = extract_json(result.text) or {}
         self.database.audit("ai_run_completed", {
             "role": role_id, "mode": mode, "chars": len(result.text),
@@ -1165,6 +1276,7 @@ class ChatRequest(BaseModel):
     selectors: list[dict[str, Any]] = Field(default_factory=list, max_length=8)
     selection_text: str = Field(default="", max_length=4_000)
     selection_source: str = Field(default="", max_length=200)
+    selection_path: str = Field(default="", max_length=1000)
     draft_text: str = Field(default="", max_length=12_000)
 
 
@@ -1280,6 +1392,7 @@ def create_ai_router(service: RoleService, prefix: str = "/api") -> APIRouter:
             thread_id=payload.thread_id,
             selection_text=payload.selection_text,
             selection_source=payload.selection_source,
+            selection_path=payload.selection_path,
             draft_text=payload.draft_text,
         ))
 

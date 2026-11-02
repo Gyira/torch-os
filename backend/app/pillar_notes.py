@@ -98,6 +98,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
                 continue
             if vault_layout.chapter_key_of(relative) in hidden:
                 continue
+            from .role_policy import guard_note_read
+            guard_note_read(vault, relative)
             try:
                 loaded = load_note(path)
                 metadata, body = parse_text(

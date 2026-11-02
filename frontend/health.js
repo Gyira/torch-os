@@ -1211,7 +1211,8 @@ function paintChat() {
     send.textContent = HEALTH.doctorChat.busy ? "医生正在看…" : "发送";
   }
   const status = node("health-chat-status");
-  if (status) status.textContent = HEALTH.doctorChat.busy ? "正在读取你的记录…" : CHAT_IDLE_STATUS;
+  if (status) status.textContent = HEALTH.doctorChat.busy ? "正在读取你的记录…"
+    : (HEALTH.doctorChat.contextNotice || CHAT_IDLE_STATUS);
 }
 
 async function sendDoctorMessage(text) {
@@ -1219,6 +1220,7 @@ async function sendDoctorMessage(text) {
   if (!message || HEALTH.doctorChat.busy) return;
   if (!HEALTH.doctor?.capabilities?.ai) { toast("AI 未配置，暂时不能问诊", "error"); return; }
   HEALTH.doctorChat.busy = true;
+  HEALTH.doctorChat.contextNotice = "";
   HEALTH.doctorChat.messages.push({ role: "user", content: message });
   paintChat();
   const form = document.querySelector(".health-chat-form");
@@ -1232,6 +1234,8 @@ async function sendDoctorMessage(text) {
       }),
     });
     HEALTH.doctorChat.threadId = payload.thread_id || HEALTH.doctorChat.threadId;
+    HEALTH.doctorChat.contextNotice = payload.context_reset
+      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "";
     const reply = String(payload.reply || "");
     HEALTH.doctorChat.messages.push({
       role: "assistant", content: reply,
@@ -1239,6 +1243,8 @@ async function sendDoctorMessage(text) {
     });
     if (reply) await saveConsult(message, reply);
   } catch (error) {
+    const input = node("health-chat-input");
+    if (input && !input.value) input.value = message;
     HEALTH.doctorChat.messages.push({
       role: "assistant", content: `这一轮没有成功：${error.message}`,
       html: `<p class="health-inline-error">这一轮没有成功：${esc(error.message)}</p>`,

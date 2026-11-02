@@ -30,7 +30,7 @@ from .ai_schemas import extract_json
 from .db import Database
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-ESTIMATE_ROLE = "health_estimator"
+ESTIMATE_ROLE = "health_doctor"
 TREND_LIMIT = 4
 TREND_DAYS = (7, 30, 90, 180, 365)
 PSEUDO_METRICS = {
@@ -336,7 +336,9 @@ def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
     span = max(7, min(int(days or 30), 366))
-    context, stats = health_store.summary(vault_dir, days=span)
+    context = role_service.prepare_context("health_doctor", "health",
+                                           lambda: health_store.summary(vault_dir, days=span))
+    _, stats = context.value
     user_text = (
         f"请按私人医生模式，基于最近 {span} 天的记录、最新身体档案与检验记录，"
         "分析我现在的健康状态，写一份完整的健康报告。"
@@ -348,7 +350,7 @@ def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
     )
     try:
         result = role_service.run("health_doctor", "report",
-                                  context_text=context, user_text=user_text)
+                                  context=context, user_text=user_text)
     except RuntimeError as error:
         raise HTTPException(409, str(error)) from error
     except Exception as error:  # 角色层可能抛 503/超时

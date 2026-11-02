@@ -171,6 +171,22 @@ async function roleHarness() {
   return { env, ctx, requests, input: env.document.getElementById("role-drawer-input") };
 }
 
+test("角色权限切换提示保留历史，并在后续轮次恢复正常状态", async () => {
+  const {ctx, requests, input, env} = await roleHarness();
+  await ctx.openRoleDrawer({roleId:"a"});
+  input.value = "继续";
+  const first = ctx.sendRoleMessage(input.value);
+  requests[0].resolve({thread_id:"same", reply:"新范围回复", context_reset:true});
+  await first;
+  assert.match(env.document.getElementById("role-drawer-status").textContent, /历史对话保留/);
+  input.value = "下一问";
+  const next = ctx.sendRoleMessage(input.value);
+  requests[1].resolve({thread_id:"same", reply:"后续回复", context_reset:false});
+  await next;
+  assert.doesNotMatch(env.document.getElementById("role-drawer-status").textContent, /历史对话保留/);
+  assert.equal(ctx.snapshot().messages.length, 4);
+});
+
 test("角色旧回复不能污染重开的角色或解除新请求忙碌状态", async () => {
   const {ctx, requests, input} = await roleHarness();
   await ctx.openRoleDrawer({roleId:"a"});

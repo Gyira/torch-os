@@ -423,7 +423,8 @@ def generate_reading(role_service: Any, vault_dir: Path | str, *, topic: str = "
     if role_service is None:
         raise BaziError("AI 不可用：请先在 dsh 里配置模型", 503)
     vault = Path(vault_dir).resolve()
-    profile = read_profile(vault)
+    context = role_service.prepare_context("mentor", "bazi_chart", lambda: read_profile(vault))
+    profile = context.value
     if not profile.get("exists"):
         raise BaziError("先保存你的命盘，再生成解读", 422)
     chart = chart_from_profile(profile)
@@ -445,8 +446,9 @@ def generate_reading(role_service: Any, vault_dir: Path | str, *, topic: str = "
         ),
     }, ensure_ascii=False)
     try:
+        context = role_service.format_context(context, lambda _: prompt)
         result = role_service.run_once(
-            "mentor", "bazi", prompt, entry="self.bazi",
+            "mentor", "bazi", "请按资料中的任务生成解读。", context=context, entry="self.bazi",
             selectors=[
                 {"entry": "bazi_chart"},
                 {"entry": "self_archive"},

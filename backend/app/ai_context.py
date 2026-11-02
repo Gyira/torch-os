@@ -19,10 +19,12 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from . import (identity, journal_note, pillar_notes, self_archive, task_reports,
-               mentor_memory, vault_layout, workbench)
+               mentor_memory, vault_layout)
 from .db import Database
 from .journal_shared import shanghai_today, validate_day
 from .vault import parse_text
+from .role_policy import RolePolicy, scoped_reads
+from .habits import HabitService
 
 MAX_SELECTORS = 8
 MAX_TOTAL_CHARS = 80_000
@@ -179,8 +181,7 @@ def _tasks_context(database: Database, vault_dir: Path | str, selector: Mapping[
     if not rows:
         lines.append("\n目前没有未完成任务。")
     try:
-        payload = workbench.collect_day(database, vault_dir, day)
-        habits = payload.get("habits") or []
+        habits = HabitService(database, vault_dir, read_only=True).day_rows(day)
         if habits:
             done = sum(1 for habit in habits if habit.get("done"))
             lines.append(f"\n今日习惯：{done}/{len(habits)} 完成。")
@@ -354,14 +355,14 @@ def _build_one(database: Database, vault_dir: Path | str, selector: Any,
 
 
 def assemble(database: Database, vault_dir: Path | str, *,
+             role_id: str,
              selectors: Iterable[Any] | None = None,
              entry: str = "", max_chars: int = DEFAULT_TOTAL_CHARS,
              love_settings: Any = None) -> ContextBundle:
     """Read the selected sources and return numbered, budget-limited text.
 
-    Empty selectors fall back to the role's entry defaults (identity + tasks for
-    ``workbench.tasks``; identity for ``self.*``).  This keeps the common case
-    simple without letting the browser upload free text.
+    Empty selectors send no stored data. RoleService supplies explicit defaults;
+    all requested selectors are authorized before any content is opened.
     """
     items = list(selectors or [])
     if not items:
@@ -370,14 +371,17 @@ def assemble(database: Database, vault_dir: Path | str, *,
         return ContextBundle(text="", sources=[], chars=0, truncated=False)
     if len(items) > MAX_SELECTORS:
         raise ContextError(f"一次最多选择 {MAX_SELECTORS} 个来源")
+    policy = RolePolicy.for_role(role_id, vault_dir)
+    policy.validate_selectors(items, love_settings=love_settings)
     budget = max(1_000, min(int(max_chars or DEFAULT_TOTAL_CHARS), MAX_TOTAL_CHARS))
     sources: list[dict[str, Any]] = []
     blocks: list[str] = []
     truncated = False
     used = 0
     for index, selector in enumerate(items, start=1):
-        meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}",
-                                      love_settings=love_settings)
+        with scoped_reads(policy):
+            meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}",
+                                          love_settings=love_settings)
         truncated = truncated or cut
         remaining = budget - used
         if remaining <= 0:

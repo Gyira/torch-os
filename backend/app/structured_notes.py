@@ -139,7 +139,8 @@ def read_month(vault_dir: Path | str, dataset: str, month: str) -> dict[str, Any
     month = _month(month)
     relative = month_path(vault_dir, dataset, month)
     path = safe_note_path(Path(vault_dir), relative)
-    if not path.is_file() and dataset == "health":
+    from .role_policy import is_scoped_read
+    if not path.is_file() and dataset == "health" and not is_scoped_read():
         legacy = _legacy_health_path(vault_dir, month)
         if legacy is not None:
             path = legacy

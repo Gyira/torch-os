@@ -4,7 +4,7 @@ name: 人生导师
 tagline: 陪你复盘、决策与自我审视
 agent: mentor
 layer: identity
-entry: [self.mentor, self.archive]
+entry: [self.mentor, self.archive, self.bazi]
 modes: [converse, synthesize, bazi, question_draft]
 context:
   archive: full

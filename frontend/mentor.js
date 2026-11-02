@@ -255,7 +255,8 @@ async function sendMessage(text) {
       state.pending = [...payload.pending, ...state.pending];
       state.activeTab = "pending";
     }
-    setBusy(false, payload.truncated ? "部分资料因篇幅被截断。" : "");
+    setBusy(false, [payload.context_reset ? "历史对话保留，从这一轮起按新的资料范围继续。" : "",
+      payload.truncated ? "部分资料因篇幅被截断。" : ""].filter(Boolean).join(" "));
     try { await loadOverview({ autoOpen: false }); } catch { /* keep current page */ }
     renderAll();
     if (payload.memory_errors?.length) {

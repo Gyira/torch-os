@@ -15,20 +15,19 @@
 | id | 名称 | 模式 | 允许提议 |
 |---|---|---|---|
 | `mentor` | 人生导师 | `converse` / `synthesize` / `bazi` / `question_draft` | hub_event（档案补丁走独立 Markdown 待确认） |
-| `yiling` | 忆灵 / 苏格拉底（历史兼容） | `synthesize` / `converse` | identity_patch、review_card、new_note、hub_event |
+| `yiling` | 忆灵 / 苏格拉底（历史兼容） | 仅查看既有会话 | 不再新推理或生成提议 |
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
 | `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
 | `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
 | `love_master` | 恋爱大师 | `advice` / `portrait` / `deep` / `report` / `journal_batch` / `bazi` | new_note、new_task |
-| `health_doctor` | 私人医生 | `report` / `advice` | health_report |
-| `health_estimator` | 健康估算助手（`internal: true`，仅健康页估算） | `estimate` | — |
+| `health_doctor` | 私人医生 | `report` / `advice` / `estimate` | health_report（估算沿用预览保存） |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 2026-11-01 起，新入口统一为 `mentor`（人生导师）：对话、整理、八字、拟答四种模式，
 读自我档案/分层记忆/三库；档案写入走 `01_自我档案/02_人生导师/待确认/`。
-`yiling` 角色卡标记 `legacy: true`，只为旧会话/旧接口保留；`health_estimator` 标记
-`internal: true`，只被健康页的一句话饮食/运动估算调用。两者都不出现在
-`/api/ai/roles` 的 `items` 与「AI 角色」管理列表中；新界面一律走人生导师。
+2026-11-03 B3-1：`yiling` 只保留历史查看，新的推理/旧综合请求返回 409 并指向人生导师。
+健康估算已合并到 `health_doctor/estimate`；旧 `health_estimator` 仅在运行入口作为兼容别名，
+不再注册独立角色，旧历史不删除。具体资料边界与回退见 `DESIGN_B3_ROLE_BOUNDARIES.md`。
 完整设计见 `docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
 
 ## 3. 角色卡格式
@@ -129,12 +128,12 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 总预算 24k、硬上限 80k；恋爱大师角色卡单独申请 60k；截断会在响应 `truncated`
 与界面提示里说明。
 
-空 `selectors` = 不发送任何用户资料。角色对话会按角色补默认上下文（忆灵=身份+今日日记+任务；
-生活管家=任务+身份+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱数据摘要+最近聊天；
+空 `selectors` = 不发送任何用户资料。角色对话会按角色补默认上下文（导师=档案+记忆+近日日记+任务+近期知识；
+生活管家=任务/习惯摘要+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱数据摘要+最近聊天；
 私人医生=健康系统摘要）；一次性能力（润色/判类）不自动带资料，避免把身份信息顺手发给模型。
 
 健康系统的 `{"entry":"health"}` 摘要来自 `health_store.summary()`：身体档案 + 最新沿用
-状态 + 最近 90 天的睡眠/体重/饮食/运动/检验，不含每日正文；`health_estimator` 只用于
+状态 + 最近 90 天的睡眠/体重/饮食/运动/检验，不含每日正文；`health_doctor/estimate` 用于
 「一句话饮食/运动」估算，结果先在界面预览、确认后才落盘。报告落
 `02_生活运营/02_健康系统/00_健康报告`，`memory: false`。
 

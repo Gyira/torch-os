@@ -232,8 +232,8 @@ def life_context(database: Database, vault_dir: Path | str, love_settings: Any =
         task_lines = []
     try:
         day = datetime.now(SHANGHAI).date().isoformat()
-        payload = workbench.collect_day(database, vault_dir, day)
-        habits = payload.get("habits") or []
+        from .habits import HabitService
+        habits = HabitService(database, vault_dir, read_only=True).day_rows(day)
         habit_line = f"今日习惯：{sum(1 for habit in habits if habit.get('done'))}/{len(habits)} 完成。"
     except Exception:
         habit_line = "今日习惯：暂时读不到。"
@@ -292,15 +292,16 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
         ensure_vault_writable(read_only, "生成生活运营报告")
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
-    if domain == "life":
-        context, stats = life_context(database, vault_dir, love_settings)
-    elif domain == "health":
-        context, stats = health_context(vault_dir)
-    elif domain == "finance":
-        context, stats = finance_context(vault_dir)
-    else:
-        context, stats = love_context(love_settings)
     role_id, mode = ROLE[domain]
+    builders = {
+        "life": lambda: life_context(database, vault_dir, love_settings),
+        "health": lambda: health_context(vault_dir),
+        "finance": lambda: finance_context(vault_dir),
+        "love": lambda: love_context(love_settings),
+    }
+    context = role_service.prepare_context(role_id, "life_report" if domain == "life" else domain,
+                                           builders[domain], love_settings=love_settings)
+    _, stats = context.value
     user_text = {
         "health": "请按私人医生模式评估最近 6 个月的健康数据，输出约定的报告 JSON。",
         "finance": "请按理财专家模式评估最近 6 个月的收支数据，输出约定的报告 JSON。",
@@ -308,7 +309,7 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
         "life": "请按生活管家模式汇总健康/财务/恋爱与任务，给最多三条可执行建议，并输出约定 JSON。",
     }[domain]
     try:
-        result = role_service.run(role_id, mode, context_text=context, user_text=user_text)
+        result = role_service.run(role_id, mode, context=context, user_text=user_text)
     except RuntimeError as error:
         raise LifeAIError(str(error), 409) from error
     except Exception as error:

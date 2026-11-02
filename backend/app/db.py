@@ -13,6 +13,14 @@ from uuid import uuid4
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_thread_policy (
+    thread_id TEXT PRIMARY KEY REFERENCES ai_threads(id) ON DELETE CASCADE,
+    policy_version TEXT NOT NULL,
+    scope_fingerprint TEXT NOT NULL,
+    context_start_turn INTEGER NOT NULL,
+    request_token TEXT NOT NULL DEFAULT '',
+    reset_notice_pending INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     path TEXT NOT NULL UNIQUE,
@@ -378,6 +386,9 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             connection.executescript(LEGACY_SCHEMA)
+            policy_columns = {row['name'] for row in connection.execute('PRAGMA table_info(ai_thread_policy)')}
+            if 'reset_notice_pending' not in policy_columns:
+                connection.execute('ALTER TABLE ai_thread_policy ADD COLUMN reset_notice_pending INTEGER NOT NULL DEFAULT 0')
             # Additive migration preserves the existing demo database and decisions.
             columns = {row['name'] for row in connection.execute('PRAGMA table_info(documents)')}
             for name, declaration in {

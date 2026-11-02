@@ -504,15 +504,16 @@ def _find_today(vault: Path, qid: str) -> tuple[str, list[dict[str, Any]], dict[
 
 def draft_today(role_service: Any, vault_dir: Path | str, *, read_only: bool = False) -> dict[str, Any]:
     """调用 mentor/question_draft 为今天 3 条问题生成拟答。"""
-    ensure_today(vault_dir, read_only=read_only)
+    if role_service is None:
+        raise QuestionError("AI 不可用：请先在 dsh 里配置模型", 503)
+    context = role_service.prepare_context("mentor", "mentor_questions",
+                                           lambda: ensure_today(vault_dir, read_only=read_only))
     vault = Path(vault_dir).resolve()
     day = _today()
-    items = _read_today(vault, day) or []
+    items = context.value.get("items") or []
     pending = [item for item in items if not item.get("suggested")]
     if not pending:
         return {"date": day, "items": items, "drafted": 0}
-    if role_service is None:
-        raise QuestionError("AI 不可用：请先在 dsh 里配置模型", 503)
     prompt = json.dumps({
         "task": "为今日三问生成拟答",
         "questions": [
@@ -529,8 +530,9 @@ def draft_today(role_service: Any, vault_dir: Path | str, *, read_only: bool = F
         ),
     }, ensure_ascii=False)
     try:
+        context = role_service.format_context(context, lambda _: prompt)
         result = role_service.run_once(
-            "mentor", "question_draft", prompt, entry="self.mentor",
+            "mentor", "question_draft", "请为资料中的问题生成拟答。", context=context, entry="self.mentor",
             selectors=[
                 {"entry": "identity"}, {"entry": "self_archive"},
                 {"entry": "mentor_memory"},

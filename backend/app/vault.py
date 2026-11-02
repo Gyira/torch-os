@@ -28,6 +28,8 @@ def restricted_path(relative: Path) -> bool:
 
 
 def safe_note_path(vault_dir: Path, relative: str) -> Path:
+    from .role_policy import guard_note_read
+    guard_note_read(vault_dir, relative)
     root = vault_dir.resolve()
     path = root / relative
     if Path(relative).is_absolute() or '..' in Path(relative).parts or not path.resolve().is_relative_to(root):
@@ -47,7 +49,8 @@ def managed_note_path(vault_dir: Path | str, relative: str, legacy: str | None =
     必须继续能读写——否则一次改名就等于让用户以为数据丢了。新库只会创建新名字的文件。
     """
     current = safe_note_path(Path(vault_dir), relative)
-    if legacy and not current.exists():
+    from .role_policy import is_scoped_read
+    if legacy and not current.exists() and not is_scoped_read():
         previous = safe_note_path(Path(vault_dir), legacy)
         if previous.exists():
             return previous

@@ -40,7 +40,8 @@ def _identity_path(vault_dir: Path | str) -> Path:
     """四库路径优先；未迁移的旧库继续读写 `01-Identity/`（不自动改名）。"""
     root = Path(vault_dir)
     current = safe_note_path(root, IDENTITY_RELATIVE)
-    if current.exists():
+    from .role_policy import is_scoped_read
+    if current.exists() or is_scoped_read():
         return current
     for legacy in (IDENTITY_LEGACY_RELATIVE, IDENTITY_LEGACY_ALT,
                    IDENTITY_LEGACY_ALT2,
