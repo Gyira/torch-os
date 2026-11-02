@@ -8,6 +8,8 @@
   旧 00_人生路/07_任务与待办、08_任务与待办、00-System 只做只读兜底与迁移；
 - 2026-11-01 生活运营目录重排：`03_体检与医疗` 退役并入
   `02_健康系统/03_体检与检验`，其余目录压紧编号（见 `OPS_LAYOUT_MOVES`）；
+- 2026-11-03 前端对齐：人生路 01–07，生活运营 00–04；固定目录缺失自动补建。
+  既有库显式运行 scripts/align_vault_layout.py，避免运行时隐式搬动个人资料；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
 
 所有路径都以创建目录（Vault 根）为基准，使用 POSIX 相对路径字符串，
@@ -50,6 +52,9 @@ PILLAR_ORDER = ("life", "self", "ops", "knowledge")
 # 但不进入四库首页/迁移状态，避免把“四库”变成五库。
 LOVE_PILLAR = "love"
 LOVE_ROOT = "02_生活运营/01_恋爱系统"
+LOVE_PAGE_DIRS = tuple(f"{LOVE_ROOT}/{name}" for name in (
+    "01_恋爱记忆", "02_微信聊天", "03_排班日历", "04_经期关怀",
+    "05_恋爱相册", "06_八字合婚", "07_恋爱大师"))
 LOVE_MEMORY_DIR = f"{LOVE_ROOT}/01_恋爱记忆"
 LOVE_JOURNAL_DIR = f"{LOVE_MEMORY_DIR}/恋爱日志"
 LOVE_DRAFT_DIR = f"{LOVE_MEMORY_DIR}/AI 草稿"
@@ -77,7 +82,7 @@ SELF_MENTOR_ROOT = f"{SELF_ROOT}/02_人生导师"
 SELF_BAZI_ROOT = f"{SELF_ROOT}/03_八字系统"
 SELF_IDENTITY_RELATIVE = f"{SELF_ARCHIVE_ROOT}/身份（identity）.md"
 SELF_PORTRAIT_RELATIVE = f"{SELF_ARCHIVE_ROOT}/00_画像.md"
-SELF_BACKUP_PREFIX = f"{SELF_ROOT}/99_重构备份-"
+SELF_BACKUP_PREFIX = ".torch-os/backups/self-archive/99_重构备份-"
 SELF_MENTOR_MEMORY_DIR = f"{SELF_MENTOR_ROOT}/记忆"
 SELF_MENTOR_PENDING_DIR = f"{SELF_MENTOR_ROOT}/待确认"
 SELF_MENTOR_PENDING_PATCHES = f"{SELF_MENTOR_PENDING_DIR}/档案补丁"
@@ -109,10 +114,10 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("habit", "life", "习惯追踪", "00_人生路/04_目标/04_习惯追踪", "habit_log"),
     ("project_plan", "life", "项目计划", "00_人生路/05_项目/01_项目计划", "plan"),
     ("work_review_project", "life", "项目复盘", "00_人生路/05_项目/02_项目复盘", "reflection"),
-    ("work_review_meeting", "life", "会议收获", "00_人生路/06_工作复盘/02_会议收获", "insight"),
-    ("work_review_pitfall", "life", "踩坑记录", "00_人生路/06_工作复盘/03_踩坑记录", "insight"),
-    # v1.0 写作优先：随笔单独成章；任务/习惯仍在人生路，由工作台专用接口管理。
-    ("essay", "life", "随笔", "00_人生路/09_随笔", "essay"),
+    ("work_review_meeting", "life", "会议收获", "00_人生路/07_工作复盘/01_会议收获", "insight"),
+    ("work_review_pitfall", "life", "踩坑记录", "00_人生路/07_工作复盘/02_踩坑记录", "insight"),
+    # 编号遵循前端 LIFE_NOTEBOOKS：项目 → 随笔 → 工作复盘。
+    ("essay", "life", "随笔", "00_人生路/06_随笔", "essay"),
     # 01_自我档案（旧章节：2026-11-01 重构后只做迁移/只读兜底，不再创建空目录）
     ("core_values", "self", "内核与三观", "01_自我档案/01_内核与三观", "value"),
     ("memory", "self", "记忆与自传", "01_自我档案/02_记忆与自传", "memory"),
@@ -148,19 +153,18 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     ("health_lab", "ops", "体检与检验", "02_生活运营/02_健康系统/03_体检与检验", "health_lab"),
     ("health_train", "ops", "训练记录", "02_生活运营/02_健康系统/04_训练记录", "health_train"),
     ("health_consult", "ops", "问诊记录", "02_生活运营/02_健康系统/05_问诊记录", "health_consult"),
-    ("finance", "ops", "财富与记账", "02_生活运营/08_财富与记账", "finance_month"),
+    ("finance", "ops", "财富与记账", "02_生活运营/03_财务系统/收支记账", "finance_month"),
     # 2026-11-01：体检/医疗不再单独占一个生活运营顶层目录；检验记录归
-    # `02_健康系统/03_体检与检验`，`medical` 章节退役。下列 03–06 是重排后的
-    # 当前生活运营目录；`finance` 与 `love_memory` 是旧数据的只读兼容路径，
-    # 不再创建空目录，也不参与前端导航。
-    ("affairs", "ops", "证件与事务", "02_生活运营/03_证件与事务", "document"),
+    # `02_健康系统/03_体检与检验`，`medical` 章节退役。旧产物归入所属系统，
+    # 不再独占生活运营入口；目录按需创建，保留原章节 key 与 API。
+    ("affairs", "ops", "证件与事务", "02_生活运营/04_家庭系统/证件与事务", "document"),
     # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
-    ("love_memory", "ops", "情感与记忆", "02_生活运营/07_情感与记忆", "memory"),
+    ("love_memory", "ops", "情感与记忆", f"{LOVE_MEMORY_DIR}/聊天摘要", "memory"),
     # v1.0 生活运营 AI 报告：专家角色生成的可读产物，落数据层；家庭是占位章节。
     ("health_report", "ops", "健康报告", "02_生活运营/02_健康系统/00_健康报告", "report"),
-    ("finance_report", "ops", "财务报告", "02_生活运营/04_财务报告", "report"),
-    ("life_advice", "ops", "生活建议", "02_生活运营/05_生活建议", "advice"),
-    ("family", "ops", "家庭与智能家居", "02_生活运营/06_家庭与智能家居", "family"),
+    ("finance_report", "ops", "财务报告", "02_生活运营/03_财务系统/财务报告", "report"),
+    ("life_advice", "ops", "生活建议", "02_生活运营/04_家庭系统/生活建议", "advice"),
+    ("family", "ops", "家庭系统", "02_生活运营/04_家庭系统", "family"),
     # 03_知识库
     ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
     ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),
@@ -286,14 +290,19 @@ OPS_LAYOUT_MARKER = ".torch-os/ops-layout.json"
 OPS_HEALTH_LAB = f"{OPS_ROOT}/02_健康系统/03_体检与检验"
 OPS_LAYOUT_MOVES: tuple[tuple[str, str], ...] = (
     (f"{OPS_ROOT}/03_体检与医疗", OPS_HEALTH_LAB),
-    (f"{OPS_ROOT}/04_证件与事务", f"{OPS_ROOT}/03_证件与事务"),
-    (f"{OPS_ROOT}/07_财务报告", f"{OPS_ROOT}/04_财务报告"),
-    (f"{OPS_ROOT}/08_生活建议", f"{OPS_ROOT}/05_生活建议"),
-    (f"{OPS_ROOT}/09_家庭与智能家居", f"{OPS_ROOT}/06_家庭与智能家居"),
+    (f"{OPS_ROOT}/04_证件与事务", CHAPTER_BY_KEY["affairs"][3]),
+    (f"{OPS_ROOT}/07_财务报告", CHAPTER_BY_KEY["finance_report"][3]),
+    (f"{OPS_ROOT}/08_生活建议", CHAPTER_BY_KEY["life_advice"][3]),
+    (f"{OPS_ROOT}/09_家庭与智能家居", CHAPTER_BY_KEY["family"][3]),
     # 旧只读章节也一并压紧编号；实际不存在时什么也不做。
-    (f"{OPS_ROOT}/05_情感与记忆", f"{OPS_ROOT}/07_情感与记忆"),
-    (f"{OPS_ROOT}/02_财富与记账", f"{OPS_ROOT}/08_财富与记账"),
+    (f"{OPS_ROOT}/05_情感与记忆", CHAPTER_BY_KEY["love_memory"][3]),
+    (f"{OPS_ROOT}/02_财富与记账", CHAPTER_BY_KEY["finance"][3]),
 )
+
+# 一级分区与 frontend/ops-model.js 对齐；无独立入口的旧产物按需落盘。
+OPS_SYSTEM_DIRS = tuple(f"{OPS_ROOT}/{name}" for name in (
+    "00_待办事项", "01_恋爱系统", "02_健康系统", "03_财务系统", "04_家庭系统"))
+LAZY_CHAPTER_KEYS = frozenset({"affairs", "finance_report", "life_advice"})
 
 # 旧布局 → 新章节（只在迁移预览里使用；运行时读取旧路径只做只读兜底）。
 LEGACY_DIRS = {
@@ -949,7 +958,7 @@ def ensure_self_layout(vault_dir: Path | str) -> list[str]:
 
     本子文件夹是前端左栏与数据目录的一一对应；应用内不允许删除/重命名。
     """
-    root = Path(vault_dir)
+    root = Path(vault_dir).resolve()
     relative_dirs = [
         SELF_ARCHIVE_ROOT,
         SELF_MENTOR_ROOT,
@@ -970,11 +979,25 @@ def ensure_self_layout(vault_dir: Path | str) -> list[str]:
     ]
     created: list[str] = []
     for relative in relative_dirs:
-        path = root / relative
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+        if _ensure_managed_directory(root, relative):
             created.append(relative)
     return created
+
+
+def _ensure_managed_directory(root: Path, relative: str) -> bool:
+    """固定路径缺失即补建；不覆盖同名文件，不跟随链接到库外写入。"""
+    path = root / relative
+    if not path.resolve().is_relative_to(root):
+        raise ValueError(f"固定目录超出资料库：{relative}")
+    for part in [path, *path.parents]:
+        if part == root:
+            break
+        if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
+            raise ValueError(f"固定目录不能是链接或目录联接：{relative}")
+    if path.is_dir():
+        return False
+    path.mkdir(parents=True, exist_ok=True)
+    return True
 
 
 def ensure_layout(vault_dir: Path | str) -> list[str]:
@@ -982,29 +1005,24 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
 
     已删除的内置本子不再重建章节目录，否则重启后空卡片会重新出现。
     """
-    root = Path(vault_dir)
+    root = Path(vault_dir).resolve()
     _unhide_restored_notebooks(root)
     hidden = hidden_chapters(root)
     created: list[str] = []
     for relpath in [PILLAR_DIRS[key] for key in PILLAR_ORDER]:
-        path = root / relpath
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+        if _ensure_managed_directory(root, relpath):
             created.append(relpath)
     for item in CHAPTERS:
-        if item[0] in hidden or item[0] in LEGACY_CHAPTER_KEYS:
+        if item[0] in hidden or item[0] in LEGACY_CHAPTER_KEYS or item[0] in LAZY_CHAPTER_KEYS:
             continue
-        path = root / item[3]
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+        if _ensure_managed_directory(root, item[3]):
             created.append(item[3])
     for relative in ensure_self_layout(root):
         if relative not in created:
             created.append(relative)
-    for relative in TASK_SPECIAL_DIRS:
-        path = root / relative
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+    for relative in (*OPS_SYSTEM_DIRS, *LOVE_PAGE_DIRS, *TASK_SPECIAL_DIRS,
+                     *(f"{LOVE_MEMORY_DIR}/{name}" for name in sorted(PROTECTED_LOVE_NOTEBOOKS))):
+        if _ensure_managed_directory(root, relative):
             created.append(relative)
     return created
 

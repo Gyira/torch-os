@@ -22,15 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
+from .vault_layout import LOVE_ROOT, LOVE_PAGE_DIRS
 
-LOVE_ROOT = "02_生活运营/01_恋爱系统"
-MEMORY_DIR = f"{LOVE_ROOT}/01_恋爱记忆"
-CHAT_DIR = f"{LOVE_ROOT}/02_微信聊天"
-SCHEDULE_DIR = f"{LOVE_ROOT}/03_排班日历"
-CYCLE_DIR = f"{LOVE_ROOT}/04_经期关怀"
-GALLERY_DIR = f"{LOVE_ROOT}/05_恋爱相册"
-BAZI_DIR = f"{LOVE_ROOT}/06_八字合婚"
-MASTER_DIR = f"{LOVE_ROOT}/07_恋爱大师"
+MEMORY_DIR, CHAT_DIR, SCHEDULE_DIR, CYCLE_DIR, GALLERY_DIR, BAZI_DIR, MASTER_DIR = LOVE_PAGE_DIRS
 ARCHIVE_DIR = f"{LOVE_ROOT}/_归档"
 
 # 本子：固定章节 + 自定义文件夹。

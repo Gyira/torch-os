@@ -269,7 +269,31 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                 vault_dir, database=database, read_only=vault_read_only)
         except Exception as error:  # 迁移失败不能阻止服务启动
             task_layout_state = {"status": "error", "error": type(error).__name__}
+    layout_repair_enabled = runtime_label == "personal" and not provided_paths and not vault_read_only
+    layout_repair_state: dict[str, Any] = {
+        "enabled": layout_repair_enabled, "interval_seconds": 10,
+        "last_checked_at": "", "last_created": [], "error": "",
+    }
+
+    def repair_fixed_directories():
+        from .vault_layout import ensure_layout
+        try:
+            layout_repair_state["last_created"] = ensure_layout(vault_dir)
+            layout_repair_state["error"] = ""
+        except (OSError, ValueError) as error:
+            # 文件占位、只读权限或链接问题应可见；绝不删文件来强行建目录。
+            layout_repair_state["error"] = type(error).__name__
+        layout_repair_state["last_checked_at"] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
+
+    if layout_repair_enabled:
+        repair_fixed_directories()
     data_lock = asyncio.Lock()
+
+    async def layout_repair_loop():
+        while True:
+            await asyncio.sleep(layout_repair_state["interval_seconds"])
+            async with data_lock:
+                await run_in_threadpool(repair_fixed_directories)
     dida_service = DidaSyncService(
         database, vault_dir, read_only=vault_read_only,
         supported=(runtime_label == 'personal'),
@@ -453,6 +477,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         tasks_to_stop = [asyncio.create_task(scheduler_loop())]
+        if layout_repair_enabled:
+            tasks_to_stop.append(asyncio.create_task(layout_repair_loop()))
         if runtime_label == 'personal' and not vault_read_only:
             tasks_to_stop.append(asyncio.create_task(cloud_backup_loop()))
         if dida_service.supported:
@@ -599,6 +625,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     @app.get('/api/config/status')
     def config_status():
         return {'vault_dir':str(vault_dir), 'timezone':'Asia/Shanghai', 'version':APP_VERSION,
+                'data_layout': dict(layout_repair_state),
                 'runtime_label':runtime_label, 'vault_name':Path(vault_dir).name,
                 'vault_scoped':bool(vault_scoped), 'default_mode':'dsh',
                 'capabilities':{
