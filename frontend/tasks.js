@@ -247,6 +247,7 @@ function startRename(title, task, options) {
     }
   };
   input.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter") finish(true);
     if (event.key === "Escape") finish(false);
   });

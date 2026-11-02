@@ -92,6 +92,7 @@ export function initNoteEditor() {
       const target = el("note-editor-chapter")?.value || "";
       setStatus(target && target !== state.chapter ? "保存后会移动到新的本子。" : "");
     }
+    updatePreview();
   });
   el("note-editor-classify")?.addEventListener("click", () => classifyDraft());
   el("note-editor-polish-btn")?.addEventListener("click", () => runPolish());
@@ -113,7 +114,7 @@ export function initNoteEditor() {
     handleTemplateInput();
     updatePreview();
   });
-  el("note-editor-tags")?.addEventListener("input", () => handleTemplateInput());
+  el("note-editor-tags")?.addEventListener("input", () => { handleTemplateInput(); updatePreview(); });
   el("note-editor-template-strip")?.addEventListener("click", (event) => {
     const chip = event.target.closest?.("[data-template-id]");
     if (chip) {
@@ -205,6 +206,7 @@ export function initNoteEditor() {
     if (!dialog?.open) return;
     // 上面还开着确认框/详情框时，Escape 归那个对话框处理。
     const active = document.activeElement;
+    if (active?.closest?.(".time-popover")) return;
     const otherDialog = [...document.querySelectorAll("dialog[open]")]
       .find((node) => node !== dialog && node.contains(active));
     if (otherDialog) return;
@@ -681,7 +683,7 @@ function resetTemplateSession() {
 }
 
 export async function openNoteEditor(options = {}) {
-  if (openingTaskDocument) return;
+  if (openingTaskDocument || state.busy) return;
   initNoteEditor();
   if (isRoleDrawerOpen()) closeRoleDrawer();
   document.dispatchEvent(new CustomEvent("torch:editor-opened"));
@@ -835,7 +837,13 @@ function dirty() {
   return state.mode === "new"
     ? Boolean(currentTitle() || currentBody() || currentTags().length)
     : isDirty(currentBody(), state.savedBody) || currentTitle() !== state.title
-      || tagsToInput(currentTags()) !== tagsToInput(state.tags);
+      || tagsToInput(currentTags()) !== tagsToInput(state.tags)
+      || (el("note-editor-chapter")?.value || state.chapter) !== state.chapter;
+}
+
+function captureEditorFields() {
+  return Object.fromEntries(["title", "tags", "chapter"].map((name) =>
+    [name, el(`note-editor-${name}`)?.value || ""]));
 }
 
 function applyNote(note) {
@@ -856,7 +864,7 @@ function applyNote(note) {
  * 若直接拿服务端 body 当 savedBody，会立刻被 dirty() 判成未保存，返回时误弹确认框。
  * 与任务文档保持一致：savedBody 记提交的规范化正文，不回写 textarea（避免光标跳动）。
  */
-function applySavedNote(note, submittedBody = null) {
+function applySavedNote(note, submittedBody = null, submitted = captureEditorFields(), syncChapter = true) {
   applyNote(note);
   if (submittedBody !== null) {
     const normalized = normalizeBody(submittedBody);
@@ -864,10 +872,11 @@ function applySavedNote(note, submittedBody = null) {
     state.savedBody = normalized;
   }
   const titleInput = el("note-editor-title");
-  if (titleInput && titleInput.value !== state.title) titleInput.value = state.title;
+  if (titleInput && titleInput.value === submitted.title) titleInput.value = state.title;
   const tagsInput = el("note-editor-tags");
-  if (tagsInput) tagsInput.value = tagsToInput(state.tags);
-  syncChapterSelect();
+  if (tagsInput && tagsInput.value === submitted.tags) tagsInput.value = tagsToInput(state.tags);
+  const chapterInput = el("note-editor-chapter");
+  if (syncChapter && chapterInput?.value === submitted.chapter) syncChapterSelect();
 }
 
 function syncChapterSelect() {
@@ -876,6 +885,12 @@ function syncChapterSelect() {
 }
 
 function syncDeleteButton() {
+  const save = el("note-editor-save");
+  if (save) {
+    save.setAttribute("aria-disabled", String(state.busy));
+    save.setAttribute("aria-busy", String(state.busy));
+    save.textContent = state.busy ? "处理中…" : "保存";
+  }
   const button = el("note-editor-delete");
   if (!button) return;
   button.hidden = state.journal || state.task || state.mode !== "edit" || !state.path;
@@ -948,6 +963,10 @@ async function deleteCurrentNote() {
 }
 
 async function closeEditor({ force = false } = {}) {
+  if (state.busy && !force) {
+    setStatus("正在处理，请等待结果后再返回；当前输入会保留。", "warning");
+    return;
+  }
   if (!force && dirty()) {
     const leave = await confirmAction({
       title: "放弃未保存的修改？",
@@ -1003,7 +1022,6 @@ function setFocusMode(on) {
 
 function updatePreview() {
   const body = currentBody();
-  const title = currentTitle();
   const preview = el("note-editor-preview");
   if (preview) {
     const doc = renderMarkdownDocument(body || "（还没有正文）");
@@ -1012,9 +1030,7 @@ function updatePreview() {
   const count = el("note-editor-count");
   if (count) {
     const words = wordCount(body);
-    const saved = state.mode === "edit"
-      && !isDirty(body, state.savedBody)
-      && (state.journal || title === state.title);
+    const saved = state.mode === "edit" && !dirty();
     const reading = words ? ` · 约 ${Math.max(1, Math.round(words / 300))} 分钟` : "";
     count.textContent = `${words} 字${reading} · ${saved ? "已保存" : "有未保存修改"}`;
   }
@@ -1037,6 +1053,7 @@ async function saveJournal(body) {
   const frontmatter = ensureJournalFrontMatter(day, state.frontmatter);
   const content = joinFrontMatter(frontmatter, body);
   state.busy = true;
+  syncDeleteButton();
   setStatus("正在写今天的日记…");
   try {
     const result = await api("/api/journal/write", {
@@ -1052,7 +1069,7 @@ async function saveJournal(body) {
     state.frontmatter = splitFrontMatter(content).frontmatter;
     state.savedBody = body;
     hideTemplateUndo();
-    setStatus("已写进今天的日记。", "success");
+    setStatus(dirty() ? "上一版已保存；当前仍有未保存修改。" : "已写进今天的日记。", dirty() ? "warning" : "success");
     toast("今天的日记已保存。", "success");
     document.dispatchEvent(new CustomEvent("torch:notes-changed", {
       detail: { path: state.path, chapter: "journal", pillar: "life" },
@@ -1068,6 +1085,7 @@ async function saveJournal(body) {
     return false;
   } finally {
     state.busy = false;
+    syncDeleteButton();
   }
 }
 
@@ -1092,6 +1110,7 @@ async function saveTaskDocument(body) {
   }
   const previousPath = state.path;
   const normalized = normalizeBody(body);
+  const submitted = captureEditorFields();
   state.busy = true;
   syncDeleteButton();
   setStatus("正在保存任务文档…");
@@ -1110,9 +1129,10 @@ async function saveTaskDocument(body) {
     state.title = String(result?.title || title);
     state.body = normalized;
     state.savedBody = normalized;
-    el("note-editor-title").value = state.title;
+    if (el("note-editor-title").value === submitted.title) el("note-editor-title").value = state.title;
     const renamed = state.path !== previousPath;
-    setStatus(renamed ? "已保存；标题变化已同步到任务板。" : "已保存。", "success");
+    setStatus(dirty() ? "上一版已保存；当前仍有未保存修改。"
+      : renamed ? "已保存；标题变化已同步到任务板。" : "已保存。", dirty() ? "warning" : "success");
     toast("任务文档已保存。", "success");
     document.dispatchEvent(new CustomEvent("torch:tasks-changed"));
     dispatchNotesChanged(
@@ -1150,6 +1170,8 @@ async function saveNote() {
     el("note-editor-title").value = title;
   }
   const chapter = el("note-editor-chapter")?.value || state.chapter;
+  const submitted = captureEditorFields();
+  const submittedTags = currentTags();
   const plan = savePlan({
     mode: state.mode, dirty: dirty(),
     currentChapter: state.chapter, targetChapter: chapter,
@@ -1164,7 +1186,7 @@ async function saveNote() {
       note = await api("/api/writing/notes", {
         method: "POST",
         body: JSON.stringify({
-          chapter, title, body, tags: currentTags(), source: "torch 编辑器",
+          chapter, title, body, tags: submittedTags, source: "torch 编辑器",
         }),
         timeoutMs: 60000,
       });
@@ -1174,7 +1196,7 @@ async function saveNote() {
           method: "PUT",
           body: JSON.stringify({
             path: state.path, expected_revision: state.revision,
-            body, title, tags: currentTags(),
+            body, title, tags: submittedTags,
           }),
           timeoutMs: 60000,
         });
@@ -1186,7 +1208,7 @@ async function saveNote() {
         };
       }
       // 先把正文落盘，再移动文件；移动失败时内容已经保存，只需要重试移动。
-      applySavedNote(note, body);
+      applySavedNote(note, body, submitted, false);
       if (plan.move) {
         try {
           note = await api("/api/writing/notes/move", {
@@ -1199,7 +1221,7 @@ async function saveNote() {
           });
           moved = true;
         } catch (error) {
-          syncChapterSelect();
+          // 保留用户选中的目标本子，方便重试移动，也不覆盖等待期间的新选择。
           dispatchNotesChanged(note, previousPath);
           setStatus(`内容已保存，但移动失败：${error.message}`, "error");
           toast("内容已保存；本子没有移动。", "warning");
@@ -1208,8 +1230,9 @@ async function saveNote() {
         }
       }
     }
-    applySavedNote(note, body);
-    setStatus(moved ? "已保存并移动到新本子。" : "已保存。", "success");
+    applySavedNote(note, body, submitted);
+    setStatus(dirty() ? "上一版已保存；当前仍有未保存修改。"
+      : moved ? "已保存并移动到新本子。" : "已保存。", dirty() ? "warning" : "success");
     toast(moved ? "笔记已保存并移动。" : "笔记已保存。", "success");
     dispatchNotesChanged(note, previousPath);
     updatePreview();
@@ -1228,6 +1251,7 @@ async function saveNote() {
 }
 
 async function reloadNote() {
+  if (state.busy) return;
   if (!state.path && !state.taskKey) return;
   if (dirty()) {
     const ok = await confirmAction({

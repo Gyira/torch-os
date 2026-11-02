@@ -42,7 +42,7 @@
   /* 元信息（旧 --muted） */
   --p-ink-5: #657384;
   /* 小号说明 */
-  --p-ink-6: #738094;
+  --p-ink-6: #657384;
   /* 禁用 / 未来日期 */
   --p-ink-faint: #9aa7b4;
   /* 反色底：选中片、用户气泡、toast */
@@ -109,7 +109,7 @@
   /* 四库大标题的衬线字体栈（离线可用，不加载外部字体） */
   --p-font-display: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", STSong, SimSun, serif;
   /* 键盘焦点环 */
-  --p-focus-ring: #e3a574;
+  --p-focus-ring: #b7663f;
   /* 输入框焦点环 */
   --p-focus-ring-strong: #b7663f;
   /* 成功文字 */
@@ -385,7 +385,7 @@ html[data-torch-host="dsh"] {
   --p-accent-bg: var(--dsw-alias-brand-primary);
   --p-accent-bg-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 86%, var(--dsw-alias-bg-base));
   --p-accent-2: var(--dsw-alias-brand-primary);
-  --p-focus-ring: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base));
+  --p-focus-ring: var(--p-ink-2);
   --p-focus-ring-strong: var(--dsw-alias-brand-primary);
   --p-shadow: color-mix(in srgb, rgb(0 0 0) 18%, transparent);
 }
@@ -2077,6 +2077,47 @@ body.view-life .topbar, body.view-self .topbar, body.view-ops .topbar, body.view
 .toast-message { min-width: 0; }
 .toast-action { flex-shrink: 0; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 .toast-action:hover { background: var(--p-hover); }
+
+/* 首批交互打磨：不改变布局与品牌，统一焦点、忙碌和弹层反馈。 */
+button:disabled { cursor: not-allowed; }
+button[aria-disabled="true"] { opacity: .62; cursor: not-allowed; }
+button[aria-busy="true"] { cursor: progress; }
+:is(.small-button, .text-button, .panel-nav-item, .module-nav-item, .time-tool,
+    .time-popover-row, .toast-action, .toast-dismiss):not(:disabled):not([aria-disabled="true"]):active {
+  background: var(--p-fill-strong);
+  transform: translateY(1px);
+}
+:is(.time-tool, .time-popover-row, .toast-action, .toast-dismiss) {
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+#time-add-submit, #note-editor-save { min-inline-size: 88px; }
+#time-status, #note-editor-status { min-block-size: 1.5em; }
+.time-add:focus-within { outline: 2px solid var(--p-focus-ring); outline-offset: 2px; }
+.time-popover { max-width: min(320px, calc(100vw - 16px)); animation: ui-popover-in 180ms cubic-bezier(.2,.8,.2,1); }
+.time-popover-row { overflow-wrap: anywhere; }
+.time-popover :focus-visible { outline: 2px solid var(--p-focus-ring); outline-offset: -2px; }
+.pillar-global-search .status-message { min-block-size: 1.5em; text-align: start; }
+.pillar-global-search [role="listbox"] { max-block-size: min(50vh, 420px); overflow-y: auto; }
+.pillar-global-search [role="option"][aria-selected="true"] {
+  outline: 2px solid var(--p-focus-ring); outline-offset: -2px; background: var(--p-hover);
+}
+.toast { visibility: hidden; z-index: 1300; }
+.toast.show { visibility: visible; pointer-events: auto; }
+.toast-dismiss {
+  flex-shrink: 0; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; font-size: 18px;
+  min-width: 36px; min-height: 36px; padding: 4px;
+}
+.toast-dismiss:hover { background: var(--p-hover); }
+@keyframes ui-popover-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (pointer: coarse) {
+  :is(.time-tool, .time-popover button, .panel-nav-help, .panel-nav-search,
+      .toast-action, .toast-dismiss, .note-editor-toolbar button) { min-width: 44px; min-height: 44px; }
+  .time-popover:has(.time-calendar) { width: min(340px, calc(100vw - 16px)); max-width: calc(100vw - 16px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
 
 /* 任务 ↔ 目标联动（2026-10-22）：目标 chip 与筛选条。 */
 .task-goal-chip { flex-shrink: 0; border: 1px solid var(--p-accent-line); border-radius: 999px; background: var(--p-accent-soft); color: var(--p-warm-ink); font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }

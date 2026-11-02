@@ -7,10 +7,11 @@ import {
 } from "./tasks-model.js";
 
 let activePopover = null;
+let popoverId = 0;
 
 /** 关掉当前弹层（供外部在切换页面 / 重渲染前调用）。 */
 export function closePopover() {
-  if (activePopover) activePopover();
+  if (activePopover) activePopover(false);
 }
 
 /** 浮动层：贴着锚点显示，点外面或按 Esc 关掉；同一时刻只有一个。 */
@@ -18,34 +19,85 @@ export function openPopover(anchor, build) {
   closePopover();
   const layer = document.createElement("div");
   layer.className = "time-popover";
+  layer.id = `time-popover-${++popoverId}`;
+  layer.tabIndex = -1;
   layer.setAttribute("role", "dialog");
-  const closer = () => {
+  layer.setAttribute("aria-label", anchor.getAttribute("aria-label") || anchor.textContent.trim() || "选择选项");
+  const previousExpanded = anchor.getAttribute("aria-expanded");
+  const previousControls = anchor.getAttribute("aria-controls");
+  let closed = false;
+  const closer = (restoreFocus = true) => {
+    if (closed) return;
+    closed = true;
+    const hadFocus = layer.contains(document.activeElement);
     layer.remove();
     document.removeEventListener("mousedown", onOutside, true);
     document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("focusin", onFocus, true);
+    window.removeEventListener("resize", position);
+    document.removeEventListener("scroll", onScroll, true);
+    for (const [name, value] of [["aria-expanded", previousExpanded], ["aria-controls", previousControls]]) {
+      if (value === null) anchor.removeAttribute(name);
+      else anchor.setAttribute(name, value);
+    }
     if (activePopover === closer) activePopover = null;
+    if (restoreFocus && anchor.isConnected && (hadFocus || document.activeElement === document.body)) {
+      anchor.focus({ preventScroll: true });
+    }
   };
   const onOutside = (event) => {
-    if (!layer.contains(event.target)) closer();
+    if (!layer.contains(event.target)) closer(false);
   };
+  const onFocus = (event) => { if (!layer.contains(event.target)) closer(false); };
+  const focusable = () => [...layer.querySelectorAll("button, input, select, textarea, [tabindex='0']")]
+    .filter((node) => !node.disabled && !node.closest("[hidden]") && node.getClientRects().length);
   const onKey = (event) => {
+    if (event.isComposing || event.keyCode === 229 || !layer.contains(event.target)) return;
     if (event.key === "Escape") {
+      event.preventDefault();
       event.stopPropagation();
       closer();
+    } else if (event.key === "Tab") {
+      const nodes = focusable();
+      if ((event.shiftKey && event.target === nodes[0]) || (!event.shiftKey && event.target === nodes.at(-1))) {
+        closer();
+        // Shift+Tab 回到触发器；Tab 从触发器自然前进到下一控件。
+        if (event.shiftKey) event.preventDefault();
+      }
+    } else if (!event.target.matches("input, textarea, select") && !event.target.hasAttribute("data-day")) {
+      const rows = focusable().filter((node) => node.matches(".time-popover-row"));
+      const index = rows.indexOf(event.target);
+      if (index < 0) return;
+      const next = { ArrowDown: (index + 1) % rows.length, ArrowUp: (index - 1 + rows.length) % rows.length,
+        Home: 0, End: rows.length - 1 }[event.key];
+      if (next !== undefined) { event.preventDefault(); rows[next].focus(); }
     }
   };
   build(layer, closer);
-  document.body.append(layer);
-  const anchorRect = anchor.getBoundingClientRect();
-  const rect = layer.getBoundingClientRect();
-  const left = Math.min(anchorRect.left, window.innerWidth - rect.width - 8);
-  const top = anchorRect.bottom + rect.height + 8 > window.innerHeight
-    ? Math.max(8, anchorRect.top - rect.height - 6)
-    : anchorRect.bottom + 6;
-  layer.style.left = `${Math.max(8, left)}px`;
-  layer.style.top = `${top}px`;
+  (anchor.closest("dialog[open]") || document.body).append(layer);
+  const position = () => {
+    if (!anchor.isConnected) { closer(false); return; }
+    const anchorRect = anchor.getBoundingClientRect();
+    const rect = layer.getBoundingClientRect();
+    const left = Math.min(anchorRect.left, window.innerWidth - rect.width - 8);
+    const top = anchorRect.bottom + rect.height + 8 > window.innerHeight
+      ? Math.max(8, anchorRect.top - rect.height - 6) : anchorRect.bottom + 6;
+    layer.style.left = `${Math.max(8, left)}px`;
+    layer.style.top = `${top}px`;
+  };
+  const onScroll = (event) => { if (!layer.contains(event.target)) position(); };
+  position();
+  anchor.setAttribute("aria-expanded", "true");
+  anchor.setAttribute("aria-controls", layer.id);
+  const nodes = focusable();
+  const initial = nodes.find((node) => node.matches("input, select, textarea"))
+    || nodes.find((node) => node.matches(".is-current, .is-picked")) || nodes[0] || layer;
+  initial.focus({ preventScroll: true });
   document.addEventListener("mousedown", onOutside, true);
   document.addEventListener("keydown", onKey, true);
+  document.addEventListener("focusin", onFocus, true);
+  document.addEventListener("scroll", onScroll, true);
+  window.addEventListener("resize", position);
   activePopover = closer;
   return closer;
 }
@@ -54,6 +106,7 @@ function rowButton(label, value, current, onClick) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `time-popover-row${value === current ? " is-current" : ""}`;
+  button.setAttribute("aria-pressed", String(value === current));
   button.innerHTML = `${label}<span class="time-popover-check" aria-hidden="true">${value === current ? "✓" : ""}</span>`;
   button.addEventListener("click", onClick);
   return button;
@@ -111,7 +164,7 @@ export function openDatePicker(anchor, current, today, onPick) {
         const classes = ["time-calendar-day"];
         if (value === today) classes.push("is-today");
         if (value === picked) classes.push("is-picked");
-        cells.push(`<button type="button" class="${classes.join(" ")}" data-day="${value}">${day}</button>`);
+        cells.push(`<button type="button" class="${classes.join(" ")}" data-day="${value}" aria-label="${value}" aria-pressed="${value === picked}"${value === today ? ' aria-current="date"' : ''}>${day}</button>`);
       }
       cells.push("</div>");
       grid.innerHTML = cells.join("");
@@ -121,16 +174,29 @@ export function openDatePicker(anchor, current, today, onPick) {
           const next = new Date(Date.UTC(y, m - 1 + Number(button.dataset.month), 1));
           month = next.toISOString().slice(0, 7);
           draw();
+          grid.querySelector(`[data-month="${button.dataset.month}"]`)?.focus();
         });
       });
       grid.querySelectorAll("[data-day]").forEach((button) => {
         button.addEventListener("click", () => {
           picked = button.dataset.day;
           draw();
+          grid.querySelector(`[data-day="${picked}"]`)?.focus();
         });
       });
     };
     draw();
+
+    grid.addEventListener("keydown", (event) => {
+      if (!event.target.matches("[data-day]")) return;
+      const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+      if (delta === undefined) return;
+      event.preventDefault();
+      const next = dayOffset(event.target.dataset.day, delta);
+      month = next.slice(0, 7);
+      draw();
+      grid.querySelector(`[data-day="${next}"]`)?.focus();
+    });
 
     const footer = document.createElement("div");
     footer.className = "time-popover-footer";
@@ -174,6 +240,7 @@ export function openTagPicker(anchor, { selected = [], tags = [], onSave }) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `time-popover-row${chosen.has(name) ? " is-current" : ""}`;
+        button.setAttribute("aria-pressed", String(chosen.has(name)));
         // 颜色走 CSSOM：CSP 的 style-src 'self' 会拦掉 innerHTML 里的 style 属性。
         const dot = document.createElement("span");
         dot.className = "task-tag-dot";
@@ -188,6 +255,7 @@ export function openTagPicker(anchor, { selected = [], tags = [], onSave }) {
           if (chosen.has(name)) chosen.delete(name);
           else chosen.add(name);
           draw();
+          list.querySelectorAll(".time-popover-row")[matches.indexOf(name) + (query && !names.includes(query) ? 1 : 0)]?.focus();
         });
         return button;
       });
@@ -196,7 +264,7 @@ export function openTagPicker(anchor, { selected = [], tags = [], onSave }) {
         create.type = "button";
         create.className = "time-popover-row is-create";
         create.textContent = `创建标签 “${query}”`;
-        create.addEventListener("click", () => { chosen.add(query); search.value = ""; draw(); });
+        create.addEventListener("click", () => { chosen.add(query); search.value = ""; draw(); search.focus(); });
         rows.unshift(create);
       }
       if (!rows.length) {
@@ -209,7 +277,7 @@ export function openTagPicker(anchor, { selected = [], tags = [], onSave }) {
     };
     search.addEventListener("input", draw);
     search.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
+      if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       const query = search.value.trim().replace(/^#/, "");
       if (query) {
@@ -258,6 +326,7 @@ export function openListPicker(anchor, { lists = [], current = "", onPick }) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `time-popover-row${name === current ? " is-current" : ""}`;
+        button.setAttribute("aria-pressed", String(name === current));
         button.innerHTML = `${folder ? '<span class="time-popover-folder" aria-hidden="true">▸</span>' : '<span class="time-popover-folder" aria-hidden="true">📥</span>'}` +
           `${escapeHtml(name)}<span class="time-popover-check" aria-hidden="true">${name === current ? "✓" : ""}</span>`;
         button.addEventListener("click", () => { close(); onPick(name); });

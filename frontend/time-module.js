@@ -46,6 +46,8 @@ let activeKey = "";             // 单击选中的那一条（底色变灰一点
 let page = "tasks";
 let goalTitles = new Map();     // 目标笔记 path → title（任务行 chip、筛选与分组共用）
 let goalSignature = "";
+let creatingTask = false;
+let taskDraftVersion = 0;
 
 function readStore(key, fallback) {
   try {
@@ -108,15 +110,21 @@ export function initTimeModule() {
   }
   // 添加栏
   const input = $("#time-add-input");
+  $("#time-add-submit").disabled = !input.value.trim();
+  input.addEventListener("input", () => {
+    taskDraftVersion += 1;
+    $("#time-add-submit").disabled = !creatingTask && !input.value.trim();
+  });
   input.addEventListener("focus", () => { $("#time-add-tools").hidden = false; });
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
+    if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       createTask();
     }
   });
   $("#time-add").addEventListener("focusout", (event) => {
     if (event.currentTarget.contains(event.relatedTarget)) return;
+    if (event.relatedTarget?.closest?.(".time-popover")) return;
     // 焦点交给任务行时先不收工具栏：收起会让整块任务板向上跳约 50px，
     // 正在进行的双击会因此落到别的元素上（2026-10-31 用户报双击改名没反应）。
     if (event.relatedTarget?.closest?.(".time-task")) return;
@@ -1074,10 +1082,20 @@ async function post(path, payload, message) {
 }
 
 async function createTask() {
+  if (creatingTask) return;
   const input = $("#time-add-input");
+  const rawTitle = input.value;
   const title = input.value.trim();
   if (!title) return;
+  const version = taskDraftVersion;
+  const context = JSON.stringify({ pending, selection: viewState.selection });
+  const button = $("#time-add-submit");
   const list = pending.list || (viewState.selection?.list || "");
+  creatingTask = true;
+  button.setAttribute("aria-disabled", "true");
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "添加中…";
+  setStatus("#time-status", "正在添加任务，可继续编辑下一条。", "neutral");
   try {
     await api("/api/time/tasks", jsonBody("POST", {
       title,
@@ -1088,10 +1106,21 @@ async function createTask() {
       tags: pending.tags,
       revision: board?.revision || "",
     }));
-    input.value = "";
+    // 只清除这次提交的草稿，不能清空等待期间的新输入或新视图草稿。
+    if (taskDraftVersion === version && input.value === rawTitle
+        && JSON.stringify({ pending, selection: viewState.selection }) === context) {
+      input.value = "";
+    }
     await loadTimeTasks();
-    input.focus();
+    setStatus("#time-status", input.value ? "已添加；当前输入尚未提交。" : "已添加任务。", "success");
+    if (document.activeElement === button) input.focus({ preventScroll: true });
   } catch (error) {
     setStatus("#time-status", `任务：${error.message}`, "warning");
+  } finally {
+    creatingTask = false;
+    button.removeAttribute("aria-disabled");
+    button.removeAttribute("aria-busy");
+    button.textContent = "添加";
+    button.disabled = !input.value.trim();
   }
 }

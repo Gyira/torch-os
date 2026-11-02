@@ -196,7 +196,7 @@
 }
 
 .editor-title-input::placeholder { color: var(--p-ink-faint); }
-.editor-title-input:focus { outline: 0; }
+.editor-title-input:focus { outline: 2px solid var(--p-focus-ring); outline-offset: 6px; border-radius: 4px; }
 .editor-title-input[readonly] { cursor: default; color: var(--p-ink-2); }
 
 .editor-meta-row {
@@ -321,7 +321,7 @@
   caret-color: var(--p-accent);
 }
 
-#note-editor-dialog #note-editor-text:focus { outline: 0; }
+#note-editor-dialog #note-editor-text:focus { outline: 2px solid var(--p-focus-ring); outline-offset: 4px; border-radius: 4px; }
 #note-editor-dialog #note-editor-text::placeholder { color: var(--p-ink-faint); }
 
 #note-editor-dialog #note-editor-preview {
