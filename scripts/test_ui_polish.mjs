@@ -134,6 +134,32 @@ async function load(name, env, setup = "") {
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
 
+test("设置抽屉关闭后丢弃旧响应；重开时旧请求不能覆盖当前加载状态", async () => {
+  const env = environment();
+  const dialog = env.add("love-settings-drawer", "dialog");
+  const body = env.add("love-settings-body", "div");
+  env.add("love-settings-close", "button");
+  const pending = [];
+  env.api = () => { const request = deferred(); pending.push(request); return request.promise; };
+  const ctx = await load("love.js", env);
+  const first = ctx.openLoveSettings();
+  assert.equal(dialog.open, true);
+  assert.equal(body.getAttribute("aria-busy"), "true");
+  ctx.closeLoveSettings();
+  assert.equal(dialog.open, false);
+  const second = ctx.openLoveSettings();
+  pending[0].resolve({ paths: { root: "旧库" } });
+  await first;
+  assert.equal(pending.length, 2, "旧请求不应继续请求聊天状态");
+  assert.equal(body.getAttribute("aria-busy"), "true");
+  assert.equal(body.textContent.includes("旧库"), false);
+  ctx.closeLoveSettings();
+  pending[1].resolve({ paths: { root: "新库" } });
+  await second;
+  assert.equal(body.getAttribute("aria-busy"), "false");
+  assert.equal(body.textContent.includes("新库"), false);
+});
+
 test("任务慢提交保留新草稿、阻止重复请求、不抢走焦点", async () => {
   const env = environment(); const request = deferred(); let calls = 0;
   const input = env.add("time-add-input", "input", "第一条");

@@ -2119,6 +2119,23 @@ button[aria-busy="true"] { cursor: progress; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
+/* 第二批：只调整任务区内部层级，保留模块顺序与用户的小组件布局。 */
+#time-tasks-page .time-head { gap: 12px; margin-bottom: 16px; }
+#time-tasks-page .time-head h3 { font-size: 20px; line-height: 1.4; }
+.time-vault-details { margin-block: 0 12px; color: var(--p-ink-3); font-size: 12px; }
+.time-vault-details summary { width: fit-content; max-width: 100%; cursor: pointer; border-radius: 6px; padding: 6px 8px; transition: background-color 150ms ease; }
+.time-vault-details summary:hover, .time-vault-details summary:active { background: var(--p-hover); }
+.time-vault-details .meta { margin: 6px 8px; overflow-wrap: anywhere; line-height: 1.6; }
+#time-tasks-page .task-group-head { padding-block: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--p-line); color: var(--p-ink-3); }
+#time-tasks-page .time-task { min-block-size: 44px; padding-block: 8px; }
+.time-task:focus-within .task-more { opacity: 1; }
+.task-more:active, .task-open:active { background: var(--p-fill-strong); }
+@media (hover: none), (pointer: coarse) {
+  .task-more { opacity: 1; }
+  :is(.task-more, .task-open, .task-check, .time-rail-item, .time-side-item,
+      .time-vault-details summary, .love-settings-drawer button) { min-inline-size: 44px; min-block-size: 44px; }
+}
+
 /* 任务 ↔ 目标联动（2026-10-22）：目标 chip 与筛选条。 */
 .task-goal-chip { flex-shrink: 0; border: 1px solid var(--p-accent-line); border-radius: 999px; background: var(--p-accent-soft); color: var(--p-warm-ink); font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
 .task-goal-chip:hover { background: var(--p-accent-soft-3); }
@@ -3112,11 +3129,16 @@ dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: mi
 .ops-love .love-master-detail { display: grid; gap: 12px; }
 .ops-love .love-master-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 12px; border-radius: 10px; background: var(--p-surface-2); color: var(--p-ink-3); font-size: 12px; }
 
-.ops-love .love-settings-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1200; width: min(520px, 92vw); overflow: auto; background: var(--p-surface); border-left: 1px solid var(--p-line); box-shadow: -18px 0 50px rgba(0,0,0,.18); padding: 18px; display: grid; align-content: start; gap: 12px; }
+.ops-love .love-settings-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; border: 0; border-radius: 0; max-width: 100vw; max-height: 100dvh; height: 100dvh; width: min(520px, 92vw); overflow: auto; overscroll-behavior: contain; color: var(--p-ink); background: var(--p-surface); border-left: 1px solid var(--p-line); box-shadow: -18px 0 50px var(--p-shadow); padding: 18px; }
+.ops-love .love-settings-drawer[open] { display: grid; align-content: start; gap: 12px; animation: ui-drawer-in 220ms cubic-bezier(.2,.8,.2,1); }
+.love-settings-drawer::backdrop { background: var(--p-shadow); }
+.love-settings-open { overflow: hidden; }
+.ops-love .love-settings-head { position: sticky; top: -18px; z-index: 1; background: var(--p-surface); padding-block: 12px; border-bottom: 1px solid var(--p-line); }
+.ops-love .love-settings-body { min-width: 0; overflow-wrap: anywhere; }
+@keyframes ui-drawer-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 .ops-love .love-settings-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .ops-love .love-settings-head h3 { margin: 2px 0 0; font-size: 18px; }
 .ops-love .love-settings-body { display: grid; gap: 12px; }
-.ops-love .love-settings-backdrop { position: fixed; inset: 0; z-index: 1190; background: rgba(20, 15, 12, .32); backdrop-filter: blur(2px); }
 .ops-love .love-component-status { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--p-line); border-radius: 9px; background: var(--p-surface-2); }
 
 @media (max-width: 980px) {

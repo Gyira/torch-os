@@ -366,9 +366,12 @@ let warningSignature = "";
 /** 当前任务库 + 旧任务只读提示。 */
 function paintVaultNote() {
   const node = $("#time-vault-note");
+  const details = $("#time-vault-details");
+  const summary = $("#time-vault-summary");
   if (!node) return;
   if (!board) {
     node.hidden = true;
+    if (details) details.hidden = true;
     return;
   }
   const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
@@ -385,6 +388,10 @@ function paintVaultNote() {
   if (board.read_only) bits.push("只读模式");
   node.textContent = bits.join(" · ");
   node.hidden = false;
+  if (details) details.hidden = false;
+  if (summary) summary.textContent = board.read_only
+    ? "只读模式 · 存储与兼容说明"
+    : board.legacy_tasks ? `含 ${board.legacy_tasks} 条只读旧任务 · 存储说明` : "存储位置与兼容说明";
   const warnings = Array.isArray(board.warnings) ? board.warnings : [];
   node.title = warnings.length
     ? `有 ${warnings.length} 个任务/习惯笔记未能读取：` + warnings.map((item) => `${item.path}（${item.reason}）`).join("；")

@@ -119,7 +119,10 @@
                 <span data-goal-filter-label></span>
                 <button type="button" class="text-button" data-goal-filter-clear>清除目标筛选</button>
               </div>
-              <p id="time-vault-note" class="meta" hidden></p>
+              <details id="time-vault-details" class="time-vault-details" hidden>
+                <summary id="time-vault-summary">存储位置与兼容说明</summary>
+                <p id="time-vault-note" class="meta" hidden></p>
+              </details>
               <div class="time-bulk" id="time-bulk" hidden role="group" aria-label="批量操作">
                 <span id="time-bulk-count" class="meta" role="status">已选 0 项</span>
                 <button type="button" id="time-bulk-all" class="text-button">全选</button>
@@ -289,14 +292,13 @@
           <div id="love-content" class="love-content" role="region" aria-live="polite">
             <div class="state-message"><strong>正在读取恋爱系统…</strong><p>本机数据，不会上传。</p></div>
           </div>
-          <aside id="love-settings-drawer" class="love-settings-drawer" aria-label="恋爱系统设置" hidden>
+          <dialog id="love-settings-drawer" class="love-settings-drawer" aria-label="恋爱系统设置" hidden>
             <div class="love-settings-head">
               <div><span class="eyebrow">SETTINGS</span><h3>恋爱系统设置</h3></div>
-              <button id="love-settings-close" class="small-button" type="button">关闭</button>
+              <button id="love-settings-close" class="small-button" type="button" autofocus>关闭</button>
             </div>
             <div id="love-settings-body" class="love-settings-body"></div>
-          </aside>
-          <div id="love-settings-backdrop" class="love-settings-backdrop" hidden></div>
+          </dialog>
           <div id="love-consent" class="love-consent" hidden>
             <div class="love-consent-card">
               <span class="eyebrow">PRIVACY</span>

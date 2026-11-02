@@ -19,6 +19,8 @@ const CONSENT_KEY = "torch-os:love-consent-v3";
 const MONTH_KEY = "torch-os:love-schedule-month";
 const CHAT_MONTH_KEY = "torch-os:love-chat-month";
 const PAGE_KEYS = Object.keys(PAGE_TITLES);
+let settingsRequest = 0;
+let settingsTrigger = null;
 
 const love = {
   inited: false,
@@ -183,7 +185,25 @@ export function initLovePane() {
   $id("love-refresh")?.addEventListener("click", () => reloadLove({ quiet: true }));
   $id("love-settings-open")?.addEventListener("click", () => openLoveSettings());
   $id("love-settings-close")?.addEventListener("click", () => closeLoveSettings());
-  $id("love-settings-backdrop")?.addEventListener("click", () => closeLoveSettings());
+  const settingsDialog = $id("love-settings-drawer");
+  settingsDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeLoveSettings();
+  });
+  settingsDialog?.addEventListener("close", () => {
+    if (love.settingsOpen && !settingsDialog.open) closeLoveSettings();
+  });
+  let backdropPressed = false;
+  const outsideSettings = (event) => {
+    const rect = settingsDialog.getBoundingClientRect();
+    return event.target === settingsDialog && (event.clientX < rect.left || event.clientX > rect.right
+      || event.clientY < rect.top || event.clientY > rect.bottom);
+  };
+  settingsDialog?.addEventListener("pointerdown", (event) => { backdropPressed = outsideSettings(event); });
+  settingsDialog?.addEventListener("click", (event) => {
+    if (backdropPressed && outsideSettings(event)) closeLoveSettings();
+    backdropPressed = false;
+  });
   $id("love-consent-accept")?.addEventListener("click", () => {
     love.consent = true;
     writeStorage(CONSENT_KEY, "accepted");
@@ -207,10 +227,6 @@ export function initLovePane() {
     if (event.detail?.pillar === "love" || String(event.detail?.path || "").includes("/01_恋爱系统/")) {
       renderLovePage();
     }
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !love.settingsOpen) return;
-    closeLoveSettings();
   });
 }
 
@@ -1635,26 +1651,37 @@ async function deleteMasterRun(button) {
 // ── 设置抽屉 ───────────────────────────────────────────────────────
 
 async function openLoveSettings() {
+  const request = ++settingsRequest;
   const drawer = $id("love-settings-drawer");
-  const backdrop = $id("love-settings-backdrop");
   if (!drawer) return;
   love.settingsOpen = true;
   drawer.hidden = false;
-  if (backdrop) backdrop.hidden = false;
+  if (!drawer.open) {
+    settingsTrigger = document.activeElement?.closest?.("button, a, input") || $id("love-settings-open");
+    drawer.showModal();
+  }
+  $id("love-settings-close")?.focus();
   document.body.classList.add("love-settings-open");
   const body = $id("love-settings-body");
-  if (body) body.innerHTML = loadingBox("正在读取设置…");
+  if (body) {
+    body.setAttribute("aria-busy", "true");
+    body.innerHTML = loadingBox("正在读取设置…");
+  }
   let status = love.status;
   let chat = love.chatStatus;
   try {
     status = await loveApi("/api/love/status", { timeoutMs: 20000 });
+    if (request !== settingsRequest || !drawer.open) return;
     love.status = status;
   } catch { /* 保留旧状态 */ }
+  if (request !== settingsRequest || !drawer.open) return;
   try {
     chat = await loveApi("/api/love/chat/status", { timeoutMs: 20000 });
+    if (request !== settingsRequest || !drawer.open) return;
     love.chatStatus = chat;
   } catch { /* WeFlow 可能没启动 */ }
-  if (!body) return;
+  if (!body || request !== settingsRequest || !drawer.open) return;
+  body.setAttribute("aria-busy", "false");
   const paths = status?.paths || {};
   const pathRows = [
     ["数据根目录", paths.root],
@@ -1701,7 +1728,7 @@ async function openLoveSettings() {
         await loveApi("/api/love/chat/settings", { method: "PUT", body: JSON.stringify({ port, token }), timeoutMs: 40000 });
         form.elements.token.value = "";
         toast("WeFlow 设置已保存。", "success");
-        await openLoveSettings();
+        if (request === settingsRequest && drawer.open) await openLoveSettings();
       } catch (error) { toast(`保存失败：${error.message}`, "error"); }
     });
   });
@@ -1730,12 +1757,15 @@ async function openLoveSettings() {
 }
 
 function closeLoveSettings() {
+  ++settingsRequest;
   love.settingsOpen = false;
   const drawer = $id("love-settings-drawer");
-  const backdrop = $id("love-settings-backdrop");
+  if (drawer?.open) drawer.close();
   if (drawer) drawer.hidden = true;
-  if (backdrop) backdrop.hidden = true;
+  $id("love-settings-body")?.setAttribute("aria-busy", "false");
   document.body.classList.remove("love-settings-open");
+  if (settingsTrigger?.isConnected) settingsTrigger.focus({ preventScroll: true });
+  settingsTrigger = null;
 }
 
 async function checkWeFlowComponent() {
