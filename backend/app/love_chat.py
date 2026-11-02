@@ -34,7 +34,8 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .love_credentials import (
-    CredentialError, clear_token, load_credentials, public_status, save_credentials,
+    CredentialError, clear_token, ensure_portable_copy, load_credentials,
+    public_status, save_credentials,
 )
 from .love_layout import LovePaths
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -925,6 +926,11 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
     repair: dict[str, Any] = {"checked": 0, "restored": 0, "source": "", "current": 0}
     if not read_only:
         ensure_chat_schema(paths.chat_db)
+        # 旧版只有 DPAPI 主副本；补一份可移植副本，换机/网盘同步后不用重填 Token。
+        try:
+            ensure_portable_copy(paths.chat_credentials)
+        except Exception as error:  # noqa: BLE001 - 凭据升级失败不能拖垮启动
+            logger.warning("凭据可移植副本升级失败：%s", error)
         # 同步盘整文件覆盖过聊天库时，靠快照把丢掉的消息补回来。
         try:
             repair = _heal_chat_db(paths)

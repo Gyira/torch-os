@@ -598,6 +598,7 @@ async function loadChatSessions({ keyword = "", silent = false } = {}) {
 
 function chatTokenForm(status) {
   return `<form id="love-chat-token-form" class="love-key-form">
+    ${status.error ? `<p class="inline-error">${escapeHtml(status.error)}</p>` : ""}
     <div class="form-grid">
       <div class="field"><label for="love-chat-port">WeFlow API 端口</label><input id="love-chat-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(status.port || 5031))}" required /></div>
       <div class="field"><label for="love-chat-token">${status.token_configured ? "替换 Access Token（可留空）" : "Access Token"}</label><input id="love-chat-token" name="token" type="password" autocomplete="off" maxlength="400" placeholder="${status.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow → 设置 → API 服务里的 Token"}" /></div>
@@ -874,7 +875,8 @@ function pollChatSync(logId) {
       if (["completed", "failed"].includes(log.status)) {
         love.chatPoll = 0;
         toast(log.status === "completed" ? "微信聊天同步完成。" : "微信聊天同步失败，请查看原因。", log.status === "completed" ? "success" : "error");
-        if (log.status === "completed") await renderLovePage();
+        // 失败也刷新状态：凭据解不开时要把 Token 表单和原因显示出来。
+        await renderLovePage();
         return;
       }
     } catch {
@@ -1665,7 +1667,7 @@ async function openLoveSettings() {
       <form id="love-settings-weflow" class="love-key-form">
         <div class="form-grid"><div class="field"><label for="love-settings-port">端口</label><input id="love-settings-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(chat?.port || 5031))}" /></div><div class="field"><label for="love-settings-token">Access Token</label><input id="love-settings-token" name="token" type="password" autocomplete="off" maxlength="400" placeholder="${chat?.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow Token"}" /></div></div>
         <div class="love-inline-actions"><button class="button primary" type="submit">保存并测试</button>${chat?.token_configured ? '<button class="button secondary" type="button" data-love-action="settings-clear-token">清除 Token</button>' : ""}</div>
-        <p class="field-help">${chat?.token_configured ? "Token 已加密保存在 02_微信聊天/.credentials.json。" : "还没有配置 Token。"}${chat?.weflow_ok === false ? ` <span class="inline-error">${escapeHtml(chat.weflow_error || "连接失败")}</span>` : ""}</p>
+        <p class="field-help">${chat?.token_configured ? "Token 已加密保存在 02_微信聊天/.credentials.json。" : "还没有配置 Token。"}${chat?.error ? ` <span class="inline-error">${escapeHtml(chat.error)}</span>` : ""}${chat?.weflow_ok === false ? ` <span class="inline-error">${escapeHtml(chat.weflow_error || "连接失败")}</span>` : ""}</p>
       </form>`, { eyebrow: "WEFLOW" })}
     ${card("微信组件修复", `
       <p class="field-help">WeFlow 自带的闭源 WCDB 组件有到期校验，过期后会报 101。torch 不会破解它；这里用开源项目 <a href="https://github.com/olansoft/weflow-wcdb-api-oss" target="_blank" rel="noopener">olansoft/weflow-wcdb-api-oss</a> 构建的不过期 DLL 替换，并在替换前备份、失败可回滚。</p>

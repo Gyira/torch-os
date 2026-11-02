@@ -211,7 +211,8 @@ DeepSeek Harness（dsh）提供，角色只拿后端拼好的只读上下文；�
   旧 `.torch-os/love/` 首次启动自动迁移并保留原文件；多项目只保留最近活跃的一个，
   其余归档到 `01_恋爱系统/_归档/`。
 - **微信聊天（WeFlow 本地 API）**：只绑定一个单聊，只访问 `127.0.0.1`，不保存微信密码，
-  不读取群聊/公众号/其他人；Token 加密保存在 `02_微信聊天/.credentials.json`。
+  不读取群聊/公众号/其他人；Token 加密保存在 `02_微信聊天/.credentials.json`
+  （DPAPI 主副本 + `.credential.key` 保护的可移植副本，换机或网盘同步后不用重填）。
   日历看板用「无聊天 / 已同步 / 未同步」标出缺口；媒体复制到 `02_微信聊天/media/`。
   WeFlow 组件的 101 到期问题用开源项目
   [olansoft/weflow-wcdb-api-oss](https://github.com/olansoft/weflow-wcdb-api-oss)
