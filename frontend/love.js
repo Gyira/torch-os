@@ -637,6 +637,12 @@ async function renderChat(content) {
     status = { token_configured: false, port: 5031, contact: {}, error: error.message };
   }
   love.chatStatus = status;
+  // 全量补齐可能要跑很久；刷新页面后从服务端恢复最后一条同步日志并继续轮询。
+  const lastLog = status.last_log;
+  if (lastLog && lastLog.id
+      && (!love.chatLog || Number(lastLog.id) > Number(love.chatLog.id || 0))) {
+    love.chatLog = lastLog;
+  }
   const month = chatMonthValue();
   love.chatMonth = month;
   writeStorage(CHAT_MONTH_KEY, month);
@@ -850,7 +856,7 @@ async function startChatSync(mode, button) {
         body: JSON.stringify({ mode, full }),
         timeoutMs: 60000,
       });
-      love.chatLog = { ...log, fetched: 0, inserted: 0, duplicates: 0, matched: 0, warnings: [] };
+      love.chatLog = { ...log, id: log.log_id, fetched: 0, inserted: 0, duplicates: 0, matched: 0, warnings: [] };
       const target = $id("love-chat-sync-status");
       if (target) target.innerHTML = chatSyncLogMarkup(love.chatLog);
       pollChatSync(log.log_id);

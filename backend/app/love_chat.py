@@ -21,6 +21,7 @@ import re
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import closing
 from datetime import date, datetime, timedelta
@@ -600,19 +601,42 @@ def _run_sync(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
             pass
 
 
-def _remote_message_total(client: WeFlowClient, session_id: str) -> int:
-    """WeFlow 会话列表里的 messageCount；拿不到就当未知（0）。"""
+def _remote_message_summary(client: WeFlowClient, session_id: str) -> tuple[int, int]:
+    """WeFlow 会话列表里的 ``(messageCount, lastMessageAt)``；拿不到就当未知（0, 0）。"""
     try:
         sessions = client.sessions(limit=1000)
     except (WeFlowError, OSError, ValueError):
-        return 0
+        return 0, 0
     for session in sessions:
         if session.id == session_id:
             try:
-                return max(0, int(session.message_count or 0))
+                count = max(0, int(session.message_count or 0))
             except (TypeError, ValueError):
-                return 0
-    return 0
+                count = 0
+            try:
+                last = max(0, int(session.last_message_at or 0))
+            except (TypeError, ValueError):
+                last = 0
+            return count, last
+    return 0, 0
+
+
+def _oldest_remote_day(client: WeFlowClient, session_id: str) -> str:
+    """WeFlow 会话里最早一条消息的日期；拿不到返回空串。
+
+    ``/sessions/<id>/messages`` 是升序的，offset=0、limit=1 就是最早一条。
+    全量同步结束后用它校验是否真的翻到了头。
+    """
+    for attempt in range(3):
+        try:
+            page = client.pull(session_id, since=0, offset=0, limit=1)
+        except (WeFlowError, OSError, ValueError):
+            page = None
+        if page is not None and page.messages:
+            return _message_day(page.messages[0])
+        if attempt < 2:
+            time.sleep(0.5)
+    return ""
 
 
 def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
@@ -650,37 +674,40 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
     warnings: list[str] = []
     media_saved = 0
     max_ts = watermark
+    min_ts: int | None = None
     earliest_day = ""
     client: WeFlowClient | None = None
     with_media = mode == "apply"
     try:
         client = WeFlowClient(
             credentials["token"], credentials["port"],
-            timeout=180.0 if with_media else 30.0,
+            # 媒体导出单页在历史深处仍可能很慢，放宽超时，避免整轮同步被打断。
+            timeout=300.0 if with_media else 30.0,
         )
         client.health()
-        remote_total = _remote_message_total(client, session_id)
+        remote_total, remote_last = _remote_message_summary(client, session_id)
         with _connect(paths.chat_db) as connection:
             local_total = int(connection.execute(
                 "SELECT COUNT(*) AS count FROM messages").fetchone()["count"] or 0)
             if remote_total > 0:
                 expected_total = (remote_total if full_scan
                                   else max(remote_total - local_total, 0))
-            elif full_scan and history_start:
-                # WeFlow 有些版本不返回 messageCount。已经完成过一次全量扫描时，
-                # 本地消息数就是下一轮全量扫描的可靠估算；首次同步则保持未知。
-                expected_total = local_total
             else:
+                # WeFlow 这个版本不返回 messageCount。不要拿本地条数冒充远端总量：
+                # 全量补齐时本地条数远小于远端，进度会提前爆表、ETA 也会乱报。
                 expected_total = 0
             _update_log(connection, log_id, total=expected_total)
-        # 媒体导出接口每页会顺带解密/复制媒体，页大小收小，避免单次请求过久。
+        # 媒体导出接口每页会顺带解密/复制媒体；1000 条是实测的单页耗时折中
+        # （翻页本身按时间窗推进，不再依赖越来越大的 offset）。
         for page in iter_pages(client, session_id, since=since, retry_empty=True,
                                with_media=with_media,
-                               limit=250 if with_media else 5000):
+                               limit=1000 if with_media else 5000):
             fetched += len(page.messages)
             with _connect(paths.chat_db) as connection:
                 for message in page.messages:
-                    max_ts = max(max_ts, _message_ts(message))
+                    message_ts = _message_ts(message)
+                    max_ts = max(max_ts, message_ts)
+                    min_ts = message_ts if min_ts is None else min(min_ts, message_ts)
                     day = _message_day(message)
                     if not earliest_day or day < earliest_day:
                         earliest_day = day
@@ -718,14 +745,54 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
                     media_saved=media_saved, media_failed=media_failed,
                     warnings="\n".join(warnings)[:4000],
                 )
+        # 全量扫描后和 WeFlow 真正的最早一条消息对一次账。空页重试也可能在
+        # 极端情况下用尽；没有这道校验的话，只同步了最近几千条也会显示“完成”，
+        # 用户就会看到“只能同步到某天”且每次重跑都停在同一个地方。
+        problems: list[str] = []
+        if full_scan and earliest_day:
+            remote_oldest = _oldest_remote_day(client, session_id)
+            if remote_oldest and earliest_day > remote_oldest:
+                problems.append(
+                    f"没有翻到最早的消息（本次只到 {earliest_day}，"
+                    f"WeFlow 最早是 {remote_oldest}）")
+        if remote_last and max_ts + 2 < remote_last:
+            problems.append("没有抓到最新的消息")
+        if not full_scan and min_ts is not None and watermark > 0 and min_ts > watermark:
+            # 增量窗口是 [watermark-120, 现在]，正常一定覆盖到旧水位；
+            # 最早一条比水位还新，说明中途有空页/漏页，不能把水位往前推。
+            problems.append("没有覆盖到上次的同步水位")
+        incomplete = ""
+        if problems:
+            incomplete = ("同步没有完成：" + "；".join(problems)
+                          + "。已抓取的消息已保存；请再点一次「同步到本机」继续补齐。")
+        if incomplete:
+            with _connect(paths.chat_db) as connection:
+                _update_log(
+                    connection, log_id, status="failed", finished_at=_now(),
+                    error=incomplete, fetched=fetched, inserted=inserted,
+                    matched=matched, duplicates=duplicates,
+                    media_saved=media_saved, media_failed=media_failed,
+                    warnings="\n".join(warnings)[:4000],
+                )
+                if mode == "apply":
+                    connection.execute(
+                        "UPDATE contact SET last_sync_status = 'failed', last_error = ?, "
+                        "updated_at = ? WHERE id = 1", (incomplete[:1000], _now()))
+                    connection.commit()
+            return
         if mode == "apply":
             today = _today()
             with _connect(paths.chat_db) as connection:
                 contact = _contact(connection)
                 if contact is not None:
                     history_start = str(contact["history_start_day"] or "")
-                    if full or not history_start:
-                        history_start = earliest_day or today
+                    if full_scan or not history_start:
+                        # 全量扫描偶尔只覆盖一部分时，不要把已知的更早起点往后推。
+                        if earliest_day:
+                            history_start = (min(history_start, earliest_day)
+                                             if history_start else earliest_day)
+                        else:
+                            history_start = history_start or today
                     connection.execute(
                         """UPDATE contact SET watermark = ?, history_start_day = ?,
                         last_sync_day = ?, last_sync_at = ?, last_sync_status = 'ok',

@@ -67,6 +67,9 @@ class WeFlowPull:
     next_since: int | None = None
     next_offset: int | None = None
     watermark: int | None = None
+    # 原始条目数（含解析时被跳过的坏行）：翻页必须按原始条数前进，
+    # 否则一页里有坏行时 offset 会回退，轻则重复、重则卡死。
+    raw_count: int = 0
 
 
 def _clean(value: Any, limit: int = 200) -> str:
@@ -226,24 +229,31 @@ class WeFlowClient:
         return result
 
     def pull(self, session_id: str, *, since: int = 0, offset: int = 0,
-             limit: int = DEFAULT_LIMIT) -> WeFlowPull:
+             limit: int = DEFAULT_LIMIT, end: int = 0) -> WeFlowPull:
+        """升序拉取（从最早开始）；``end`` 是可选的上界（秒，含）。"""
         session_id = str(session_id or "").strip()
         if not session_id or len(session_id) > 200:
             raise WeFlowError("WeFlow 会话 ID 不正确")
         limit = max(1, min(int(limit), DEFAULT_LIMIT))
+        params: dict[str, Any] = {
+            "since": max(0, int(since)),
+            "offset": max(0, int(offset)),
+            "limit": limit,
+        }
+        if int(end) > 0:
+            params["end"] = max(0, int(end))
         payload = self._get(
-            f"/api/v1/sessions/{quote(session_id, safe='')}/messages",
-            {"since": max(0, int(since)), "offset": max(0, int(offset)), "limit": limit},
-        )
+            f"/api/v1/sessions/{quote(session_id, safe='')}/messages", params)
         return parse_chatlab(payload)
 
     def pull_with_media(self, session_id: str, *, since: int = 0, offset: int = 0,
-                        limit: int = 500) -> WeFlowPull:
-        """带媒体导出的分页拉取。
+                        limit: int = 500, end: int = 0) -> WeFlowPull:
+        """带媒体导出的分页拉取（降序，从最新开始）。
 
         ``/sessions/<id>/messages`` 不返回 mediaPath；WeFlow 的媒体导出只挂在
         ``/api/v1/messages`` 上。这里用 ChatLab 格式 + media=1，返回每条消息的
         ``mediaPath``（本机 WeFlow 媒体 URL），并靠“本页是否满额”推断 hasMore。
+        ``start``/``end`` 是可选的时间窗（秒，含端点）。
         """
         session_id = str(session_id or "").strip()
         if not session_id or len(session_id) > 200:
@@ -258,10 +268,13 @@ class WeFlowClient:
         }
         if int(since) > 0:
             params["start"] = max(0, int(since))
+        if int(end) > 0:
+            params["end"] = max(0, int(end))
         payload = self._get("/api/v1/messages", params)
         page = parse_chatlab(payload)
-        page.has_more = len(page.messages) >= limit
-        page.next_offset = max(0, int(offset)) + len(page.messages)
+        # /api/v1/messages 不返回 sync 字段，只能按“本页原始条数是否满额”判断。
+        page.has_more = page.raw_count >= limit
+        page.next_offset = max(0, int(offset)) + page.raw_count
         return page
 
 
@@ -344,8 +357,9 @@ def parse_chatlab(payload: dict[str, Any], *, me_sender: str = "") -> WeFlowPull
         platform_id = _clean(item.get("platformId"))
         if platform_id:
             members[platform_id] = _clean(item.get("accountName")) or _clean(item.get("groupNickname")) or platform_id
+    raw_messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
     messages: list[WeFlowMessage] = []
-    for raw in payload.get("messages") or []:
+    for raw in raw_messages:
         if not isinstance(raw, dict):
             continue
         timestamp = _int(raw.get("timestamp"))
@@ -383,6 +397,7 @@ def parse_chatlab(payload: dict[str, Any], *, me_sender: str = "") -> WeFlowPull
         next_since=_int(sync.get("nextSince")),
         next_offset=_int(sync.get("nextOffset")),
         watermark=_int(sync.get("watermark")),
+        raw_count=len(raw_messages),
     )
 
 
@@ -393,36 +408,112 @@ def content_hash(message: WeFlowMessage) -> str:
     ).hexdigest()
 
 
-def iter_pages(client: WeFlowClient, session_id: str, *, since: int = 0,
-               limit: int = DEFAULT_LIMIT, retry_empty: bool = False,
-               with_media: bool = False) -> Iterator[WeFlowPull]:
-    """按 offset 翻页；调用方负责累计/去重。
+# WeFlow 的 offset 翻页靠游标逐条跳过前面的行：深处翻页时偶发空批次/超时，
+# 且这个空批次看起来和“真的到底了”一模一样。多试几次再下结论，否则全量同步会
+# 在几千条处假装完成（2026-11-02 实测：4,000 条后被空页截断，永远同步不到更早的历史）。
+PAGE_ATTEMPTS = 3
+EMPTY_PAGE_ATTEMPTS = 4
+RETRY_DELAY = 0.5
 
-    WeFlow 刚启动或刚绑定会话时，第一次拉取偶尔返回空页；`retry_empty` 只在
-    第一页为空时等 0.4 秒重试一次，避免把「还没准备好」误判成「没有消息」。
-    `with_media=True` 走媒体导出端点，代价更高但会带 mediaPath。
-    """
-    offset = 0
-    total = 0
-    first = True
 
-    def fetch() -> WeFlowPull:
-        if with_media:
-            return client.pull_with_media(session_id, since=since, offset=offset, limit=limit)
-        return client.pull(session_id, since=since, offset=offset, limit=limit)
-
-    while total < MAX_MESSAGES_PER_SYNC:
-        page = fetch()
-        if retry_empty and first and not page.messages:
-            time.sleep(0.4)
+def _fetch_page(fetch: Any) -> WeFlowPull:
+    delay = RETRY_DELAY
+    error_attempts = 0
+    empty_attempts = 0
+    while True:
+        try:
             page = fetch()
-        first = False
+        except WeFlowError:
+            error_attempts += 1
+            if error_attempts >= PAGE_ATTEMPTS:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 4.0)
+            continue
+        if page.messages or page.raw_count:
+            return page
+        empty_attempts += 1
+        if empty_attempts >= EMPTY_PAGE_ATTEMPTS:
+            return page
+        time.sleep(delay)
+        delay = min(delay * 2, 4.0)
+
+
+def _page_timestamps(page: WeFlowPull) -> list[int]:
+    return [int(message.timestamp.replace(tzinfo=TZ).timestamp())
+            for message in page.messages]
+
+
+def _iter_pages_descending(client: WeFlowClient, session_id: str, *,
+                           since: int, limit: int) -> Iterator[WeFlowPull]:
+    """媒体端点：按时间窗从新到旧翻页。
+
+    不能一直用 ``offset`` 翻到底：WeFlow 每次请求都会从游标头开始跳过前
+    ``offset`` 条，58,000 条历史按 offset 翻完是 O(n²)（实测算过要一个多小时）。
+    这里每页只盯住最后一条消息的时间戳，把 ``end`` 收到该秒、用 ``offset`` 跳过
+    同一秒里已经取到的条数；每页代价基本只和页大小有关。
+    """
+    end = 0
+    skip = 0
+    total = 0
+    while total < MAX_MESSAGES_PER_SYNC:
+        page = _fetch_page(lambda: client.pull_with_media(
+            session_id, since=since, offset=skip, limit=limit, end=end))
         yield page
-        total += len(page.messages)
-        if not page.has_more or not page.messages:
+        fetched = page.raw_count
+        total += fetched
+        if fetched == 0 or fetched < limit:
             break
-        next_offset = (page.next_offset if page.next_offset is not None
-                       else offset + len(page.messages))
-        if next_offset <= offset:
+        stamps = _page_timestamps(page)
+        if not stamps:
             break
-        offset = next_offset
+        anchor = min(stamps)
+        count = stamps.count(anchor)
+        if end and anchor == end:
+            # 同一秒里的消息超过一页：在同一个时间窗里继续往后跳。
+            skip += count
+        else:
+            end, skip = anchor, count
+
+
+def _iter_pages_ascending(client: WeFlowClient, session_id: str, *,
+                          since: int, limit: int) -> Iterator[WeFlowPull]:
+    """会话端点：按时间窗从旧到新翻页（预览/旧版合并用）。"""
+    start = max(0, int(since))
+    skip = 0
+    total = 0
+    while total < MAX_MESSAGES_PER_SYNC:
+        page = _fetch_page(lambda: client.pull(
+            session_id, since=start, offset=skip, limit=limit))
+        yield page
+        fetched = page.raw_count
+        total += fetched
+        if fetched == 0 or fetched < limit:
+            break
+        stamps = _page_timestamps(page)
+        if not stamps:
+            break
+        anchor = max(stamps)
+        count = stamps.count(anchor)
+        if start and anchor == start:
+            skip += count
+        else:
+            start, skip = anchor, count
+
+
+def iter_pages(client: WeFlowClient, session_id: str, *, since: int = 0,
+               limit: int = DEFAULT_LIMIT, retry_empty: bool = True,
+               with_media: bool = False) -> Iterator[WeFlowPull]:
+    """按时间窗翻页；调用方负责累计/去重。
+
+    WeFlow 在翻页途中会偶发返回空页（游标跳过、导出排队或超时），空页不能被
+    当成“没有更多”。`_fetch_page` 对空页和可重试错误都会退避重试；`retry_empty`
+    保留给旧调用方，空页重试现在始终开启。
+    `with_media=True` 走媒体导出端点（降序），否则走会话端点（升序）。
+    """
+    if with_media:
+        yield from _iter_pages_descending(
+            client, session_id, since=since, limit=limit)
+    else:
+        yield from _iter_pages_ascending(
+            client, session_id, since=since, limit=limit)
