@@ -24,8 +24,9 @@
   0/1/3/2/2 按数量显示，且不再写内联样式。
 - WeFlow 组件：自动从正在运行的 `WeFlow.exe` 反查安装目录（兼容 `D:\weflow` 等非标准
   位置）；设置抽屉新增手动安装目录，保存到 `_归档/weflow-component/config.json`，以后优先使用。
-- 设置抽屉的 `data-love-action` 按钮（重新检查/选择 DLL/回滚）补上事件委托；没有内置
-  `wcdb_api.dll` 时不再静默，弹出说明并提供「选择已有 DLL」出口。
+- 设置抽屉的 `data-love-action` 按钮（重新检查/一键修复/回滚）补上事件委托；没有内置
+  `wcdb_api.dll` 时不再静默，改为单一「一键修复组件」入口，弹窗说明并提供「选择 DLL
+  并修复」出口；WeFlow 正在运行时先提示退出。
 - 清理未使用前端模块：`pending.js` / `pending-markup.js` / `memory-hub.js` /
   `memory-strip.js` / `identity-inbox.js` / `questions.js` / `questions-markup.js`
   及对应测试；顺带删除 roles.css 旧忆灵/旧 ops-ai 尾部 311 行、styles.css 旧待确认/

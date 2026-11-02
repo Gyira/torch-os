@@ -180,8 +180,10 @@ test("设置抽屉覆盖 WeFlow、组件修复、数据目录与 AI 状态", asy
   assert.match(love, /\/api\/love\/weflow\/component\/install-dir/);
   assert.match(love, /\/api\/love\/weflow\/component\/replace/);
   assert.match(love, /\/api\/love\/weflow\/component\/rollback/);
-  // 没有内置 DLL 时不能静默无反应：要解释并给出“选择已有 DLL”的出口。
+  // 没有内置 DLL 时不能静默无反应：要解释并给出“选择 DLL 并修复”的出口。
+  assert.match(love, /一键修复组件/);
   assert.match(love, /还没有内置 DLL/);
-  assert.match(love, /选择已有 DLL/);
+  assert.match(love, /选择 DLL 并修复/);
+  assert.match(love, /weflow_running/);
   assert.match(love, /love-settings-body.*addEventListener\("click"/s);
 });

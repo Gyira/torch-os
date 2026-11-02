@@ -1614,8 +1614,8 @@ async function openLoveSettings() {
         <div class="love-inline-actions"><button class="button secondary" type="submit">保存目录并检查</button></div>
       </form>
       <div id="love-weflow-component-status" class="love-component-status">正在检查…</div>
-      <div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="weflow-component-check">重新检查</button><button class="button primary" type="button" data-love-action="weflow-component-install">选择已构建的 DLL 并替换</button><button class="button secondary" type="button" data-love-action="weflow-component-bundled">使用内置 DLL 一键替换</button><button class="button secondary" type="button" data-love-action="weflow-component-rollback">回滚</button></div>
-      <p class="field-help">当前环境可能没有 C++ 工具链；项目附带构建脚本与图文教程，首次需要先构建一次 wcdb_api.dll。</p>`, { eyebrow: "COMPONENT" })}
+      <div class="love-inline-actions"><button class="button primary" type="button" data-love-action="weflow-component-repair">一键修复组件</button><button class="button secondary" type="button" data-love-action="weflow-component-rollback">回滚</button><button class="text-button" type="button" data-love-action="weflow-component-check">重新检查</button></div>
+      <p class="field-help">一键修复会先备份原组件，再替换并校验；没有内置 DLL 时，会让你选择一个已有的 wcdb_api.dll。替换前请完全退出 WeFlow（含托盘）。</p>`, { eyebrow: "COMPONENT" })}
     ${card("数据目录", `<dl class="love-facts">${pathRows}</dl>${migration.status ? `<p class="field-help">迁移状态：${escapeHtml(migration.status)}${migration.source ? ` · 来源 ${escapeHtml(migration.source)}` : ""}${migration.backup ? ` · 备份 ${escapeHtml(migration.backup)}` : ""}</p>` : ""}`, { eyebrow: "DATA" })}
     ${card("AI 与隐私", `<dl class="love-facts"><div><dt>dsh</dt><dd>${status?.ai?.available ? '<span class="love-badge ok">可用</span>' : `<span class="love-badge warn">不可用</span> <span class="meta">${escapeHtml(status?.ai?.reason || "")}</span>`}</dd></div><div><dt>只读模式</dt><dd>${status?.read_only ? "开启" : "关闭"}</dd></div></dl><p class="field-help">所有 AI 都走 dsh；聊天原文脱敏后发送，经期只发送聚合阶段，不发送每日症状明细。原始文件仍只在本机。</p>`, { eyebrow: "AI" })}`;
   $id("love-settings-weflow")?.addEventListener("submit", async (event) => {
@@ -1684,6 +1684,12 @@ async function checkWeFlowComponent() {
     const manual = data.configured_dir
       ? ` · 手动目录${data.configured_dir_exists === false ? "不存在" : ""}`
       : "";
+    const repair = document.querySelector('[data-love-action="weflow-component-repair"]');
+    if (repair) {
+      repair.textContent = data.bundled_dll ? "一键修复组件" : "一键修复（选择 DLL）";
+      repair.title = data.weflow_running
+        ? "请先完全退出 WeFlow（含托盘）" : "自动备份、替换并校验";
+    }
     target.innerHTML = `<span class="love-badge ${data.expired ? "error" : data.installed ? "ok" : "warn"}">${escapeHtml(installed)}${escapeHtml(expired)}</span><p class="field-help">${escapeHtml(data.dll_path || "未检测到 wcdb_api.dll")}${escapeHtml(bundled)}${escapeHtml(manual)}</p>${data.configured_dir ? `<p class="field-help">手动目录：${escapeHtml(data.configured_dir)}</p>` : ""}`;
   } catch (error) {
     target.innerHTML = `<span class="love-badge warn">组件检查不可用</span><p class="field-help">${escapeHtml(error.message)}</p>`;
@@ -1936,11 +1942,8 @@ async function handleLoveAction(event) {
     case "weflow-component-check":
       await checkWeFlowComponent();
       return;
-    case "weflow-component-install":
-      await installWeFlowComponent(button);
-      return;
-    case "weflow-component-bundled":
-      await installBundledWeFlowComponent(button);
+    case "weflow-component-repair":
+      await repairWeFlowComponent(button);
       return;
     case "weflow-component-rollback":
       await rollbackWeFlowComponent(button);
@@ -1972,25 +1975,34 @@ async function installWeFlowComponent(button) {
   input.click();
 }
 
-async function installBundledWeFlowComponent(button) {
-  if (!love.weflowComponent?.bundled_dll) {
+async function repairWeFlowComponent(button) {
+  const component = love.weflowComponent || {};
+  if (component.weflow_running) {
+    toast("请先完全退出 WeFlow（含系统托盘），再点一键修复。", "warning");
+    return;
+  }
+  if (!component.bundled_dll) {
     const choose = await confirmAction({
       title: "还没有内置 DLL",
-      message: "assets/weflow/wcdb_api.dll 不存在。内置替换需要先按教程构建一次；也可以直接选择你已有的 wcdb_api.dll。替换前请完全退出 WeFlow（含托盘）。",
-      confirmLabel: "选择已有 DLL",
-      cancelLabel: "知道了",
+      message: "项目里没有预构建的 wcdb_api.dll。请选择你已有的开源构建 DLL；选好后会自动备份、替换并校验。",
+      confirmLabel: "选择 DLL 并修复",
+      cancelLabel: "取消",
     });
     if (choose) await installWeFlowComponent(button);
     return;
   }
-  if (!await confirmAction({ title: "使用内置 DLL 替换？", message: "替换前会备份当前 WeFlow 组件；请先完全退出 WeFlow（含托盘）。", confirmLabel: "替换" })) return;
-  await withBusy(button, "替换中…", async () => {
+  if (!await confirmAction({
+    title: "一键修复微信组件？",
+    message: "会先备份当前 DLL，再用内置开源组件替换；替换前请完全退出 WeFlow（含托盘）。",
+    confirmLabel: "开始修复",
+  })) return;
+  await withBusy(button, "修复中…", async () => {
     try {
       const result = await loveApi("/api/love/weflow/component/replace", { method: "POST", timeoutMs: 120000 });
       toast(result.message || "组件已替换；请重启 WeFlow 后重试。", "success");
       await checkWeFlowComponent();
     } catch (error) {
-      toast(`替换失败：${error.message}`, "error");
+      toast(`修复失败：${error.message}`, "error");
     }
   });
 }
