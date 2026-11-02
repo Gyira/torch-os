@@ -70,7 +70,7 @@ def test_retired_capabilities_are_not_advertised(tmp_path):
     capabilities = client.get('/api/config/status').json()['capabilities']
     for key in ('bazi', 'profile', 'chat_preview', 'memory_usage', 'share_import', 'suggestions', 'agent', 'harness_reset', 'model_key_write', 'semantic_search', 'workbench_polish'):
         assert key not in capabilities, key
-    assert len(capabilities) == 60  # 2026-11-01 恋爱 v2 新增 love_bazi/love_chat/love_gallery/love_master
+    assert len(capabilities) == 61  # 2026-11-02 新增 cloud_backup（完整库快照到网盘）
 
 
 def test_legacy_tables_survive_and_have_no_writers(tmp_path):

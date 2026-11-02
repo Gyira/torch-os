@@ -3,6 +3,20 @@
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
 
+## 2026-11-02 云端完整备份（2.2，本轮）
+
+- 设置 → 备份与恢复新增「云端完整备份」：把整个个人数据库（Markdown、微信聊天
+  `chat.db`、恋爱系统各库与媒体、相册、`.torch-os` 配置）做成一份完整快照，写进
+  用户选择的百度网盘/阿里云盘等同步文件夹。
+- 所有 SQLite 通过在线备份 API 做一致快照，包含 WAL 中尚未 checkpoint 的已提交数据；
+  排除日志、旧备份、恢复副本与临时目录。
+- 默认 AES-256-GCM 分块加密（scrypt 派生密钥）；密码用 Windows DPAPI 保护，不明文
+  落盘。支持仅手动 / 每天 / 每周，保留最近 1–30 份。
+- 新增 `backend/app/cloud_backup.py`、`scripts/restore_full_backup.py`、
+  `docs/CLOUD_BACKUP.md`、`tests/test_cloud_backup.py`、前端云端备份设置卡与测试。
+- 启动时自动创建恋爱大师三个默认本子不再写 `notebook_created` 审计，保持空库审计
+  计数为 0。
+
 ## 2026-11-01 AI 角色管理页（2.2，本轮）
 
 - 顶部新增第 6 个模块「AI 角色」：左侧列出活跃角色（搜索 + 自我/生活/知识/运营/关系/
@@ -154,7 +168,8 @@
   - 恋爱大师：总览/看板 + dsh skill 卡片（画像/深度分析/报告/AI 补日记/沟通教练/八字）；
     右侧角色层是唯一聊天入口；结果存 `07_恋爱大师/analysis.db`。
   - 新增 `dsh/roles/love_master.md` 的 portrait/deep/report/journal_batch/bazi 模式与
-    `dsh/skills/love-master/SKILL.md`；AI 上下文可读取七个页面数据，聊天脱敏、经期只发聚合。
+    `dsh/skills/love-master/SKILL.md`；AI 上下文可读取七个页面数据，画像/分析/报告/
+    角色层聊天脱敏，AI 补日记按天发送原文，经期只发聚合。
   - 测试：`tests/test_love_v2.py` 7 项；前端 `love.test.mjs` / `bazi-page.test.mjs` /
     `love-cycle.test.mjs` / `notebook-model.test.mjs` 更新。
 - **2026-11-01 横幅热力图改成 GitHub 贡献日历风格（正方形格子）**：

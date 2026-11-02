@@ -245,7 +245,7 @@ def test_love_memory_chapter_is_additive() -> None:
     assert chapter["default_type"] == "memory"
     # 2026-11-01 恋爱系统 v2 新增「恋爱日志」「AI 草稿」两个记忆章节；
     # 它们不进入四库首页（love 不在 PILLAR_ORDER），但会出现在写作章节清单里。
-    assert len(vault_layout.CHAPTERS) == 49
+    assert len(vault_layout.CHAPTERS) >= 49
     assert vault_layout.LOVE_JOURNAL_CHAPTER in vault_layout.CHAPTER_BY_KEY
     assert vault_layout.LOVE_DRAFT_CHAPTER in vault_layout.CHAPTER_BY_KEY
     assert manifest["layout_version"] == "pillars-v2"

@@ -239,4 +239,20 @@ test("love memory has two protected notebooks and a distinct custom prefix", () 
   const custom = notebookForChapter("love", key);
   assert.equal(custom.title, "旅行");
   assert.match(custom.description, /02_生活运营\/01_恋爱系统\/01_恋爱记忆/);
+
+  // 恋爱大师的固定产物本子由后端标 protected，前端不给删除入口。
+  const masterKey = customNotebookKey("关系画像", "love");
+  assert.equal(canDeleteNotebook("love", {
+    key: masterKey, custom: true, protected: true,
+  }), false);
+  assert.equal(canDeleteNotebook("love", {
+    key, custom: true, protected: false,
+  }), true);
+  const cards = buildNotebookCards("love", [], [
+    { key: masterKey, title: "关系画像", count: 2, protected: true },
+    { key, title: "旅行", count: 1 },
+  ]);
+  const master = cards.find((card) => card.key === masterKey);
+  assert.equal(master.protected, true);
+  assert.equal(cards.find((card) => card.key === key).protected, false);
 });

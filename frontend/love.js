@@ -351,7 +351,7 @@ function memoryHeatmap(dates = {}) {
 }
 
 function memoryNotebookCard(notebook) {
-  const deleteButton = notebook.custom
+  const deleteButton = notebook.custom && !notebook.protected
     ? `<button class="love-notebook-delete" type="button" data-love-action="memory-delete-notebook" data-key="${escapeHtml(notebook.key)}" data-title="${escapeHtml(notebook.title)}" aria-label="删除本子 ${escapeHtml(notebook.title)}">删除</button>`
     : "";
   const latest = notebook.latest
@@ -561,15 +561,20 @@ function chatMessageMarkup(message) {
       media = `<video class="love-chat-media" controls preload="metadata" src="${escapeHtml(message.media_url)}"></video>`;
     } else if (message.media_kind === "voice") {
       media = `<audio class="love-chat-audio" controls preload="none" src="${escapeHtml(message.media_url)}"></audio>`;
+    } else if (message.media_kind === "emoji") {
+      media = `<img class="love-chat-emoji" src="${escapeHtml(message.media_url)}" alt="${escapeHtml(content || "收藏表情")}" loading="lazy" />`;
     } else {
       media = `<a class="love-chat-media-link" href="${escapeHtml(message.media_url)}" target="_blank" rel="noopener"><img class="love-chat-media" src="${escapeHtml(message.media_url)}" alt="${escapeHtml(content || "聊天媒体")}" loading="lazy" /></a>`;
     }
   }
+  const placeholders = new Set(["[图片]", "[视频]", "[语音]", "[表情]", "[动画表情]"]);
+  // 有媒体时才隐藏占位文字；媒体没导出成功时保留 [图片]/[表情]，避免空白气泡。
+  const hidePlaceholder = message.has_media && placeholders.has(content);
   return `<article class="love-chat-msg ${message.is_send ? "is-me" : "is-other"}">
     <div class="love-chat-bubble">
       <div class="love-chat-meta"><span>${escapeHtml(message.is_send ? "我" : "对象")}</span><time>${escapeHtml(message.time || "")}</time></div>
       ${media}
-      ${content && content !== "[图片]" && content !== "[视频]" && content !== "[语音]" ? `<p>${content}</p>` : ""}
+      ${content && !hidePlaceholder ? `<p>${content}</p>` : ""}
     </div>
   </article>`;
 }
@@ -687,7 +692,7 @@ async function renderChat(content) {
       <button class="text-button" type="button" data-love-action="chat-unbind">解除绑定</button>
     </div>
     <div id="love-chat-sync-status" class="love-sync-result">${love.chatLog ? chatSyncLogMarkup(love.chatLog) : ""}</div>
-    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片/视频会复制进库，语音先显示播放器占位。</p>` , {
+    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片、视频、语音和收藏表情会复制进库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
     eyebrow: "WECHAT",
     subtitle: "日历看板用三种状态标出哪天有聊天、哪天还没同步。",
   }) : "";
@@ -730,9 +735,50 @@ async function renderChat(content) {
   }
 }
 
+function formatDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0));
+  if (value < 60) return `${value} 秒`;
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  if (minutes < 60) return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} 小时 ${remaining} 分` : `${hours} 小时`;
+}
+
+/** 同步进行中的进度条：有 total 时显示确定进度与预计剩余，没有总量时显示不确定进度 + 速度/已用时间。 */
+function syncProgressMarkup(log) {
+  const status = String(log.status || "");
+  if (!["queued", "running", "completed"].includes(status)) return "";
+  const fetched = Number(log.fetched) || 0;
+  const total = Number(log.total) || 0;
+  if (status === "queued") {
+    return '<progress class="love-sync-progress" aria-label="同步排队中"></progress><span class="love-sync-progress-meta">排队中…</span>';
+  }
+  if (status === "completed") {
+    return `<progress class="love-sync-progress" max="100" value="100" aria-label="同步完成"></progress><span class="love-sync-progress-meta">完成 · 共 ${formatInt(fetched)} 条</span>`;
+  }
+  const percent = log.progress_percent == null ? null : Number(log.progress_percent);
+  let rate = log.rate_per_second == null ? null : Number(log.rate_per_second);
+  const eta = log.eta_seconds == null ? null : Number(log.eta_seconds);
+  const started = Date.parse(log.started_at || "");
+  const elapsed = Number.isFinite(started) ? Math.max(0, (Date.now() - started) / 1000) : null;
+  if ((rate == null || !(rate > 0)) && elapsed && fetched > 0) rate = fetched / elapsed;
+  const parts = [total > 0
+    ? `已处理 ${formatInt(fetched)} / ${formatInt(total)} 条`
+    : `已处理 ${formatInt(fetched)} 条`];
+  if (rate != null && rate > 0) parts.push(`约 ${formatInt(Math.round(rate))} 条/秒`);
+  if (eta != null && eta >= 0) parts.push(`约剩 ${formatDuration(eta)}`);
+  else if (elapsed != null) parts.push(`已用 ${formatDuration(elapsed)}`);
+  const value = total > 0 && percent != null
+    ? ` value="${Math.max(0, Math.min(99, percent))}"` : "";
+  const label = total > 0 ? "同步进度" : "同步进度（总量未知）";
+  return `<progress class="love-sync-progress" max="100"${value} aria-label="${label}"></progress><span class="love-sync-progress-meta">${parts.join(" · ")}</span>`;
+}
+
 function chatSyncLogMarkup(log) {
   const labels = { queued: "排队中", running: "同步中", completed: "已完成", failed: "失败" };
-  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
+  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_saved ? ` · 媒体 ${formatInt(log.media_saved)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
 }
 
 function bindChatForms() {
@@ -1386,6 +1432,17 @@ const MASTER_STATUS_LABELS = {
   queued: "排队中", running: "进行中", completed: "已完成", failed: "失败",
 };
 
+function masterNoteMarkup(result) {
+  const note = result?.note;
+  if (note?.path) {
+    return `<div class="love-analysis-section"><h3>已写入恋爱日志</h3><p>${escapeHtml(note.notebook || "")} / ${escapeHtml(note.title || "")}</p><div class="love-inline-actions"><button class="button secondary" type="button" data-love-action="memory-open" data-path="${escapeHtml(note.path)}">打开笔记</button><button class="button text-button" type="button" data-love-action="goto-memory">去恋爱记忆</button></div></div>`;
+  }
+  if (result?.note_error) {
+    return `<p class="inline-error">分析已保存，但写入恋爱日志失败：${escapeHtml(result.note_error)}</p>`;
+  }
+  return "";
+}
+
 function masterResultMarkup(run) {
   if (!run) return "";
   if (run.status === "running" || run.status === "queued") {
@@ -1393,7 +1450,9 @@ function masterResultMarkup(run) {
   }
   if (run.status === "failed") return errorBox(run.error || "这次分析没有完成");
   const result = run.result || {};
-  const structured = result.structured || {};
+  // 补日记的结果直接存在顶层的 created/failed/text，其他 skill 才在 structured 里。
+  const structured = run.skill === "journal_batch"
+    ? result : (result.structured || {});
   const text = result.text || "";
   if (run.skill === "portrait") {
     const traits = Array.isArray(structured.traits) ? structured.traits : [];
@@ -1401,7 +1460,7 @@ function masterResultMarkup(run) {
       return `<pre class="love-master-text">${escapeHtml(text || JSON.stringify(structured, null, 2))}</pre>`;
     }
     return `<div class="love-analysis-hero"><div><span class="eyebrow">PORTRAIT</span><strong>${escapeHtml(structured.summary || "对象画像")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div>
-      <div class="love-master-grid"><div><h3>画像条目</h3>${traits.length ? `<div class="love-trait-list">${traits.map((trait) => `<article class="love-trait"><h3>${escapeHtml(trait.trait || "")}</h3><p>${escapeHtml(trait.value || "")}</p><small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 160))}` : ""}</small></article>`).join("")}</div>` : '<p class="meta">没有提取到画像条目。</p>'}</div><div><h3>沟通与照顾</h3><p>${escapeHtml(structured.communication_style || "")}</p><ul class="love-advice">${(structured.care_tips || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><h3>需要留意</h3><ul class="love-risk-list">${(structured.risks || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>没有明显风险。</li>"}</ul></div></div>`;
+      <div class="love-master-grid"><div><h3>画像条目</h3>${traits.length ? `<div class="love-trait-list">${traits.map((trait) => `<article class="love-trait"><h3>${escapeHtml(trait.trait || "")}</h3><p>${escapeHtml(trait.value || "")}</p><small>置信度 ${percent(trait.confidence, 0)}${trait.evidence ? ` · ${escapeHtml(String(trait.evidence).slice(0, 160))}` : ""}</small></article>`).join("")}</div>` : '<p class="meta">没有提取到画像条目。</p>'}</div><div><h3>沟通与照顾</h3><p>${escapeHtml(structured.communication_style || "")}</p><ul class="love-advice">${(structured.care_tips || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><h3>需要留意</h3><ul class="love-risk-list">${(structured.risks || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>没有明显风险。</li>"}</ul></div></div>${masterNoteMarkup(result)}`;
   }
   if (run.skill === "deep_analysis") {
     const tone = structured.emotional_tone || {};
@@ -1411,10 +1470,10 @@ function masterResultMarkup(run) {
       <div class="love-analysis-section"><h3>沟通模式</h3><dl class="love-facts"><div><dt>主动度</dt><dd>${escapeHtml(patterns.initiative_balance || "—")}</dd></div><div><dt>回应风格</dt><dd>${escapeHtml(patterns.response_style || "—")}</dd></div><div><dt>主要话题</dt><dd>${(patterns.key_topics || []).map(escapeHtml).join("、") || "—"}</dd></div></dl></div>
       ${(structured.key_events || []).length ? `<div class="love-analysis-section"><h3>关键事件</h3><ul class="love-event-list">${structured.key_events.map((event) => `<li class="love-event impact-${escapeHtml(event.impact || "neutral")}"><span>${escapeHtml(event.date || "")}</span><p>${escapeHtml(event.description || "")}</p></li>`).join("")}</ul></div>` : ""}
       ${(structured.risk_warnings || []).length ? `<div class="love-analysis-section"><h3>需要注意</h3><ul class="love-risk-list">${structured.risk_warnings.map((risk) => `<li class="love-risk risk-${escapeHtml(risk.severity || "low")}"><strong>${escapeHtml(risk.aspect || "")}</strong><p>${escapeHtml(risk.detail || "")}</p></li>`).join("")}</ul></div>` : ""}
-      ${(structured.personalized_advice || []).length ? `<div class="love-analysis-section"><h3>建议</h3><ol class="love-advice">${structured.personalized_advice.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>` : ""}`;
+      ${(structured.personalized_advice || []).length ? `<div class="love-analysis-section"><h3>建议</h3><ol class="love-advice">${structured.personalized_advice.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></div>` : ""}${masterNoteMarkup(result)}`;
   }
   if (run.skill === "report") {
-    return `<div class="love-analysis-hero"><div><span class="eyebrow">REPORT</span><strong>${escapeHtml(structured.title || "关系阶段报告")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>${escapeHtml(structured.summary || "")}</p>${(structured.sections || []).map((section) => `<div class="love-analysis-section"><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></div>`).join("")}`;
+    return `<div class="love-analysis-hero"><div><span class="eyebrow">REPORT</span><strong>${escapeHtml(structured.title || "关系阶段报告")}</strong></div><span class="meta">${escapeHtml(formatDateTime(run.completed_at))}</span></div><p>${escapeHtml(structured.summary || "")}</p>${(structured.sections || []).map((section) => `<div class="love-analysis-section"><h3>${escapeHtml(section.title || "")}</h3><p>${escapeHtml(section.body || "")}</p></div>`).join("")}${masterNoteMarkup(result)}`;
   }
   if (run.skill === "journal_batch") {
     const created = Array.isArray(structured.created) ? structured.created : [];
@@ -1439,6 +1498,7 @@ async function renderMaster(content) {
     selected = await loveApi(`/api/love/master/runs/${love.masterSelectedId}`, { timeoutMs: 30000 }).catch(() => null);
   }
   const memory = overview.memory || {};
+  const journalPending = Number(overview.journal_pending) || 0;
   const chat = overview.chat || {};
   const cycle = overview.cycle || {};
   const schedule = overview.schedule || {};
@@ -1458,7 +1518,7 @@ async function renderMaster(content) {
     <article class="love-skill-card"><span class="eyebrow">PORTRAIT</span><h3>关系画像</h3><p>从记忆、聊天与统计里提炼对象画像、沟通方式和照顾建议。</p><button class="button primary" type="button" data-love-action="master-run" data-skill="portrait">生成画像</button></article>
     <article class="love-skill-card"><span class="eyebrow">DEEP ANALYSIS</span><h3>深度分析</h3><p>看关系阶段、沟通模式、关键事件与风险。</p><div class="love-inline-actions"><select id="love-master-deep-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="deep_analysis">开始分析</button></div></article>
     <article class="love-skill-card"><span class="eyebrow">REPORT</span><h3>阶段报告</h3><p>生成可留档的报告，支持查看历史、删除与 HTML 导出。</p><div class="love-inline-actions"><select id="love-master-report-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="report">生成报告</button></div></article>
-    <article class="love-skill-card"><span class="eyebrow">AI JOURNAL</span><h3>AI 批量补日记</h3><p>只补有聊天、还没有记忆的日期，先写进「AI 草稿」。</p><div class="love-inline-actions"><input id="love-master-journal-days" class="love-gallery-select" type="number" min="1" max="60" value="10" aria-label="最多补几天" /><button class="button primary" type="button" data-love-action="master-run" data-skill="journal_batch">开始补写</button></div></article>
+    <article class="love-skill-card"><span class="eyebrow">AI JOURNAL</span><h3>AI 批量补日记</h3><p>只补有聊天、还没有记忆的日期，先写进「AI 草稿」。${journalPending ? `当前还有 ${formatInt(journalPending)} 天待补。` : "当前没有待补日期。"}选「全部」会逐日调用 AI，耗时较长。</p><div class="love-inline-actions"><select id="love-master-journal-days" class="love-gallery-select" aria-label="补写范围"><option value="10">最近 10 天</option><option value="30">最近 30 天</option><option value="60">最近 60 天</option><option value="0">全部未补日期${journalPending ? `（${formatInt(journalPending)} 天）` : ""}</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="journal_batch">开始补写</button></div></article>
     <article class="love-skill-card"><span class="eyebrow">COACH</span><h3>沟通教练</h3><p>打开右侧恋爱大师角色层，带着当前数据聊今天能怎么做。</p><button class="button primary" type="button" data-love-action="master-chat">和恋爱大师聊聊</button></article>
     <article class="love-skill-card"><span class="eyebrow">BAZI</span><h3>八字合婚</h3><p>补齐双方出生信息，生成新的合婚页面。</p><button class="button secondary" type="button" data-love-action="goto-bazi">打开八字合婚</button></article>`;
   const history = love.masterRuns.length
@@ -1499,11 +1559,14 @@ async function runMasterSkill(skill, button) {
     : skill === "deep_analysis"
       ? Number($id("love-master-deep-days")?.value ?? 30)
       : 30;
-  const maxDays = Number($id("love-master-journal-days")?.value || 10);
+  const maxDays = Number($id("love-master-journal-days")?.value ?? 10);
   const labels = { portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 批量补日记" };
+  const message = skill === "journal_batch"
+    ? "会把当天聊天原文（不脱敏，保留真实称呼）通过 dsh 发送给你配置的模型，逐日补写；范围选「全部未补日期」时会调用很多次，耗时较长，已补过的日期会自动跳过。"
+    : "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。";
   if (!await confirmAction({
     title: `开始${labels[skill] || "分析"}？`,
-    message: "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。",
+    message,
     confirmLabel: "开始",
   })) return;
   await withBusy(button, "已提交…", async () => {

@@ -4,7 +4,7 @@
 `GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
 `tests/test_docs_contract.py` 会在能力标记漂移时失败。
 
-`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_bazi`、`love_chat`、`love_cycle`、`love_gallery`、`love_master`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`cloud_backup`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_bazi`、`love_chat`、`love_cycle`、`love_gallery`、`love_master`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
 
 ## 自我档案 v2 / 人生导师 / 八字系统（2026-11-01）
 
@@ -402,8 +402,9 @@
 - **恋爱大师**：关系总览 + 数据看板 + dsh skill 卡片（关系画像、深度分析、阶段报告、
   AI 补日记、沟通教练、八字入口）；结果存 `07_恋爱大师/analysis.db`，可切换历史/删除/导出。
   右侧角色层是唯一聊天入口；所有 AI 走 dsh `love_master` 与 `love-master` skill。
-- AI 只在用户显式操作时发生；聊天原文脱敏后进入上下文，经期只发送聚合阶段，
-  照片与原始数据库不发送。QA 隔离工作区不注册恋爱路由。
+- AI 只在用户显式操作时发生；画像/分析/报告/角色层使用脱敏聊天，AI 批量补日记例外
+  （按天发送不脱敏原文以保留真实称呼），经期只发送聚合阶段，照片与原始数据库不发送。
+  QA 隔离工作区不注册恋爱路由。
 
 ### 知识库
 
@@ -442,7 +443,10 @@
   它是对话的唯一 AI 入口。恋爱系统的分析/日记生成是独立功能，使用它自己的可选 DeepSeek Key。
 - 诊断与恢复：数据库完整性、表计数、Vault 文件数、备份复验、恢复副本只读验证、一键恢复演练。
 - 导出：记忆、目标与任务、习惯与打卡、对话、每日记录、身体记录的可读 ZIP；不是恢复包。
-- 备份：本地明文 ZIP；恢复写入独立目录，不覆盖当前库，不自动切换。
+- 备份：本地明文 ZIP（Markdown + 主库）；恢复写入独立目录，不覆盖当前库，不自动切换。
+- 云端完整备份：整个库（Markdown、微信聊天、恋爱系统、相册、配置）→ 一致 SQLite
+  快照 + AES-256-GCM 加密 ZIP → 用户选择的网盘同步文件夹；支持每天/每周自动。
+  设置卡在「设置 → 备份与恢复」；恢复脚本 `scripts/restore_full_backup.py`。
 - 滴答同步：拉取清单/任务、本地新增修改删除回写、清单回写、回收站恢复；
   正文/重复规则/提醒/附件暂不回写。
 - 审计：只记事件类型与数量，不记正文、问题、标题或路径。

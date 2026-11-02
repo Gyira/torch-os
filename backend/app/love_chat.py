@@ -42,7 +42,8 @@ from .weflow import (
 
 DAY = ZoneInfo("Asia/Shanghai")
 MAX_MEDIA_BYTES = 64 * 1024 * 1024
-MAX_MEDIA_PER_SYNC = 2_000
+# 全量补齐图片/视频/语音/表情时，2,000 条会漏掉一半历史媒体；放宽到覆盖一次完整聊天。
+MAX_MEDIA_PER_SYNC = 20_000
 MEDIA_TYPES = {
     ".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image",
     ".webp": "image", ".bmp": "image", ".heic": "image", ".avif": "image",
@@ -97,10 +98,12 @@ CREATE TABLE IF NOT EXISTS sync_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     mode TEXT NOT NULL,
     status TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
     fetched INTEGER NOT NULL DEFAULT 0,
     inserted INTEGER NOT NULL DEFAULT 0,
     matched INTEGER NOT NULL DEFAULT 0,
     duplicates INTEGER NOT NULL DEFAULT 0,
+    media_saved INTEGER NOT NULL DEFAULT 0,
     media_failed INTEGER NOT NULL DEFAULT 0,
     error TEXT NOT NULL DEFAULT '',
     warnings TEXT NOT NULL DEFAULT '',
@@ -108,6 +111,12 @@ CREATE TABLE IF NOT EXISTS sync_logs (
     finished_at TEXT NOT NULL DEFAULT ''
 );
 """
+
+# 旧库补齐同步进度字段；total=0 表示未知总量（前端显示不确定进度条）。
+_SYNC_LOG_COLUMNS = {
+    "total": "INTEGER NOT NULL DEFAULT 0",
+    "media_saved": "INTEGER NOT NULL DEFAULT 0",
+}
 
 
 def _now() -> str:
@@ -132,6 +141,11 @@ def ensure_chat_schema(path: Path | str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     with _connect(target) as connection:
         connection.executescript(SCHEMA_SQL)
+        existing = {str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(sync_logs)")}
+        for name, sql_type in _SYNC_LOG_COLUMNS.items():
+            if name not in existing:
+                connection.execute(f"ALTER TABLE sync_logs ADD COLUMN {name} {sql_type}")
     return target
 
 
@@ -193,17 +207,20 @@ def _media_kind_from_path(media_path: str) -> str:
 
 
 def _media_kind(message: WeFlowMessage) -> str:
+    path = str(message.media_path or "").lower()
+    # 先按消息类型/目录判断：收藏表情和内置小黄脸在 WeFlow 都是 type 47，
+    # media=1 时统一导出到 emojis/，也常是 .jpg/.gif，不能只看扩展名当成图片。
+    if message.message_type == 5 or "/emojis/" in path:
+        return "emoji"
+    if message.message_type == 1 or "/images/" in path:
+        return "image"
+    if message.message_type == 3 or "/videos/" in path:
+        return "video"
+    if message.message_type == 2 or "/voices/" in path:
+        return "voice"
     ext = _media_ext(message.media_path)
     if ext:
         return MEDIA_TYPES[ext]
-    if message.message_type == 1:
-        return "image"
-    if message.message_type == 3:
-        return "video"
-    if message.message_type == 2:
-        return "voice"
-    if message.message_type == 5:
-        return "emoji"
     return _media_kind_from_path(message.media_path)
 
 
@@ -244,17 +261,32 @@ def _message_json(row: sqlite3.Row) -> dict[str, Any]:
 def _insert_message(connection: sqlite3.Connection, message: WeFlowMessage, *,
                     media_relative: str = "") -> str:
     digest = content_hash(message)
+    media_kind = _media_kind(message) if media_relative else ""
     exists = connection.execute(
-        "SELECT 1 FROM messages WHERE content_hash = ? LIMIT 1", (digest,)
+        "SELECT id, media_path FROM messages WHERE content_hash = ? LIMIT 1", (digest,)
     ).fetchone()
     if exists:
+        # 历史消息已经入库但没有媒体：这轮带 mediaPath 时补上，避免必须换库重来。
+        if media_relative and not str(exists["media_path"] or "").strip():
+            connection.execute(
+                "UPDATE messages SET media_path = ?, media_kind = ? WHERE id = ?",
+                (media_relative, media_kind, int(exists["id"])),
+            )
+            return "matched"
         return "duplicate"
     platform_id = str(message.platform_message_id or "").strip()
     if platform_id:
         matched = connection.execute(
-            "SELECT id FROM messages WHERE platform_message_id = ? LIMIT 1", (platform_id,)
+            "SELECT id, media_path FROM messages WHERE platform_message_id = ? LIMIT 1",
+            (platform_id,),
         ).fetchone()
         if matched:
+            if media_relative and not str(matched["media_path"] or "").strip():
+                connection.execute(
+                    "UPDATE messages SET media_path = ?, media_kind = ? WHERE id = ?",
+                    (media_relative, media_kind, int(matched["id"])),
+                )
+                return "matched"
             return "matched"
     content = str(message.content or "").strip() or _placeholder(message)
     connection.execute(
@@ -266,7 +298,7 @@ def _insert_message(connection: sqlite3.Connection, message: WeFlowMessage, *,
             platform_id, str(message.sender_id or "")[:100], str(message.sender or "")[:100],
             1 if message.is_send else 0, int(message.message_type or 0), content[:20_000],
             _message_day(message), _message_ts(message), media_relative,
-            _media_kind(message) if media_relative else "",
+            media_kind,
             str(message.reply_to_message_id or "")[:64], digest, _now(),
         ),
     )
@@ -349,6 +381,21 @@ def _run_sync(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
             pass
 
 
+def _remote_message_total(client: WeFlowClient, session_id: str) -> int:
+    """WeFlow 会话列表里的 messageCount；拿不到就当未知（0）。"""
+    try:
+        sessions = client.sessions(limit=1000)
+    except (WeFlowError, OSError, ValueError):
+        return 0
+    for session in sessions:
+        if session.id == session_id:
+            try:
+                return max(0, int(session.message_count or 0))
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
 def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None:
     try:
         credentials = load_credentials(paths.chat_credentials)
@@ -371,23 +418,46 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
         session_id = str(contact["session_id"] or "")
         watermark = int(contact["watermark"] or 0)
         me_sender = str(contact["me_sender"] or "")
+        history_start = str(contact["history_start_day"] or "")
     if not session_id:
         with _connect(paths.chat_db) as connection:
             _update_log(connection, log_id, status="failed", finished_at=_now(),
                         error="还没有绑定微信联系人")
         return
 
-    since = 0 if full or watermark <= 0 else max(0, watermark - 120)
+    full_scan = bool(full) or watermark <= 0
+    since = 0 if full_scan else max(0, watermark - 120)
     inserted = matched = duplicates = fetched = media_failed = 0
     warnings: list[str] = []
     media_saved = 0
     max_ts = watermark
     earliest_day = ""
     client: WeFlowClient | None = None
+    with_media = mode == "apply"
     try:
-        client = WeFlowClient(credentials["token"], credentials["port"])
+        client = WeFlowClient(
+            credentials["token"], credentials["port"],
+            timeout=180.0 if with_media else 30.0,
+        )
         client.health()
-        for page in iter_pages(client, session_id, since=since, retry_empty=True):
+        remote_total = _remote_message_total(client, session_id)
+        with _connect(paths.chat_db) as connection:
+            local_total = int(connection.execute(
+                "SELECT COUNT(*) AS count FROM messages").fetchone()["count"] or 0)
+            if remote_total > 0:
+                expected_total = (remote_total if full_scan
+                                  else max(remote_total - local_total, 0))
+            elif full_scan and history_start:
+                # WeFlow 有些版本不返回 messageCount。已经完成过一次全量扫描时，
+                # 本地消息数就是下一轮全量扫描的可靠估算；首次同步则保持未知。
+                expected_total = local_total
+            else:
+                expected_total = 0
+            _update_log(connection, log_id, total=expected_total)
+        # 媒体导出接口每页会顺带解密/复制媒体，页大小收小，避免单次请求过久。
+        for page in iter_pages(client, session_id, since=since, retry_empty=True,
+                               with_media=with_media,
+                               limit=250 if with_media else 5000):
             fetched += len(page.messages)
             with _connect(paths.chat_db) as connection:
                 for message in page.messages:
@@ -425,7 +495,8 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
                         duplicates += 1
                 _update_log(
                     connection, log_id, fetched=fetched, inserted=inserted,
-                    matched=matched, duplicates=duplicates, media_failed=media_failed,
+                    matched=matched, duplicates=duplicates,
+                    media_saved=media_saved, media_failed=media_failed,
                     warnings="\n".join(warnings)[:4000],
                 )
         if mode == "apply":
@@ -447,14 +518,14 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
             _update_log(
                 connection, log_id, status="completed", finished_at=_now(),
                 fetched=fetched, inserted=inserted, matched=matched,
-                duplicates=duplicates, media_failed=media_failed,
-                warnings="\n".join(warnings)[:4000],
+                duplicates=duplicates, media_saved=media_saved,
+                media_failed=media_failed, warnings="\n".join(warnings)[:4000],
             )
     except (WeFlowError, OSError, sqlite3.Error, ValueError) as error:
         with _connect(paths.chat_db) as connection:
             _update_log(connection, log_id, status="failed", finished_at=_now(),
                         error=str(error)[:1000], fetched=fetched, inserted=inserted,
-                        matched=matched, duplicates=duplicates,
+                        matched=matched, duplicates=duplicates, media_saved=media_saved,
                         media_failed=media_failed, warnings="\n".join(warnings)[:4000])
             if mode == "apply":
                 connection.execute(
@@ -524,11 +595,47 @@ def _calendar_payload(connection: sqlite3.Connection, month: str) -> dict[str, A
     }
 
 
+def _parse_log_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=DAY)
+
+
 def _sync_log_json(row: sqlite3.Row | None) -> dict[str, Any]:
     if row is None:
         return {}
     payload = dict(row)
     payload["warnings"] = [line for line in str(payload.get("warnings") or "").splitlines() if line]
+    status = str(payload.get("status") or "")
+    total = int(payload.get("total") or 0)
+    fetched = int(payload.get("fetched") or 0)
+    started = _parse_log_time(payload.get("started_at"))
+    finished = _parse_log_time(payload.get("finished_at"))
+    payload["progress_percent"] = None
+    payload["rate_per_second"] = None
+    payload["eta_seconds"] = None
+    if status == "completed":
+        payload["progress_percent"] = 100.0
+        if started is not None:
+            elapsed = max((finished or datetime.now(DAY)) - started, timedelta(0)).total_seconds()
+            if elapsed > 0:
+                payload["rate_per_second"] = round(fetched / elapsed, 1)
+        return payload
+    if status != "running" or started is None:
+        return payload
+    elapsed = max((datetime.now(DAY) - started).total_seconds(), 0.0)
+    rate = fetched / elapsed if elapsed > 0 and fetched > 0 else 0.0
+    if rate > 0:
+        payload["rate_per_second"] = round(rate, 1)
+    if total > 0:
+        payload["progress_percent"] = round(min(99.0, fetched / total * 100), 1)
+        if rate > 0:
+            payload["eta_seconds"] = max(0, int(round(max(total - fetched, 0) / rate)))
     return payload
 
 

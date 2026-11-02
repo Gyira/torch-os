@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterator
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -162,7 +162,15 @@ class WeFlowClient:
         ``relative_path`` 来自 ChatLab 消息的 ``mediaPath``，只允许普通相对路径；
         仍然走同一个 loopback 基础地址和 Token，不访问用户提供的任意 URL。
         """
-        value = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+        value = str(relative_path or "").strip()
+        if value.lower().startswith(("http://", "https://")):
+            parsed = urlparse(value)
+            if (parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+                    or parsed.port not in {None, self.port}
+                    or not parsed.path.startswith("/api/v1/media/")):
+                raise WeFlowError("WeFlow 媒体地址不正确")
+            value = unquote(parsed.path[len("/api/v1/media/"):])
+        value = value.replace("\\", "/").lstrip("/")
         if not value or ".." in value.split("/") or "\x00" in value:
             raise WeFlowError("WeFlow 媒体路径不正确")
         if not value.startswith(("images/", "videos/", "voices/", "emojis/", "files/")):
@@ -228,6 +236,33 @@ class WeFlowClient:
             {"since": max(0, int(since)), "offset": max(0, int(offset)), "limit": limit},
         )
         return parse_chatlab(payload)
+
+    def pull_with_media(self, session_id: str, *, since: int = 0, offset: int = 0,
+                        limit: int = 500) -> WeFlowPull:
+        """带媒体导出的分页拉取。
+
+        ``/sessions/<id>/messages`` 不返回 mediaPath；WeFlow 的媒体导出只挂在
+        ``/api/v1/messages`` 上。这里用 ChatLab 格式 + media=1，返回每条消息的
+        ``mediaPath``（本机 WeFlow 媒体 URL），并靠“本页是否满额”推断 hasMore。
+        """
+        session_id = str(session_id or "").strip()
+        if not session_id or len(session_id) > 200:
+            raise WeFlowError("WeFlow 会话 ID 不正确")
+        limit = max(1, min(int(limit), 1000))
+        params: dict[str, Any] = {
+            "talker": session_id,
+            "offset": max(0, int(offset)),
+            "limit": limit,
+            "format": "chatlab",
+            "media": 1,
+        }
+        if int(since) > 0:
+            params["start"] = max(0, int(since))
+        payload = self._get("/api/v1/messages", params)
+        page = parse_chatlab(payload)
+        page.has_more = len(page.messages) >= limit
+        page.next_offset = max(0, int(offset)) + len(page.messages)
+        return page
 
 
 def _message_type(value: Any) -> int:
@@ -359,20 +394,28 @@ def content_hash(message: WeFlowMessage) -> str:
 
 
 def iter_pages(client: WeFlowClient, session_id: str, *, since: int = 0,
-               limit: int = DEFAULT_LIMIT, retry_empty: bool = False) -> Iterator[WeFlowPull]:
+               limit: int = DEFAULT_LIMIT, retry_empty: bool = False,
+               with_media: bool = False) -> Iterator[WeFlowPull]:
     """按 offset 翻页；调用方负责累计/去重。
 
     WeFlow 刚启动或刚绑定会话时，第一次拉取偶尔返回空页；`retry_empty` 只在
     第一页为空时等 0.4 秒重试一次，避免把「还没准备好」误判成「没有消息」。
+    `with_media=True` 走媒体导出端点，代价更高但会带 mediaPath。
     """
     offset = 0
     total = 0
     first = True
+
+    def fetch() -> WeFlowPull:
+        if with_media:
+            return client.pull_with_media(session_id, since=since, offset=offset, limit=limit)
+        return client.pull(session_id, since=since, offset=offset, limit=limit)
+
     while total < MAX_MESSAGES_PER_SYNC:
-        page = client.pull(session_id, since=since, offset=offset, limit=limit)
+        page = fetch()
         if retry_empty and first and not page.messages:
             time.sleep(0.4)
-            page = client.pull(session_id, since=since, offset=offset, limit=limit)
+            page = fetch()
         first = False
         yield page
         total += len(page.messages)

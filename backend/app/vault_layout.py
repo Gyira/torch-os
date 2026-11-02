@@ -56,6 +56,8 @@ LOVE_DRAFT_DIR = f"{LOVE_MEMORY_DIR}/AI 草稿"
 LOVE_JOURNAL_CHAPTER = "love_journal"
 LOVE_DRAFT_CHAPTER = "love_drafts"
 LOVE_NOTEBOOK_PREFIX = "custom:love:"
+# 恋爱大师的固定产物本子：与恋爱日志/AI 草稿一样是默认本子，不能删除。
+PROTECTED_LOVE_NOTEBOOKS = frozenset({"关系画像", "深度分析", "阶段报告"})
 
 # 任务数据层（2026-10-31）：落在生活运营下，根目录直接是收集箱/已完成/回收站/各清单文件夹。
 TASK_ROOT = "02_生活运营/00_待办事项"
@@ -569,7 +571,12 @@ def builtin_notebook_chapters(pillar: str, key: str) -> tuple[str, ...]:
 
 
 def is_protected_notebook(pillar: str, key: str) -> bool:
-    return str(key or "") in PROTECTED_NOTEBOOK_KEYS.get(str(pillar or ""), frozenset())
+    value = str(key or "")
+    if value in PROTECTED_NOTEBOOK_KEYS.get(str(pillar or ""), frozenset()):
+        return True
+    if str(pillar or "") == LOVE_PILLAR and is_custom_notebook_key(value):
+        return custom_notebook_name(value) in PROTECTED_LOVE_NOTEBOOKS
+    return False
 
 
 def can_delete_builtin_notebook(pillar: str, key: str) -> bool:

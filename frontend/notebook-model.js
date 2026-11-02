@@ -121,9 +121,13 @@ export function isProtectedNotebook(pillar, key) {
     .includes(String(key || ""));
 }
 
-/** 自建本子都可删；内置本子除随笔/收件箱/待办事项外都可删。 */
+/**
+ * 自建本子默认可删，但后端标了 protected 的默认本子（如恋爱大师的
+ * 关系画像/深度分析/阶段报告）不能删；内置本子除随笔/收件箱/待办事项外都可删。
+ */
 export function canDeleteNotebook(pillar, notebook) {
   if (!notebook?.key) return false;
+  if (notebook.protected) return false;
   if (notebook.custom) return true;
   return notebooksFor(pillar).some((item) => item.key === notebook.key)
     && !isProtectedNotebook(pillar, notebook.key);
@@ -311,6 +315,7 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
         ...definition,
         title: String(row.title || definition.title),
         path: String(row.path || ""),
+        protected: Boolean(row.protected),
         count,
         latest: row.latest || null,
         chapters: [{ key, title: String(row.title || definition.title), count }],

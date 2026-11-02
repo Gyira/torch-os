@@ -51,6 +51,18 @@ def test_love_layout_and_markdown_memory(tmp_path: Path) -> None:
     assert protected.status_code == 422, protected.text
     assert (root / "01_恋爱记忆" / "恋爱日志").is_dir()
 
+    # 恋爱大师的三个固定产物本子随应用启动创建，同样是默认本子，不能删。
+    overview = client.get("/api/love/memory/overview", headers=headers).json()
+    for name in ("关系画像", "深度分析", "阶段报告"):
+        row = next(item for item in overview["notebooks"] if item["title"] == name)
+        assert row["protected"] is True
+        blocked = client.post(
+            "/api/notebooks/delete", headers=headers,
+            json={"pillar": "love", "key": row["key"], "confirm": True},
+        )
+        assert blocked.status_code == 422, blocked.text
+        assert (root / "01_恋爱记忆" / name).is_dir()
+
     created = client.post(
         "/api/notebooks", headers=headers,
         json={"pillar": "love", "name": "旅行"},
@@ -83,6 +95,13 @@ def test_love_layout_and_markdown_memory(tmp_path: Path) -> None:
     assert exported.status_code == 200
     assert "第一次旅行" in exported.text
 
+    # 普通自建本子不受保护，仍可删除。
+    removed = client.post(
+        "/api/notebooks/delete", headers=headers,
+        json={"pillar": "love", "key": key, "confirm": True},
+    )
+    assert removed.status_code == 200, removed.text
+
 
 def _fake_weflow(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeClient:
@@ -107,6 +126,10 @@ def _fake_weflow(monkeypatch: pytest.MonkeyPatch) -> None:
                 ],
                 has_more=False,
             )
+
+        def pull_with_media(self, session_id: str, *, since: int = 0, offset: int = 0,
+                            limit: int = 500):
+            return self.pull(session_id, since=since, offset=offset, limit=limit)
 
         def download_media(self, relative_path: str, *, max_bytes: int = 0):
             return b""
@@ -145,6 +168,9 @@ def test_wechat_chat_single_contact_calendar_and_export(
         if log.get("status") in {"completed", "failed"}:
             break
     assert log["status"] == "completed", log
+    assert log["total"] == 2
+    assert log["fetched"] == 2
+    assert log["progress_percent"] == 100
     calendar = client.get(
         "/api/love/chat/calendar?month=2026-11", headers=headers).json()
     assert calendar["days"][0]["state"] == "synced"
@@ -154,6 +180,43 @@ def test_wechat_chat_single_contact_calendar_and_export(
     exported = client.get("/api/love/chat/export?date=all&fmt=txt", headers=headers)
     assert exported.status_code == 200
     assert "早安" in exported.text
+
+
+def test_existing_message_gets_media_on_resync_and_emoji_kind(tmp_path: Path) -> None:
+    db = tmp_path / "chat.db"
+    ensure_chat_schema(db)
+    message = WeFlowMessage(
+        "p1", "wxid_partner", "对象", dt(2026, 11, 1, 10, 0), 5, "[表情]", False, False,
+        media_path="http://127.0.0.1:5031/api/v1/media/wxid/emojis/a.jpg",
+    )
+    assert love_chat._media_kind(message) == "emoji"
+    with chat_connect(db) as con:
+        con.execute(
+            "INSERT INTO messages(platform_message_id, sender_id, sender, is_send, "
+            "message_type, content, day, ts, content_hash, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("p1", "wxid_partner", "对象", 0, 5, "[表情]", "2026-11-01", 1,
+             love_chat.content_hash(message), "x"),
+        )
+        assert love_chat._insert_message(con, message, media_relative="2026/11/a.jpg") == "matched"
+        row = con.execute(
+            "SELECT media_path, media_kind FROM messages WHERE platform_message_id='p1'"
+        ).fetchone()
+        assert row["media_path"] == "2026/11/a.jpg"
+        assert row["media_kind"] == "emoji"
+
+
+def test_sync_log_progress_percent_rate_and_eta() -> None:
+    started = (dt.now(love_chat.DAY) - love_chat.timedelta(seconds=10)).isoformat(timespec="seconds")
+    payload = love_chat._sync_log_json({
+        "id": 1, "mode": "apply", "status": "running", "total": 100,
+        "fetched": 50, "inserted": 40, "matched": 0, "duplicates": 10,
+        "media_failed": 0, "warnings": "", "error": "",
+        "started_at": started, "finished_at": "",
+    })
+    assert payload["progress_percent"] == 50.0
+    assert 4.5 <= payload["rate_per_second"] <= 5.5
+    assert 9 <= payload["eta_seconds"] <= 11
 
 
 def test_schedule_manual_override(tmp_path: Path) -> None:
@@ -295,6 +358,105 @@ def test_love_master_overview_and_portrait_run(tmp_path: Path) -> None:
             break
     assert run["status"] == "completed", run
     assert run["result"]["structured"]["summary"] == "画像摘要"
+    note = run["result"].get("note") or {}
+    assert note.get("notebook") == "关系画像"
+    note_path = tmp_path / str(note.get("path") or "")
+    assert note_path.is_file()
+    note_text = note_path.read_text(encoding="utf-8")
+    assert "画像摘要" in note_text and "被听见" in note_text
+    memory_root = tmp_path / "02_生活运营" / "01_恋爱系统" / "01_恋爱记忆"
+    for name in ("关系画像", "深度分析", "阶段报告"):
+        assert (memory_root / name).is_dir()
+
+
+class _FakeJournalRole:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def readiness(self):
+        return True, ""
+
+    def run_once(self, role_id, mode, prompt, *, entry="", selectors=None):
+        self.prompts.append(prompt)
+        return {
+            "structured": {
+                "title": "恋爱日记", "body": "今天和小林聊到很晚。", "mood": "love",
+            },
+            "text": "ok",
+        }
+
+
+def _wait_master_run(client: TestClient, run_id: int) -> dict:
+    run: dict = {}
+    for _ in range(100):
+        time.sleep(0.1)
+        run = client.get(f"/api/love/master/runs/{run_id}").json()
+        if run.get("status") in {"completed", "failed"}:
+            break
+    assert run.get("status") == "completed", run
+    return run
+
+
+def test_love_master_journal_batch_keeps_real_names_and_can_backfill_all(
+        tmp_path: Path) -> None:
+    paths = love_paths(tmp_path)
+    ensure_love_layout(tmp_path)
+    database = Database(tmp_path / "torch_os.sqlite3")
+    database.initialize()
+    ensure_chat_schema(paths.chat_db)
+    with chat_connect(paths.chat_db) as con:
+        con.execute(
+            "INSERT INTO contact (id, session_id, display_name, me_sender, partner_sender,"
+            " watermark, history_start_day, last_sync_day, last_sync_at, last_sync_status,"
+            " last_error, created_at, updated_at) VALUES"
+            " (1, 'x', '小林', '阿杰', '小林', 0, '2026-10-30', '2026-11-01', '', 'ok', '',"
+            " '2026-10-30', '2026-11-01')")
+        for index, (day, is_send, content) in enumerate([
+            ("2026-10-30", 0, "小林说：我的电话是13800138000，记得存一下"),
+            ("2026-10-31", 1, "明天见"),
+            ("2026-11-01", 0, "晚安，小林"),
+        ]):
+            con.execute(
+                "INSERT INTO messages (sender, is_send, message_type, content, day, ts,"
+                " content_hash, created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?)",
+                ("阿杰" if is_send else "小林", is_send, content, day,
+                 1793462400 + index * 86400, f"h{index}", day))
+        con.commit()
+    role = _FakeJournalRole()
+    app = FastAPI()
+    app.include_router(create_master_router(paths, database, role_service=role))
+    client = TestClient(app)
+    assert client.get("/api/love/master/overview").json()["journal_pending"] == 3
+
+    # 先补最近 1 天：原文不脱敏，对方用真实称呼「小林」。
+    started = client.post("/api/love/master/run", json={
+        "skill": "journal_batch", "max_days": 1,
+    })
+    assert started.status_code == 200, started.text
+    run = _wait_master_run(client, started.json()["run_id"])
+    assert [item["date"] for item in run["result"]["created"]] == ["2026-11-01"]
+    prompt = json.loads(role.prompts[-1])
+    assert prompt["messages"][0]["who"] == "小林"
+    assert "晚安，小林" in prompt["messages"][0]["content"]
+
+    # max_days=0 表示全量：已有草稿的日期跳过，其余日期全部补上。
+    started = client.post("/api/love/master/run", json={
+        "skill": "journal_batch", "max_days": 0,
+    })
+    assert started.status_code == 200, started.text
+    run = _wait_master_run(client, started.json()["run_id"])
+    assert sorted(item["date"] for item in run["result"]["created"]) == [
+        "2026-10-30", "2026-10-31",
+    ]
+    raw_prompt = next(json.loads(prompt) for prompt in role.prompts
+                      if '"2026-10-30"' in prompt)
+    raw = raw_prompt["messages"][0]
+    assert raw["who"] == "小林"
+    assert "13800138000" in raw["content"]
+    assert "[电话号码已隐藏]" not in raw["content"]
+    drafts = list((paths.root / "01_恋爱记忆" / "AI 草稿").glob("*.md"))
+    assert len(drafts) == 3
+    assert client.get("/api/love/master/overview").json()["journal_pending"] == 0
 
 
 def test_legacy_love_migration(tmp_path: Path) -> None:

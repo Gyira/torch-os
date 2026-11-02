@@ -180,6 +180,45 @@ def test_client_uses_loopback_token_and_filters_private() -> None:
         client.close()
 
 
+def test_pull_with_media_uses_messages_endpoint_and_keeps_media_path() -> None:
+    seen: list[httpx.Request] = []
+
+    def mock(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=chatlab_payload())
+
+    client = WeFlowClient(TOKEN, 5031, transport=httpx.MockTransport(mock))
+    try:
+        page = client.pull_with_media("wxid_partner", since=0, offset=0, limit=5)
+        assert page.messages[2].media_path == "media/abc.jpg"
+        assert page.has_more is True
+        assert page.next_offset == 5
+        assert seen[0].url.path == "/api/v1/messages"
+        assert seen[0].url.params["talker"] == "wxid_partner"
+        assert seen[0].url.params["format"] == "chatlab"
+        assert seen[0].url.params["media"] == "1"
+    finally:
+        client.close()
+
+
+def test_download_media_accepts_loopback_media_url_and_rejects_remote_hosts() -> None:
+    seen: list[httpx.Request] = []
+
+    def mock(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"jpeg-bytes")
+
+    client = WeFlowClient(TOKEN, 5031, transport=httpx.MockTransport(mock))
+    try:
+        url = "http://127.0.0.1:5031/api/v1/media/wxid/images/a.jpg"
+        assert client.download_media(url) == b"jpeg-bytes"
+        assert seen[0].url.path == "/api/v1/media/wxid/images/a.jpg"
+        with pytest.raises(WeFlowError):
+            client.download_media("http://example.com/api/v1/media/a.jpg")
+    finally:
+        client.close()
+
+
 def test_client_rejects_bad_token_and_connection() -> None:
     unauthorized = WeFlowClient(
         TOKEN, 5031,

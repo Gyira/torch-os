@@ -22,7 +22,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import love_cycle, love_memory, love_schedule, note_editor, pillar_notes, vault_layout
+from . import (love_cycle, love_memory, love_schedule, note_editor, notebooks,
+               pillar_notes, vault_layout)
 from .db import Database
 from .love_layout import LovePaths
 from .love_privacy import desensitize
@@ -35,6 +36,17 @@ MODE_BY_SKILL = {
     "deep_analysis": "deep",
     "report": "report",
     "journal_batch": "journal_batch",
+}
+# 恋爱大师的结构化结果除了进 analysis.db，还落成恋爱记忆里的三个本子。
+NOTEBOOK_BY_SKILL = {
+    "portrait": "关系画像",
+    "deep_analysis": "深度分析",
+    "report": "阶段报告",
+}
+MASTER_NOTEBOOK_TAGS = {
+    "portrait": ["恋爱大师", "关系画像"],
+    "deep_analysis": ["恋爱大师", "深度分析"],
+    "report": ["恋爱大师", "阶段报告"],
 }
 MAX_CONTEXT_CHARS = 60_000
 MAX_CHAT_MESSAGES = 4_000
@@ -287,6 +299,14 @@ def _recent_runs(paths: LovePaths, limit: int = 6) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _journal_pending(paths: LovePaths) -> int:
+    try:
+        existing = _note_dates(paths)
+        return sum(1 for day in _message_days(paths) if day not in existing)
+    except Exception:  # noqa: BLE001 - 待补数量只是提示，不影响看板
+        return 0
+
+
 def overview_payload(paths: LovePaths, target_name: str = "") -> dict[str, Any]:
     return {
         "memory": _memory_summary(paths),
@@ -296,6 +316,7 @@ def overview_payload(paths: LovePaths, target_name: str = "") -> dict[str, Any]:
         "gallery": _gallery_summary(paths),
         "bazi": _bazi_summary(paths),
         "runs": _recent_runs(paths),
+        "journal_pending": _journal_pending(paths),
         "paths": paths.as_dict(),
     }
 
@@ -453,20 +474,22 @@ def build_ai_context(paths: LovePaths, target_name: str = "", *,
     }
 
 
-def _message_days(paths: LovePaths, limit: int) -> list[str]:
+def _message_days(paths: LovePaths) -> list[str]:
     if not paths.chat_db.is_file():
         return []
     try:
         with _connect(paths.chat_db) as con:
             rows = con.execute(
                 "SELECT day, COUNT(*) AS count FROM messages GROUP BY day "
-                "ORDER BY day DESC LIMIT ?", (max(1, limit * 4),)).fetchall()
+                "ORDER BY day DESC").fetchall()
     except sqlite3.Error:
         return []
     return [row["day"] for row in rows]
 
 
-def _day_messages(paths: LovePaths, day: str) -> list[dict[str, Any]]:
+def _day_messages(paths: LovePaths, day: str, *,
+                  anonymize: bool = True) -> list[dict[str, Any]]:
+    """取一天的聊天；补日记用 ``anonymize=False``，保留真实称呼与原文。"""
     if not paths.chat_db.is_file():
         return []
     try:
@@ -478,25 +501,34 @@ def _day_messages(paths: LovePaths, day: str) -> list[dict[str, Any]]:
     except sqlite3.Error:
         return []
     names: dict[str, str] = {}
+    partner = "对象"
     if contact is not None:
-        for value in (contact["display_name"], contact["partner_sender"]):
-            if value:
-                names[str(value)] = "对象"
-        if contact["me_sender"]:
-            names[str(contact["me_sender"])] = "我"
-    return [
-        {
+        display_name = str(contact["display_name"] or "").strip()
+        if display_name:
+            partner = display_name
+        if anonymize:
+            for value in (contact["display_name"], contact["partner_sender"]):
+                if value:
+                    names[str(value)] = "对象"
+            if contact["me_sender"]:
+                names[str(contact["me_sender"])] = "我"
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        content = str(row["content"] or "")
+        if anonymize:
+            content = desensitize(content, names)
+        items.append({
             "time": datetime.fromtimestamp(int(row["ts"] or 0), DAY).strftime("%H:%M"),
-            "who": "我" if int(row["is_send"] or 0) else "对象",
-            "content": desensitize(str(row["content"] or ""), names)[:1000],
-        }
-        for row in rows
-    ]
+            "who": "我" if int(row["is_send"] or 0) else partner,
+            "content": content[:1000],
+        })
+    return items
 
 
 def _note_dates(paths: LovePaths) -> set[str]:
+    # 全量补写可能让恋爱记忆超过 500 篇，这里必须读全量，避免重复生成旧日期。
     notes = pillar_notes.list_notes(paths.root.parent.parent, pillar=vault_layout.LOVE_PILLAR,
-                                     limit=500)
+                                     limit=None)
     return {love_memory._note_date(note) for note in notes if love_memory._note_date(note)}
 
 
@@ -545,14 +577,17 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
         ensure_vault_writable(read_only, "AI 批量补日记")
     except VaultReadOnlyError as error:
         raise RuntimeError(str(error)) from error
-    max_days = max(1, min(60, int(params.get("max_days") or 10)))
+    # max_days=0 表示全量：补完所有有聊天、还没写过记忆的日期。
+    requested = int(params.get("max_days") or 0)
+    max_days = None if requested <= 0 else min(36500, requested)
     existing = _note_dates(paths)
-    candidates = [day for day in _message_days(paths, max_days * 3)
-                  if day not in existing][:max_days]
+    candidates = [day for day in _message_days(paths) if day not in existing]
+    if max_days is not None:
+        candidates = candidates[:max_days]
     created: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for index, day in enumerate(candidates, start=1):
-        messages = _day_messages(paths, day)
+        messages = _day_messages(paths, day, anonymize=False)
         if not messages:
             continue
         with _connect(paths.master_db) as con:
@@ -565,8 +600,9 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
             "messages": messages,
             "输出要求": (
                 "只输出一个 JSON 对象：{title:'...', body:'Markdown 正文', mood:'happy|love|"
-                "miss|excited|neutral|sad|angry'}。用第一人称「我」，100-300 字，"
-                "不要出现 AI/根据聊天记录等字样；聊天很少时如实写平淡。"
+                "miss|excited|neutral|sad|angry'}。用第一人称「我」，对方用聊天里出现的"
+                "真实称呼，不要改写成「对象」；100-300 字，不要出现 AI/根据聊天记录等字样；"
+                "聊天很少时如实写平淡。"
             ),
         }, ensure_ascii=False)
         try:
@@ -590,8 +626,219 @@ def _journal_batch(paths: LovePaths, database: Database, role_service: Any,
         "created": created,
         "failed": failed,
         "attempted": len(candidates),
-        "text": f"补写完成：新增 {len(created)} 篇，失败 {len(failed)} 篇。",
+        "text": (f"补写完成：新增 {len(created)} 篇，失败 {len(failed)} 篇。"
+                 if candidates else "没有需要补写的日期：有聊天的日期都已有恋爱记忆。"),
     }
+
+
+def _plain(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip()
+
+
+def _bullets(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        values = [values] if values else []
+    lines: list[str] = []
+    for item in values:
+        if isinstance(item, dict):
+            text = "：".join(part for part in (
+                _plain(item.get("title") or item.get("trait") or item.get("aspect")
+                       or item.get("date") or ""),
+                _plain(item.get("body") or item.get("value") or item.get("detail")
+                       or item.get("description") or ""),
+            ) if part)
+            extra = _plain(item.get("evidence") or "")
+            if extra:
+                text = f"{text}（依据：{extra}）" if text else f"依据：{extra}"
+        else:
+            text = _plain(item)
+        if text:
+            lines.append(f"- {text}")
+    return lines
+
+
+def _trait_lines(traits: Any) -> list[str]:
+    if not isinstance(traits, list):
+        return []
+    lines: list[str] = []
+    for trait in traits:
+        if not isinstance(trait, dict):
+            text = _plain(trait)
+            if text:
+                lines.append(f"- {text}")
+            continue
+        name = _plain(trait.get("trait") or trait.get("title") or "特质")
+        value = _plain(trait.get("value") or trait.get("detail") or "")
+        lines.extend(["", f"### {name}"])
+        if value:
+            lines.append(value)
+        meta: list[str] = []
+        confidence = trait.get("confidence")
+        if isinstance(confidence, (int, float)):
+            meta.append(f"置信度 {round(float(confidence) * 100)}%")
+        evidence = _plain(trait.get("evidence") or "")
+        if evidence:
+            meta.append(f"依据：{evidence}")
+        if meta:
+            lines.append(f"*{' · '.join(meta)}*")
+    return lines
+
+
+def _master_markdown(skill: str, structured: dict[str, Any], result: dict[str, Any],
+                     run_id: int) -> str:
+    lines: list[str] = []
+    if skill == "portrait":
+        lines.extend(["## 总述", _plain(structured.get("summary")) or "（没有总述）"])
+        traits = _trait_lines(structured.get("traits"))
+        if traits:
+            lines.extend(["", "## 画像条目", *traits])
+        if structured.get("needs"):
+            lines.extend(["", "## 她的核心需要", *_bullets(structured.get("needs"))])
+        if structured.get("communication_style"):
+            lines.extend(["", "## 沟通方式", _plain(structured.get("communication_style"))])
+        if structured.get("care_tips"):
+            lines.extend(["", "## 可以做的具体小事", *_bullets(structured.get("care_tips"))])
+        if structured.get("risks"):
+            lines.extend(["", "## 需要留意", *_bullets(structured.get("risks"))])
+    elif skill == "deep_analysis":
+        lines.extend(["## 关系阶段", _plain(structured.get("relationship_stage")) or "（未判断）"])
+        tone = structured.get("emotional_tone")
+        if isinstance(tone, dict):
+            lines.extend(["", "## 情绪基调", *_bullets([
+                {"title": "整体", "value": tone.get("overall")},
+                {"title": "波动", "value": tone.get("fluctuation")},
+                {"title": "趋势", "value": tone.get("trend")},
+            ])])
+        patterns = structured.get("communication_patterns")
+        if isinstance(patterns, dict):
+            lines.extend(["", "## 沟通模式", *_bullets([
+                {"title": "主动度", "value": patterns.get("initiative_balance")},
+                {"title": "回应风格", "value": patterns.get("response_style")},
+                {"title": "主要话题", "value": "、".join(
+                    _plain(item) for item in (patterns.get("key_topics") or []))},
+            ])])
+        if structured.get("key_events"):
+            lines.extend(["", "## 关键事件"])
+            for event in structured.get("key_events") or []:
+                if isinstance(event, dict):
+                    day = _plain(event.get("date"))
+                    text = _plain(event.get("description"))
+                    impact = _plain(event.get("impact"))
+                    lines.append(f"- {day}：{text}" + (f"（{impact}）" if impact else ""))
+                else:
+                    lines.append(f"- {_plain(event)}")
+        if structured.get("risk_warnings"):
+            lines.extend(["", "## 风险提示"])
+            for risk in structured.get("risk_warnings") or []:
+                if isinstance(risk, dict):
+                    lines.append(
+                        f"- **{_plain(risk.get('aspect')) or '风险'}**"
+                        f"（{_plain(risk.get('severity')) or 'low'}）："
+                        f"{_plain(risk.get('detail'))}")
+                else:
+                    lines.append(f"- {_plain(risk)}")
+        if structured.get("personalized_advice"):
+            lines.extend(["", "## 建议"])
+            for index, advice in enumerate(structured.get("personalized_advice") or [], 1):
+                lines.append(f"{index}. {_plain(advice)}")
+        traits = _trait_lines(structured.get("partner_traits"))
+        if traits:
+            lines.extend(["", "## 对方画像", *traits])
+    elif skill == "report":
+        lines.extend(["## 总述", _plain(structured.get("summary")) or "（没有总述）"])
+        for section in structured.get("sections") or []:
+            if isinstance(section, dict):
+                lines.extend(["", f"## {_plain(section.get('title')) or '报告'}",
+                              _plain(section.get("body"))])
+            else:
+                lines.extend(["", "## 报告", _plain(section)])
+        metrics = structured.get("metrics")
+        if isinstance(metrics, dict) and metrics:
+            lines.extend(["", "## 指标", *_bullets([
+                {"title": key, "value": value} for key, value in metrics.items()
+            ])])
+    if not lines or all(not line.strip() for line in lines):
+        lines = [_plain(result.get("text")) or "（模型没有返回可读内容）"]
+    lines.extend([
+        "",
+        "---",
+        f"> 由恋爱大师生成 · {_now()} · 运行 #{run_id}",
+        "> 这是 AI 参考，不是诊断，也不是关系判决。",
+    ])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _ensure_master_notebook(paths: LovePaths, database: Database, name: str,
+                            *, read_only: bool = False) -> str:
+    vault = paths.root.parent.parent
+    target = Path(vault) / vault_layout.custom_notebook_path(name, vault_layout.LOVE_PILLAR)
+    if not target.is_dir():
+        notebooks.create_notebook(database, str(vault), name,
+                                  pillar=vault_layout.LOVE_PILLAR, read_only=read_only,
+                                  audit=False)
+    return vault_layout.custom_notebook_key(name, vault_layout.LOVE_PILLAR)
+
+
+def _write_master_note(paths: LovePaths, database: Database, skill: str,
+                       structured: dict[str, Any], result: dict[str, Any],
+                       run_id: int, *, read_only: bool = False) -> dict[str, Any] | None:
+    name = NOTEBOOK_BY_SKILL.get(skill)
+    if not name:
+        return None
+    chapter = _ensure_master_notebook(paths, database, name, read_only=read_only)
+    title = f"{name} · {_today().isoformat()}"
+    note = note_editor.create_note(
+        database, str(paths.root.parent.parent), chapter=chapter,
+        title=title, body=_master_markdown(skill, structured, result, run_id),
+        note_type="love_master", tags=MASTER_NOTEBOOK_TAGS.get(skill, ["恋爱大师"]),
+        date=_today().isoformat(), generated_by="love_master", read_only=read_only,
+    )
+    return {"path": note.get("path"), "title": note.get("title"), "notebook": name}
+
+
+def _backfill_master_notes(paths: LovePaths, database: Database, *,
+                           read_only: bool = False) -> int:
+    """把本次升级前已完成的画像/分析/报告补写成恋爱记忆笔记。"""
+    if read_only or not paths.master_db.is_file():
+        return 0
+    try:
+        with _connect(paths.master_db) as con:
+            rows = con.execute(
+                "SELECT id, skill, result_json FROM runs WHERE status='completed' "
+                "AND skill IN ('portrait','deep_analysis','report') ORDER BY id"
+            ).fetchall()
+    except sqlite3.Error:
+        return 0
+    written = 0
+    for row in rows:
+        try:
+            result = json.loads(row["result_json"] or "{}")
+        except ValueError:
+            continue
+        if not isinstance(result, dict) or result.get("note"):
+            continue
+        structured = result.get("structured") if isinstance(result.get("structured"), dict) else {}
+        try:
+            note = _write_master_note(paths, database, str(row["skill"]), structured,
+                                      result, int(row["id"]), read_only=read_only)
+        except Exception:  # noqa: BLE001 - 单条历史失败不阻断其余
+            continue
+        if not note:
+            continue
+        result["note"] = note
+        try:
+            with _connect(paths.master_db) as con:
+                con.execute("UPDATE runs SET result_json=? WHERE id=?",
+                            (json.dumps(result, ensure_ascii=False), int(row["id"])))
+                con.commit()
+        except sqlite3.Error:
+            pass
+        written += 1
+    return written
 
 
 def _execute_run(paths: LovePaths, database: Database, role_service: Any,
@@ -632,6 +879,13 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
             "seconds": result.get("seconds", 0),
             "context": meta,
         }
+        try:
+            note = _write_master_note(paths, database, skill, structured, result,
+                                      run_id, read_only=read_only)
+            if note:
+                payload["note"] = note
+        except Exception as error:  # noqa: BLE001 - 笔记失败不丢分析结果
+            payload["note_error"] = str(error)[:300]
         with _connect(paths.master_db) as con:
             con.execute(
                 "UPDATE runs SET status='completed', result_json=?, progress='', "
@@ -678,7 +932,7 @@ class RunPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     skill: str = Field(pattern=r"^(portrait|deep_analysis|report|journal_batch)$")
     days: int = Field(default=30, ge=0, le=3650)
-    max_days: int = Field(default=10, ge=1, le=60)
+    max_days: int = Field(default=10, ge=0, le=36500)
 
 
 def create_master_router(paths: LovePaths, database: Database, *,
@@ -687,6 +941,15 @@ def create_master_router(paths: LovePaths, database: Database, *,
                          prefix: str = "/api/love/master") -> APIRouter:
     if not read_only:
         ensure_master_schema(paths)
+        for notebook_name in NOTEBOOK_BY_SKILL.values():
+            try:
+                _ensure_master_notebook(paths, database, notebook_name)
+            except Exception:  # noqa: BLE001 - 本子创建失败不阻止页面打开
+                pass
+        try:
+            _backfill_master_notes(paths, database)
+        except Exception:  # noqa: BLE001 - 历史补写失败不阻止页面打开
+            pass
     router = APIRouter(prefix=prefix, tags=["love-master"])
 
     def connection() -> sqlite3.Connection:
