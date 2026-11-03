@@ -43,6 +43,9 @@ const love = {
   chatLog: null,
   chatPoll: 0,
   chatRebinding: false,
+  // 同步完成后页面会重绘；把“从最早消息重新扫描”的选择留在状态里，
+  // 否则用户勾选预览后，紧接着点“同步到本机”会悄悄变回增量同步。
+  chatFull: false,
   scheduleMonth: "",
   scheduleData: null,
   gallery: null,
@@ -687,11 +690,14 @@ async function renderChat(content) {
     await loadChatSessions({ silent: true });
   }
   const hasContact = Boolean(status.contact?.session_id) && !love.chatRebinding;
+  const localCount = Number(status.total || 0);
   let setup = "";
   if (!hasToken) {
-    setup = card("连接微信", chatTokenForm(status), {
+    setup = card(localCount > 0 ? "连接 WeFlow（可选）" : "连接微信", chatTokenForm(status), {
       eyebrow: "WEFLOW",
-      subtitle: "先让 torch 连上本机 WeFlow；微信密码与数据库密钥都不经过 torch。",
+      subtitle: localCount > 0
+        ? "已同步的聊天不需要 WeFlow 也能查看和导出；连接它只用于继续同步新消息。"
+        : "先让 torch 连上本机 WeFlow；微信密码与数据库密钥都不经过 torch。",
     });
   } else if (!hasContact) {
     setup = card("选择你的对象", chatBindForm(status), {
@@ -704,19 +710,19 @@ async function renderChat(content) {
       <div><dt>对象</dt><dd>${escapeHtml(status.contact.display_name || "—")}</dd></div>
       <div><dt>会话</dt><dd><code>${escapeHtml(status.contact.session_id || "")}</code></dd></div>
       <div><dt>消息</dt><dd>${formatInt(status.total)} 条${status.first_day ? ` · ${escapeHtml(status.first_day)} 至 ${escapeHtml(status.last_day)}` : ""}</dd></div>
-      <div><dt>上次同步</dt><dd>${status.contact.last_sync_at ? formatDateTime(status.contact.last_sync_at) : "还没有同步"}${status.contact.last_sync_status === "failed" ? " · 上次失败" : ""}</dd></div>
+      <div><dt>上次同步</dt><dd>${status.contact.last_sync_at ? formatDateTime(status.contact.last_sync_at) : "还没有同步"}${status.contact.last_sync_status === "failed" ? " · 上次未完成（不影响查看）" : ""}</dd></div>
     </dl>
     ${status.repair && status.repair.restored > 0 ? `<p class="field-help">启动时检测到聊天库比快照少，已按消息指纹从 <code>${escapeHtml(status.repair.source || "快照")}</code> 补回 ${formatInt(status.repair.restored)} 条。</p>` : ""}
-    ${status.contact.last_error ? `<p class="inline-error">${escapeHtml(status.contact.last_error)}</p>` : ""}
+    ${status.contact.last_error ? `<p class="field-help">上次同步未完成：${escapeHtml(status.contact.last_error)} 已同步的聊天仍可查看和导出；需要继续同步时再启动 WeFlow。</p>` : ""}
     <div class="love-inline-actions">
       <button class="button primary" type="button" data-love-action="chat-sync-apply">同步到本机</button>
       <button class="button secondary" type="button" data-love-action="chat-sync-preview">先预览</button>
-      <label class="check-label"><input id="love-chat-full" type="checkbox" /> 从最早消息重新扫描</label>
+      <label class="check-label"><input id="love-chat-full" type="checkbox"${love.chatFull ? " checked" : ""} /> 从最早消息重新扫描</label>
       <button class="text-button" type="button" data-love-action="chat-rebind">换绑</button>
       <button class="text-button" type="button" data-love-action="chat-unbind">解除绑定</button>
     </div>
     <div id="love-chat-sync-status" class="love-sync-result">${love.chatLog ? chatSyncLogMarkup(love.chatLog) : ""}</div>
-    <p class="field-help">同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>；不会写进四库。图片、视频、语音和收藏表情会复制进库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
+    <p class="field-help">WeFlow 只用于同步新消息；已同步的聊天不需要它也能查看、搜索和导出。同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>，不会写进四库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
     eyebrow: "WECHAT",
     subtitle: "日历看板用三种状态标出哪天有聊天、哪天还没同步。",
   }) : "";
@@ -744,7 +750,7 @@ async function renderChat(content) {
     subtitle: "媒体会从本机 media 目录直接显示。",
   }) : "";
   const weflowWarning = hasToken && status.weflow_ok === false
-    ? `<div class="inline-warning">WeFlow 连接失败：${escapeHtml(status.weflow_error || "请检查 WeFlow 是否运行、组件是否过期（101）。")}<button class="text-button" type="button" data-love-action="settings-open">打开微信组件修复</button></div>`
+    ? `<div class="inline-warning">WeFlow 未连接：只影响同步新消息，已同步的聊天仍可查看。${escapeHtml(status.weflow_error || "需要同步时请启动 WeFlow 并确认组件未过期（101）。")}<button class="text-button" type="button" data-love-action="settings-open">打开 WeFlow 设置</button></div>`
     : "";
   const privacy = card("数据边界", `
     <ul class="love-advice">
@@ -802,10 +808,17 @@ function syncProgressMarkup(log) {
 
 function chatSyncLogMarkup(log) {
   const labels = { queued: "排队中", running: "同步中", completed: "已完成", failed: "失败" };
-  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_saved ? ` · 媒体 ${formatInt(log.media_saved)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
+  const scope = log.mode === "preview" ? "预览" : (log.full ? "全量" : "增量");
+  const previewHint = log.mode === "preview" && log.status === "completed"
+    ? '<p class="field-help">预览只读取，不会写入聊天库。要保存全量历史，请保持勾选「从最早消息重新扫描」后点「同步到本机」。</p>'
+    : "";
+  return `<div class="love-sync-line"><span class="love-badge ${log.status === "completed" ? "ok" : log.status === "failed" ? "error" : "warn"}">${escapeHtml(labels[log.status] || log.status)}</span><span>${escapeHtml(scope)} · 抓取 ${formatInt(log.fetched)} · 新增 ${formatInt(log.inserted)} · 重复 ${formatInt(log.duplicates)}${log.matched ? ` · 匹配 ${formatInt(log.matched)}` : ""}${log.media_saved ? ` · 媒体 ${formatInt(log.media_saved)}` : ""}${log.media_failed ? ` · 媒体失败 ${formatInt(log.media_failed)}` : ""}</span></div>${syncProgressMarkup(log)}${previewHint}${log.error ? `<p class="inline-error">${escapeHtml(log.error)}</p>` : ""}${(log.warnings || []).length ? `<details class="love-preview-lines"><summary>媒体警告 ${log.warnings.length} 条</summary><pre>${log.warnings.map(escapeHtml).join("\n")}</pre></details>` : ""}`;
 }
 
 function bindChatForms() {
+  $id("love-chat-full")?.addEventListener("change", (event) => {
+    love.chatFull = Boolean(event.currentTarget.checked);
+  });
   $id("love-chat-token-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -864,6 +877,7 @@ function bindChatForms() {
 
 async function startChatSync(mode, button) {
   const full = Boolean($id("love-chat-full")?.checked);
+  love.chatFull = full;
   if (mode === "apply" && !love.chatStatus?.contact?.session_id) return;
   await withBusy(button, mode === "preview" ? "正在预览…" : "正在同步…", async () => {
     try {
@@ -872,7 +886,7 @@ async function startChatSync(mode, button) {
         body: JSON.stringify({ mode, full }),
         timeoutMs: 60000,
       });
-      love.chatLog = { ...log, id: log.log_id, fetched: 0, inserted: 0, duplicates: 0, matched: 0, warnings: [] };
+      love.chatLog = { ...log, id: log.log_id, mode, full, fetched: 0, inserted: 0, duplicates: 0, matched: 0, warnings: [] };
       const target = $id("love-chat-sync-status");
       if (target) target.innerHTML = chatSyncLogMarkup(love.chatLog);
       pollChatSync(log.log_id);
@@ -891,7 +905,8 @@ function pollChatSync(logId) {
     }
     try {
       const log = await loveApi(`/api/love/chat/sync/${logId}`, { timeoutMs: 20000 });
-      love.chatLog = log;
+      // 服务端日志现在带 full；旧库/旧日志没有这个字段时沿用本次启动时的选择。
+      love.chatLog = { ...log, full: Boolean(log.full ?? love.chatLog?.full) };
       const target = $id("love-chat-sync-status");
       if (target) target.innerHTML = chatSyncLogMarkup(log);
       if (["completed", "failed"].includes(log.status)) {

@@ -452,28 +452,48 @@ def _iter_pages_descending(client: WeFlowClient, session_id: str, *,
     ``offset`` 条，58,000 条历史按 offset 翻完是 O(n²)（实测算过要一个多小时）。
     这里每页只盯住最后一条消息的时间戳，把 ``end`` 收到该秒、用 ``offset`` 跳过
     同一秒里已经取到的条数；每页代价基本只和页大小有关。
+
+    媒体导出接口在历史深处会偶发返回**短页**（导队列还没处理完），不能像普通
+    分页那样把 ``len(page) < limit`` 当成“到底了”——2026-11-02 的全量历史就是
+    这样卡在 6,472 条。这里只在真正空页、或游标不再向更旧推进时才停止。
     """
     end = 0
     skip = 0
     total = 0
+    previous_signature = None
     while total < MAX_MESSAGES_PER_SYNC:
         page = _fetch_page(lambda: client.pull_with_media(
             session_id, since=since, offset=skip, limit=limit, end=end))
         yield page
         fetched = page.raw_count
         total += fetched
-        if fetched == 0 or fetched < limit:
+        if fetched == 0:
             break
         stamps = _page_timestamps(page)
         if not stamps:
             break
+        # 端点如果不认 end/offset，会一直返回同一页；靠首尾指纹止损。
+        signature = (
+            fetched, stamps[0], stamps[-1],
+            content_hash(page.messages[0]) if page.messages else "",
+            content_hash(page.messages[-1]) if page.messages else "",
+        )
+        if signature == previous_signature:
+            break
+        previous_signature = signature
         anchor = min(stamps)
         count = stamps.count(anchor)
         if end and anchor == end:
             # 同一秒里的消息超过一页：在同一个时间窗里继续往后跳。
             skip += count
+        elif end and anchor > end:
+            # 游标没有向更旧推进：继续翻只会重复同一段，停止避免死循环。
+            break
         else:
             end, skip = anchor, count
+        if since and anchor <= since:
+            # 增量窗口已经覆盖到 since，再往前就不是本次要同步的范围了。
+            break
 
 
 def _iter_pages_ascending(client: WeFlowClient, session_id: str, *,

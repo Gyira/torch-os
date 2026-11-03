@@ -111,6 +111,7 @@ CREATE INDEX IF NOT EXISTS ix_love_chat_ts ON messages(ts);
 CREATE TABLE IF NOT EXISTS sync_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     mode TEXT NOT NULL,
+    full INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     total INTEGER NOT NULL DEFAULT 0,
     fetched INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +131,8 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 _SYNC_LOG_COLUMNS = {
     "total": "INTEGER NOT NULL DEFAULT 0",
     "media_saved": "INTEGER NOT NULL DEFAULT 0",
+    # 记录这一轮是不是勾选了“从最早消息重新扫描”，避免以后无法区分预览/增量/全量。
+    "full": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -751,7 +754,10 @@ def _run_sync_body(paths: LovePaths, log_id: int, mode: str, full: bool) -> None
         problems: list[str] = []
         if full_scan and earliest_day:
             remote_oldest = _oldest_remote_day(client, session_id)
-            if remote_oldest and earliest_day > remote_oldest:
+            if not remote_oldest:
+                # 校验本身失败时不能假装“全量完成”，否则用户永远不知道历史缺了一段。
+                problems.append("没能向 WeFlow 校验是否已翻到最早消息")
+            elif earliest_day > remote_oldest:
                 problems.append(
                     f"没有翻到最早的消息（本次只到 {earliest_day}，"
                     f"WeFlow 最早是 {remote_oldest}）")
@@ -899,6 +905,7 @@ def _sync_log_json(row: sqlite3.Row | None) -> dict[str, Any]:
     if row is None:
         return {}
     payload = dict(row)
+    payload["full"] = bool(payload.get("full"))
     payload["warnings"] = [line for line in str(payload.get("warnings") or "").splitlines() if line]
     status = str(payload.get("status") or "")
     total = int(payload.get("total") or 0)
@@ -1032,7 +1039,9 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
             last_log = con.execute(
                 "SELECT * FROM sync_logs ORDER BY id DESC LIMIT 1").fetchone()
             log = _sync_log_json(last_log)
-        payload = {
+        # 状态查询只读本机 chat.db：WeFlow 只用于同步新消息。未运行 WeFlow 时
+        # 不应让「查看已同步聊天」看起来像故障，也不该每次打开页面都等 5 秒超时。
+        return {
             "contact": _contact_json(contact),
             "total": int(counts["total"] or 0),
             "first_day": counts["first_day"] or "",
@@ -1042,21 +1051,6 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
             "repair": repair,
             "paths": {"db": str(paths.chat_db), "media": str(paths.chat_media)},
         }
-        if credentials.get("token_configured"):
-            probe: WeFlowClient | None = None
-            try:
-                probe = WeFlowClient(
-                    load_credentials(paths.chat_credentials)["token"], credentials["port"],
-                    timeout=5.0)
-                probe.health()
-                payload["weflow_ok"] = True
-            except Exception as error:  # noqa: BLE001 - 状态检查失败要显示原因
-                payload["weflow_ok"] = False
-                payload["weflow_error"] = str(error)[:500]
-            finally:
-                if probe is not None:
-                    probe.close()
-        return payload
 
     @router.put("/settings")
     def settings(payload: SettingsPayload):
@@ -1177,8 +1171,9 @@ def create_chat_router(paths: LovePaths, *, read_only: bool = False,
                 raise HTTPException(409, "已有同步任务在进行，请等它完成")
             now = _now()
             cursor = con.execute(
-                "INSERT INTO sync_logs (mode, status, started_at) VALUES (?, 'running', ?)",
-                (payload.mode, now),
+                "INSERT INTO sync_logs (mode, full, status, started_at) "
+                "VALUES (?, ?, 'running', ?)",
+                (payload.mode, 1 if payload.full else 0, now),
             )
             log_id = int(cursor.lastrowid)
             con.commit()
