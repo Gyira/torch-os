@@ -18,9 +18,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import unicodedata
@@ -71,6 +73,26 @@ TASK_DONE_DIR = f"{TASK_ROOT}/已完成"
 TASK_TRASH_DIR = f"{TASK_ROOT}/回收站"
 TASK_SYSTEM_DIR = f"{TASK_ROOT}/_系统"
 TASK_SPECIAL_DIRS = (TASK_INBOX_DIR, TASK_DONE_DIR, TASK_TRASH_DIR, TASK_SYSTEM_DIR)
+
+# 回收站路径规则（2026-11-03）：百度网盘等同步端对完整路径有长度上限，
+# 因此回收站不再镜像原目录层级，统一压平成单层短文件名，原路径只写进 manifest。
+RECYCLE_MAX_STEM = 40
+
+
+def new_recycle_batch_name() -> str:
+    """回收站批次名：秒级 UTC 时间 + 6 位随机，比微秒时间戳短 7 个字符。"""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return f"{stamp}-{secrets.token_hex(3)}"
+
+
+def recycle_file_name(relative: str) -> str:
+    """把原相对路径压成回收站里的单层短文件名（保留后缀和可读前缀）。"""
+    normalized = normalize_relpath(relative)
+    name = normalized.rsplit("/", 1)[-1] if normalized else ""
+    stem, suffix = os.path.splitext(name)
+    stem = stem[:RECYCLE_MAX_STEM].rstrip(" .") or "item"
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+    return f"{stem}-{digest}{suffix}"
 
 # 自我档案重构（2026-11-01）：三个部分一一对应三个目录。
 # - 01_档案：11 个固定本子 + 身份/画像两个特殊文件；
@@ -1061,7 +1083,8 @@ def layout_status(vault_dir: Path | str) -> dict[str, Any]:
 __all__ = [
     "LAYOUT_VERSION", "SYSTEM_DIR", "FOREIGN_FILES", "PILLAR_TITLES",
     "TASK_ROOT", "TASK_INBOX_DIR", "TASK_DONE_DIR", "TASK_TRASH_DIR",
-    "TASK_SYSTEM_DIR", "TASK_SPECIAL_DIRS",
+    "TASK_SYSTEM_DIR", "TASK_SPECIAL_DIRS", "RECYCLE_MAX_STEM",
+    "new_recycle_batch_name", "recycle_file_name",
     "SELF_ROOT", "SELF_ARCHIVE_ROOT", "SELF_MENTOR_ROOT", "SELF_BAZI_ROOT",
     "SELF_IDENTITY_RELATIVE", "SELF_PORTRAIT_RELATIVE", "SELF_BACKUP_PREFIX",
     "SELF_MENTOR_MEMORY_DIR", "SELF_MENTOR_PENDING_DIR",

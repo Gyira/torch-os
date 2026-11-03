@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,7 @@ from .markdown_store import guarded_write, load_note
 from .vault import clean_fragment, parse_text, safe_note_path
 
 MAX_BODY = 200_000
-# 软删除：笔记文件移进库内隐藏回收站，保留原相对路径，方便手动找回。
+# 软删除：笔记文件移进库内隐藏回收站；回收站用短文件名，原路径记在 manifest。
 NOTE_TRASH_DIR = ".torch-os/笔记回收站"
 
 
@@ -263,11 +262,11 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
 
 def trash_note(vault_dir: Path | str, relative: str,
                *, expected_revision: str = "") -> dict[str, Any]:
-    """把一篇四库笔记软删除到 `.torch-os/笔记回收站/<批次>/files/...`。
+    """把一篇四库笔记软删除到 `.torch-os/笔记回收站/<批次>/files/<短文件名>`。
 
     删除前同样校验 revision，避免在 Obsidian 里刚改过的内容被静默丢掉。
-    批次目录保留原始相对路径与 manifest，用户可以在文件管理器里找回；
-    应用内暂不提供恢复/清空入口。
+    为避免同步盘/网盘的路径长度限制，回收站不再镜像原目录层级：文件名压缩成
+    “可读前缀-哈希”，原相对路径记录在 manifest 里，恢复时按 manifest 还原。
     """
     vault = Path(vault_dir).resolve()
     vault_layout.validate_target(relative)
@@ -287,35 +286,37 @@ def trash_note(vault_dir: Path | str, relative: str,
         # 与 source 一样，回收站本身也不能是链接，否则会移动到库外。
         if not trash_root.resolve().is_relative_to(vault):
             raise HTTPException(409, "笔记回收站目录不在库内，已停止删除")
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        batch = trash_root / f"{stamp}-{secrets.token_hex(4)}"
-        parts = vault_layout.normalize_relpath(relative).split("/")
-        target = batch / "files" / Path(*parts)
+        batch = trash_root / vault_layout.new_recycle_batch_name()
+        target = batch / "files" / vault_layout.recycle_file_name(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, target)
+        # 压平后的文件名无法反推原路径，manifest 现在是恢复的唯一依据：
+        # 先写 manifest，再移动文件，避免出现“文件在回收站但无法定位原路径”。
+        manifest = {
+            "schema": 1,
+            "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "original_path": relative,
+            "trash_path": _relative(vault, target),
+            "title": str(metadata.get("title") or source.stem),
+            "chapter": vault_layout.chapter_key_of(relative),
+            "pillar": vault_layout.pillar_of(relative),
+            "excerpt": clean_fragment(body)[:160],
+        }
+        manifest_path = batch / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8", newline="\n")
+        try:
+            os.replace(source, target)
+        except OSError:
+            manifest_path.unlink(missing_ok=True)
+            batch.rmdir()
+            raise
     except HTTPException:
         raise
     except OSError as error:
         raise HTTPException(409, f"移入笔记回收站失败：{error}") from error
 
-    trash_path = _relative(vault, target)
-    manifest = {
-        "schema": 1,
-        "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "original_path": relative,
-        "trash_path": trash_path,
-        "title": str(metadata.get("title") or source.stem),
-        "chapter": vault_layout.chapter_key_of(relative),
-        "pillar": vault_layout.pillar_of(relative),
-        "excerpt": clean_fragment(body)[:160],
-    }
-    try:
-        (batch / "manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8", newline="\n")
-    except OSError:
-        # 文件已经安全移进回收站；manifest 只用于找回提示，不因它失败而谎报删除失败。
-        pass
+    trash_path = manifest["trash_path"]
     return {
         "deleted": True,
         "path": relative,

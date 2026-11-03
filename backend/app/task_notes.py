@@ -929,7 +929,8 @@ def trash_note(vault_dir: Path | str, note: dict[str, Any],
         raise HTTPException(409, "任务笔记已经不在原处，请刷新后重试") from error
     batch = batch or new_trash_batch(vault_dir)
     relative = _task_root_relative_path(vault_dir, source, note)
-    target = batch / "files" / Path(*relative.replace("\\", "/").split("/"))
+    # 回收站不镜像清单层级：压平成单层短名，原路径留在 manifest，避免同步盘路径超长。
+    target = batch / "files" / vault_layout.recycle_file_name(relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target = _unique_trash_target(target)
     try:
@@ -1035,7 +1036,8 @@ def trash_list_folder(vault_dir: Path | str, folder: Any, *,
             continue
         if note is None or note["list_name"].casefold() != name.casefold():
             continue
-        target = batch / "files" / DONE_DIR_NAME / entry.name
+        target = batch / "files" / vault_layout.recycle_file_name(
+            f"{DONE_DIR_NAME}/{entry.name}")
         target = _unique_trash_target(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         try:

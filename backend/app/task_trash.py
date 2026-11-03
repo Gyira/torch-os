@@ -4,10 +4,13 @@
 
 ```
 回收站/<batch>/manifest.json
-回收站/<batch>/files/<清单>/<任务>.md
+回收站/<batch>/files/<短文件名>.md
 回收站/<batch>/folders/<被删清单>/
 回收站/<batch>/_系统/任务（tasks）.md
 ```
+
+`files/` 里的文件名是压平后的短名（可读前缀-哈希），原清单与任务路径只记录在
+manifest 的 `original_relpath` 中；恢复时按 manifest 还原原文件名和清单。
 
 旧 `.torch-os/task-trash` 批次仍然可读、可恢复、可彻底删除；启动迁移会把
 它们搬进新回收站。
@@ -58,6 +61,13 @@ def legacy_trash_root(vault_dir: Path | str) -> Path:
 
 def _posix(value: Any) -> str:
     return re.sub(r"/+", "/", str(value or "").replace("\\", "/")).strip("/")
+
+
+def _entry_filename(entry: dict[str, Any]) -> str | None:
+    """扁平文件恢复时要还原的原始文件名；缺失时回退到回收站里的名字。"""
+    original = str(entry.get("original_relpath") or "")
+    name = PurePosixPath(original).name if original else ""
+    return name or None
 
 
 def canonical_original_relpath(original: Any) -> str:
@@ -122,7 +132,8 @@ def _task_item(vault_dir: Path | str, path: Path, *, batch: Path, base: Path,
         note = task_notes.inspect_task_file(path, list_hint=list_name)
     except Exception:
         note = None
-    title = str(entry.get("title") or (note["title"] if note else path.stem))
+    original_stem = PurePosixPath(original).stem if original else ""
+    title = str(entry.get("title") or (note["title"] if note else original_stem or path.stem))
     done = bool(entry.get("done", note["done"] if note else False))
     dida_id = str(entry.get("dida_id") or (note.get("dida_id") if note else "") or "")
     if not list_name:
@@ -451,7 +462,8 @@ def restore_trash(vault_dir: Path | str, *, paths: list[str] | None = None) -> d
                     related_done = bool((related_note or {}).get("done", True))
                     try:
                         target_done = _restore_file(
-                            vault_dir, related_path, list_name=name, done=related_done)
+                            vault_dir, related_path, list_name=name,
+                            done=related_done, filename=_entry_filename(related))
                     except (FileExistsError, OSError):
                         continue
                     task_trash_store.remove_entry(
@@ -476,7 +488,8 @@ def restore_trash(vault_dir: Path | str, *, paths: list[str] | None = None) -> d
             done = bool(note.get("done"))
         list_name = list_name or _list_from_original(original)
         try:
-            target = _restore_file(vault_dir, source, list_name=list_name, done=done)
+            target = _restore_file(vault_dir, source, list_name=list_name,
+                                   done=done, filename=_entry_filename(entry))
         except FileExistsError:
             skipped.append({"path": rel, "reason": "原位置已有同名文件"})
             continue
@@ -539,7 +552,9 @@ def restore_by_dida_id(vault_dir: Path | str, dida_id: Any) -> dict[str, Any] | 
                                 or hint or task_notes.INBOX)
                 done = bool(entry.get("done", note.get("done")))
                 try:
-                    target = _restore_file(vault_dir, file, list_name=list_name, done=done)
+                    target = _restore_file(
+                        vault_dir, file, list_name=list_name, done=done,
+                        filename=None if is_folder else _entry_filename(entry))
                 except (FileExistsError, OSError):
                     continue
                 if is_folder:

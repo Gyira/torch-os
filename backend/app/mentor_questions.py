@@ -17,6 +17,7 @@ import os
 import random
 import re
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -128,6 +129,27 @@ def _today() -> str:
     return datetime.now(SHANGHAI).date().isoformat()
 
 
+# 云同步、杀毒软件或编辑器可能在文件刚变化时短暂持有句柄；Windows 此时会
+# 拒绝 os.replace（WinError 5/32），表现为一次偶发的 500。重试约 6.5 秒。
+_REPLACE_RETRY_DELAYS = (0.1, 0.2, 0.4, 0.8, 1.0, 1.0, 1.5, 1.5)
+
+
+def _transient_replace_error(error: OSError) -> bool:
+    return isinstance(error, PermissionError) or getattr(error, "winerror", None) in (5, 32, 33)
+
+
+def _replace_with_retry(source: str, target: Path) -> None:
+    for delay in _REPLACE_RETRY_DELAYS:
+        try:
+            os.replace(source, target)
+            return
+        except OSError as error:
+            if not _transient_replace_error(error):
+                raise
+        time.sleep(delay)
+    os.replace(source, target)
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
@@ -139,10 +161,20 @@ def _atomic_write(path: Path, text: str) -> None:
         handle.flush()
         os.fsync(handle.fileno())
         handle.close()
-        os.replace(handle.name, path)
-    except OSError:
-        Path(handle.name).unlink(missing_ok=True)
-        raise
+        _replace_with_retry(handle.name, path)
+    except OSError as error:
+        try:
+            handle.close()
+        except OSError:
+            pass
+        try:
+            Path(handle.name).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise QuestionError(
+            "今日三问暂时无法保存：文件正被其他程序占用（常见于云同步或杀毒软件），请稍后重试",
+            503,
+        ) from error
 
 
 def _ensure_write(read_only: bool, action: str) -> None:

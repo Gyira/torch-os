@@ -23,7 +23,8 @@ from . import vault_layout
 MANIFEST_NAME = "manifest.json"
 TRASH_DIR_NAME = "回收站"
 LEGACY_TRASH_DIR = Path(".torch-os", "task-trash")
-_BATCH_STAMP = re.compile(r"^(\d{8}T\d{6}\d+Z)-", re.IGNORECASE)
+# 兼容旧批次（微秒 + Z）和新批次（秒级）两种命名。
+_BATCH_STAMP = re.compile(r"^(\d{8}T\d{6})(\d+Z)?-", re.IGNORECASE)
 
 
 def _vault_root(vault_dir: Path | str) -> Path:
@@ -42,8 +43,10 @@ def batch_time(name: str) -> str:
     match = _BATCH_STAMP.match(str(name or ""))
     if match is None:
         return ""
+    stamp_text = match.group(1) + (match.group(2) or "")
+    pattern = "%Y%m%dT%H%M%S%fZ" if match.group(2) else "%Y%m%dT%H%M%S"
     try:
-        stamp = datetime.strptime(match.group(1), "%Y%m%dT%H%M%S%fZ")
+        stamp = datetime.strptime(stamp_text, pattern)
     except ValueError:
         return ""
     return stamp.replace(tzinfo=timezone.utc).isoformat()
@@ -51,8 +54,7 @@ def batch_time(name: str) -> str:
 
 def new_batch(vault_dir: Path | str) -> Path:
     root = trash_root(vault_dir)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    batch = root / f"{stamp}-{secrets.token_hex(4)}"
+    batch = root / vault_layout.new_recycle_batch_name()
     try:
         batch.mkdir(parents=True, exist_ok=False)
     except OSError as error:

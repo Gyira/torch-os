@@ -4,6 +4,7 @@ Temporary vault only; no model call and no personal data.
 """
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -142,6 +143,39 @@ class DailyQuestionFlowTests(unittest.TestCase):
         self.assertEqual(self.qa_text().strip(), "")
         self.assertEqual(self_archive.list_entries(self.vault, "self_facts"), [])
         self.assertEqual(self.read_day()[0]["status"], "skipped")
+
+    def test_skip_retries_transient_replace_lock(self):
+        """Windows 同步盘/杀毒软件短暂占用文件时，替换应重试而不是直接 500。"""
+        self.write_day([item()])
+        real_replace = os.replace
+        attempts = {"count": 0}
+
+        def flaky_replace(source, target):
+            attempts["count"] += 1
+            if attempts["count"] <= 2:
+                raise PermissionError(13, "拒绝访问。", str(source), str(target))
+            return real_replace(source, target)
+
+        with patch.object(mentor_questions.os, "replace", side_effect=flaky_replace), \
+                patch.object(mentor_questions.time, "sleep"):
+            result = mentor_questions.skip(self.vault, "q_test_1")
+        self.assertTrue(result["skipped"])
+        self.assertGreaterEqual(attempts["count"], 3)
+        self.assertEqual(self.read_day()[0]["status"], "skipped")
+
+    def test_skip_reports_503_when_file_stays_locked(self):
+        """文件被持续占用时给出可读的 503，而不是未处理的 500，也不留临时文件。"""
+        self.write_day([item()])
+        with patch.object(mentor_questions.os, "replace",
+                          side_effect=PermissionError(13, "拒绝访问。")), \
+                patch.object(mentor_questions.time, "sleep"):
+            with self.assertRaises(mentor_questions.QuestionError) as caught:
+                mentor_questions.skip(self.vault, "q_test_1")
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertEqual(self.read_day()[0]["status"], "pending")
+        leftovers = list(
+            mentor_questions._dated_path(self.vault, self.today).parent.glob(".q-*.tmp"))
+        self.assertEqual(leftovers, [])
 
     def test_read_only_answer_has_no_side_effects(self):
         self.write_day([item()])

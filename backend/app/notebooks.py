@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import stat
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,8 +156,7 @@ def _notebook_trash_root(vault: Path) -> Path:
 
 
 def _new_notebook_batch(vault: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    batch = _notebook_trash_root(vault) / f"{stamp}-{secrets.token_hex(4)}"
+    batch = _notebook_trash_root(vault) / vault_layout.new_recycle_batch_name()
     batch.mkdir(parents=True, exist_ok=False)
     return batch
 
