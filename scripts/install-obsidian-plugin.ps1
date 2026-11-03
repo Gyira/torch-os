@@ -14,11 +14,20 @@ foreach ($file in 'manifest.json', 'main.js', 'styles.css') {
 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $dataPath = Join-Path $target 'data.json'
-if (-not (Test-Path -LiteralPath $dataPath)) {
-  $repoForwards = $root -replace '\\', '/'
-  $data = '{' + [char]13 + [char]10 + '  "baseUrl": "http://127.0.0.1:8765",' + [char]13 + [char]10 + '  "repoRoot": "' + $repoForwards + '",' + [char]13 + [char]10 + '  "pythonPath": "",' + [char]13 + [char]10 + '  "autoStart": true' + [char]13 + [char]10 + '}'
-  [System.IO.File]::WriteAllText($dataPath, $data, $utf8)
+# 仓库搬家后重装插件也要把自动拉起路径修正为新位置；其余用户设置保持不变。
+$repoForwards = $root -replace '\\', '/'
+$defaultData = '{' + [char]13 + [char]10 + '  "baseUrl": "http://127.0.0.1:8765",' + [char]13 + [char]10 + '  "repoRoot": "' + $repoForwards + '",' + [char]13 + [char]10 + '  "pythonPath": "",' + [char]13 + [char]10 + '  "autoStart": true' + [char]13 + [char]10 + '}'
+$data = $defaultData
+if (Test-Path -LiteralPath $dataPath) {
+  try {
+    $settings = Get-Content -LiteralPath $dataPath -Raw | ConvertFrom-Json
+    $settings.repoRoot = $repoForwards
+    $data = $settings | ConvertTo-Json -Depth 8
+  } catch {
+    $data = $defaultData
+  }
 }
+[System.IO.File]::WriteAllText($dataPath, $data, $utf8)
 $communityPath = Join-Path $VaultPath '.obsidian\community-plugins.json'
 $ids = @()
 if (Test-Path -LiteralPath $communityPath) {

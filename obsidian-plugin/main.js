@@ -365,6 +365,11 @@ module.exports = class TorchPlugin extends Plugin {
 
     const python = this.settings.pythonPath
       || path.join(this.settings.repoRoot, '.venv', 'Scripts', 'python.exe');
+    if (!fs.existsSync(python)) {
+      new Notice(`薪火OS 无法自动启动：找不到 Python（${python}）。`
+        + '请在插件设置里修正仓库路径或 Python 路径。');
+      return false;
+    }
     const dataDir = path.join(binding.path, '.torch-os');
     let logFsPath = '';
     let logFd = null;
@@ -389,6 +394,13 @@ module.exports = class TorchPlugin extends Plugin {
           VAULT_READ_ONLY: '0',
         },
       });
+      // spawn 的 ENOENT 是异步事件；等它真正成功再进入健康检查，
+      // 否则会白等 30 秒后才报“启动超时”。
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      child.on('error', () => { /* 进程已启动后再出错不拖垮 Obsidian */ });
       child.unref();
     } catch (error) {
       if (logFd !== null) fs.closeSync(logFd);
