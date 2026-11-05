@@ -1,7 +1,7 @@
 // 工作台 2.0（2026-10-05）：今日待办（左清单 / 右每日勾选）；与神对话由 dsh-pane.js 加载完整的 DeepSeek Harness。
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
 // 待办在生活运营的 02_生活运营/00_待办事项/_系统/待办（todos）.md；日记仍在人生路，
-// 每日必做勾在当天日记，习惯在本地库。
+// 每日必做的勾选状态只存本机 .torch-os，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus, toast } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
 import { shanghaiDay } from "./journal-model.js";
@@ -157,15 +157,24 @@ function renderDaily(payload) {
     key: item.key || "",
   }));
   const done = rows.filter((row) => row.done).length;
+  const hint = $("#time-daily-hint");
   if (payload.daily_error) {
-    setStatus("#time-daily-count", `读取失败：${payload.daily_error}`, "error");
+    if (hint) {
+      hint.hidden = false;
+      setStatus(hint, `读取失败：${payload.daily_error}`, "error");
+    }
+    $("#time-daily-count").textContent = "";
   } else {
     $("#time-daily-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
+    if (hint) {
+      hint.className = "habit-daily-hint";
+      hint.textContent = "每日必做在 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区维护；勾选状态只记在本机，不改日记。";
+    }
   }
-  $("#time-daily-hint").textContent = "每日必做在 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区维护，勾选记进今天日记。";
+  $("#habit-daily-info")?.setAttribute("aria-expanded", String(!hint?.hidden));
   $("#time-daily-list").innerHTML = rows.length
-    ? rows.map((row) => `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span>${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
-    : '<li class="empty-state">还没有每日必做——去 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区写几条。</li>';
+    ? rows.map((row) => `<li class="habit-check${row.done ? " done" : ""}"><label><input type="checkbox" data-daily-toggle data-daily-key="${row.key}" data-daily-title="${escapeHtml(row.title)}"${row.done ? " checked" : ""} aria-label="${escapeHtml(row.title)}" /><span class="habit-check-title">${escapeHtml(row.title)}</span></label>${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}</li>`).join("")
+    : '<li class="habit-daily-empty"><span class="habit-daily-empty-icon" aria-hidden="true">☐</span><span><strong>还没有每日必做</strong> · 在 todos.md 的「每日必做」区写几条</span></li>';
 }
 
 export async function loadWorkbench() {
@@ -194,7 +203,9 @@ async function syncDailyIfNeeded(payload) {
     const result = await api("/api/todos/daily/sync", jsonBody("POST", { day: shanghaiDay() }));
     if (result.changed) renderWorkbench(await api(`/api/workbench/today?day=${shanghaiDay()}`));
   } catch (error) {
-    setStatus("#time-daily-hint", `每日必做同步失败：${error.message}`, "warning");
+    const hint = $("#time-daily-hint");
+    if (hint) hint.hidden = false;
+    setStatus(hint || "#time-daily-hint", `每日必做同步失败：${error.message}`, "warning");
   }
 }
 
@@ -326,6 +337,14 @@ export function initWorkbench() {
   $("#time-daily-list").addEventListener("change", (event) => {
     const dailyBox = event.target.closest("[data-daily-toggle]");
     if (dailyBox) toggleDaily(dailyBox.dataset.dailyKey || "", dailyBox.dataset.dailyTitle || "", dailyBox.checked);
+  });
+  // 维护位置默认收起：只占一行，需要时点「i」展开完整路径。
+  $("#habit-daily-info")?.addEventListener("click", () => {
+    const hint = $("#time-daily-hint");
+    const info = $("#habit-daily-info");
+    if (!hint || !info) return;
+    hint.hidden = !hint.hidden;
+    info.setAttribute("aria-expanded", String(!hint.hidden));
   });
   document.addEventListener("data-changed", () => { if (state.view === "workbench") loadWorkbench(); });
   initBannerEditor(() => loadWorkbench());

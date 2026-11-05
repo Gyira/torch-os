@@ -7,7 +7,7 @@ import {
   decorateHabitSync, entryFor, logsForHabit, monthGrid, monthLabel, shiftMonth,
 } from "./habits-model.js";
 import {
-  habitCardsHtml, habitCountLabel, habitDetailHtml, habitGroupOptions, habitWarningsHtml,
+  habitCardsHtml, habitCountLabel, habitDetailHtml, habitGroupChips, habitWarningsHtml,
   weekStripHtml,
 } from "./habits-markup.js";
 import {
@@ -86,7 +86,12 @@ function paint() {
   if (!selectedId && habits.length) selectedId = habits[0].id;
   const selected = selectedHabit();
   const count = document.querySelector("#habit-page-count");
-  if (count) count.textContent = habitCountLabel(habits);
+  if (count) {
+    count.textContent = habitCountLabel(habits);
+    const allDone = habits.length > 0
+      && habits.every((habit) => habit.entry_today?.status === "done");
+    count.classList.toggle("is-complete", allDone);
+  }
   const didaStatus = document.querySelector("#habit-dida-status");
   if (didaStatus) {
     const all = Array.isArray(overview.habits) ? overview.habits : [];
@@ -100,7 +105,7 @@ function paint() {
   const week = document.querySelector("#habit-week-strip");
   if (week) week.innerHTML = weekStripHtml(overview.week, today());
   const groupSelect = document.querySelector("#habit-group-filter");
-  if (groupSelect) groupSelect.innerHTML = habitGroupOptions(overview.groups || [], groupFilter);
+  if (groupSelect) groupSelect.innerHTML = habitGroupChips(overview.groups || [], groupFilter);
   const cards = document.querySelector("#habit-card-list");
   if (cards) cards.innerHTML = habitCardsHtml(habits, selectedId);
   const detail = document.querySelector("#habit-detail");
@@ -491,9 +496,15 @@ export function initHabitsPage(options = {}) {
   const page = document.querySelector("#time-habits-page");
   page?.addEventListener("click", handleClick);
   page?.addEventListener("keydown", handleKeydown);
-  document.querySelector("#habit-group-filter")?.addEventListener("change", (event) => {
-    groupFilter = event.target.value || "";
+  document.querySelector("#habit-group-filter")?.addEventListener("click", (event) => {
+    const chip = event.target.closest?.("[data-habit-group]");
+    if (!chip) return;
+    groupFilter = chip.dataset.habitGroup || "";
     paint();
+    // paint() 会重建 chips；把焦点还给刚选中的那颗，键盘操作不会掉到页面上。
+    for (const node of document.querySelectorAll("#habit-group-filter [data-habit-group]")) {
+      if ((node.dataset.habitGroup || "") === groupFilter) { node.focus(); break; }
+    }
   });
   document.addEventListener("data-changed", () => {
     if (state.view === "workbench" && !document.hidden) loadHabitsPage({ silent: true });

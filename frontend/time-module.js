@@ -377,16 +377,16 @@ function paintVaultNote() {
   const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
   const bits = [
     `${source}：${board.vault_name || "当前库"}`,
-    `新任务保存为 ${board.inbox_dir || board.task_dir || "02_生活运营/00_待办事项/收集箱"}/…md`,
+    `新任务：${board.inbox_dir || board.task_dir || "02_生活运营/00_待办事项/收集箱"}/<任务名>.md`,
   ];
   if (board.habit_board_revision) {
-    bits.push("习惯在 00_人生路/04_目标/04_习惯追踪/习惯/…md");
+    bits.push("习惯：00_人生路/04_目标/04_习惯追踪/习惯/<习惯名>.md");
   }
   if (board.legacy_tasks) {
     bits.push(`旧任务 ${board.legacy_tasks} 条（仍在总文件中，只读）`);
   }
   if (board.read_only) bits.push("只读模式");
-  node.textContent = bits.join(" · ");
+  node.textContent = bits.join("\n");
   node.hidden = false;
   if (details) details.hidden = false;
   if (summary) summary.textContent = board.read_only

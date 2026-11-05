@@ -23,19 +23,22 @@ export function weekStripHtml(week, today = "") {
   if (!days.length) return '<p class="habit-week-empty field-help">正在读取最近 7 天…</p>';
   return `<div class="habit-week-strip" role="list" aria-label="最近 7 天习惯完成情况">` +
     days.map((day) => {
+      const scheduled = Math.max(0, Number(day.scheduled) || 0);
+      const done = Math.max(0, Number(day.done) || 0);
+      const skipped = Math.max(0, Number(day.skipped) || 0);
       const percent = percentValue(day.completion_rate);
-      const complete = Number(day.scheduled) > 0
-        && Number(day.done) >= Math.max(0, Number(day.scheduled) - Number(day.skipped));
+      const complete = scheduled > 0 && done >= Math.max(0, scheduled - skipped);
       const classes = ["habit-week-cell"];
       if (day.date === today || day.is_today) classes.push("is-today");
       if (complete) classes.push("is-complete");
-      if (!Number(day.scheduled)) classes.push("is-empty");
+      if (!scheduled) classes.push("is-empty");
       const label = `${day.date} ${WEEKDAY_LONG[Number(day.weekday) || 0] || ""}`
-        + `，计划 ${Number(day.scheduled) || 0}，完成 ${Number(day.done) || 0}`;
+        + `，计划 ${scheduled}，完成 ${done}`;
       return `<div class="${classes.join(" ")}" role="listitem" title="${esc(label)}" aria-label="${esc(label)}">`
         + `<span class="habit-week-label">${esc(WEEKDAY_LONG[Number(day.weekday) || 0] || "")}</span>`
         + `<span class="habit-week-date">${esc(dayNumber(day.date))}</span>`
-        + `<span class="habit-week-ring" data-habit-progress="${percent}" aria-hidden="true"></span>`
+        + `<span class="habit-week-count">${scheduled ? `${done}/${scheduled}` : "—"}</span>`
+        + `<span class="habit-week-track" aria-hidden="true"><span data-habit-progress="${percent}"></span></span>`
         + `</div>`;
     }).join("") + "</div>";
 }
@@ -66,10 +69,10 @@ export function habitCardHtml(habit, options = {}) {
   return `<div class="${classes.join(" ")}" role="listitem" tabindex="0" data-habit-id="${esc(habit.id)}" data-habit-color="${esc(habit.color || "")}" aria-label="${esc(habit.title)}" aria-current="${String(options.selectedId) === String(habit.id) ? "true" : "false"}">`
     + `<button type="button" class="habit-card-check${checked ? " is-checked" : ""}${skipped ? " is-skipped" : ""}${failed ? " is-failed" : ""}" data-habit-check="${esc(habit.id)}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}"${habit.status === "archived" || !habit.scheduled_today ? " disabled" : ""}>${checked ? "✓" : skipped ? "—" : failed ? "✕" : ""}</button>`
     + `<span class="habit-card-icon" aria-hidden="true">${esc(icon)}</span>`
-    + `<span class="habit-card-body"><span class="habit-card-title">${esc(habit.title)}</span>`
-    + `<span class="habit-card-meta">${esc(meta)}${habit.reminder ? ` · ⏰ ${esc(habit.reminder)}` : ""}</span>`
+    + `<span class="habit-card-body"><span class="habit-card-title-row"><span class="habit-card-title">${esc(habit.title)}</span>`
     + `${badges.length ? `<span class="habit-card-badges">${badges.join("")}</span>` : ""}</span>`
-    + `<span class="habit-card-stats"><span title="当前连续">🔥 ${esc(streakLabel(stats))}</span><span title="总打卡">🏅 ${Number(stats.total_done) || 0}</span></span>`
+    + `<span class="habit-card-meta">${esc(meta)}${habit.reminder ? ` · ⏰ ${esc(habit.reminder)}` : ""}</span></span>`
+    + `<span class="habit-card-stats"><span class="habit-card-stat" title="当前连续 ${esc(streakLabel(stats))}">🔥 <b>${esc(streakLabel(stats))}</b></span><span class="habit-card-stat" title="总打卡 ${Number(stats.total_done) || 0} 天">🏅 <b>${Number(stats.total_done) || 0}</b></span></span>`
     + `<button type="button" class="habit-card-menu" data-habit-menu="${esc(habit.id)}" aria-label="${esc(habit.title)} 的更多操作">…</button>`
     + `</div>`;
 }
@@ -83,6 +86,7 @@ export function habitCardsHtml(habits, selectedId) {
 
 export function habitEmptyHtml() {
   return `<section class="habit-empty">
+    <span class="habit-empty-icon" aria-hidden="true">🌱</span>
     <p class="habit-empty-title">还没有习惯</p>
     <p class="field-help">新建一个每天、每周或每月重复的习惯；它会自动出现在今日任务和四象限。</p>
     <button type="button" class="button primary" data-habit-add>＋ 添加习惯</button>
@@ -151,17 +155,17 @@ export function habitLogsHtml(logs, month = "") {
 
 export function habitDetailHtml(habit, options = {}) {
   if (!habit) {
-    return `<section class="habit-detail-empty"><p class="habit-empty-title">选择一个习惯</p><p class="field-help">左边点一张习惯卡，这里会显示月历、统计和打卡日志。</p></section>`;
+    return `<section class="habit-detail-empty"><span class="habit-detail-empty-icon" aria-hidden="true">🗓</span><p class="habit-empty-title">选择一个习惯</p><p class="field-help">左边点一张习惯卡，这里会显示月历、统计和打卡日志。</p></section>`;
   }
   const badges = [];
   if (habit.status === "archived") badges.push({ text: HABIT_STATUS_LABELS.archived, tone: "" });
   if (habit.ended) badges.push({ text: "已结束", tone: "" });
   const dida = didaLinkBadge(habit.dida_status ? { status: habit.dida_status } : null);
   if (dida) badges.push(dida);
-  return `<article class="habit-detail" data-habit-detail="${esc(habit.id)}">
+  return `<article class="habit-detail" data-habit-detail="${esc(habit.id)}" data-habit-color="${esc(habit.color || "")}">
     <header class="habit-detail-head">
       <span class="habit-detail-icon" aria-hidden="true">${esc(habit.icon || DEFAULT_HABIT_ICON)}</span>
-      <div><h3>${esc(habit.title)}</h3><p class="meta">${esc([habit.group, frequencyLabel(habit.frequency), habit.reminder ? `提醒 ${habit.reminder}` : ""].filter(Boolean).join(" · "))}</p></div>
+      <div class="habit-detail-title"><h3>${esc(habit.title)}</h3><p class="meta">${esc([habit.group, frequencyLabel(habit.frequency), habit.reminder ? `提醒 ${habit.reminder}` : ""].filter(Boolean).join(" · "))}</p></div>
       ${badges.length ? `<span class="habit-detail-badges">${badges.map((badge) => `<span class="habit-card-badge${badge.tone ? ` is-${esc(badge.tone)}` : ""}">${esc(badge.text)}</span>`).join("")}</span>` : ""}
     </header>
     ${habitStatsHtml(habit)}
@@ -175,13 +179,15 @@ export function habitDetailHtml(habit, options = {}) {
   </article>`;
 }
 
-export function habitGroupOptions(groups, current = "") {
-  const names = (Array.isArray(groups) ? groups : []).map((group) => String(group.name || "")).filter(Boolean);
-  const options = ['<option value="">全部分组</option>'];
-  for (const name of names) {
-    options.push(`<option value="${esc(name)}"${name === current ? " selected" : ""}>${esc(name)}</option>`);
-  }
-  return options.join("");
+export function habitGroupChips(groups, current = "") {
+  const list = (Array.isArray(groups) ? groups : [])
+    .map((group) => ({ name: String(group.name || "").trim(), count: Number(group.count) || 0 }))
+    .filter((group) => group.name);
+  const total = list.reduce((sum, group) => sum + group.count, 0);
+  const chip = (name, count, active) =>
+    `<button type="button" class="habit-group-chip${active ? " is-active" : ""}" data-habit-group="${esc(name)}" aria-pressed="${active ? "true" : "false"}">`
+    + `<span>${esc(name || "全部")}</span><span class="habit-group-count">${count}</span></button>`;
+  return chip("", total, !current) + list.map((group) => chip(group.name, group.count, group.name === current)).join("");
 }
 
 export function habitWarningsHtml(warnings) {

@@ -152,23 +152,34 @@
             </div>
             <section class="time-page habits-page" id="time-habits-page" role="tabpanel" aria-labelledby="time-tab-habits" hidden aria-label="习惯打卡">
               <header class="time-head habit-page-head">
-                <h3>习惯打卡</h3>
-                <span id="habit-page-count" class="meta" role="status"></span>
-                <button type="button" id="habit-dida-sync" class="text-button" hidden>滴答同步</button>
-                <span id="habit-dida-status" class="meta" role="status" hidden></span>
-                <button type="button" id="habit-add" class="button primary" data-habit-add>＋ 添加习惯</button>
-                <button type="button" id="habit-archived-toggle" class="text-button" aria-pressed="false">已归档</button>
+                <div class="habit-page-title">
+                  <h3>习惯打卡</h3>
+                  <span id="habit-page-count" class="habit-page-count" role="status"></span>
+                </div>
+                <div class="habit-page-actions">
+                  <button type="button" id="habit-dida-sync" class="text-button" hidden>滴答同步</button>
+                  <span id="habit-dida-status" class="meta" role="status" hidden></span>
+                  <button type="button" id="habit-archived-toggle" class="habit-toggle-button" aria-pressed="false">已归档</button>
+                  <button type="button" id="habit-add" class="button primary" data-habit-add>＋ 添加习惯</button>
+                </div>
               </header>
               <div id="habit-page-status" class="habit-page-status" role="status" aria-live="polite"></div>
               <div id="habit-week-strip"></div>
               <div class="habit-page-layout">
                 <div class="habit-card-column">
                   <section class="habit-daily-block" aria-labelledby="habit-daily-title">
-                    <header class="habit-daily-head"><h4 id="habit-daily-title">每日必做</h4><span id="time-daily-count" class="meta" role="status"></span></header>
-                    <p id="time-daily-hint" class="field-help">每日必做在 Obsidian 的 <code>02_生活运营/00_待办事项/_系统/待办（todos）.md</code> 里维护；勾选状态记在今天的日记。</p>
-                    <ul id="time-daily-list" class="habit-check-list"><li class="empty-state">正在读取每日必做…</li></ul>
+                    <header class="habit-daily-head">
+                      <span class="habit-daily-icon" aria-hidden="true">📌</span>
+                      <h4 id="habit-daily-title">每日必做</h4>
+                      <span id="time-daily-count" class="habit-daily-count" role="status"></span>
+                      <button type="button" id="habit-daily-info" class="habit-daily-info" aria-expanded="false" aria-controls="time-daily-hint" aria-label="查看每日必做的维护位置" title="每日必做的维护位置">i</button>
+                    </header>
+                    <p id="time-daily-hint" class="habit-daily-hint" hidden>每日必做在 Obsidian 的 02_生活运营/00_待办事项/_系统/待办（todos）.md 里维护；勾选状态只记在本机，不改日记。</p>
+                    <ul id="time-daily-list" class="habit-check-list"><li class="habit-daily-loading">正在读取每日必做…</li></ul>
                   </section>
-                  <label class="habit-group-filter-label">分组<select id="habit-group-filter" aria-label="按分组筛选习惯"></select></label>
+                  <div class="habit-list-bar">
+                    <div id="habit-group-filter" class="habit-group-chips" role="group" aria-label="按分组筛选习惯"></div>
+                  </div>
                   <div id="habit-card-list"></div>
                 </div>
                 <aside id="habit-detail" class="habit-detail-column" aria-label="习惯详情"></aside>

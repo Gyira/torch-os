@@ -247,6 +247,110 @@ def _split_current_entries(vault: Path, items: list[dict[str, Any]], *,
     return result
 
 
+_HEADING_LINE = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
+_HR_LINE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
+_CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
+
+
+def _compact_text(value: Any) -> str:
+    """Normalize text for display-time dedupe (not for storage)."""
+    text = str(value or "")
+    text = re.sub(r"(?m)^\s*(?:#{1,6}\s*|>\s*)", "", text)
+    text = re.sub(r"[*_`]", "", text)
+    return re.sub(r"\s+", "", text).strip()
+
+
+def _strip_title_heading(text: str, title: str) -> str:
+    """Drop a leading Markdown heading that only repeats the entry title."""
+    lines = str(text or "").strip().splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines:
+        match = _HEADING_LINE.match(lines[0].strip())
+        wanted = _compact_text(title)
+        if match and wanted and _compact_text(match.group(1)) == wanted:
+            lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def _is_stub_entry(item: Mapping[str, Any]) -> bool:
+    """An entry whose body is only its own title heading (e.g. migration leftovers)."""
+    has_support = bool(item.get("evidence") or item.get("counterexample") or item.get("verify"))
+    text = str(item.get("text") or "").strip()
+    if not text:
+        return not has_support
+    if has_support:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return True
+    title = _compact_text(item.get("title"))
+    for line in lines:
+        if _HR_LINE.match(line):
+            continue
+        match = _HEADING_LINE.match(line)
+        if match and title and _compact_text(match.group(1)) == title:
+            continue
+        return False
+    return True
+
+
+def _entry_rank(item: Mapping[str, Any]) -> tuple:
+    """Prefer curated entries over migration copies, then completeness, then recency."""
+    return (
+        1 if item.get("origin") != "migration" else 0,
+        _CONFIDENCE_RANK.get(str(item.get("confidence") or ""), 2),
+        1 if item.get("evidence") else 0,
+        1 if item.get("verify") else 0,
+        min(len(item.get("sources") or []), 5),
+        str(item.get("created") or ""),
+        str(item.get("updated") or ""),
+        str(item.get("entry_id") or ""),
+    )
+
+
+def _merge_entry_details(target: dict[str, Any], extra: Mapping[str, Any]) -> None:
+    merged = list(target.get("sources") or [])
+    for source in extra.get("sources") or []:
+        if source not in merged:
+            merged.append(source)
+    target["sources"] = merged[:MAX_SOURCES]
+    for field in ("evidence", "counterexample", "verify"):
+        if not target.get(field) and extra.get(field):
+            target[field] = extra[field]
+
+
+def _dedupe_current_entries(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse identical current entries and hide empty migration leftovers.
+
+    Files stay untouched; this only affects what the book/overview/mentor context
+    sees. History keeps every version, and duplicate sources are merged into the
+    visible entry so provenance is not lost.
+    """
+    kept: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if _is_stub_entry(item):
+            continue
+        body = _compact_text(_strip_title_heading(
+            str(item.get("text") or ""), str(item.get("title") or "")))
+        if not body:
+            body = _compact_text(item.get("evidence") or item.get("verify"))
+        if not body:
+            continue
+        title = _compact_text(item.get("title"))
+        key = body if len(body) >= 40 else f"{title}\x00{body}"
+        current = kept.get(key)
+        if current is None:
+            kept[key] = item
+            continue
+        if _entry_rank(item) > _entry_rank(current):
+            _merge_entry_details(item, current)
+            kept[key] = item
+        else:
+            _merge_entry_details(current, item)
+    return list(kept.values())
+
+
 def list_entries(vault_dir: Path | str, book_key: str, *,
                  include_history: bool = False) -> list[dict[str, Any]]:
     vault = Path(vault_dir).resolve()
@@ -262,6 +366,8 @@ def list_entries(vault_dir: Path | str, book_key: str, *,
             continue
         entries.append(item)
     entries = _split_current_entries(vault, entries, include_history=include_history)
+    if not include_history:
+        entries = _dedupe_current_entries(entries)
     entries.sort(key=lambda item: (item.get("created") or "", item["path"]), reverse=True)
     return entries
 

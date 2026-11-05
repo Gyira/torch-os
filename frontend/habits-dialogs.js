@@ -61,34 +61,34 @@ export function openHabitDialog({ habit = null, groups = [], today = "", default
   const form = `<form id="habit-form" class="habit-form" novalidate>
     <div class="habit-form-top">
       <div class="habit-icon-field">
-        <span class="habit-icon-preview" id="habit-icon-preview" aria-hidden="true">${value(draft.icon || "🌱")}</span>
-        <label>图标<input id="habit-icon" maxlength="16" value="${value(draft.icon || "🌱")}" autocomplete="off" /></label>
+        <label>图标<input id="habit-icon" maxlength="16" value="${value(draft.icon || "🌱")}" autocomplete="off" title="可以直接输入 emoji" /></label>
       </div>
-      <div class="habit-icon-choices" role="group" aria-label="选择图标">${HABIT_ICON_CHOICES.map((icon) => `<button type="button" class="habit-icon-choice" data-habit-icon-choice="${icon}" aria-label="图标 ${icon}">${icon}</button>`).join("")}</div>
+      <div class="habit-icon-choices" role="group" aria-label="选择图标">${HABIT_ICON_CHOICES.map((icon) => `<button type="button" class="habit-icon-choice${String(draft.icon || "🌱") === icon ? " is-selected" : ""}" data-habit-icon-choice="${icon}" aria-label="图标 ${icon}">${icon}</button>`).join("")}</div>
+      <span class="habit-icon-hint">也可以直接输入 emoji</span>
     </div>
-    <label class="habit-field">名称<input id="habit-title" maxlength="120" value="${value(draft.title || "")}" placeholder="例如：每天阅读 10 分钟" autocomplete="off" /></label>
+    <label class="habit-field">名称<input id="habit-title" maxlength="120" value="${value(draft.title || "")}" placeholder="例如：每天阅读 10 分钟" autocomplete="off" autofocus /></label>
     <div class="habit-form-row">
       <label class="habit-field">所属分组<input id="habit-group" maxlength="40" list="habit-group-list" value="${value(draft.group || "")}" placeholder="默认" autocomplete="off" /></label>
       <label class="habit-field">优先级<select id="habit-priority">${Object.entries(PRIORITY_LABELS).map(([key, label]) => `<option value="${key}"${(draft.priority || "medium") === key ? " selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
     <datalist id="habit-group-list">${groupNames.map((name) => `<option value="${value(name)}"></option>`).join("")}</datalist>
-    <div class="habit-form-row">
+    <div class="habit-form-row habit-frequency-row">
       <label class="habit-field">频率<select id="habit-frequency">${FREQUENCY_KINDS.map((item) => `<option value="${item.value}"${kind === item.value ? " selected" : ""}>${item.label}</option>`).join("")}</select></label>
       <div class="habit-frequency-fields" id="habit-frequency-fields">${frequencyFieldsHtml(kind, draft)}</div>
     </div>
     <div class="habit-form-row">
-      <label class="habit-field">目标<input value="当天完成打卡" disabled /></label>
+      <div class="habit-field"><span class="habit-field-label">目标</span><p class="habit-static-value"><span aria-hidden="true">✓</span>当天完成打卡</p></div>
       <label class="habit-field">开始日期<input id="habit-start" type="date" value="${value(draft.start_date || today)}" /></label>
     </div>
     <div class="habit-form-row">
       <label class="habit-field">坚持天数<select id="habit-target">${targetOptions(draft.target_days)}</select></label>
       <label class="habit-field" id="habit-target-custom-wrap"${draft.target_days && !TARGET_PRESETS.includes(Number(draft.target_days)) ? "" : " hidden"}>自定义天数<input id="habit-target-custom" type="number" min="1" max="3650" value="${draft.target_days && !TARGET_PRESETS.includes(Number(draft.target_days)) ? Number(draft.target_days) : ""}" /></label>
     </div>
-    <div class="habit-form-row">
+    <div class="habit-form-row habit-reminder-row">
       <label class="habit-field">提醒<input id="habit-reminder" type="time" value="${value(draft.reminder || "")}" /></label>
-      <label class="habit-checkbox"><input id="habit-auto-log" type="checkbox"${draft.auto_log ? " checked" : ""} /> 自动弹出打卡日志</label>
+      <label class="habit-switch"><input id="habit-auto-log" type="checkbox"${draft.auto_log ? " checked" : ""} /><span class="habit-switch-track" aria-hidden="true"></span><span class="habit-switch-text">自动弹出打卡日志</span></label>
     </div>
-    <div class="habit-color-field"><span>颜色</span><input id="habit-color" type="hidden" value="${value(draft.color || "")}" /><div class="habit-color-choices" role="group" aria-label="选择颜色">${colorChoices(draft.color)}</div><button type="button" class="text-button" id="habit-color-clear">不用颜色</button></div>
+    <div class="habit-color-field"><span class="habit-field-label">颜色</span><input id="habit-color" type="hidden" value="${value(draft.color || "")}" /><div class="habit-color-choices" role="group" aria-label="选择颜色">${colorChoices(draft.color)}</div><button type="button" class="text-button" id="habit-color-clear">不用颜色</button></div>
     <details class="habit-advanced">
       <summary>更多设置</summary>
       <label class="habit-field">触发提示<input id="habit-cue" maxlength="500" value="${value(draft.cue || "")}" placeholder="例如：早餐后" /></label>
@@ -100,7 +100,7 @@ export function openHabitDialog({ habit = null, groups = [], today = "", default
       <button type="submit" class="button primary" id="habit-dialog-save">${habit ? "保存修改" : "保存"}</button>
     </div>
   </form>`;
-  openDialog(habit ? "编辑习惯" : "添加习惯", form);
+  openDialog(habit ? "编辑习惯" : "添加习惯", form, "habit");
   const formNode = document.querySelector("#habit-form");
   if (!formNode) return;
   const fields = {
@@ -119,7 +119,6 @@ export function openHabitDialog({ habit = null, groups = [], today = "", default
     color: document.querySelector("#habit-color"),
     cue: document.querySelector("#habit-cue"),
     minimum: document.querySelector("#habit-minimum"),
-    preview: document.querySelector("#habit-icon-preview"),
   };
   const currentFrequency = () => {
     const kind = fields.frequency.value;
@@ -132,11 +131,17 @@ export function openHabitDialog({ habit = null, groups = [], today = "", default
   fields.frequency.addEventListener("change", () => {
     fields.frequencyFields.innerHTML = frequencyFieldsHtml(fields.frequency.value, { frequency: currentFrequency() });
   });
-  fields.icon.addEventListener("input", () => { fields.preview.textContent = fields.icon.value || "🌱"; });
+  const paintIconChoice = () => {
+    const current = fields.icon.value.trim() || "🌱";
+    document.querySelectorAll("[data-habit-icon-choice]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.habitIconChoice === current);
+    });
+  };
+  fields.icon.addEventListener("input", paintIconChoice);
   document.querySelectorAll("[data-habit-icon-choice]").forEach((button) => {
     button.addEventListener("click", () => {
       fields.icon.value = button.dataset.habitIconChoice || "🌱";
-      fields.preview.textContent = fields.icon.value;
+      paintIconChoice();
     });
   });
   document.querySelectorAll("[data-habit-choice-color]").forEach((button) => {
@@ -156,6 +161,12 @@ export function openHabitDialog({ habit = null, groups = [], today = "", default
     fields.targetCustomWrap.hidden = fields.target.value !== "custom";
     if (fields.target.value !== "custom") fields.targetCustom.value = "";
   });
+  const focusTitle = () => {
+    fields.title.focus();
+    try { fields.title.setSelectionRange(fields.title.value.length, fields.title.value.length); } catch { /* 旧环境 */ }
+  };
+  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(focusTitle);
+  else focusTitle();
   document.querySelector("#habit-dialog-cancel")?.addEventListener("click", closeDialog);
   formNode.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -218,7 +229,7 @@ export function openHabitLogDialog({ habit, day, entry = null, onSave }) {
       <button type="submit" class="button primary" id="habit-log-save">保存</button>
     </div>
   </form>`;
-  openDialog("打卡日志", form);
+  openDialog("打卡日志", form, "habit-log");
   const formNode = document.querySelector("#habit-log-form");
   if (!formNode) return;
   document.querySelector("#habit-log-cancel")?.addEventListener("click", closeDialog);

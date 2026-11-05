@@ -93,8 +93,10 @@ export function setBusy(form, busy, label = "保存中…") {
 }
 
 let dialogVersion = 0;
-export function openDialog(title, html) {
+export function openDialog(title, html, tone = "") {
   const dialog = $("#detail-dialog");
+  dialog.classList.toggle("habit-dialog", tone === "habit");
+  dialog.classList.toggle("habit-log-dialog", tone === "habit-log");
   $("#dialog-title").textContent = title;
   $("#dialog-content").innerHTML = html;
   if (!dialog.open) dialog.showModal();

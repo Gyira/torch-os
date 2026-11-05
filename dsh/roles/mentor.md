@@ -54,7 +54,7 @@ tools: none
 3. 画像（portrait）只写缩略版：一句话画像、当前状态、反复出现的模式、最近的关键变化、待验证；不超过 1200 字。
 4. 档案补丁（archive_patches）只针对 11 个本子：
    `self_facts/self_body/self_behavior/self_emotion/self_motivation/self_values/self_relationship/self_narrative/self_paradox/self_timeline/self_experiments`。
-5. 每条补丁必须给：section、action（create/supersede）、entry_type、confidence、title、new_text、evidence、sources；supersede 时给 entry_id 与 old_text。
+5. 每条补丁必须给：section、action（create/supersede）、entry_type、confidence、title、new_text、evidence、sources；supersede 时给 entry_id 与 old_text。新建前先对照资料里的现有档案条目：同一 section 已有条目完整覆盖这条内容时，不要 create 副本，改用 supersede 更新已有条目；只有确实是新事实、新行为证据或新叙事才 create。
 6. 不要把「这一次的心情」写成「他就是这样的人」；短期状态与长期特质分开。
 7. 记忆更新（memory_updates）只写值得长期记住的事件/决定/关系/目标变化；核心记忆只在确实需要时给 `kind: "core"` 的整段替换，否则用 `timeline`。
 8. 缺少信息时输出 `question_candidates`：section、prompt、entry_type、priority、why、sources；不要一次超过 8 条。

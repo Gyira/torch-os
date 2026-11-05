@@ -172,6 +172,50 @@ class ArchiveOperationTests(unittest.TestCase):
         self.assertEqual(first["entry_id"], second["entry_id"])
         self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
 
+    def test_duplicate_entries_collapse_and_merge_sources(self):
+        text = "每天下班后爬坡二十分钟，已经坚持一个月，身体比之前稳定很多。"
+        first = self_archive.create_entry(
+            self.vault, book_key="self_narrative", entry_type="narrative",
+            confidence="medium", title="晚间爬坡", text=text, sources=["S1"])
+        second = self_archive.create_entry(
+            self.vault, book_key="self_narrative", entry_type="narrative",
+            confidence="high", title="晚间爬坡", text=text, sources=["S2"])
+        current = self_archive.list_entries(self.vault, "self_narrative")
+        self.assertEqual(len(current), 1)
+        self.assertIn(current[0]["entry_id"], {first["entry_id"], second["entry_id"]})
+        self.assertEqual(set(current[0]["sources"]), {"S1", "S2"})
+        self.assertEqual(
+            len(self_archive.list_entries(
+                self.vault, "self_narrative", include_history=True)), 2)
+
+    def test_same_long_body_collapses_even_with_different_titles(self):
+        text = "从学生思维转到社会思维，从体力夜班转到机关做数字化转型，上行政班，日常做业务系统开发。"
+        self_archive.create_entry(
+            self.vault, book_key="self_narrative", entry_type="narrative",
+            confidence="medium", title="职业叙事", text=text)
+        self_archive.create_entry(
+            self.vault, book_key="self_narrative", entry_type="narrative",
+            confidence="medium", title="转岗故事", text=text)
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_narrative")), 1)
+
+    def test_heading_only_entry_is_hidden_from_current_list(self):
+        self_archive.create_entry(
+            self.vault, book_key="self_narrative", entry_type="narrative",
+            confidence="medium", title="我的自传", text="# 我的自传")
+        self.assertEqual(self_archive.list_entries(self.vault, "self_narrative"), [])
+        self.assertEqual(
+            len(self_archive.list_entries(
+                self.vault, "self_narrative", include_history=True)), 1)
+
+    def test_distinct_short_entries_are_not_collapsed(self):
+        self_archive.create_entry(
+            self.vault, book_key="self_facts", entry_type="fact",
+            confidence="medium", title="喜欢咖啡", text="早上喝一杯")
+        self_archive.create_entry(
+            self.vault, book_key="self_facts", entry_type="fact",
+            confidence="medium", title="喜欢茶", text="下午喝茶")
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 2)
+
     def test_duplicate_pending_accept_applies_once(self):
         old = self.create()
         card = mentor_pending.create_pending(self.vault, {
