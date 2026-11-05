@@ -304,8 +304,8 @@ def append_dynamic_questions(vault_dir: Path | str, questions: Iterable[Mapping[
     added: list[dict[str, Any]] = []
     current = ""
     for raw in questions:
-        section = str(raw.get("section") or "").strip()
-        if section not in self_archive.BOOK_BY_KEY:
+        section = self_archive.normalize_book_key(raw.get("section"))
+        if not section:
             continue
         prompt = str(raw.get("prompt") or "").strip()[:MAX_PROMPT]
         if not prompt:

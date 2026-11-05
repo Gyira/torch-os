@@ -72,6 +72,50 @@ BOOKS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
 )
 BOOK_BY_KEY = {item[0]: item for item in BOOKS}
 BOOK_ORDER = tuple(item[0] for item in BOOKS)
+_BOOK_TITLE_TO_KEY = {item[1]: item[0] for item in BOOKS}
+# 模型经常把 section 写成 "motivation" / "动机" / "动机与需求"；这些都是同一个本子。
+_BOOK_ALIASES = {
+    "fact": "self_facts", "facts": "self_facts",
+    "body": "self_body", "energy": "self_body",
+    "behavior": "self_behavior", "behaviour": "self_behavior", "behaviors": "self_behavior",
+    "emotion": "self_emotion", "emotions": "self_emotion", "stress": "self_emotion",
+    "motivation": "self_motivation", "motivations": "self_motivation", "needs": "self_motivation",
+    "value": "self_values", "values": "self_values", "worldview": "self_values",
+    "relationship": "self_relationship", "relationships": "self_relationship",
+    "boundaries": "self_relationship",
+    "narrative": "self_narrative", "story": "self_narrative",
+    "paradox": "self_paradox", "contradiction": "self_paradox",
+    "blind_spot": "self_paradox", "blind_spots": "self_paradox",
+    "timeline": "self_timeline", "life_timeline": "self_timeline",
+    "experiment": "self_experiments", "experiments": "self_experiments",
+    "verification": "self_experiments",
+    "基础事实": "self_facts", "身体": "self_body", "身体与能量": "self_body",
+    "行为": "self_behavior", "行为与习惯": "self_behavior",
+    "情绪": "self_emotion", "情绪与压力": "self_emotion",
+    "动机": "self_motivation", "需求": "self_motivation", "动机与需求": "self_motivation",
+    "三观": "self_values", "价值观": "self_values", "三观与决策": "self_values",
+    "关系": "self_relationship", "关系与边界": "self_relationship",
+    "叙事": "self_narrative", "自我叙事": "self_narrative",
+    "矛盾": "self_paradox", "盲区": "self_paradox", "矛盾与盲区": "self_paradox",
+    "时间线": "self_timeline", "人生时间线": "self_timeline",
+    "验证": "self_experiments", "验证与更新": "self_experiments",
+}
+
+
+def normalize_book_key(value: Any) -> str:
+    """Accept canonical keys, short English names, and Chinese book titles."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text in BOOK_BY_KEY:
+        return text
+    lowered = text.lower().replace("-", "_").replace(" ", "_")
+    if lowered in BOOK_BY_KEY:
+        return lowered
+    if f"self_{lowered}" in BOOK_BY_KEY:
+        return f"self_{lowered}"
+    return (_BOOK_TITLE_TO_KEY.get(text) or _BOOK_ALIASES.get(lowered)
+            or _BOOK_ALIASES.get(text) or "")
 
 _FILENAME_UNSAFE = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
 
@@ -139,7 +183,7 @@ def _ensure_write(read_only: bool, action: str) -> None:
 
 
 def book_meta(book_key: str) -> dict[str, Any]:
-    item = BOOK_BY_KEY.get(str(book_key or "").strip())
+    item = BOOK_BY_KEY.get(normalize_book_key(book_key))
     if item is None:
         raise SelfArchiveError("未知的档案本子", 404)
     key, title, folder, types = item
@@ -176,8 +220,8 @@ def _parse_entry(vault: Path, path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError, yaml.YAMLError):
         return None
     relative = _entry_relative(vault, path)
-    section = str(metadata.get("section") or "").strip()
-    if section not in BOOK_BY_KEY:
+    section = normalize_book_key(metadata.get("section"))
+    if not section:
         section = _section_from_relative(relative)
     if section not in BOOK_BY_KEY:
         section = ""

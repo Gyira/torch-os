@@ -172,6 +172,13 @@ class ArchiveOperationTests(unittest.TestCase):
         self.assertEqual(first["entry_id"], second["entry_id"])
         self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
 
+    def test_book_key_aliases_are_normalized(self):
+        for value in ("self_motivation", "motivation", "Motivation", "动机与需求", "动机"):
+            self.assertEqual(self_archive.normalize_book_key(value), "self_motivation")
+        self.assertEqual(self_archive.normalize_book_key("relationships"), "self_relationship")
+        self.assertEqual(self_archive.normalize_book_key("不存在的本子"), "")
+        self.assertEqual(self_archive.normalize_book_key(""), "")
+
     def test_duplicate_entries_collapse_and_merge_sources(self):
         text = "每天下班后爬坡二十分钟，已经坚持一个月，身体比之前稳定很多。"
         first = self_archive.create_entry(

@@ -14,7 +14,9 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.app import mentor_pending, self_archive, self_synthesize
 from backend.app.ai_gateway import HeadlessResult
-from backend.app.ai_roles import RoleRegistry, RoleService
+from backend.app.ai_roles import (
+    RoleRegistry, RoleService, _fallback_reply_from_structured, _visible_reply_text,
+)
 from backend.app.db import Database
 
 REPO = Path(__file__).resolve().parents[1]
@@ -64,6 +66,73 @@ class AutonomousArchiveTests(unittest.TestCase):
         entry = self_archive.find_entry(self.vault, updates[0]["entry_id"])
         self.assertEqual(entry["entry_type"], "fact")
         self.assertTrue(entry["sources"])
+
+    def test_placeholder_reply_is_retried_once(self):
+        first = reply(
+            reply="见上。",
+            memory_notes=[{"kind": "observation",
+                           "text": "他对考研的迷茫集中在是否要辞职。", "sources": ["S2"]}],
+            questions=[{"prompt": "你考这个研最想解决的是哪件事？",
+                        "target_section": "self_motivation", "entry_type": "inference"}],
+        )
+        second = reply(reply="我听见你卡在「要不要辞职」这个代价上。我们先不急着做决定……")
+        self.service._execute = Mock(side_effect=[first, second])
+        result = self.service.chat(
+            "mentor", "converse", "对于考研这件事我其实很迷茫，因为我不知道这会不会需要让我辞职",
+            entry="self.mentor", selectors=[{"entry": "self_archive"}])
+        self.assertNotEqual(result["reply"], "见上。")
+        self.assertIn("我听见你卡在", result["reply"])
+        self.assertEqual(self.service._execute.call_count, 2)
+
+    def test_placeholder_reply_falls_back_to_structured_fields(self):
+        first = reply(
+            reply="见上。",
+            memory_notes=[{"kind": "observation",
+                           "text": "他对考研的迷茫集中在是否要辞职。", "sources": ["S2"]}],
+            questions=[{"prompt": "你考这个研最想解决的是哪件事？",
+                        "target_section": "self_motivation", "entry_type": "inference"}],
+        )
+        self.service._execute = Mock(side_effect=[first, reply(reply="同上。")])
+        result = self.service.chat(
+            "mentor", "converse", "考研要不要辞职", entry="self.mentor",
+            selectors=[{"entry": "self_archive"}])
+        self.assertIn("我先把我看到的说清楚", result["reply"])
+        self.assertIn("先确认一件事", result["reply"])
+        self.assertNotIn("见上", result["reply"])
+
+    def test_visible_reply_guard_detects_placeholders(self):
+        from backend.app.ai_schemas import parse_reply
+        for text in ("见上。", "同上！", "如上", "见上文。", "……", "..."):
+            parsed, structured = parse_reply(json.dumps({"reply": text}))
+            self.assertEqual(_visible_reply_text(parsed, text, structured), "", text)
+        parsed, structured = parse_reply(json.dumps({"reply": "今天先睡一觉，明天再拆。"}))
+        self.assertEqual(_visible_reply_text(parsed, "", structured), "今天先睡一觉，明天再拆。")
+        empty, _ = parse_reply("{}")
+        self.assertIn("没能生成完整回答", _fallback_reply_from_structured(empty))
+        raw_json = '{"reply": ""}'
+        parsed_json, structured_json = parse_reply(raw_json)
+        self.assertEqual(_visible_reply_text(parsed_json, raw_json, structured_json), "")
+
+    def test_short_section_alias_is_normalized(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "motivation", "entry_type": "inference",
+            "confidence": "medium", "title": "考研顾虑集中在辞职代价",
+            "text": "他对考研的迷茫主要落在要不要辞职这个代价上。",
+            "sources": ["S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        self.assertEqual(update["section"], "self_motivation")
+        self.assertEqual(update["section_title"], "动机与需求")
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_motivation")), 1)
+
+    def test_question_with_chinese_book_title_is_saved(self):
+        result = self.chat(reply(questions=[{
+            "prompt": "你考这个研，最想解决的是哪一件事？",
+            "target_section": "动机与需求", "entry_type": "inference",
+        }]))
+        self.assertEqual(len(result["question_candidates"]), 1)
+        self.assertEqual(result["question_candidates"][0]["section"], "self_motivation")
 
     def test_fact_without_source_is_rejected_as_inference_not_written(self):
         result = self.chat(reply(archive_updates=[{

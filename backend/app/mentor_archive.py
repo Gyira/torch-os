@@ -50,9 +50,10 @@ def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
     Model guesses may still be stored, but only as ``inference`` (or another
     non-fact type) with the server keeping the mentor origin.
     """
-    section = str(_field(raw, "section") or "").strip()
-    if section not in self_archive.BOOK_BY_KEY:
-        return None, "未知的档案本子"
+    raw_section = str(_field(raw, "section") or "").strip()
+    section = self_archive.normalize_book_key(raw_section)
+    if not section:
+        return None, f"未知的档案本子：{raw_section or '空'}"
     action = str(_field(raw, "action") or "create").strip()
     if action not in ("create", "supersede"):
         return None, "档案动作只能是 create/supersede"

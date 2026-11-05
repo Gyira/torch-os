@@ -41,9 +41,9 @@ def _persist_patches(vault: Path, patches: list[dict[str, Any]], *,
     for raw in patches[:30]:
         if not isinstance(raw, dict):
             continue
-        section = str(raw.get("section") or "").strip()
-        if section not in self_archive.BOOK_BY_KEY:
-            errors.append(f"未知本子：{section}")
+        section = self_archive.normalize_book_key(raw.get("section"))
+        if not section:
+            errors.append(f"未知本子：{raw.get('section') or '空'}")
             continue
         new_text = str(raw.get("new_text") or "").strip()
         if not new_text:
@@ -197,8 +197,8 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
     questions: list[dict[str, Any]] = []
     dynamic_rows = []
     for item in parsed.question_candidates[:12]:
-        section = str(item.target_section or item.section or "").strip()
-        if section not in self_archive.BOOK_BY_KEY or not item.prompt.strip():
+        section = self_archive.normalize_book_key(item.target_section or item.section)
+        if not section or not item.prompt.strip():
             continue
         dynamic_rows.append({
             "section": section, "prompt": item.prompt,

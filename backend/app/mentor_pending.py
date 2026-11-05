@@ -159,7 +159,9 @@ def create_pending(vault_dir: Path | str, payload: Mapping[str, Any], *,
                    read_only: bool = False) -> dict[str, Any]:
     _ensure_write(read_only, "写入人生导师待确认")
     vault = Path(vault_dir).resolve()
-    section = str(payload.get("section") or "").strip()
+    section = self_archive.normalize_book_key(payload.get("section"))
+    if not section:
+        raise PendingError("未知的档案本子", 422)
     self_archive.book_meta(section)  # validate
     new_text = str(payload.get("new_text") or "").strip()
     if not new_text:

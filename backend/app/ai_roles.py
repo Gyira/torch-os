@@ -31,7 +31,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import identity, mentor_memory, mentor_pending, mentor_questions
+from . import identity, mentor_memory, mentor_pending, mentor_questions, self_archive
 from .ai_context import ContextError, DEFAULT_TOTAL_CHARS, MAX_TOTAL_CHARS, assemble
 from .ai_gateway import AIError, HeadlessResult, headless_environment, run_headless
 from .ai_schemas import extract_json, parse_reply
@@ -60,6 +60,41 @@ def _serialized_thread(method):
 ROLE_ID = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 SKILL_ID = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
 _MODE_HEADING = re.compile(r"(?ms)^##\s+mode:\s*([a-z_]+)\s*$")
+# 模型偶尔把真正的回答放进 memory_notes/questions，reply 只写「见上。」
+# 这类占位回复不能直接给用户看。
+_PLACEHOLDER_REPLY = re.compile(
+    r"^\s*(?:见上|同上|如上|如上所述|见上文|参见上文|详见上文|见前文|同上文|同前|略|…+|\.{3,})"
+    r"[。.!！?？~～]*\s*$")
+
+
+def _visible_reply_text(reply: Any, raw_text: str, structured: bool) -> str:
+    text = str(getattr(reply, "reply", "") or "").strip()
+    # parse_reply 在 JSON 没有可用字段时会把整段原文塞进 reply；聊天里不能把 JSON 原文当回答。
+    if structured and text.startswith("{") and text.endswith("}"):
+        return ""
+    if text and not _PLACEHOLDER_REPLY.match(text):
+        return text
+    if not structured:
+        raw = str(raw_text or "").strip()
+        if raw and not _PLACEHOLDER_REPLY.match(raw):
+            return raw
+    return ""
+
+
+def _fallback_reply_from_structured(reply: Any) -> str:
+    notes = [str(getattr(item, "text", "") or "").strip()
+             for item in (getattr(reply, "memory_notes", None) or [])]
+    notes = [note for note in notes if note]
+    questions = [str(getattr(item, "prompt", "") or "").strip()
+                 for item in (getattr(reply, "questions", None) or [])]
+    questions = [question for question in questions if question]
+    parts: list[str] = []
+    if notes:
+        parts.append("我先把我看到的说清楚：" + "；".join(notes[:3]))
+    if questions:
+        parts.append("先确认一件事：" + questions[0])
+    return "\n\n".join(parts) if parts else (
+        "这一轮我没能生成完整回答。你可以再问一次，或者把问题拆得更具体一点。")
 
 # 角色卡上可由管理页编辑的部分。提示词正文与模式仍由 Markdown 文件负责。
 MAX_TAGLINE = 120
@@ -774,6 +809,24 @@ class RoleService:
             runner=runner,
         )
 
+    def _retry_visible_reply(self, role: RoleDefinition, message: str,
+                             previous: str, session_id: str, runner: Any) -> str:
+        """Ask once more when the model hid its answer inside structured fields."""
+        correction = (
+            f"你刚才对「{str(message or '')[:500]}」的可见回复是「{str(previous or '空')[:200]}」，"
+            "但用户看不到 memory_notes / questions / findings。\n"
+            "请直接用 2–3 段自然语言回答这个问题：先接住感受，再给判断或取舍，"
+            "最后最多问一个关键问题。不要写「见上」「同上」「如上」或任何只指向上文的话；"
+            "结构化字段只是附加数据，不能代替 reply。"
+        )
+        try:
+            result = self._execute(correction, role, session_id=session_id,
+                                   runner=runner)
+        except Exception:  # noqa: BLE001 - retry is best-effort
+            return ""
+        retry_reply, retry_structured = parse_reply(result.text)
+        return _visible_reply_text(retry_reply, result.text, retry_structured)
+
     def prepare_context(self, role_id: str, source: str, builder: Any, *, love_settings: Any = None) -> PreparedContext:
         """Internal builders only: authorize before reading any source content."""
         if self.vault_dir is None:
@@ -1129,7 +1182,7 @@ class RoleService:
             return []
         rows: list[dict[str, Any]] = []
         for item in reply.questions:
-            section = str(item.target_section or item.section or "").strip()
+            section = self_archive.normalize_book_key(item.target_section or item.section)
             if not section or not str(item.prompt or "").strip():
                 continue
             rows.append({
@@ -1197,6 +1250,15 @@ class RoleService:
                                runner=runner)
         self._assert_policy(thread["id"], policy, mode, claim)
         reply, structured = parse_reply(result.text)
+        visible_reply = _visible_reply_text(reply, result.text, structured)
+        reply_retried = False
+        if not visible_reply:
+            visible_reply = self._retry_visible_reply(
+                role, message, reply.reply or result.text, result.session_id, runner)
+            reply_retried = bool(visible_reply)
+        if not visible_reply:
+            visible_reply = _fallback_reply_from_structured(reply)
+        reply.reply = visible_reply
         action_errors: list[str] = []
         proposals = self._create_proposals(reply, role, mode, thread["id"], sources=context.sources, errors=action_errors)
         events = self._ingest_events(reply, role, thread["id"], sources=context.sources, errors=action_errors)
@@ -1231,6 +1293,7 @@ class RoleService:
         self.database.audit("ai_turn_completed", {
             "role": role_id, "mode": mode, "thread_id": thread["id"],
             "chars": len(result.text), "seconds": result.seconds,
+            "reply_retried": reply_retried,
             "proposals": len(proposals), "events": events, "structured": structured,
             "pending": len(pending), "memory_notes": memory_notes,
             "archive_updates": sum(1 for item in archive_updates if item.get("ok")),
