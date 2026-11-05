@@ -40,6 +40,28 @@ def _sources(value: Any) -> list[str]:
     return result[:20]
 
 
+def _attachment_alias(value: Any, bindings: list[dict[str, Any]] | None) -> str:
+    """Map a model-written attachment citation to the turn's synthetic source id."""
+    raw = str(value or "").strip()
+    stripped = raw.strip("[]\"'“”").strip()
+    if not stripped:
+        return raw
+    for source in bindings or []:
+        if source.get("kind") != "attachment":
+            continue
+        if stripped == str(source.get("id") or ""):
+            return str(source.get("id"))
+        for alias in source.get("aliases") or []:
+            text = str(alias or "").strip()
+            if not text:
+                continue
+            if stripped == text:
+                return str(source.get("id"))
+            if len(text) >= 8 and (text in stripped or stripped in text):
+                return str(source.get("id"))
+    return raw
+
+
 def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
                         bindings: list[dict[str, Any]] | None = None,
                         thread_id: str = "", origin: str = "mentor",
@@ -77,6 +99,7 @@ def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
     trusted_source = False
     binding_ids = {str(item.get("id") or "") for item in (bindings or [])}
     for value in _sources(_field(raw, "sources")):
+        value = _attachment_alias(value, bindings)
         try:
             reference = policy.reference(
                 value, bindings=bindings or [], thread_id=thread_id)

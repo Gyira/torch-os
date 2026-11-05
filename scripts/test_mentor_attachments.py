@@ -63,7 +63,8 @@ class MentorAttachmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["media_type"], "image/png")
         self.assertTrue(rows[0]["image_bytes"])
         block = mentor_attachments.prompt_block(rows)
-        self.assertIn("图片 1", block)
+        self.assertIn("附件 A1", block)
+        self.assertIn("图片", block)
         self.assertIn("照片.PNG", block)
         self.assertIn("64×32", block)
 

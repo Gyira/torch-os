@@ -149,12 +149,41 @@ class AutonomousArchiveTests(unittest.TestCase):
         call = self.service._execute_acp.call_args
         images = call.kwargs["images"]
         self.assertEqual(images[0]["media_type"], "image/png")
-        self.assertIn("图片 1", call.args[0])
+        self.assertIn("附件 A1", call.args[0])
         self.assertIn("截图.png", call.args[0])
         self.assertEqual(result["attachments"][0]["kind"], "image")
         thread = self.service.thread(result["thread_id"])
         user_turn = next(turn for turn in thread["turns"] if turn["role"] == "user")
         self.assertEqual(user_turn["structured"]["attachments"][0]["kind"], "image")
+
+    def test_attachment_filename_source_is_accepted_for_fact(self):
+        import io
+        from PIL import Image
+        buffer = io.BytesIO()
+        Image.new("RGB", (24, 24), "green").save(buffer, format="PNG")
+        attachment = mentor_attachments.save_attachment(
+            self.vault, "招聘计划表.png", buffer.getvalue())
+        payload = {
+            "reply": "读到了招聘表。",
+            "archive_updates": [{
+                "action": "create", "section": "self_facts", "entry_type": "fact",
+                "confidence": "high", "title": "招聘表里的学历门槛",
+                "text": "招聘表的学历栏要求本科及以上。",
+                "evidence": "用户附件里的招聘表原文。",
+                "sources": [f"用户附件：{attachment['name']}"],
+            }],
+        }
+        self.service._execute_acp = Mock(return_value=AcpResult(
+            text=json.dumps(payload, ensure_ascii=False), session_id="",
+            seconds=1.0, stop_reason="end_turn"))
+        result = self.service.chat(
+            "mentor", "converse", "看看这张招聘表", entry="self.mentor",
+            selectors=[{"entry": "self_archive"}], attachments=[attachment["id"]])
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        entry = self_archive.find_entry(self.vault, update["entry_id"])
+        self.assertEqual(entry["section"], "self_facts")
+        self.assertEqual(entry["sources"], [f"附件：{attachment['name']}"])
 
     def test_short_section_alias_is_normalized(self):
         result = self.chat(reply(archive_updates=[{

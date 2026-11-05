@@ -1245,12 +1245,10 @@ class RoleService:
         else:
             thread = None
         attachment_rows: list[dict[str, Any]] = []
-        attachments_text = ""
         if attachments:
             if role_id != "mentor" or mode != "converse":
                 raise ValueError("只有人生导师对话支持附件")
             attachment_rows = mentor_attachments.load_attachments(self.vault_dir, attachments)
-            attachments_text = mentor_attachments.prompt_block(attachment_rows)
         image_rows = [row for row in attachment_rows if row.get("kind") == "image"]
         selected = list(selectors or []) or self._default_selectors(role, mode, entry)
         if selection_path:
@@ -1262,6 +1260,33 @@ class RoleService:
             max_chars=self._max_chars(role),
             love_settings=self.love_settings,
         )
+        attachment_bindings: list[dict[str, Any]] = []
+        attachments_text = ""
+        if attachment_rows:
+            for index, row in enumerate(attachment_rows, 1):
+                name = str(row.get("name") or f"附件{index}")
+                source_id = f"A{index}"
+                aliases = [
+                    source_id,
+                    f"附件{index}", f"附件 {index}", f"图片{index}", f"图片 {index}",
+                    name, Path(name).stem,
+                    f"用户附件：{name}", f"用户附件：{Path(name).stem}",
+                    f"附件：{name}", f"图片：{name}",
+                ]
+                binding = {
+                    "id": source_id,
+                    "kind": "attachment",
+                    "title": f"附件 {index}：{name}",
+                    "label": f"附件：{name}",
+                    "path": "",
+                    "chars": 0,
+                    "attachment_id": row.get("id") or "",
+                    "aliases": aliases,
+                }
+                attachment_bindings.append(binding)
+                context.sources.append(binding)
+            attachments_text = mentor_attachments.prompt_block(
+                attachment_rows, ids=[binding["id"] for binding in attachment_bindings])
         policy = RolePolicy.for_role(role_id, self.vault_dir)
         if thread is None:
             thread = self._create_thread(role_id, mode, message[:40])

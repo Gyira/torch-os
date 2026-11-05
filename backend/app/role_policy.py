@@ -183,11 +183,18 @@ class RolePolicy:
             return thread_id
         if raw == thread_id:
             return raw
+        matched_attachment = ""
         for source in bindings or []:
             if raw.strip("[]") == source.get("id"):
-                path = str(source.get("path") or "")
-                raw = path if path.lower().endswith(".md") else "context:" + str(source.get("kind") or "")
+                if source.get("kind") == "attachment":
+                    matched_attachment = str(
+                        source.get("label") or source.get("title") or "附件")
+                else:
+                    path = str(source.get("path") or "")
+                    raw = path if path.lower().endswith(".md") else "context:" + str(source.get("kind") or "")
                 break
+        if matched_attachment:
+            return matched_attachment
         if raw.startswith("context:"):
             source = raw.removeprefix("context:")
             roots = SOURCE_ROOTS.get(source)
