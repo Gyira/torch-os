@@ -30,10 +30,11 @@ INDEX_TYPE = "habit_index"
 NOTES_DIR = "习惯"
 LOGS_DIR = "打卡"
 INDEX_NAME = "习惯定义.md"
-STATUSES = ("done", "skipped", "unrecorded")
+STATUSES = ("done", "skipped", "failed", "unrecorded")
 STATUS_ALIASES = {
     "done": "done", "完成": "done", "已完成": "done",
     "skipped": "skipped", "skip": "skipped", "主动休息": "skipped", "跳过": "skipped",
+    "failed": "failed", "fail": "failed", "失败": "failed", "未完成": "failed",
     "unrecorded": "unrecorded", "未记录": "unrecorded",
 }
 STANDARD_LOG_HEADER = ["日期", "习惯uid", "习惯", "状态", "备注", "记录时间"]

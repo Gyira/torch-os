@@ -32,6 +32,7 @@ from .dida_client import (
     DidaCredentials, DidaError, DidaProvider, PrivateDidaProvider, RemoteProject,
     RemoteSnapshot, RemoteTask, parse_cookie_input, task_from_payload,
 )
+from .dida_habit_sync import DidaHabitSync
 from .dida_mapping import (
     MappedTask, build_remote_task_payload, legacy_all_day_date, map_task,
     material_matches, sanitize_list_name,
@@ -70,6 +71,9 @@ CREATE TABLE IF NOT EXISTS dida_sync_settings (
     last_run_finished_at TEXT,
     last_push_at TEXT,
     last_push_error_code TEXT NOT NULL DEFAULT '',
+    habits_enabled INTEGER NOT NULL DEFAULT 1 CHECK(habits_enabled IN (0, 1)),
+    last_habit_push_at TEXT,
+    last_habit_push_error_code TEXT NOT NULL DEFAULT '',
     last_checkpoint INTEGER,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
@@ -180,6 +184,7 @@ class DidaSyncSettingsUpdate(BaseModel):
     completed_days: StrictInt = Field(default=30, ge=0, le=3650)
     push_deletes: StrictBool = True
     push_changes: StrictBool = True
+    habits_enabled: StrictBool = True
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     device_version: StrictInt = Field(default=8000, ge=1, le=99999)
     cookie: str | None = None
@@ -288,6 +293,8 @@ class DidaSyncService:
         # 清单名 → 待用于远端新建的项目 ID；重试时复用，避免瞬时失败产生重复清单。
         self._pending_projects: dict[str, str] = {}
         self.initialize()
+        self.habit_sync = DidaHabitSync(self)
+        self.habit_sync.initialize()
 
     # ---------- 初始化 / 设置 ----------
 
@@ -302,6 +309,9 @@ class DidaSyncService:
                 ("push_changes", "INTEGER NOT NULL DEFAULT 1"),
                 ("last_push_at", "TEXT"),
                 ("last_push_error_code", "TEXT NOT NULL DEFAULT ''"),
+                ("habits_enabled", "INTEGER NOT NULL DEFAULT 1"),
+                ("last_habit_push_at", "TEXT"),
+                ("last_habit_push_error_code", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if name not in columns:
                     connection.execute(
@@ -385,6 +395,10 @@ class DidaSyncService:
         cookie, csrf = self._credentials()
         counts = self._link_counts()
         try:
+            habit_counts = self.habit_sync.link_counts()
+        except Exception:
+            habit_counts = {}
+        try:
             last_counts = json.loads(row.get("last_run_counts_json") or "{}")
         except ValueError:
             last_counts = {}
@@ -411,6 +425,15 @@ class DidaSyncService:
             "completed_days": int(row.get("completed_days") or 0),
             "push_deletes": bool(row.get("push_deletes", 1)),
             "push_changes": bool(row.get("push_changes", 1)),
+            "habits_enabled": bool(row.get("habits_enabled", 1)),
+            "habit_links": habit_counts.get("links", 0),
+            "habit_conflicts": habit_counts.get("conflict", 0),
+            "habit_checkin_links": habit_counts.get("checkin_links", 0),
+            "habit_checkin_conflicts": habit_counts.get("checkin_conflicts", 0),
+            "habit_local_missing": habit_counts.get("local_missing", 0),
+            "habit_remote_deleted": habit_counts.get("remote_deleted", 0),
+            "last_habit_push_at": row.get("last_habit_push_at"),
+            "last_habit_push_error_code": row.get("last_habit_push_error_code") or "",
             "timezone": row.get("timezone") or "Asia/Shanghai",
             "device_version": int(row.get("device_version") or 8000),
             "device_id_prefix": str(row.get("device_id") or "")[:6],
@@ -470,11 +493,13 @@ class DidaSyncService:
             connection.execute(
                 """UPDATE dida_sync_settings SET
                    enabled = ?, region = ?, interval_minutes = ?, completed_days = ?,
-                   push_deletes = ?, push_changes = ?, timezone = ?, device_version = ?,
+                   push_deletes = ?, push_changes = ?, habits_enabled = ?,
+                   timezone = ?, device_version = ?,
                    device_id = ?, updated_at = ? WHERE id = 1""",
                 (1 if payload.enabled else 0, payload.region, payload.interval_minutes,
                  payload.completed_days, 1 if payload.push_deletes else 0,
                  1 if payload.push_changes else 0,
+                 1 if payload.habits_enabled else 0,
                  payload.timezone, payload.device_version, device_id, _iso_now()),
             )
             connection.commit()
@@ -1239,7 +1264,7 @@ class DidaSyncService:
         if not cookie:
             return False
         row = self._row()
-        if not row.get("enabled"):
+        if not row.get("enabled") and not row.get("habits_enabled", 1):
             return False
         current = now or datetime.now(timezone.utc)
         last = _parse_iso(row.get("last_attempt_at"))
@@ -2042,24 +2067,56 @@ class DidaSyncService:
         return {"ok": True, "external_id": dida_id, "status": "synced"}
 
 
+def _merge_result(summary: dict[str, Any], result: dict[str, Any],
+                  error_warning: str = "") -> None:
+    for key, value in (result.get("counts") or {}).items():
+        summary["counts"][key] = int(summary["counts"].get(key, 0)) + int(value or 0)
+    for warning in result.get("warnings") or []:
+        summary["warnings"] = sorted(set([*summary.get("warnings", []), str(warning)]))
+        warning_counts = summary.setdefault("warning_counts", {})
+        warning_counts[str(warning)] = int(warning_counts.get(str(warning), 0)) + 1
+    errors = result.get("errors") or []
+    if errors and error_warning:
+        summary["warnings"] = sorted(set([*summary.get("warnings", []), error_warning]))
+        summary.setdefault("warning_counts", {})[error_warning] = len(errors)
+
+
 async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
                         trigger: str = "manual", dry_run: bool = False,
                         force: bool = False) -> dict[str, Any]:
     if not service.supported:
         raise DidaError("unsupported", "当前运行环境不支持滴答同步")
     if service.read_only and not dry_run:
-        raise VaultReadOnlyError("当前是 Obsidian 只读模式，已拒绝从滴答清单同步任务")
+        raise VaultReadOnlyError("当前是 Obsidian 只读模式，已拒绝从滴答清单同步")
     if service._run_guard.locked():
         raise DidaError("sync_running", "已经有一次滴答同步在进行")
     async with service._run_guard:
+        settings = service._row()
         service._running = True
         if not dry_run:
             service.mark_attempt(trigger)
         provider: DidaProvider | None = None
+        habits_enabled = bool(settings.get("habits_enabled", 1))
+        remote_habits: tuple[Any, ...] | None = None
+        remote_checkins: dict[str, Any] | None = None
+        habit_warnings: list[str] = []
         try:
             provider = service.build_provider()
             snapshot = await provider.fetch_snapshot(0)
             completed = await provider.fetch_completed()
+            if habits_enabled and hasattr(provider, "fetch_habits"):
+                try:
+                    remote_habits = await provider.fetch_habits()
+                except DidaError as error:
+                    habit_warnings.append(f"habit_fetch_error_{error.code}")
+                else:
+                    try:
+                        remote_checkins = await provider.query_habit_checkins(
+                            [str(item.id) for item in remote_habits],
+                            after_stamp=19700101,
+                        )
+                    except DidaError as error:
+                        habit_warnings.append(f"checkin_query_error_{error.code}")
             await provider.aclose()
             provider = None
             async with data_lock:
@@ -2067,28 +2124,38 @@ async def run_dida_sync(service: DidaSyncService, data_lock: asyncio.Lock, *,
                     service.apply_snapshot, snapshot, completed,
                     dry_run=dry_run, force=force, trigger=trigger,
                 )
+                if habits_enabled and remote_habits is not None:
+                    try:
+                        habit_summary = await run_in_threadpool(
+                            service.habit_sync.apply_remote, remote_habits,
+                            remote_checkins, dry_run=dry_run, force=force,
+                            trigger=trigger,
+                        )
+                    except Exception as error:
+                        habit_summary = {
+                            "counts": {},
+                            "warnings": ["habit_pull_error"],
+                            "errors": [{"code": type(error).__name__,
+                                        "message": str(error)}],
+                        }
+                    _merge_result(summary, habit_summary, "habit_pull_error")
+            summary["warnings"] = sorted(set([
+                *summary.get("warnings", []), *habit_warnings]))
+            warning_counts = summary.setdefault("warning_counts", {})
+            for warning in habit_warnings:
+                warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
             if not dry_run:
                 # 先回写本地新建/修改，再回写本地删除；两者都基于已合并的远端快照。
                 local_push = await service.push_local_changes(force=True)
-                for key, value in (local_push.get("counts") or {}).items():
-                    summary["counts"][key] = int(summary["counts"].get(key, 0)) + int(value or 0)
-                for warning in local_push.get("warnings") or []:
-                    summary["warnings"] = sorted(set([*summary.get("warnings", []), warning]))
-                    warning_counts = summary.setdefault("warning_counts", {})
-                    warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
+                _merge_result(summary, local_push)
                 push = await service.push_deletions(force=True)
                 summary["counts"]["deleted_pushed"] = int(push.get("deleted") or 0)
-                for key, value in (push.get("counts") or {}).items():
-                    summary["counts"][key] = (
-                        int(summary["counts"].get(key, 0)) + int(value or 0)
-                    )
-                for warning in push.get("warnings") or []:
-                    summary["warnings"] = sorted(set([*summary.get("warnings", []), warning]))
-                    warning_counts = summary.setdefault("warning_counts", {})
-                    warning_counts[warning] = int(warning_counts.get(warning, 0)) + 1
-                if push.get("errors"):
-                    summary["warnings"] = sorted(set([*summary.get("warnings", []), "push_delete_error"]))
-                    summary.setdefault("warning_counts", {})["push_delete_error"] = len(push["errors"])
+                _merge_result(summary, push, "push_delete_error")
+                if habits_enabled:
+                    habit_changes = await service.habit_sync.push_changes(force=True)
+                    _merge_result(summary, habit_changes, "habit_push_error")
+                    habit_deletes = await service.habit_sync.push_deletions(force=True)
+                    _merge_result(summary, habit_deletes, "habit_delete_error")
                 service.mark_success(summary)
             return summary
         except Exception as error:
@@ -2108,6 +2175,8 @@ async def dida_sync_loop(service: DidaSyncService, data_lock: asyncio.Lock) -> N
             if not service._running:
                 await service.push_local_changes()
                 await service.push_deletions()
+                await service.habit_sync.push_changes()
+                await service.habit_sync.push_deletions()
             if service.due():
                 await run_dida_sync(service, data_lock, trigger="scheduled")
         except asyncio.CancelledError:
@@ -2131,6 +2200,7 @@ def _http_error(error: Exception) -> HTTPException:
             "unsupported": 409,
             "csrf_required": 409,
             "write_forbidden": 409,
+            "checkins_read_forbidden": 409,
             "rate_limited": 429,
             "network_error": 502,
             "invalid_response": 502,
@@ -2183,6 +2253,19 @@ def create_dida_sync_router(service: DidaSyncService, data_lock: asyncio.Lock, *
     async def keep_local(external_id: str):
         async with data_lock:
             return await run_in_threadpool(service.keep_local, external_id)
+
+    @router.get("/habit-links")
+    def habit_links():
+        return {"links": service.habit_sync.link_map()}
+
+    @router.get("/habit-conflicts")
+    def habit_conflicts(limit: int = Query(default=100, ge=1, le=200)):
+        return {"conflicts": service.habit_sync.conflicts(limit)}
+
+    @router.post("/habit-conflicts/{external_id}/keep-local")
+    async def habit_keep_local(external_id: str):
+        async with data_lock:
+            return await run_in_threadpool(service.habit_sync.keep_local, external_id)
 
     @router.delete("/credentials")
     def clear_credentials():

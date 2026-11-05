@@ -208,6 +208,7 @@ export function openHabitLogDialog({ habit, day, entry = null, onSave }) {
     <label class="habit-field">状态<select id="habit-log-status">
       <option value="done"${status === "done" ? " selected" : ""}>完成</option>
       <option value="skipped"${status === "skipped" ? " selected" : ""}>主动休息</option>
+      <option value="failed"${status === "failed" ? " selected" : ""}>失败</option>
       <option value="unrecorded"${status === "unrecorded" ? " selected" : ""}>清除记录</option>
     </select></label>
     <label class="habit-field">打卡日志<textarea id="habit-log-note" maxlength="2000" rows="4" placeholder="今天有什么想记下的？">${value(note)}</textarea></label>
@@ -262,6 +263,11 @@ export function openHabitMenu(anchor, habit, actions = {}) {
       menuRow(layer, skipped ? "↩️ 取消主动休息" : "😴 今天主动休息", () => {
         close();
         actions.skip?.(habit, !skipped);
+      });
+      const failed = habit.entry_today?.status === "failed";
+      menuRow(layer, failed ? "↩️ 取消失败" : "❌ 今天标记失败", () => {
+        close();
+        actions.fail?.(habit, !failed);
       });
     }
     if (habit.status === "archived") {

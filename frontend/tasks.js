@@ -17,9 +17,10 @@ export function taskRow(task, options) {
   const habit = isHabitTask(task);
   const checked = habit ? task.entry_status === "done" : Boolean(task.done);
   const skipped = habit && task.entry_status === "skipped";
+  const failed = habit && task.entry_status === "failed";
   const selected = multi ? selectedKeys.has(task.key) : activeKey === task.key;
   const row = document.createElement("li");
-  row.className = `time-task${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${habit ? " is-habit" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}${legacy ? " is-legacy" : ""}`;
+  row.className = `time-task${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${failed ? " is-failed" : ""}${habit ? " is-habit" : ""}${task.pinned ? " is-pinned" : ""}${selected ? " is-selected" : ""}${legacy ? " is-legacy" : ""}`;
   row.dataset.taskKey = task.key;
   row.dataset.taskPath = task.path || "";
   row.dataset.taskKind = habit ? "habit" : "";
@@ -89,6 +90,11 @@ export function taskRow(task, options) {
       skipBadge.className = "task-habit-skip";
       skipBadge.textContent = "休息";
       skipBadge.title = "今天已标记为主动休息";
+    } else if (failed) {
+      skipBadge = document.createElement("span");
+      skipBadge.className = "task-habit-skip";
+      skipBadge.textContent = "失败";
+      skipBadge.title = "今天已标记为失败";
     }
   }
 
@@ -506,8 +512,9 @@ function taskItem(task, options, shape) {
   const habit = isHabitTask(task);
   const checked = habit ? task.entry_status === "done" : Boolean(task.done);
   const skipped = habit && task.entry_status === "skipped";
+  const failed = habit && task.entry_status === "failed";
   const item = document.createElement("div");
-  item.className = `time-item time-${shape}${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${habit ? " is-habit" : ""}${legacy ? " is-legacy" : ""}`;
+  item.className = `time-item time-${shape}${checked ? " is-done" : ""}${skipped ? " is-skipped" : ""}${failed ? " is-failed" : ""}${habit ? " is-habit" : ""}${legacy ? " is-legacy" : ""}`;
   item.dataset.taskKey = task.key;
   item.dataset.taskPath = task.path || "";
   item.dataset.taskKind = habit ? "habit" : "";

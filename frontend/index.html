@@ -154,6 +154,8 @@
               <header class="time-head habit-page-head">
                 <h3>习惯打卡</h3>
                 <span id="habit-page-count" class="meta" role="status"></span>
+                <button type="button" id="habit-dida-sync" class="text-button" hidden>滴答同步</button>
+                <span id="habit-dida-status" class="meta" role="status" hidden></span>
                 <button type="button" id="habit-add" class="button primary" data-habit-add>＋ 添加习惯</button>
                 <button type="button" id="habit-archived-toggle" class="text-button" aria-pressed="false">已归档</button>
               </header>
@@ -434,13 +436,14 @@
           </section>
           <section class="settings-section" data-settings-section="dida" aria-labelledby="settings-dida-heading" hidden>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">DIDA SYNC</span><h2 id="settings-dida-heading" tabindex="-1">滴答同步</h2><p>从滴答清单单向拉取项目与任务到当前库；私有 V2 Web API，实验性功能。</p></div><span id="dida-status-badge" class="badge" role="status"></span></div>
+              <div class="settings-card-head"><div><span class="eyebrow">DIDA SYNC</span><h2 id="settings-dida-heading" tabindex="-1">滴答同步</h2><p>从滴答清单双向同步任务与习惯；私有 V2 Web API，实验性功能。</p></div><span id="dida-status-badge" class="badge" role="status"></span></div>
               <div id="dida-status-panel"></div>
               <form id="dida-sync-form" class="form-panel">
                 <div class="form-grid">
                   <div class="field"><label class="check-label" for="dida-enabled"><input id="dida-enabled" type="checkbox" />启用定时同步</label></div>
-                  <div class="field"><label class="check-label" for="dida-push-deletes"><input id="dida-push-deletes" type="checkbox" />本地删除同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机已删除的已同步任务（在回收站里，或已彻底清理但远端仍存在）都会在下一次推送时从滴答删除；滴答回收站可能可恢复。缺少 _csrf_token 时不会删除远端任务。</p></div>
-                  <div class="field"><label class="check-label" for="dida-push-changes"><input id="dida-push-changes" type="checkbox" />本地新增/修改同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机新建任务、改名、改清单、日期/时间、优先级、标签和完成状态会写回滴答：每次操作后立即尝试回写（250ms 防抖），后台每 15 秒再兜底检查一次；正文、重复规则、提醒、附件暂不回写。缺少 _csrf_token 时不会写回。</p></div>
+                  <div class="field"><label class="check-label" for="dida-habits-enabled"><input id="dida-habits-enabled" type="checkbox" checked />同步习惯与打卡（双向）</label><p class="field-help">拉取滴答习惯和打卡，并把本地习惯的新增/改名/频率、完成/失败/取消打卡写回滴答。主动休息只留在本地；备注、提示、最小行动、分组、优先级和排序也不上传。</p></div>
+                  <div class="field"><label class="check-label" for="dida-push-deletes"><input id="dida-push-deletes" type="checkbox" />本地删除同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机已删除的已同步任务/清单/习惯会在下一次推送时从滴答删除；滴答回收站可能可恢复。缺少 _csrf_token 时不会删除远端内容。</p></div>
+                  <div class="field"><label class="check-label" for="dida-push-changes"><input id="dida-push-changes" type="checkbox" />本地新增/修改同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机新建任务、改名、改清单、日期/时间、优先级、标签、完成状态，以及习惯定义和打卡会写回滴答：每次操作后立即尝试回写（250ms 防抖），后台每 15 秒再兜底检查一次；任务正文、重复规则、提醒、附件暂不回写。缺少 _csrf_token 时不会写回。</p></div>
                   <div class="field"><label for="dida-region">区域</label><select id="dida-region"><option value="dida365">滴答清单（中国）</option><option value="ticktick">TickTick（国际）</option></select></div>
                   <div class="field"><label for="dida-interval">同步间隔（分钟）</label><input id="dida-interval" type="number" min="5" max="1440" value="15" /></div>
                   <div class="field"><label for="dida-completed-days">已完成回看天数</label><input id="dida-completed-days" type="number" min="0" max="3650" value="30" /></div>
@@ -460,7 +463,7 @@
               </form>
               <div id="dida-summary" class="panel" hidden></div>
               <div id="dida-conflicts" class="panel" hidden></div>
-              <p class="field-help">拉取始终可用；写回目前只支持“本地删除同步到滴答”（必须保存 _csrf_token）。滴答远端删除任务或清单会把本地笔记/清单一并移入任务回收站；重复规则、提醒、附件暂不映射。冲突默认保留本地。</p>
+              <p class="field-help">拉取始终可用；写回需要保存 _csrf_token。滴答远端删除任务/清单会把本地内容移入回收站，删除习惯则只把本地习惯归档并保留历史。完成/失败与滴答 2/1 一一对应；“主动休息”只留在本地，不写成滴答失败。冲突默认保留本地。</p>
             </article>
           </section>
           <section class="settings-section" data-settings-section="backup" aria-labelledby="settings-backup-heading" hidden>

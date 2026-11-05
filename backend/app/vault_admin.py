@@ -184,6 +184,7 @@ def _build_vault(root: Path, *, plugin_dir: Path) -> dict[str, Any]:
         shutil.copy2(source, plugin_target / name)
     _write_json(plugin_target / "data.json", {
         "baseUrl": "http://127.0.0.1:8765",
+        # 首次安装提示；插件运行后把仓库/Python/端口改存本机配置目录。
         "repoRoot": PROJECT_ROOT.as_posix(),
         "pythonPath": "",
         "autoStart": True,

@@ -4,7 +4,7 @@ import { api, changed, jsonBody, setStatus, state, toast } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
 import { openTaskDocument } from "./task-open.js";
 import {
-  entryFor, logsForHabit, monthGrid, monthLabel, shiftMonth,
+  decorateHabitSync, entryFor, logsForHabit, monthGrid, monthLabel, shiftMonth,
 } from "./habits-model.js";
 import {
   habitCardsHtml, habitCountLabel, habitDetailHtml, habitGroupOptions, habitWarningsHtml,
@@ -25,6 +25,23 @@ let loading = false;
 let reminderTimer = 0;
 let pickerBound = false;
 let pendingSelectId = 0;
+let didaLinkSignature = "";
+
+async function loadDidaLinks() {
+  try {
+    const data = await api("/api/sync/dida/habit-links");
+    return Array.isArray(data?.links) ? data.links : [];
+  } catch {
+    return [];
+  }
+}
+
+function linkSignature(links) {
+  return (Array.isArray(links) ? links : [])
+    .map((link) => `${link.uid || ""}:${link.status || ""}`)
+    .sort()
+    .join("|");
+}
 
 function today() {
   return overview?.today || shanghaiDay();
@@ -70,6 +87,16 @@ function paint() {
   const selected = selectedHabit();
   const count = document.querySelector("#habit-page-count");
   if (count) count.textContent = habitCountLabel(habits);
+  const didaStatus = document.querySelector("#habit-dida-status");
+  if (didaStatus) {
+    const all = Array.isArray(overview.habits) ? overview.habits : [];
+    const linked = all.filter((habit) => Boolean(habit.dida_status)).length;
+    const conflicts = all.filter((habit) => habit.dida_status === "conflict").length;
+    didaStatus.hidden = !linked && !conflicts;
+    didaStatus.textContent = linked || conflicts
+      ? `滴答 ${linked}${conflicts ? ` · 冲突 ${conflicts}` : ""}`
+      : "";
+  }
   const week = document.querySelector("#habit-week-strip");
   if (week) week.innerHTML = weekStripHtml(overview.week, today());
   const groupSelect = document.querySelector("#habit-group-filter");
@@ -104,13 +131,20 @@ export async function loadHabitsPage({ silent = false, force = false } = {}) {
   if (loading) return;
   loading = true;
   try {
-    const next = await api(`/api/habits/overview?month=${encodeURIComponent(month)}&include_archived=${archived ? "true" : "false"}`);
+    const [next, links] = await Promise.all([
+      api(`/api/habits/overview?month=${encodeURIComponent(month)}&include_archived=${archived ? "true" : "false"}`),
+      loadDidaLinks(),
+    ]);
+    const signature = linkSignature(links);
     if (silent && !force && overview
         && next.habits_revision === overview.habits_revision
         && next.month === overview.month
-        && next.today === overview.today) {
+        && next.today === overview.today
+        && signature === didaLinkSignature) {
       return;
     }
+    didaLinkSignature = signature;
+    next.habits = decorateHabitSync(next.habits, links);
     overview = next;
     if (groupFilter && !(next.groups || []).some((group) => group.name === groupFilter)) {
       groupFilter = "";
@@ -271,6 +305,22 @@ async function deleteHabit(habit) {
   });
 }
 
+async function failHabit(habit, failed) {
+  const entry = habit.entry_today;
+  const revision = Number(entry?.revision) || 0;
+  try {
+    await api(`/api/habits/${habit.id}/entries/${today()}`, jsonBody("PUT", {
+      revision, status: failed ? "failed" : "unrecorded", note: entry?.note || "",
+    }));
+    await loadHabitsPage({ force: true });
+    emitChanged();
+    toast(failed ? "今天标记为失败。" : "已取消失败。");
+  } catch (error) {
+    setStatus("#habit-page-status", `更新失败：${error.message}`, "error");
+    await loadHabitsPage({ force: true });
+  }
+}
+
 async function skipHabit(habit, skipped) {
   const entry = habit.entry_today;
   const revision = Number(entry?.revision) || 0;
@@ -303,6 +353,7 @@ function openMenu(anchor, habit) {
     archive: archiveHabit,
     delete: deleteHabit,
     skip: skipHabit,
+    fail: failHabit,
     openDocument,
   });
 }

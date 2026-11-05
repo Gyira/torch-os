@@ -15,32 +15,39 @@ const available = () => state.config?.capabilities?.dida_sync === true;
 
 /** 时间管理模块右上角「立即同步」：跟着能力与配置状态显示/禁用。 */
 function renderQuickState() {
-  const button = $("#time-dida-sync");
-  if (!button) return;
+  const buttons = [
+    { node: $("#time-dida-sync"), idle: "立即同步" },
+    { node: $("#habit-dida-sync"), idle: "滴答同步" },
+  ].filter((entry) => entry.node);
+  if (!buttons.length) return;
   if (!available()) {
-    button.hidden = true;
+    buttons.forEach(({ node }) => { node.hidden = true; });
     return;
   }
-  button.hidden = false;
   const running = syncing || Boolean(quickStatus?.running);
-  button.disabled = !quickStatus
+  const disabled = !quickStatus
     || Boolean(quickStatusError)
     || !quickStatus.supported
     || Boolean(quickStatus.read_only)
     || !quickStatus.configured
     || running;
-  button.textContent = running ? "同步中…" : "立即同步";
   const title = quickStatusError ? `无法读取滴答同步状态：${quickStatusError}`
     : !quickStatus ? "正在读取滴答同步状态…"
     : !quickStatus.supported ? "当前运行环境不支持滴答同步"
     : quickStatus.read_only ? "当前库是只读模式，不能同步"
     : !quickStatus.configured ? "请先到 设置 → 滴答同步 配置登录凭据"
     : running ? "正在从滴答清单同步…"
-    : "从滴答清单拉取最新任务";
-  button.title = ((quickStatus?.push_deletes || quickStatus?.push_changes)
+    : "从滴答清单同步任务与习惯";
+  const fullTitle = ((quickStatus?.push_deletes || quickStatus?.push_changes)
     && !quickStatus?.csrf_set)
     ? `${title}（缺少 _csrf_token，本地删除/修改不会写回滴答）`
     : title;
+  buttons.forEach(({ node, idle }) => {
+    node.hidden = false;
+    node.disabled = disabled;
+    node.textContent = running ? "同步中…" : idle;
+    node.title = fullTitle;
+  });
 }
 
 async function loadQuickStatus() {
@@ -101,7 +108,14 @@ function renderStatus(status) {
     ["冲突", String(status.conflicts || 0)],
     ["本地缺失", String(status.local_missing || 0)],
     ["远端已删除", String(status.remote_deleted || 0)],
-    ["下次定时", status.enabled ? formatWhen(status.next_due_at) : "未启用"],
+    ["习惯同步", status.habits_enabled ? "已开启" : "未开启"],
+    ["已关联习惯", String(status.habit_links || 0)],
+    ["习惯冲突", String(status.habit_conflicts || 0)],
+    ["习惯打卡链接", String(status.habit_checkin_links || 0)],
+    ["打卡冲突", String(status.habit_checkin_conflicts || 0)],
+    ["习惯回写", status.last_habit_push_at ? formatWhen(status.last_habit_push_at) : "还没有"],
+    ["习惯回写错误", status.last_habit_push_error_code ? syncErrorText(status.last_habit_push_error_code) : "无"],
+    ["下次定时", (status.enabled || status.habits_enabled) ? formatWhen(status.next_due_at) : "未启用"],
     ["设备 ID", status.device_id_prefix ? `${status.device_id_prefix}…` : "未生成"],
   ];
   const panel = $("#dida-status-panel");
@@ -112,6 +126,7 @@ function renderStatus(status) {
   if ($("#dida-enabled")) $("#dida-enabled").checked = Boolean(status.enabled);
   if ($("#dida-push-deletes")) $("#dida-push-deletes").checked = Boolean(status.push_deletes);
   if ($("#dida-push-changes")) $("#dida-push-changes").checked = Boolean(status.push_changes);
+  if ($("#dida-habits-enabled")) $("#dida-habits-enabled").checked = status.habits_enabled !== false;
   if ($("#dida-region")) $("#dida-region").value = status.region || "dida365";
   if ($("#dida-interval")) $("#dida-interval").value = String(status.interval_minutes || 15);
   if ($("#dida-completed-days")) $("#dida-completed-days").value = String(status.completed_days ?? 30);
@@ -155,9 +170,14 @@ function renderConflicts(rows = []) {
     return;
   }
   panel.hidden = false;
-  panel.innerHTML = `<h3>待处理冲突（${rows.length}）</h3><ul class="history-list">${rows.map((row) =>
-    `<li><div><strong>${escapeHtml(row.pending_remote_title || row.last_title || "未命名任务")}</strong><span>${escapeHtml(conflictReasonText(row.conflict_reason))}</span><span class="meta">${escapeHtml(row.relpath || "")}</span></div><button class="text-button" data-dida-keep-local="${escapeHtml(row.external_id)}">保留本地</button></li>`
-  ).join("")}</ul><p class="field-help">“保留本地”会把滴答当前状态记为已同步基线；之后滴答再改就会应用。不会修改本地笔记。</p>`;
+  const kindLabel = { task: "任务", habit: "习惯", habit_checkin: "打卡" };
+  panel.innerHTML = `<h3>待处理冲突（${rows.length}）</h3><ul class="history-list">${rows.map((row) => {
+    const kind = String(row.kind || "task");
+    const title = row.pending_remote_title || row.last_title || (kind === "habit_checkin" ? "未命名打卡" : "未命名任务");
+    const meta = [kindLabel[kind] || kind, row.date || "", row.relpath || ""].filter(Boolean).join(" · ");
+    const action = kind === "task" ? "保留本地" : "保留本地";
+    return `<li><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(conflictReasonText(row.conflict_reason))}</span><span class="meta">${escapeHtml(meta)}</span></div><button class="text-button" data-dida-keep-local="${escapeHtml(row.external_id)}" data-dida-kind="${escapeHtml(kind)}">${action}</button></li>`;
+  }).join("")}</ul><p class="field-help">“保留本地”会把滴答当前状态记为已同步基线；习惯冲突会在下一次同步把本地版本写回滴答。不会修改本地笔记。</p>`;
 }
 
 async function loadDidaSync() {
@@ -173,8 +193,11 @@ async function loadDidaSync() {
     const conflicts = status.conflicts
       ? await api("/api/sync/dida/conflicts?limit=100")
       : { conflicts: [] };
+    const habitConflicts = status.habit_conflicts || status.habit_checkin_conflicts
+      ? await api("/api/sync/dida/habit-conflicts?limit=100")
+      : { conflicts: [] };
     if (request !== loadId) return;
-    renderConflicts(conflicts.conflicts || []);
+    renderConflicts([...(conflicts.conflicts || []), ...(habitConflicts.conflicts || [])]);
   } catch (error) {
     if (request === loadId) setStatus("#dida-feedback", error.message, "error");
   }
@@ -188,6 +211,7 @@ function formPayload() {
     completed_days: Number($("#dida-completed-days")?.value),
     push_deletes: Boolean($("#dida-push-deletes")?.checked),
     push_changes: Boolean($("#dida-push-changes")?.checked),
+    habits_enabled: Boolean($("#dida-habits-enabled")?.checked),
     timezone: $("#dida-timezone")?.value || "Asia/Shanghai",
     device_version: Number($("#dida-device-version")?.value),
     cookie: $("#dida-cookie")?.value || "",
@@ -212,7 +236,7 @@ async function saveSettings(event) {
   if (willArmPushDeletes(payload, status)) {
     const accepted = await confirmAction({
       title: "启用“本地删除同步到滴答”？",
-      message: "开启后，本机删除已同步的任务或清单会在下一次推送时从滴答删除，滴答回收站可能还能恢复；缺少 _csrf_token 时不会执行。",
+      message: "开启后，本机删除已同步的任务、清单或习惯会在下一次推送时从滴答删除，滴答回收站可能还能恢复；缺少 _csrf_token 时不会执行。",
       confirmLabel: "启用回写删除",
       danger: true,
     });
@@ -246,7 +270,13 @@ async function testConnection() {
   setStatus("#dida-feedback", "正在测试滴答连接…");
   try {
     const result = await api("/api/sync/dida/test", { method: "POST" });
-    setStatus("#dida-feedback", `连接成功：${result.project_count} 个项目、${result.task_count} 个未完成任务（${result.latency_ms} ms）。`, "success");
+    const habitText = result.habit_count !== null && result.habit_count !== undefined
+      ? `、${result.habit_count} 个习惯` : "";
+    const habitWarning = result.habit_error
+      ? ` 习惯接口不可用（${syncErrorText(result.habit_error)}）` : "";
+    setStatus("#dida-feedback",
+      `连接成功：${result.project_count} 个项目、${result.task_count} 个未完成任务${habitText}（${result.latency_ms} ms）。${habitWarning}`,
+      result.habit_error ? "warning" : "success");
   } catch (error) {
     setStatus("#dida-feedback", error.message, "error");
   } finally {
@@ -262,13 +292,15 @@ function summaryText(result) {
   return lines.join(" · ");
 }
 
-async function runSync(dryRun = false, quick = false) {
+async function runSync(dryRun = false, target = "settings") {
   if (busy) return;
   busy = true;
   syncing = true;
   renderQuickState();
-  const feedback = quick ? "#time-status" : "#dida-feedback";
-  setStatus(feedback, dryRun ? "正在生成预览…" : "正在从滴答拉取任务…");
+  const habit = target === "habit";
+  const quick = target === "quick";
+  const feedback = habit ? "#habit-page-status" : quick ? "#time-status" : "#dida-feedback";
+  setStatus(feedback, dryRun ? "正在生成预览…" : "正在从滴答拉取任务与习惯…");
   const panel = $("#dida-summary");
   if (panel) panel.hidden = true;
   try {
@@ -286,14 +318,21 @@ async function runSync(dryRun = false, quick = false) {
     const pushFailed = Array.isArray(result.warnings)
       && result.warnings.some((warning) => {
         const code = String(warning);
-        return code.startsWith("push_") || code.startsWith("project_push_error_");
+        return code.startsWith("push_") || code.startsWith("project_push_error_")
+          || code === "habit_push_error" || code === "habit_delete_error";
       });
-    setStatus(feedback,
-      quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
-        : dryRun ? "预览完成，没有写入任何文件。"
-        : pushFailed ? "任务已同步，但部分本地修改/删除未能写回滴答；请到设置 → 滴答同步 检查 _csrf_token 或「回写错误」。"
-        : "同步完成。",
-      pushFailed ? "warning" : "success");
+    if (habit) {
+      toast(`${dryRun ? "预览完成（未写入）" : "滴答同步完成"}：${summaryText(result)}`,
+        pushFailed ? "warning" : "success");
+      setStatus(feedback, "");
+    } else {
+      setStatus(feedback,
+        quick ? `${dryRun ? "预览完成（未写入）" : "同步完成"}：${summaryText(result)}`
+          : dryRun ? "预览完成，没有写入任何文件。"
+          : pushFailed ? "任务与习惯已同步，但部分本地修改/删除未能写回滴答；请到设置 → 滴答同步 检查 _csrf_token 或「回写错误」。"
+          : "同步完成。",
+        pushFailed ? "warning" : "success");
+    }
   } catch (error) {
     setStatus(feedback, error.message, "error");
   } finally {
@@ -320,15 +359,21 @@ async function clearCredentials() {
   }
 }
 
-async function keepLocal(externalId) {
+async function keepLocal(externalId, kind = "task") {
+  const habit = String(kind).startsWith("habit");
   const accepted = await confirmAction({
     title: "保留本地",
-    message: "会把滴答当前状态记为已同步基线，不改本地笔记。之后滴答再修改时会再触发同步。",
+    message: habit
+      ? "会把滴答当前状态记为已同步基线，并在下一次同步把本地习惯版本写回滴答。不会修改本地笔记。"
+      : "会把滴答当前状态记为已同步基线，不改本地笔记。之后滴答再修改时会再触发同步。",
     confirmLabel: "保留本地",
   });
   if (!accepted) return;
   try {
-    await api(`/api/sync/dida/conflicts/${encodeURIComponent(externalId)}/keep-local`, { method: "POST" });
+    const path = habit
+      ? `/api/sync/dida/habit-conflicts/${encodeURIComponent(externalId)}/keep-local`
+      : `/api/sync/dida/conflicts/${encodeURIComponent(externalId)}/keep-local`;
+    await api(path, { method: "POST" });
     toast("已保留本地版本。", "success");
     await loadDidaSync();
   } catch (error) {
@@ -345,11 +390,12 @@ export function initDidaSync() {
   $("#dida-test")?.addEventListener("click", testConnection);
   $("#dida-preview")?.addEventListener("click", () => runSync(true));
   $("#dida-run")?.addEventListener("click", () => runSync(false));
-  $("#time-dida-sync")?.addEventListener("click", () => runSync(false, true));
+  $("#time-dida-sync")?.addEventListener("click", () => runSync(false, "quick"));
+  $("#habit-dida-sync")?.addEventListener("click", () => runSync(false, "habit"));
   $("#dida-clear")?.addEventListener("click", clearCredentials);
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-dida-keep-local]");
-    if (button) keepLocal(button.dataset.didaKeepLocal);
+    if (button) keepLocal(button.dataset.didaKeepLocal, button.dataset.didaKind || "task");
   });
   applyCapability();
 }

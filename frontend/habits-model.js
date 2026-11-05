@@ -16,7 +16,7 @@ export const FREQUENCY_KINDS = [
 export const WEEKDAY_SHORT = ["一", "二", "三", "四", "五", "六", "日"];
 export const WEEKDAY_LONG = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 export const WEEKDAY_CALENDAR = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-export const ENTRY_STATUS_LABELS = { done: "完成", skipped: "主动休息", unrecorded: "未记录" };
+export const ENTRY_STATUS_LABELS = { done: "完成", skipped: "主动休息", failed: "失败", unrecorded: "未记录" };
 export const HABIT_STATUS_LABELS = { active: "进行中", archived: "已归档" };
 export const PRIORITY_LABELS = { high: "高优先级", medium: "中优先级", low: "低优先级", none: "无优先级" };
 export const TARGET_PRESETS = [7, 21, 30, 60, 100];
@@ -204,4 +204,32 @@ export function validateHabitDraft(draft = {}) {
 export function thisWeekStart(day) {
   const index = new Date(`${day}T00:00:00Z`).getUTCDay();
   return dayOffset(day, -index);
+}
+
+const DIDA_LINK_BADGES = {
+  synced: { text: "滴答", tone: "dida" },
+  conflict: { text: "滴答冲突", tone: "conflict" },
+  remote_deleted: { text: "滴答已删", tone: "muted" },
+  local_missing: { text: "待恢复", tone: "muted" },
+  pending_create: { text: "待创建", tone: "muted" },
+};
+
+export function didaLinkBadge(link) {
+  if (!link || !link.status) return null;
+  return DIDA_LINK_BADGES[link.status] || { text: "滴答", tone: "dida" };
+}
+
+/** 把 /api/sync/dida/habit-links 的链接状态合并进习惯对象。 */
+export function decorateHabitSync(habits, links) {
+  const byUid = new Map();
+  for (const link of Array.isArray(links) ? links : []) {
+    const uid = String(link?.uid || "").trim();
+    if (uid) byUid.set(uid, link);
+  }
+  return (Array.isArray(habits) ? habits : []).map((habit) => {
+    const link = byUid.get(String(habit?.uid || ""));
+    return link
+      ? { ...habit, dida_status: String(link.status || ""), dida_id: String(link.external_id || "") }
+      : { ...habit, dida_status: "", dida_id: "" };
+  });
 }

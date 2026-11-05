@@ -376,6 +376,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     break
                 await asyncio.sleep(0.5)
             await dida_service.push_deletions()
+            await dida_service.habit_sync.push_changes()
+            await dida_service.habit_sync.push_deletions()
         except Exception:
             # 失败原因已由 service 记录到 last_push_error/审计；后台任务不再抛出。
             pass
@@ -497,7 +499,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         # 本地任务/清单的写操作完成后立即回写滴答（后台防抖任务，不阻塞响应）。
         if (auto_push_enabled and response.status_code < 400
                 and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
-                and request.url.path.startswith('/api/time/')):
+                and (request.url.path.startswith('/api/time/')
+                     or request.url.path.startswith('/api/habits/'))):
             schedule_dida_auto_push()
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'

@@ -115,6 +115,46 @@ class RemoteSnapshot:
     projects_complete: bool = True
 
 
+@dataclass(frozen=True)
+class RemoteHabit:
+    id: str
+    name: str
+    color: str
+    icon_res: str
+    status: int
+    goal: float
+    step: float
+    unit: str
+    habit_type: str
+    repeat_rule: str
+    reminders: tuple[str, ...]
+    section_id: str
+    target_days: int | None
+    target_start_date: str
+    sort_order: int
+    record_enable: bool
+    total_check_ins: int
+    current_streak: int
+    completed_cycles: int
+    etag: str
+    modified_time: str
+    created_time: str
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RemoteHabitCheckin:
+    id: str
+    habit_id: str
+    checkin_stamp: int
+    value: float
+    goal: float
+    status: int
+    checkin_time: str
+    op_time: str
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
 class DidaProvider(Protocol):
     async def fetch_snapshot(self, checkpoint: int = 0) -> RemoteSnapshot: ...
     async def fetch_completed(self) -> tuple[RemoteTask, ...]: ...
@@ -127,6 +167,16 @@ class DidaProvider(Protocol):
     async def add_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]: ...
     async def update_projects(self, projects: list[dict[str, Any]]) -> dict[str, Any]: ...
     async def delete_projects(self, project_ids: list[str]) -> dict[str, Any]: ...
+    async def fetch_habits(self) -> tuple[RemoteHabit, ...]: ...
+    async def query_habit_checkins(
+        self, habit_ids: list[str], *, after_stamp: int = 19700101,
+    ) -> dict[str, tuple[RemoteHabitCheckin, ...]]: ...
+    async def add_habits(self, habits: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def update_habits(self, habits: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def delete_habits(self, habit_ids: list[str]) -> dict[str, Any]: ...
+    async def add_habit_checkins(self, checkins: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def update_habit_checkins(self, checkins: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def delete_habit_checkins(self, checkin_ids: list[str]) -> dict[str, Any]: ...
     async def aclose(self) -> None: ...
 
 
@@ -248,6 +298,68 @@ def _project_from_raw(raw: dict[str, Any]) -> RemoteProject:
     )
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _habit_from_raw(raw: dict[str, Any]) -> RemoteHabit:
+    target_days = raw.get("targetDays")
+    return RemoteHabit(
+        id=_as_str(raw.get("id")),
+        name=_as_str(raw.get("name")),
+        color=_as_str(raw.get("color")),
+        icon_res=_as_str(raw.get("iconRes")),
+        status=_as_int(raw.get("status")),
+        goal=_as_float(raw.get("goal"), 1.0),
+        step=_as_float(raw.get("step")),
+        unit=_as_str(raw.get("unit") or "Count"),
+        habit_type=_as_str(raw.get("type") or "Boolean"),
+        repeat_rule=_as_str(raw.get("repeatRule")),
+        reminders=tuple(
+            _as_str(item) for item in _as_list(raw.get("reminders"))
+            if _as_str(item)
+        ),
+        section_id=_as_str(raw.get("sectionId")),
+        target_days=(_as_int(target_days) if target_days not in (None, "") else None),
+        target_start_date=_as_str(raw.get("targetStartDate")),
+        sort_order=_as_int(raw.get("sortOrder")),
+        record_enable=_as_bool(raw.get("recordEnable")),
+        total_check_ins=_as_int(raw.get("totalCheckIns")),
+        current_streak=_as_int(raw.get("currentStreak")),
+        completed_cycles=_as_int(raw.get("completedCycles")),
+        etag=_as_str(raw.get("etag")),
+        modified_time=_as_str(raw.get("modifiedTime")),
+        created_time=_as_str(raw.get("createdTime")),
+        raw=dict(raw),
+    )
+
+
+def habit_from_payload(payload: dict[str, Any]) -> RemoteHabit:
+    """把回写时构造的习惯对象当成远端响应解析。"""
+    return _habit_from_raw(dict(payload))
+
+
+def _checkin_from_raw(raw: dict[str, Any]) -> RemoteHabitCheckin:
+    return RemoteHabitCheckin(
+        id=_as_str(raw.get("id")),
+        habit_id=_as_str(raw.get("habitId")),
+        checkin_stamp=_as_int(raw.get("checkinStamp")),
+        value=_as_float(raw.get("value")),
+        goal=_as_float(raw.get("goal"), 1.0),
+        status=_as_int(raw.get("status")),
+        checkin_time=_as_str(raw.get("checkinTime")),
+        op_time=_as_str(raw.get("opTime")),
+        raw=dict(raw),
+    )
+
+
+def checkin_from_payload(payload: dict[str, Any]) -> RemoteHabitCheckin:
+    return _checkin_from_raw(dict(payload))
+
+
 class PrivateDidaProvider:
     """滴答私有 V2 API 的 httpx 实现。"""
 
@@ -342,9 +454,12 @@ class PrivateDidaProvider:
                 raise DidaError("invalid_response", "滴答返回了无法解析的内容") from None
         raise last or DidaError("network_error", "连接滴答失败")
 
-    async def _post_json(self, path: str, payload: Any,
-                         *, attempts: int = 3) -> Any:
-        if not self.credentials.csrf_token:
+    async def _post_json(self, path: str, payload: Any, *, attempts: int = 3,
+                         require_csrf: bool = True,
+                         forbidden_code: str = "write_forbidden",
+                         forbidden_message: str = "滴答拒绝写入（登录失效、CSRF 或账号权限不足）",
+                         ) -> Any:
+        if require_csrf and not self.credentials.csrf_token:
             raise DidaError("csrf_required", "需要 _csrf_token 才能回写滴答")
         headers = self._headers()
         headers["Content-Type"] = "application/json"
@@ -362,9 +477,7 @@ class PrivateDidaProvider:
                 raise last from None
             status = response.status_code
             if status in (401, 403):
-                raise DidaError("write_forbidden",
-                                "滴答拒绝写入（登录失效、CSRF 或账号权限不足）",
-                                status=status)
+                raise DidaError(forbidden_code, forbidden_message, status=status)
             if status == 429:
                 retry_after = self._retry_after(response)
                 last = DidaError("rate_limited", "滴答限流，请稍后再试",
@@ -441,6 +554,62 @@ class PrivateDidaProvider:
 
     async def delete_projects(self, project_ids: list[str]) -> dict[str, Any]:
         return await self._commit_projects(delete=project_ids)
+
+    async def _commit_habits(self, *, add: list[dict[str, Any]] | None = None,
+                             update: list[dict[str, Any]] | None = None,
+                             delete: list[str] | None = None) -> dict[str, Any]:
+        add = list(add or [])
+        update = list(update or [])
+        delete = [str(item) for item in (delete or []) if str(item)]
+        if not add and not update and not delete:
+            return {"ok": True, "etags": {}, "errors": {}}
+        raw = await self._post_json("/api/v2/habits/batch", {
+            "add": add,
+            "update": update,
+            "delete": delete,
+        })
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
+    async def add_habits(self, habits: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_habits(add=habits)
+
+    async def update_habits(self, habits: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_habits(update=habits)
+
+    async def delete_habits(self, habit_ids: list[str]) -> dict[str, Any]:
+        return await self._commit_habits(delete=habit_ids)
+
+    async def _commit_habit_checkins(
+        self, *, add: list[dict[str, Any]] | None = None,
+        update: list[dict[str, Any]] | None = None,
+        delete: list[str] | None = None,
+    ) -> dict[str, Any]:
+        add = list(add or [])
+        update = list(update or [])
+        delete = [str(item) for item in (delete or []) if str(item)]
+        if not add and not update and not delete:
+            return {"ok": True, "etags": {}, "errors": {}}
+        raw = await self._post_json("/api/v2/habitCheckins/batch", {
+            "add": add,
+            "update": update,
+            "delete": delete,
+        })
+        etags = raw.get("id2etag") if isinstance(raw, dict) else {}
+        errors = raw.get("id2error") if isinstance(raw, dict) else {}
+        return {"ok": True, "etags": etags if isinstance(etags, dict) else {},
+                "errors": errors if isinstance(errors, dict) else {}}
+
+    async def add_habit_checkins(self, checkins: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_habit_checkins(add=checkins)
+
+    async def update_habit_checkins(self, checkins: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._commit_habit_checkins(update=checkins)
+
+    async def delete_habit_checkins(self, checkin_ids: list[str]) -> dict[str, Any]:
+        return await self._commit_habit_checkins(delete=checkin_ids)
 
     async def update_tasks(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         return await self._commit_tasks(update=tasks)
@@ -568,16 +737,67 @@ class PrivateDidaProvider:
                 result.append(task)
         return tuple(result)
 
+    async def fetch_habits(self) -> tuple[RemoteHabit, ...]:
+        raw = await self._get_json("/api/v2/habits")
+        if isinstance(raw, list):
+            rows = raw
+        elif isinstance(raw, dict) and isinstance(raw.get("habits"), list):
+            rows = raw["habits"]
+        elif isinstance(raw, dict) and raw.get("errorId"):
+            raise DidaError("invalid_response", "滴答习惯接口返回错误")
+        else:
+            raise DidaError("invalid_response", "滴答习惯列表格式不正确")
+        habits: list[RemoteHabit] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            habit = _habit_from_raw(item)
+            if habit.id:
+                habits.append(habit)
+        return tuple(habits)
+
+    async def query_habit_checkins(
+        self, habit_ids: list[str], *, after_stamp: int = 19700101,
+    ) -> dict[str, tuple[RemoteHabitCheckin, ...]]:
+        ids = [str(item).strip() for item in habit_ids or [] if str(item).strip()]
+        if not ids:
+            return {}
+        raw = await self._post_json(
+            "/api/v2/habitCheckins/query",
+            {"habitIds": ids, "afterStamp": int(after_stamp)},
+            require_csrf=False,
+            forbidden_code="checkins_read_forbidden",
+            forbidden_message="滴答拒绝读取打卡（可能需要 _csrf_token 或账号权限不足）",
+        )
+        checkins = raw.get("checkins") if isinstance(raw, dict) else None
+        if not isinstance(checkins, dict):
+            return {}
+        result: dict[str, tuple[RemoteHabitCheckin, ...]] = {}
+        for habit_id, rows in checkins.items():
+            parsed = tuple(
+                _checkin_from_raw(item)
+                for item in _as_list(rows)
+                if isinstance(item, dict)
+            )
+            result[str(habit_id)] = parsed
+        return result
+
     async def test_connection(self) -> dict[str, Any]:
         started = time.monotonic()
         snapshot = await self.fetch_snapshot(0)
-        return {
+        result = {
             "ok": True,
             "latency_ms": int((time.monotonic() - started) * 1000),
             "task_count": len(snapshot.tasks),
             "project_count": len(snapshot.projects),
             "checkpoint": snapshot.checkpoint,
         }
+        try:
+            result["habit_count"] = len(await self.fetch_habits())
+        except DidaError as error:
+            result["habit_count"] = None
+            result["habit_error"] = error.code
+        return result
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -591,7 +811,8 @@ def make_provider(credentials: DidaCredentials, *,
 
 __all__ = [
     "DEFAULT_DEVICE_VERSION", "DEFAULT_REGION", "DidaCredentials", "DidaError",
-    "DidaProvider", "PrivateDidaProvider", "RemoteChecklistItem", "RemoteProject",
-    "RemoteSnapshot", "RemoteTask", "make_provider", "parse_cookie_input",
-    "task_from_payload",
+    "DidaProvider", "PrivateDidaProvider", "RemoteChecklistItem", "RemoteHabit",
+    "RemoteHabitCheckin", "RemoteProject", "RemoteSnapshot", "RemoteTask",
+    "checkin_from_payload", "habit_from_payload", "make_provider",
+    "parse_cookie_input", "task_from_payload",
 ]

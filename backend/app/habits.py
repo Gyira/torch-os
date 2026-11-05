@@ -38,7 +38,7 @@ from .vault_connection import read_only_enabled
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 HabitStatus = Literal["active", "archived"]
-EntryStatus = Literal["done", "skipped", "unrecorded"]
+EntryStatus = Literal["done", "skipped", "failed", "unrecorded"]
 Priority = Literal["high", "medium", "low", "none"]
 HabitId = Annotated[int, PathParam(ge=1, le=9_223_372_036_854_775_807)]
 PRIORITIES = ("high", "medium", "low", "none")
@@ -975,6 +975,7 @@ class HabitService:
             "sort_order": float(row.get("sort_order") or 0),
             "status": str(row.get("status") or "active"),
             "path": str(row.get("source_path") or ""),
+            "missing": bool(row.get("missing")),
             "revision": int(row.get("revision") or 1),
             "created_at": str(row.get("created_at") or ""),
             "updated_at": str(row.get("updated_at") or ""),
@@ -1264,6 +1265,238 @@ class HabitService:
         self._audit("habit_updated", {"habit_id": habit_id, "revision": result["revision"]})
         return result
 
+    def set_dida_links(self, links: dict[str, str]) -> dict[str, Any]:
+        """把 uid → dida_id 写入习惯笔记 frontmatter。
+
+        只改 ``dida_id``，正文和未知键原样保留；语义字段不变，因此不增加
+        revision。单篇文件被外部改动（guarded_write 409）时跳过该篇，不中断
+        其余习惯；无 vault 时由链接表保存映射，本方法为 no-op。
+        """
+        self._require_write("写入滴答习惯链接")
+        self.sync()
+        written: dict[str, str] = {}
+        skipped: list[dict[str, str]] = []
+        if self.vault_dir is None:
+            return {"written": written, "skipped": skipped}
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM habit_definitions WHERE deleted=0 AND missing=0"
+            ).fetchall()
+        by_uid = {str(row["uid"]): dict(row) for row in rows}
+        for raw_uid, raw_external_id in (links or {}).items():
+            uid = str(raw_uid or "").strip()
+            external_id = str(raw_external_id or "").strip()
+            row = by_uid.get(uid)
+            if not uid or not external_id or row is None:
+                skipped.append({"uid": uid, "reason": "not_found"})
+                continue
+            source = str(row.get("source_path") or "")
+            path = self.vault_dir / source if source else None
+            if path is None or not path.is_file():
+                skipped.append({"uid": uid, "reason": "missing_note"})
+                continue
+            try:
+                note = habit_markdown.read_note(path)
+                if str(note["metadata"].get("dida_id") or "").strip() == external_id:
+                    written[uid] = external_id
+                    continue
+                metadata = dict(note["metadata"])
+                metadata["dida_id"] = external_id
+                habit_markdown.write_note(
+                    path, metadata, note["body_lines"], loaded=note["loaded"])
+                written[uid] = external_id
+            except HTTPException as error:
+                if error.status_code == 409:
+                    skipped.append({"uid": uid, "reason": "local_changed"})
+                else:
+                    raise
+            except OSError as error:
+                skipped.append({"uid": uid, "reason": type(error).__name__})
+        if written:
+            self._invalidate_snapshot()
+            self.sync(force=True)
+        return {"written": written, "skipped": skipped}
+
+    def apply_remote_entries(self, updates: list[dict[str, Any]]) -> dict[str, Any]:
+        """同步专用：批量写入远端打卡，绕过计划日/归档限制。
+
+        每条 ``update`` 形如 ``{habit_id, date, status, note, expected_status,
+        updated}``。``expected_status`` 用于防止同步期间 Obsidian 又改了同一天：
+        当前日志状态与它不一致时跳过该条并返回 ``local_changed``。未来日期、
+        不存在的习惯、missing 笔记同样跳过，不影响其他月份。每月日志只读写
+        一次，最后统一重建一次缓存。
+        """
+        self._require_write("导入滴答打卡")
+        self.sync()
+        changes = list(updates or [])
+        if not changes:
+            return {"changed": 0, "skipped": [], "months": []}
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM habit_definitions WHERE deleted=0"
+            ).fetchall()
+        habits = {int(row["id"]): dict(row) for row in rows}
+        valid: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        for update in changes:
+            try:
+                habit_id = int(update.get("habit_id"))
+            except (TypeError, ValueError):
+                skipped.append({"reason": "invalid_habit"})
+                continue
+            habit = habits.get(habit_id)
+            if habit is None:
+                skipped.append({"habit_id": habit_id, "reason": "not_found"})
+                continue
+            if habit["missing"]:
+                skipped.append({"habit_id": habit_id, "reason": "missing_note"})
+                continue
+            day = str(update.get("date") or "").strip()
+            try:
+                target = validate_day(day)
+            except HTTPException:
+                skipped.append({"habit_id": habit_id, "date": day, "reason": "invalid_date"})
+                continue
+            status = str(update.get("status") or "")
+            if status not in ("done", "skipped", "failed", "unrecorded"):
+                skipped.append({"habit_id": habit_id, "date": day, "reason": "invalid_status"})
+                continue
+            note = update.get("note")
+            valid.append({
+                "habit_id": habit_id,
+                "habit": habit,
+                "date": target.isoformat(),
+                "month": target.strftime("%Y-%m"),
+                "status": status,
+                "note": None if note is None else str(note)[:2000],
+                "expected_status": update.get("expected_status"),
+                "updated": str(update.get("updated") or "").strip(),
+            })
+        if not valid:
+            return {"changed": 0, "skipped": skipped, "months": []}
+
+        if self.vault_dir is None:
+            changed = self._apply_remote_entries_cache(valid, skipped)
+            return {"changed": changed, "skipped": skipped, "months": []}
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in valid:
+            grouped.setdefault(item["month"], []).append(item)
+        changed = 0
+        months: list[str] = []
+        for month, items in sorted(grouped.items()):
+            path = habit_markdown.logs_dir(self.vault_dir) / f"{month}.md"
+            log = habit_markdown.read_log(path)
+            existing = []
+            for raw in log["rows"]:
+                normalized = habit_markdown.normalize_log_row(raw)
+                if normalized:
+                    existing.append(normalized)
+            by_key = {
+                (str(row.get("uid") or ""), str(row.get("date") or "")): row
+                for row in existing
+            }
+            removed: set[tuple[str, str]] = set()
+            appended: list[dict[str, Any]] = []
+            month_changes = 0
+            for item in items:
+                habit = item["habit"]
+                key = (str(habit["uid"]), item["date"])
+                current = by_key.get(key)
+                current_status = str(current.get("status") or "unrecorded") if current else "unrecorded"
+                expected = item["expected_status"]
+                if expected is not None and current_status != str(expected):
+                    skipped.append({
+                        "habit_id": item["habit_id"], "date": item["date"],
+                        "reason": "local_changed",
+                    })
+                    continue
+                if item["note"] is None:
+                    final_note = str(current.get("note") or "") if current is not None else ""
+                else:
+                    final_note = item["note"]
+                if item["status"] == "unrecorded" and not final_note and current is None:
+                    continue
+                if current is not None:
+                    removed.add(key)
+                appended.append({
+                    "date": item["date"],
+                    "uid": str(habit["uid"]),
+                    "title": str(habit["title"]),
+                    "status": item["status"],
+                    "note": final_note,
+                    "updated": item["updated"] or shanghai_now_iso(),
+                })
+                month_changes += 1
+            if not month_changes:
+                continue
+            merged = [row for row in existing
+                      if (str(row.get("uid") or ""), str(row.get("date") or "")) not in removed]
+            merged.extend(appended)
+            try:
+                self._write_log_file(month, merged, loaded=log)
+            except HTTPException as error:
+                if error.status_code != 409:
+                    raise
+                for item in items:
+                    skipped.append({
+                        "habit_id": item["habit_id"], "date": item["date"],
+                        "reason": "local_changed",
+                    })
+                continue
+            changed += month_changes
+            months.append(month)
+        if changed:
+            self._invalidate_snapshot()
+            self.sync(force=True)
+            self._audit("habit_entries_imported", {
+                "changed": changed, "skipped": len(skipped), "months": months})
+        return {"changed": changed, "skipped": skipped, "months": months}
+
+    def _apply_remote_entries_cache(self, items: list[dict[str, Any]],
+                                    skipped: list[dict[str, str]]) -> int:
+        """无 vault 时的批量打卡导入（测试/缓存模式）。"""
+        changed = 0
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for item in items:
+                row = connection.execute(
+                    "SELECT * FROM habit_entries WHERE habit_id=? AND date=?",
+                    (item["habit_id"], item["date"]),
+                ).fetchone()
+                current_status = str(row["status"]) if row else "unrecorded"
+                expected = item["expected_status"]
+                if expected is not None and current_status != str(expected):
+                    skipped.append({
+                        "habit_id": item["habit_id"], "date": item["date"],
+                        "reason": "local_changed",
+                    })
+                    continue
+                final_note = (str(row["note"] or "") if row is not None and item["note"] is None
+                              else (item["note"] or ""))
+                if item["status"] == "unrecorded" and not final_note and row is None:
+                    continue
+                if row is not None:
+                    connection.execute(
+                        """UPDATE habit_entries SET status=?, note=?, revision=revision+1,
+                        updated_at=? WHERE habit_id=? AND date=?""",
+                        (item["status"], final_note, item["updated"] or shanghai_now_iso(),
+                         item["habit_id"], item["date"]),
+                    )
+                else:
+                    connection.execute(
+                        """INSERT INTO habit_entries(habit_id,date,status,note,revision,updated_at)
+                        VALUES (?,?,?,?,1,?)""",
+                        (item["habit_id"], item["date"], item["status"], final_note,
+                         item["updated"] or shanghai_now_iso()),
+                    )
+                changed += 1
+            if changed:
+                _bump_generation(connection)
+        if changed:
+            self._audit("habit_entries_imported", {"changed": changed, "skipped": len(skipped)})
+        return changed
+
     def delete(self, habit_id: int, payload: HabitDelete) -> dict[str, Any]:
         self._require_write("删除习惯")
         self.sync()
@@ -1430,6 +1663,7 @@ class HabitService:
             "habit_id": habit_id, "from_date": from_date, "to_date": to_date,
             "scheduled_days": stats["scheduled_days"],
             "done": stats["done"], "skipped": stats["skipped"],
+            "failed": stats["failed"],
             "unrecorded": stats["unrecorded"], "extra_done": stats["extra_done"],
             "completion_rate": stats["completion_rate"],
             "total_done": habit_stats.habit_total_done(all_entries),
@@ -1439,6 +1673,7 @@ class HabitService:
                 "start": week_start.isoformat(), "end": week_end.isoformat(),
                 "scheduled": week_stats["scheduled_days"],
                 "done": week_stats["done"], "skipped": week_stats["skipped"],
+                "failed": week_stats["failed"],
                 "unrecorded": week_stats["unrecorded"], "remaining": remaining,
                 "note": "“还剩”指从所选日期起到本周日之间仍未记录的计划日；未记录不等于必须完成。",
             },
@@ -1601,7 +1836,7 @@ class HabitService:
                     continue
                 status = str(entry.get("status") or "unrecorded")
                 note = str(entry.get("note") or "")
-                if status not in ("done", "skipped") and not note:
+                if status not in ("done", "skipped", "failed") and not note:
                     continue
                 logs.append({
                     "habit_id": habit["id"], "habit_uid": habit["uid"],
@@ -1717,7 +1952,8 @@ class HabitService:
 
         ``scheduled`` counts active habits planned that day.  ``skipped`` is an
         explicit rest, so callers can keep it out of the completion denominator;
-        ``missed`` is everything still unrecorded when the day closes.
+        ``missed`` is everything not done when the day closes (unrecorded or
+        explicitly failed); ``failed`` is also reported separately.
         """
         self.sync()
         with self.database.connect() as connection:
@@ -1731,6 +1967,7 @@ class HabitService:
                     for offset in range((last - first).days + 1)):
             done: list[str] = []
             skipped: list[str] = []
+            failed: list[str] = []
             missed: list[str] = []
             for habit in habits:
                 if not habit_schedule.scheduled_on(habit, day):
@@ -1742,13 +1979,17 @@ class HabitService:
                     done.append(title)
                 elif status == "skipped":
                     skipped.append(title)
+                elif status == "failed":
+                    failed.append(title)
+                    missed.append(title)
                 else:
                     missed.append(title)
             result[day.isoformat()] = {
                 "scheduled": len(done) + len(skipped) + len(missed),
-                "done": len(done), "skipped": len(skipped), "missed": len(missed),
+                "done": len(done), "skipped": len(skipped), "failed": len(failed),
+                "missed": len(missed),
                 "done_titles": done, "skipped_titles": skipped,
-                "missed_titles": missed,
+                "failed_titles": failed, "missed_titles": missed,
             }
         return result
 
@@ -1760,7 +2001,7 @@ class HabitService:
                 "AND status='active'").fetchall()]
         habits = [self._row_to_habit(row) for row in rows]
         entries_by_habit = self._all_entries([habit["id"] for habit in habits])
-        counts = {"done": 0, "skipped": 0, "unrecorded": 0}
+        counts = {"done": 0, "skipped": 0, "failed": 0, "unrecorded": 0}
         for habit in habits:
             entries = entries_by_habit.get(habit["id"], {})
             for day in (first + timedelta(days=offset)

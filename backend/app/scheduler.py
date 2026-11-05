@@ -244,7 +244,7 @@ class SchedulerService:
             habits = HabitService(self.database, self.vault_dir).range_counts(today, today)
         except Exception:
             # A broken habit note must not stop the evening report.
-            habits = {"done": 0, "skipped": 0, "unrecorded": 0}
+            habits = {"done": 0, "skipped": 0, "failed": 0, "unrecorded": 0}
         with self.database.connect() as connection:
             journal_recorded = False
             next_action = ""
@@ -303,7 +303,7 @@ class SchedulerService:
 
             habits = HabitService(self.database, self.vault_dir).range_counts(week_start, week_end)
         except Exception:
-            habits = {"done": 0, "skipped": 0, "unrecorded": 0}
+            habits = {"done": 0, "skipped": 0, "failed": 0, "unrecorded": 0}
         with self.database.connect() as connection:
             journal_days = 0
             if self.vault_dir is not None:

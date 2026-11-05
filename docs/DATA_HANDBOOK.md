@@ -56,8 +56,11 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
 
 例外：`.env` 只放启动引导与密钥（`DATA_DIR`/`VAULT_DIR`/端口/运行开关，以及历史遗留的
 `LOVE_TARGET_NAME` 这类启动配置）；`.obsidian/` 是 Obsidian 自己要求的插件/主题/工作区配置
-（含 `.obsidian/plugins/torch/data.json`）；DSH 的模型与凭据在它自己的 `DSH_HOME`。torch 自己的
-业务数据与小组件个性化数据仍以 `.torch-os` 为准，**新增**数据不要再放进这些位置。
+（含 `.obsidian/plugins/torch/data.json` 的共享设置）；DSH 的模型与凭据在它自己的 `DSH_HOME`。
+Obsidian 插件的**本机**仓库路径、Python 路径和实例端口是对应设备的工具链信息，不是用户数据，
+单独放在 `%LOCALAPPDATA%\torch-os\obsidian-plugin\<vault_id>.json`（macOS/Linux 对应配置目录），
+不随库同步。torch 自己的业务数据与小组件个性化数据仍以 `.torch-os` 为准，**新增**数据不要再放进
+这些位置。
 
 ## 表清单
 
@@ -72,6 +75,8 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
 | `dida_project_links` | 系统 |
 | `dida_sync_settings` | 系统 |
 | `dida_task_links` | 系统 |
+| `dida_habit_links` | 系统 |
+| `dida_habit_checkin_links` | 系统 |
 | `documents` | 资料与记忆 |
 | `fortune_checkins` | 每日记录 |
 | `goals` | 目标与任务 |
@@ -123,12 +128,15 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
   权威内容在 `00_人生路/04_目标/04_习惯追踪/`：`习惯/<名称>.md` 是定义，
   `打卡/YYYY-MM.md` 是月度打卡表，`习惯定义.md` 是自动生成的只读索引。
   在 Obsidian 里修改笔记或打卡表，应用会在下一次读取时同步回缓存。旧学习表已退役且不再创建。
+  滴答同步会在习惯笔记 frontmatter 写 `dida_id`（持久链接，改笔记/重建缓存都不丢）；
+  `dida_habit_links`、`dida_habit_checkin_links` 是系统链接与冲突基线，属于可重建的
+  同步状态，不进入 Markdown 导出。滴答删除习惯只归档本地，不删笔记和打卡。
 - 个人参考：`bazi_profiles` 是旧八字页面保存的出生资料，deprecated。
 - 建议与提醒：`suggestions` 是旧每日建议表，deprecated。
 - 旧日记：`journal_entries`、`journal_actions` 自 0.99 起 deprecated；旧写入路由已退役，
   导出接口仍可读取历史记录，表不会自动删除。
 - 系统：`audit_events`、`schema_migrations`、`dida_sync_settings`、`dida_task_links`、
-  `dida_project_links`。
+  `dida_project_links`、`dida_habit_links`、`dida_habit_checkin_links`。
 
 ## 权威源与投影
 

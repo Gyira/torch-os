@@ -26,5 +26,5 @@ export function requestDraft(keyFactory = () => crypto.randomUUID()) {
   };
 }
 
-export const habitLabels = { done: "已完成", skipped: "主动休息", unrecorded: "未记录" };
+export const habitLabels = { done: "已完成", skipped: "主动休息", failed: "失败", unrecorded: "未记录" };
 export const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];

@@ -2,6 +2,7 @@
 import {
   DEFAULT_HABIT_ICON, ENTRY_STATUS_LABELS, HABIT_STATUS_LABELS, WEEKDAY_CALENDAR, WEEKDAY_LONG,
   frequencyLabel, monthLabel, percentLabel, statusLabel, streakLabel, targetProgress,
+  didaLinkBadge,
 } from "./habits-model.js";
 
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
@@ -43,10 +44,12 @@ export function habitCardHtml(habit, options = {}) {
   const status = habit?.entry_today?.status || "unrecorded";
   const checked = status === "done";
   const skipped = status === "skipped";
+  const failed = status === "failed";
   const classes = ["habit-card"];
   if (String(options.selectedId) === String(habit.id)) classes.push("is-selected");
   if (checked) classes.push("is-checked");
   if (skipped) classes.push("is-skipped");
+  if (failed) classes.push("is-failed");
   if (habit.status === "archived") classes.push("is-archived");
   if (habit.ended) classes.push("is-ended");
   const stats = habit.stats || {};
@@ -57,8 +60,11 @@ export function habitCardHtml(habit, options = {}) {
   if (habit.status === "archived") badges.push('<span class="habit-card-badge">已归档</span>');
   if (habit.ended) badges.push('<span class="habit-card-badge">已结束</span>');
   if (skipped) badges.push('<span class="habit-card-badge is-skip">休息</span>');
+  if (failed) badges.push('<span class="habit-card-badge is-fail">失败</span>');
+  const dida = didaLinkBadge(habit.dida_status ? { status: habit.dida_status } : null);
+  if (dida) badges.push(`<span class="habit-card-badge is-${esc(dida.tone)}">${esc(dida.text)}</span>`);
   return `<div class="${classes.join(" ")}" role="listitem" tabindex="0" data-habit-id="${esc(habit.id)}" data-habit-color="${esc(habit.color || "")}" aria-label="${esc(habit.title)}" aria-current="${String(options.selectedId) === String(habit.id) ? "true" : "false"}">`
-    + `<button type="button" class="habit-card-check${checked ? " is-checked" : ""}${skipped ? " is-skipped" : ""}" data-habit-check="${esc(habit.id)}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}"${habit.status === "archived" || !habit.scheduled_today ? " disabled" : ""}>${checked ? "✓" : skipped ? "—" : ""}</button>`
+    + `<button type="button" class="habit-card-check${checked ? " is-checked" : ""}${skipped ? " is-skipped" : ""}${failed ? " is-failed" : ""}" data-habit-check="${esc(habit.id)}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}"${habit.status === "archived" || !habit.scheduled_today ? " disabled" : ""}>${checked ? "✓" : skipped ? "—" : failed ? "✕" : ""}</button>`
     + `<span class="habit-card-icon" aria-hidden="true">${esc(icon)}</span>`
     + `<span class="habit-card-body"><span class="habit-card-title">${esc(habit.title)}</span>`
     + `<span class="habit-card-meta">${esc(meta)}${habit.reminder ? ` · ⏰ ${esc(habit.reminder)}` : ""}</span>`
@@ -148,13 +154,15 @@ export function habitDetailHtml(habit, options = {}) {
     return `<section class="habit-detail-empty"><p class="habit-empty-title">选择一个习惯</p><p class="field-help">左边点一张习惯卡，这里会显示月历、统计和打卡日志。</p></section>`;
   }
   const badges = [];
-  if (habit.status === "archived") badges.push(HABIT_STATUS_LABELS.archived);
-  if (habit.ended) badges.push("已结束");
+  if (habit.status === "archived") badges.push({ text: HABIT_STATUS_LABELS.archived, tone: "" });
+  if (habit.ended) badges.push({ text: "已结束", tone: "" });
+  const dida = didaLinkBadge(habit.dida_status ? { status: habit.dida_status } : null);
+  if (dida) badges.push(dida);
   return `<article class="habit-detail" data-habit-detail="${esc(habit.id)}">
     <header class="habit-detail-head">
       <span class="habit-detail-icon" aria-hidden="true">${esc(habit.icon || DEFAULT_HABIT_ICON)}</span>
       <div><h3>${esc(habit.title)}</h3><p class="meta">${esc([habit.group, frequencyLabel(habit.frequency), habit.reminder ? `提醒 ${habit.reminder}` : ""].filter(Boolean).join(" · "))}</p></div>
-      ${badges.length ? `<span class="habit-detail-badges">${badges.map((badge) => `<span class="habit-card-badge">${esc(badge)}</span>`).join("")}</span>` : ""}
+      ${badges.length ? `<span class="habit-detail-badges">${badges.map((badge) => `<span class="habit-card-badge${badge.tone ? ` is-${esc(badge.tone)}` : ""}">${esc(badge.text)}</span>`).join("")}</span>` : ""}
     </header>
     ${habitStatsHtml(habit)}
     <div class="habit-calendar-head">

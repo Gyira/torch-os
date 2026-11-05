@@ -1,8 +1,10 @@
 """Pure statistics for habits (2026-10-28).
 
 The caller supplies plain dictionaries; nothing here reads files or the DB.
-Missing records mean ``unrecorded`` (not failure), and ``skipped`` is neutral:
+Missing records mean ``unrecorded`` (not failure). ``skipped`` is neutral:
 it neither counts as done nor hurts the completion rate or a streak.
+``failed`` is an explicit "recorded but not done" state, aligned with Dida's
+``status=1``; it counts as not done and breaks the current streak.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from typing import Any
 
 from .habit_schedule import scheduled_on, target_end_date, target_progress
 
-ENTRY_STATUSES = ("done", "skipped", "unrecorded")
+ENTRY_STATUSES = ("done", "skipped", "failed", "unrecorded")
 
 
 def entry_map(entries: list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
@@ -74,8 +76,8 @@ def month_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]]
     except (TypeError, ValueError):
         return {
             "month_scheduled": 0, "month_done": 0, "month_done_on_scheduled": 0,
-            "month_extra_done": 0, "month_skipped": 0, "month_unrecorded": 0,
-            "month_completion_rate": None,
+            "month_extra_done": 0, "month_skipped": 0, "month_failed": 0,
+            "month_unrecorded": 0, "month_completion_rate": None,
         }
     next_month = date(month_start.year + (1 if month_start.month == 12 else 0),
                       1 if month_start.month == 12 else month_start.month + 1, 1)
@@ -84,8 +86,8 @@ def month_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]]
     if effective_end < month_start:
         return {
             "month_scheduled": 0, "month_done": 0, "month_done_on_scheduled": 0,
-            "month_extra_done": 0, "month_skipped": 0, "month_unrecorded": 0,
-            "month_completion_rate": None,
+            "month_extra_done": 0, "month_skipped": 0, "month_failed": 0,
+            "month_unrecorded": 0, "month_completion_rate": None,
         }
     stats = range_stats(habit, entries_by_day, month_start, effective_end, today)
     return {
@@ -94,6 +96,7 @@ def month_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]]
         "month_done_on_scheduled": stats["done"],
         "month_extra_done": stats["extra_done"],
         "month_skipped": stats["skipped"],
+        "month_failed": stats["failed"],
         "month_unrecorded": stats["unrecorded"],
         "month_completion_rate": stats["completion_rate"],
     }
@@ -120,6 +123,7 @@ def streak_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]
 
     - ``done`` extends a streak.
     - ``skipped`` is neutral (does not break, does not extend).
+    - ``failed`` is an explicit failure and breaks the streak.
     - today's ``unrecorded`` is neutral because the day is not over.
     - a past scheduled day left unrecorded breaks the current streak.
     """
@@ -136,6 +140,8 @@ def streak_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]
             best = max(best, running)
         elif status == "skipped":
             continue
+        elif status == "failed":
+            running = 0
         elif day != today:
             running = 0
 
@@ -146,6 +152,8 @@ def streak_stats(habit: dict[str, Any], entries_by_day: dict[str, dict[str, Any]
             current += 1
         elif status == "skipped":
             continue
+        elif status == "failed":
+            break
         elif day == today:
             continue
         else:
@@ -167,7 +175,7 @@ def week_strip(habits: list[dict[str, Any]],
                first: date, last: date, today: date) -> dict[str, Any]:
     days: list[dict[str, Any]] = []
     for day in _days(first, last):
-        scheduled = done = skipped = 0
+        scheduled = done = skipped = failed = 0
         for habit in habits:
             if not scheduled_on(habit, day):
                 continue
@@ -177,12 +185,15 @@ def week_strip(habits: list[dict[str, Any]],
                 done += 1
             elif status == "skipped":
                 skipped += 1
+            elif status == "failed":
+                failed += 1
         days.append({
             "date": day.isoformat(),
             "weekday": day.weekday(),
             "scheduled": scheduled,
             "done": done,
             "skipped": skipped,
+            "failed": failed,
             "completion_rate": _completion_rate(done, scheduled, skipped),
             "is_today": day == today,
         })

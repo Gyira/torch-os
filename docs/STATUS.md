@@ -1,7 +1,27 @@
-# 当前状态与交接（2026-11-01；2026-11-03 更新）
+# 当前状态与交接（2026-11-01；2026-11-05 更新）
 
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
+
+## 2026-11-05 习惯 ↔ 滴答双向同步（本轮）
+
+- 新增 `backend/app/dida_habit_mapping.py`（RRULE/字段/基线哈希纯映射）和
+  `backend/app/dida_habit_sync.py`（拉取、推送、删除、冲突引擎）；扩展
+  `dida_client.py` 的 `RemoteHabit`/`RemoteHabitCheckin` 与 habits/habitCheckins 读写接口。
+- 习惯定义映射名称、颜色、重复规则、第一个提醒、开始日期/坚持天数、归档状态；打卡映射
+  `done↔2`、`failed↔1`、`unrecorded↔删除滴答打卡`。`skipped`（主动休息）是本地专属状态，
+  不写回滴答，也不会被远端未记录覆盖。本地习惯页菜单/打卡日志新增「失败」状态，
+  失败计入完成率分母并打断连续，主动休息仍为中性。本地专属字段不上传；滴答数值型习惯
+  按二元完成处理，部分进度不映射；不主动回写 `totalCheckIns/currentStreak`。
+- 冲突用映射字段快照判定（不用 revision），避免只改备注/图标/分组产生假冲突；定义冲突和
+  打卡冲突都可「保留本地」，保留本地后下一次推送把本地版本写回滴答。
+- 安全边界：滴答删除习惯只归档本地并保留历史；滴答习惯列表为空时仍按删除处理但记 warning；
+  本地取消打卡有批量删除保护；本地删除习惯回写受 `push_deletes` 控制。
+- 设置页新增「同步习惯与打卡（双向）」（默认开启）和习惯状态/冲突面板；习惯页增加滴答
+  链接徽标和「滴答同步」按钮；`/api/sync/dida/habit-links`、`/habit-conflicts` 等接口。
+- 新增 `tests/test_dida_habit_mapping.py`、`tests/test_dida_habit_client.py`、
+  `tests/test_dida_habit_sync.py`、`tests/test_habit_sync_primitives.py` 与
+  `frontend/tests/*.test.mjs`；恢复根 `conftest.py`。
 
 ## 2026-11-03 角色权限、导师会话与档案闭环（本轮）
 

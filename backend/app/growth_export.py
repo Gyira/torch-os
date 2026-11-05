@@ -20,7 +20,7 @@ from .habits import HabitService
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 WEEKDAY_LABELS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 HABIT_STATUS_LABELS = {"active": "进行中", "archived": "已归档"}
-ENTRY_STATUS_LABELS = {"done": "完成", "skipped": "主动休息", "unrecorded": "未记录"}
+ENTRY_STATUS_LABELS = {"done": "完成", "skipped": "主动休息", "failed": "失败", "unrecorded": "未记录"}
 
 
 def _weekdays_text(weekdays: Any) -> str:

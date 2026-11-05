@@ -21,6 +21,7 @@ const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 
 const VIEW_TYPE = 'torch-workbench';
@@ -39,6 +40,226 @@ const DEFAULT_SETTINGS = {
   autoStart: true,
   instancePort: 0,
 };
+
+// ── 本机工具链发现 ─────────────────────────────────────────────────────
+// repoRoot / pythonPath / instancePort 是“这台电脑”的属性，不能写进随库同步的
+// data.json：A 电脑的 D:\tools\torch-os 到了 B 电脑可能不存在。它们只存本机
+// LOCALAPPDATA（或对应平台配置目录），data.json 只保留 baseUrl / autoStart。
+const DEVICE_SETTING_KEYS = ['repoRoot', 'pythonPath', 'instancePort'];
+const REPO_MARKERS = ['backend/app/run.py', 'backend/app/main.py'];
+
+function localConfigDir() {
+  if (process.platform === 'win32') {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(base, 'torch-os', 'obsidian-plugin');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'torch-os', 'obsidian-plugin');
+  }
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+  return path.join(base, 'torch-os', 'obsidian-plugin');
+}
+
+function deviceConfigPath(vaultId) {
+  const safe = String(vaultId || 'unknown').replace(/[^0-9A-Za-z_.-]+/g, '-');
+  return path.join(localConfigDir(), `${safe || 'unknown'}.json`);
+}
+
+function readDeviceSettings(vaultId) {
+  try {
+    const value = JSON.parse(fs.readFileSync(deviceConfigPath(vaultId), 'utf8'));
+    if (!value || typeof value !== 'object') return {};
+    const result = {};
+    for (const key of DEVICE_SETTING_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) result[key] = value[key];
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeDeviceSettings(vaultId, settings = {}) {
+  const target = deviceConfigPath(vaultId);
+  const payload = {
+    version: 1,
+    vaultId: String(vaultId || 'unknown'),
+    updatedAt: new Date().toISOString(),
+  };
+  for (const key of DEVICE_SETTING_KEYS) {
+    payload[key] = settings[key] === undefined || settings[key] === null
+      ? (key === 'instancePort' ? 0 : '')
+      : settings[key];
+  }
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    try {
+      fs.renameSync(temporary, target);
+    } catch {
+      // Windows 上目标被短暂占用时，退回覆盖写；配置很小，不涉及 SQLite。
+      fs.copyFileSync(temporary, target);
+      fs.rmSync(temporary, { force: true });
+    }
+    return target;
+  } catch {
+    return '';
+  }
+}
+
+function isRepoRoot(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  try {
+    const root = path.resolve(text);
+    if (!fs.statSync(root).isDirectory()) return false;
+    return REPO_MARKERS.some((relative) => fs.existsSync(path.join(root, ...relative.split('/'))));
+  } catch {
+    return false;
+  }
+}
+
+function findPython(repoRoot) {
+  const root = String(repoRoot || '').trim();
+  if (!root) return '';
+  const candidates = process.platform === 'win32'
+    ? [path.join(root, '.venv', 'Scripts', 'python.exe'),
+       path.join(root, 'venv', 'Scripts', 'python.exe')]
+    : [path.join(root, '.venv', 'bin', 'python'),
+       path.join(root, 'venv', 'bin', 'python'),
+       path.join(root, '.venv', 'bin', 'python3')];
+  for (const candidate of candidates) {
+    try {
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch { /* try next */ }
+  }
+  return '';
+}
+
+function resolvePython(repoRoot, explicit = '') {
+  const manual = String(explicit || '').trim();
+  if (manual) {
+    try {
+      if (fs.statSync(path.resolve(manual)).isFile()) return path.resolve(manual);
+    } catch { /* fall through to repo venv */ }
+  }
+  return findPython(repoRoot);
+}
+
+function repoCandidates({ settings = {}, vaultPath = '', extraCandidates = [] } = {}) {
+  const home = os.homedir();
+  const values = [
+    ...extraCandidates,
+    process.env.TORCH_REPO_ROOT,
+    process.env.TORCH_OS_ROOT,
+    settings.repoRoot,
+    path.join(home, 'torch-os'),
+    path.join(home, 'Torchos'),
+    path.join(home, 'Desktop', 'torch-os'),
+    path.join(home, 'Desktop', 'Torchos'),
+    path.join(home, 'Documents', 'torch-os'),
+    path.join(home, 'Documents', 'Torchos'),
+    path.join(home, 'repos', 'torch-os'),
+    path.join(home, 'source', 'repos', 'torch-os'),
+  ];
+  if (process.platform === 'win32') {
+    values.push('C:\\tools\\torch-os', 'D:\\tools\\torch-os', 'D:\\torch-os');
+  } else {
+    values.push('/opt/torch-os', path.join(home, 'torch-os'));
+  }
+  if (vaultPath) {
+    const parent = path.dirname(path.resolve(vaultPath));
+    const grandparent = path.dirname(parent);
+    values.push(
+      path.join(parent, 'torch-os'), path.join(parent, 'Torchos'),
+      path.join(grandparent, 'torch-os'), path.join(grandparent, 'Torchos'),
+    );
+  }
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const resolved = path.resolve(text);
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(resolved);
+  }
+  return result;
+}
+
+function discoverNearbyRepos({ vaultPath = '', extraCandidates = [] } = {}) {
+  const roots = [
+    os.homedir(),
+    path.join(os.homedir(), 'Desktop'),
+    path.join(os.homedir(), 'Documents'),
+    ...extraCandidates.map((item) => path.dirname(path.resolve(String(item || '')))),
+  ];
+  if (vaultPath) {
+    roots.push(path.dirname(path.resolve(vaultPath)));
+    roots.push(path.dirname(path.dirname(path.resolve(vaultPath))));
+  }
+  if (process.platform === 'win32') roots.push('C:\\tools', 'D:\\tools');
+  const found = [];
+  const seen = new Set();
+  for (const root of roots) {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries.slice(0, 400)) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(root, entry.name);
+      const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (isRepoRoot(candidate)) found.push(candidate);
+    }
+  }
+  return found;
+}
+
+function pickRepo(candidates = []) {
+  let fallback = '';
+  for (const candidate of candidates) {
+    if (!isRepoRoot(candidate)) continue;
+    if (!fallback) fallback = candidate;
+    // 优先选带 .venv 的仓库，避免先命中一个没有 Python 的旧副本。
+    if (findPython(candidate)) return candidate;
+  }
+  return fallback;
+}
+
+function findRepoRoot({ settings = {}, vaultPath = '', extraCandidates = [] } = {}) {
+  const direct = pickRepo(repoCandidates({ settings, vaultPath, extraCandidates }));
+  if (direct) return direct;
+  return pickRepo(discoverNearbyRepos({ vaultPath, extraCandidates }));
+}
+
+function resolveToolchain({ settings = {}, vaultPath = '', extraCandidates = [] } = {}) {
+  let repoRoot = isRepoRoot(settings.repoRoot) ? path.resolve(settings.repoRoot) : '';
+  let pythonPath = repoRoot ? resolvePython(repoRoot, settings.pythonPath) : '';
+  if (!repoRoot || !pythonPath) {
+    // 旧路径存在但 .venv 已失效时，继续找本机其他带 Python 的仓库。
+    const found = findRepoRoot({ settings, vaultPath, extraCandidates });
+    if (found) {
+      repoRoot = found;
+      pythonPath = resolvePython(found, settings.pythonPath);
+    }
+  }
+  return { repoRoot, pythonPath };
+}
+
+function sharedSettings(settings = {}) {
+  return {
+    baseUrl: settings.baseUrl || DEFAULT_SETTINGS.baseUrl,
+    autoStart: settings.autoStart !== false,
+  };
+}
 
 /** Obsidian 的计算样式 → 产品主题桥认识的 token（值只当字符串传，不在这里做设计决定）。 */
 function themePayload() {
@@ -239,17 +460,49 @@ class TorchSettingTab extends PluginSettingTab {
         this.display();
       }));
     new Setting(containerEl)
-      .setName('仓库路径')
-      .setDesc('薪火OS 的仓库目录（包含 .venv 与 backend 的那个），例如 D:/tools/torch-os。')
-      .addText((text) => text.setPlaceholder('C:/path/to/torch-os')
+      .setName('仓库路径（仅本机）')
+      .setDesc('薪火OS 的仓库目录（包含 .venv 与 backend 的那个）。只保存在这台电脑；'
+        + '换设备会自动查找，不会用另一台设备的路径覆盖这里。')
+      .addText((text) => text.setPlaceholder('例如 C:/Users/你/Desktop/torch-os')
         .setValue(this.plugin.settings.repoRoot)
-        .onChange(async (value) => { this.plugin.settings.repoRoot = value.trim(); await this.plugin.saveSettings(); }));
+        .onChange((value) => {
+          this.plugin.settings.repoRoot = value.trim();
+          this.plugin.settings.pythonPath = resolvePython(
+            this.plugin.settings.repoRoot, this.plugin.settings.pythonPath);
+          this.plugin.saveDeviceSettings();
+        }))
+      .addButton((button) => button
+        .setButtonText('自动检测')
+        .setTooltip('在本机常见位置查找包含 backend/app/run.py 的 torch-os 仓库')
+        .onClick(() => {
+          const found = findRepoRoot({
+            settings: { ...this.plugin.settings, repoRoot: '' },
+            vaultPath: baseVaultPath(this.app),
+          });
+          if (!found) {
+            new Notice('没有找到 torch-os 仓库。请手动填写仓库路径；该路径只保存在本机。');
+            return;
+          }
+          this.plugin.settings.repoRoot = found;
+          this.plugin.settings.pythonPath = resolvePython(found, '');
+          this.plugin.saveDeviceSettings();
+          new Notice(`已找到仓库：${found}`);
+          this.display();
+        }));
     new Setting(containerEl)
-      .setName('Python 路径（可选）')
-      .setDesc('留空时用 仓库路径/.venv/Scripts/python.exe。')
+      .setName('Python 路径（可选，仅本机）')
+      .setDesc('留空时自动用 仓库路径/.venv/Scripts/python.exe（macOS/Linux 为 .venv/bin/python）。')
       .addText((text) => text.setPlaceholder('.venv/Scripts/python.exe')
         .setValue(this.plugin.settings.pythonPath)
-        .onChange(async (value) => { this.plugin.settings.pythonPath = value.trim(); await this.plugin.saveSettings(); }));
+        .onChange((value) => {
+          this.plugin.settings.pythonPath = value.trim();
+          this.plugin.saveDeviceSettings();
+        }));
+    containerEl.createEl('p', {
+      cls: 'setting-item-description',
+      text: '仓库路径、Python 路径和启动端口只保存在本机（'
+        + localConfigDir() + '），不会随库同步。两台设备各自自动发现或手动指定一次即可。',
+    });
     new Setting(containerEl)
       .setName('自动拉起本地服务')
       .setDesc('打开面板时如果当前库还没有对应的后端实例，就用仓库里的 Python 启动一个（桌面版）。')
@@ -267,9 +520,13 @@ class TorchSettingTab extends PluginSettingTab {
 
 module.exports = class TorchPlugin extends Plugin {
   async onload() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const synced = (await this.loadData()) || {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, synced);
     this.instanceUrl = '';
     this.ensurePromise = null;
+    this.deviceKey = '';
+    try { this.deviceKey = this.vaultBinding()?.id || ''; } catch { /* vault 还没就绪 */ }
+    this.hydrateDeviceSettings(synced);
     this.registerView(VIEW_TYPE, (leaf) => new WorkbenchView(leaf, this));
     this.addRibbonIcon(RIBBON_ICON, '打开 薪火OS', () => this.activateView());
     this.addCommand({ id: 'open-workbench', name: '打开工作台', callback: () => this.activateView() });
@@ -280,8 +537,77 @@ module.exports = class TorchPlugin extends Plugin {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE);
   }
 
+  /**
+   * 机器相关设置只认本机文件。首次运行或换设备时，同步过来的 repoRoot 只有
+   * 在“这台电脑上真实存在”时才采用；否则清空并自动查找。
+   */
+  hydrateDeviceSettings(synced = {}) {
+    const device = this.deviceKey ? readDeviceSettings(this.deviceKey) : {};
+    const hasLocalRepo = Object.prototype.hasOwnProperty.call(device, 'repoRoot');
+    if (hasLocalRepo) {
+      this.settings.repoRoot = String(device.repoRoot || '');
+      this.settings.pythonPath = String(device.pythonPath || '');
+      this.settings.instancePort = Number(device.instancePort) || 0;
+      if (this.settings.repoRoot && !isRepoRoot(this.settings.repoRoot)) {
+        this.settings.repoRoot = '';
+        this.settings.pythonPath = '';
+      }
+    } else {
+      // 旧版 data.json 或安装器留下的提示值：仅当本机存在时才迁移。
+      this.settings.repoRoot = isRepoRoot(synced?.repoRoot) ? path.resolve(synced.repoRoot) : '';
+      this.settings.pythonPath = resolvePython(this.settings.repoRoot, synced?.pythonPath || '');
+      this.settings.instancePort = 0;
+    }
+    if (!this.settings.repoRoot) {
+      const found = findRepoRoot({
+        settings: this.settings,
+        vaultPath: this.vaultBinding()?.path || '',
+      });
+      if (found) {
+        this.settings.repoRoot = found;
+        this.settings.pythonPath = resolvePython(found, this.settings.pythonPath);
+      }
+    } else if (!this.settings.pythonPath) {
+      this.settings.pythonPath = resolvePython(this.settings.repoRoot, '');
+    }
+    this.saveDeviceSettings();
+  }
+
+  saveDeviceSettings() {
+    if (!this.deviceKey) {
+      try { this.deviceKey = this.vaultBinding()?.id || ''; } catch { /* ignore */ }
+    }
+    if (!this.deviceKey) return '';
+    return writeDeviceSettings(this.deviceKey, this.settings);
+  }
+
+  /** 共享设置写回 data.json；机器相关字段永远不会写进去。 */
   async saveSettings() {
-    await this.saveData(this.settings);
+    let current = {};
+    try { current = (await this.loadData()) || {}; } catch { /* use defaults */ }
+    const next = { ...current, ...sharedSettings(this.settings) };
+    for (const key of DEVICE_SETTING_KEYS) delete next[key];
+    await this.saveData(next);
+    this.saveDeviceSettings();
+  }
+
+  /** 当前电脑实际可用的仓库与 Python；必要时自动发现并记住。 */
+  resolveToolchain() {
+    const toolchain = resolveToolchain({
+      settings: this.settings,
+      vaultPath: this.vaultBinding()?.path || '',
+    });
+    let changed = false;
+    if (toolchain.repoRoot && toolchain.repoRoot !== this.settings.repoRoot) {
+      this.settings.repoRoot = toolchain.repoRoot;
+      changed = true;
+    }
+    if (toolchain.pythonPath && toolchain.pythonPath !== this.settings.pythonPath) {
+      this.settings.pythonPath = toolchain.pythonPath;
+      changed = true;
+    }
+    if (changed) this.saveDeviceSettings();
+    return toolchain;
   }
 
   vaultBinding() {
@@ -327,6 +653,11 @@ module.exports = class TorchPlugin extends Plugin {
     addCandidate(portFromUrl(this.settings.baseUrl));
     addCandidate(DEFAULT_PORT);
     addCandidate(portFromUrl(this.instanceUrl, 0));
+    // 本机配置丢失/换设备时，仍要能发现已经由旧插件或手动启动的实例。
+    // 只探测插件自己的端口段，避免扫描整段 1–65535。
+    for (let offset = 0; offset < 16; offset += 1) {
+      addCandidate(PLUGIN_PORT_BASE + offset);
+    }
 
     for (const port of candidates) {
       const health = await fetchHealth(port);
@@ -340,8 +671,15 @@ module.exports = class TorchPlugin extends Plugin {
       new Notice('薪火OS 当前库还没有运行中的后端实例。请手动启动服务，或在插件设置里打开自动拉起。');
       return false;
     }
-    if (!this.settings.repoRoot) {
-      new Notice('薪火OS 无法自动启动：请在插件设置里填写仓库路径。');
+    const toolchain = this.resolveToolchain();
+    if (!toolchain.repoRoot) {
+      new Notice('薪火OS 无法自动启动：这台电脑上没找到 torch-os 仓库。'
+        + '请在插件设置里填写仓库路径（只保存在本机），或设置环境变量 TORCH_REPO_ROOT。');
+      return false;
+    }
+    if (!toolchain.pythonPath) {
+      new Notice(`薪火OS 找到了仓库（${toolchain.repoRoot}），但缺少可用的 .venv Python。`
+        + '请先在仓库运行 安装.cmd，或在插件设置里填写 Python 路径。');
       return false;
     }
 
@@ -363,13 +701,7 @@ module.exports = class TorchPlugin extends Plugin {
       return false;
     }
 
-    const python = this.settings.pythonPath
-      || path.join(this.settings.repoRoot, '.venv', 'Scripts', 'python.exe');
-    if (!fs.existsSync(python)) {
-      new Notice(`薪火OS 无法自动启动：找不到 Python（${python}）。`
-        + '请在插件设置里修正仓库路径或 Python 路径。');
-      return false;
-    }
+    const python = toolchain.pythonPath;
     const dataDir = path.join(binding.path, '.torch-os');
     let logFsPath = '';
     let logFd = null;
@@ -379,7 +711,7 @@ module.exports = class TorchPlugin extends Plugin {
       logFsPath = path.join(logDir, `torch-backend-${port}.log`);
       logFd = fs.openSync(logFsPath, 'a');
       const child = spawn(python, ['-m', 'backend.app.run'], {
-        cwd: this.settings.repoRoot,
+        cwd: toolchain.repoRoot,
         detached: true,
         windowsHide: true,
         stdio: ['ignore', logFd, logFd],
@@ -428,7 +760,7 @@ module.exports = class TorchPlugin extends Plugin {
     this.instanceUrl = `http://127.0.0.1:${port}`;
     if (Number(this.settings.instancePort) !== port) {
       this.settings.instancePort = port;
-      this.saveSettings().catch(() => {});
+      this.saveDeviceSettings();
     }
   }
 
@@ -558,4 +890,21 @@ module.exports = class TorchPlugin extends Plugin {
     await leaf.setViewState({ type: VIEW_TYPE, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
+};
+
+// 供 node --test 覆盖纯路径发现逻辑；Obsidian 运行时不会读取这个属性。
+module.exports._test = {
+  localConfigDir,
+  deviceConfigPath,
+  readDeviceSettings,
+  writeDeviceSettings,
+  isRepoRoot,
+  findPython,
+  resolvePython,
+  repoCandidates,
+  discoverNearbyRepos,
+  pickRepo,
+  findRepoRoot,
+  resolveToolchain,
+  sharedSettings,
 };

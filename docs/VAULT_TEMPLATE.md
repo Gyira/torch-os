@@ -19,7 +19,8 @@
 - `.obsidian/` 预设：`app.json`、`appearance.json`、`core-plugins.json`、
   `community-plugins.json`；
 - `.obsidian/plugins/torch/`：`main.js`、`manifest.json`、`styles.css` 从仓库
-  `obsidian-plugin/` 原样复制，另写一份 `data.json`（带本机 `repoRoot`）；
+  `obsidian-plugin/` 原样复制，另写一份 `data.json`（`repoRoot` 仅作首次安装提示；
+  插件运行后把仓库/Python/端口改为只存本机配置目录）；
 - 种子文件：`01_自我档案/01_档案/身份（identity）.md`（frontmatter 带 `id`、
   `type: identity`、`created`、`updated` 与三观空字段，正文是「我是谁 / 三观 / 我要去哪里」）。
   旧库仍在 `01_自我档案/01_内核与三观/身份（identity）.md` 时只读兜底，迁移后写新路径。
@@ -276,7 +277,7 @@
 | `.obsidian/core-plugins.json` | 核心插件开关对象：19 个插件 id → `true`（`file-explorer`、`global-search`、`switcher`、`backlink`、`tag-pane`、`graph`、`canvas`、`properties` 等） |
 | `.obsidian/community-plugins.json` | `["torch"]`（预启用） |
 | `.obsidian/plugins/torch/main.js` · `manifest.json` · `styles.css` | 从仓库 `obsidian-plugin/` 复制 |
-| `.obsidian/plugins/torch/data.json` | `baseUrl`、`repoRoot`（本机仓库绝对路径）、`pythonPath: ""`、`autoStart: true`、`instancePort: 0` |
+| `.obsidian/plugins/torch/data.json` | 共享设置：`baseUrl`、`autoStart: true`。`repoRoot` 只作为首次安装提示；插件的仓库/Python/端口在运行后改为只存本机 `%LOCALAPPDATA%\torch-os\obsidian-plugin\<vault_id>.json`，不随库同步 |
 
 在 Obsidian 里第一次打开新库：
 
