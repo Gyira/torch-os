@@ -96,6 +96,7 @@ def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
     if len(text) > self_archive.MAX_ENTRY_CHARS:
         return None, f"条目正文最多 {self_archive.MAX_ENTRY_CHARS} 字"
     resolved: list[str] = []
+    invalid: list[str] = []
     trusted_source = False
     binding_ids = {str(item.get("id") or "") for item in (bindings or [])}
     for value in _sources(_field(raw, "sources")):
@@ -105,7 +106,8 @@ def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
                 value, bindings=bindings or [], thread_id=thread_id)
         except Exception as error:  # includes RoleScopeError / HTTPException
             detail = getattr(error, "detail", None) or str(error)
-            return None, f"来源未通过校验：{detail}"
+            invalid.append(str(detail))
+            continue
         # A server-issued S-number or context source is already known to have
         # been assembled for this turn. A literal local path must still exist;
         # otherwise a model could invent a plausible-looking citation.
@@ -119,12 +121,19 @@ def normalize_candidate(raw: Any, *, vault_dir: Path | str, policy: RolePolicy,
                 target = policy.check_path(reference, note=True)
             except Exception as error:  # noqa: BLE001
                 detail = getattr(error, "detail", None) or str(error)
-                return None, f"来源未通过校验：{detail}"
+                invalid.append(str(detail))
+                continue
             if not target.is_file():
-                return None, f"来源文件不存在：{reference}"
+                invalid.append(f"来源文件不存在：{reference}")
+                continue
             trusted_source = True
-        resolved.append(reference)
+        if reference not in resolved:
+            resolved.append(reference)
     if entry_type == "fact" and require_fact_source and not trusted_source:
+        # One wrong citation must not discard the whole entry; only a fact
+        # without any trusted source is refused.
+        if invalid:
+            return None, f"来源未通过校验：{invalid[0]}"
         return None, "事实条目必须有库内或本轮资料的明确来源，不能把模型推断写成事实"
     candidate = {
         "action": action,

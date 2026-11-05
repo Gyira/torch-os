@@ -280,11 +280,35 @@ class AutonomousArchiveTests(unittest.TestCase):
             self.vault, old["entry_id"], include_history=True)
         self.assertEqual(history["status"], "superseded")
 
+    def test_unknown_source_is_dropped_instead_of_blocking_entry(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_experiments",
+            "entry_type": "hypothesis", "confidence": "medium",
+            "title": "用真题体感定专业", "text": "先各做一套真题再决定。",
+            "sources": ["A1", "S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        entry = self_archive.find_entry(self.vault, update["entry_id"])
+        self.assertEqual(len(entry["sources"]), 1)
+        self.assertNotIn("A1", entry["sources"][0])
+
+    def test_fact_with_one_valid_source_survives_a_bad_citation(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "self_facts", "entry_type": "fact",
+            "confidence": "high", "title": "有效事实", "text": "有依据。",
+            "sources": ["A1", "S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        entry = self_archive.find_entry(self.vault, update["entry_id"])
+        self.assertEqual(len(entry["sources"]), 1)
+
     def test_partial_failure_is_reported_per_item_and_does_not_block_others(self):
         result = self.chat(reply(archive_updates=[
             {"action": "create", "section": "self_facts", "entry_type": "inference",
              "title": "有效", "text": "有依据的推断", "sources": ["S1"]},
-            {"action": "create", "section": "self_facts", "entry_type": "inference",
+            {"action": "create", "section": "self_facts", "entry_type": "fact",
              "title": "无效", "text": "越界来源", "sources": ["C:/secret.md"]},
         ]))
         updates = result["archive_updates"]
