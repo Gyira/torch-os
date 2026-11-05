@@ -58,6 +58,15 @@ class RoleContractTests(unittest.TestCase):
                         (set(role.proposals) & action_kinds) <= set(ROLE_ACTIONS[role.id]),
                         f"{role.id} 角色卡提议了策略未开放的动作")
 
+    def test_mentor_converse_prompt_lists_archive_books(self):
+        """导师对话会把模型输出直接写档案：prompt 必须给出 11 个本子 key。"""
+        from backend.app import self_archive
+        prompt = self.registry.get("mentor").prompt_for("converse")
+        for key in self_archive.BOOK_ORDER:
+            self.assertIn(key, prompt)
+        # 身份文件不是本子；模型最容易把来源标题当成 section。
+        self.assertIn("不是本子", prompt)
+
     def test_mentor_write_scope_is_self_archive_only(self):
         self.assertEqual(ROLE_ROOTS["mentor"], tuple(vault_layout.PILLAR_DIRS.values()))
         self.assertEqual(WRITE_ROOTS["mentor"], ("01_自我档案",))

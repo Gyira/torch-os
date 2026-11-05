@@ -71,12 +71,14 @@ export function messageMarkup(message = {}) {
   const role = message.role === "user" ? "user" : "assistant";
   const sources = Array.isArray(message.sources) ? message.sources : [];
   const updates = Array.isArray(message.archive_updates) ? message.archive_updates : [];
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const time = formatWhen(message.created_at);
   const body = role === "assistant"
     ? `<div class="md-body mentor-message-body">${message.html || escape(message.content || "").replace(/\n/g, "<br>")}</div>`
     : `<div class="mentor-message-body">${escape(message.content || "").replace(/\n/g, "<br>")}</div>`;
   return `<article class="mentor-message is-${role}" data-message-role="${role}">
     <div class="mentor-message-head"><span>${role === "user" ? "我" : "人生导师"}</span><span>${escape(time)}</span></div>
+    ${attachments.length ? `<div class="mentor-message-attachments">${attachments.map((item) => `<span class="mentor-message-attachment" title="${escape(item.name || "附件")}">📄 ${escape(item.name || "附件")}${item.chars ? ` · ${Number(item.chars) || 0} 字` : ""}</span>`).join("")}</div>` : ""}
     ${body}
     ${archiveUpdatesMarkup(updates)}
     ${sources.length ? `<details class="mentor-sources"><summary>用了 ${sources.length} 份资料</summary>
@@ -89,7 +91,7 @@ export function emptyChatMarkup() {
   return `<div class="mentor-empty">
     <p class="eyebrow">LIFE MENTOR</p>
     <h3>我在这里，先听你说。</h3>
-    <p class="field-help">我会读你的档案、记忆、最近日记和任务；需要更多信息时会问你。你觉得档案哪条不对，也可以直接跟我辩。</p>
+    <p class="field-help">我会读你的档案、记忆、最近日记和任务；需要更多信息时会问你。你也可以用输入框左下角的回形针，附加文本、PDF 或 Word。你觉得档案哪条不对，也可以直接跟我辩。</p>
     <div class="mentor-chips">
       <button type="button" class="mentor-chip" data-mentor-chip="我最近在纠结一个选择，帮我梳理一下">我最近在纠结一个选择</button>
       <button type="button" class="mentor-chip" data-mentor-chip="帮我看看自我档案里最近写的东西对不对">帮我看看档案</button>

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend.app import mentor_pending, self_archive, self_synthesize
+from backend.app import mentor_attachments, mentor_pending, self_archive, self_synthesize
 from backend.app.ai_gateway import HeadlessResult
 from backend.app.ai_roles import (
     RoleRegistry, RoleService, _fallback_reply_from_structured, _visible_reply_text,
@@ -113,6 +113,21 @@ class AutonomousArchiveTests(unittest.TestCase):
         parsed_json, structured_json = parse_reply(raw_json)
         self.assertEqual(_visible_reply_text(parsed_json, raw_json, structured_json), "")
 
+    def test_chat_injects_attachment_text_and_returns_metadata(self):
+        attachment = mentor_attachments.save_attachment(
+            self.vault, "笔记.md", "附件的独特内容 ABC。".encode("utf-8"))
+        self.service._execute = Mock(return_value=reply(reply="我读到了附件。"))
+        result = self.service.chat(
+            "mentor", "converse", "读一下这个文件", entry="self.mentor",
+            selectors=[{"entry": "self_archive"}], attachments=[attachment["id"]])
+        prompt = self.service._execute.call_args[0][0]
+        self.assertIn("用户本轮附加的资料", prompt)
+        self.assertIn("附件的独特内容 ABC", prompt)
+        self.assertEqual(result["attachments"][0]["name"], "笔记.md")
+        thread = self.service.thread(result["thread_id"])
+        user_turn = next(turn for turn in thread["turns"] if turn["role"] == "user")
+        self.assertEqual(user_turn["structured"]["attachments"][0]["name"], "笔记.md")
+
     def test_short_section_alias_is_normalized(self):
         result = self.chat(reply(archive_updates=[{
             "action": "create", "section": "motivation", "entry_type": "inference",
@@ -125,6 +140,32 @@ class AutonomousArchiveTests(unittest.TestCase):
         self.assertEqual(update["section"], "self_motivation")
         self.assertEqual(update["section_title"], "动机与需求")
         self.assertEqual(len(self_archive.list_entries(self.vault, "self_motivation")), 1)
+
+    def test_identity_section_is_routed_to_basic_facts(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "identity", "entry_type": "fact",
+            "confidence": "high", "title": "单位学历优待只认全日制",
+            "text": "他所在单位只对全日制学历给予优待。",
+            "evidence": "用户原话", "sources": ["S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertTrue(update["ok"], update)
+        self.assertEqual(update["section"], "self_facts")
+        self.assertEqual(update["section_title"], "基础事实")
+        self.assertEqual(len(self_archive.list_entries(self.vault, "self_facts")), 1)
+
+    def test_unknown_section_error_lists_valid_books(self):
+        result = self.chat(reply(archive_updates=[{
+            "action": "create", "section": "research_plan", "entry_type": "inference",
+            "confidence": "medium", "title": "无家可归", "text": "不知道怎么归类",
+            "sources": ["S1"],
+        }]))
+        update = result["archive_updates"][0]
+        self.assertFalse(update["ok"])
+        self.assertIn("research_plan", update["error"])
+        for key in self_archive.BOOK_ORDER:
+            self.assertIn(key, update["error"])
+        self.assertEqual(self_archive.all_entries(self.vault), [])
 
     def test_question_with_chinese_book_title_is_saved(self):
         result = self.chat(reply(questions=[{

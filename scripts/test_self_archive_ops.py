@@ -176,8 +176,24 @@ class ArchiveOperationTests(unittest.TestCase):
         for value in ("self_motivation", "motivation", "Motivation", "动机与需求", "动机"):
             self.assertEqual(self_archive.normalize_book_key(value), "self_motivation")
         self.assertEqual(self_archive.normalize_book_key("relationships"), "self_relationship")
+        # 模型把「身份（identity）」当成本子：身份文件里的稳定事实归基础事实。
+        self.assertEqual(self_archive.normalize_book_key("identity"), "self_facts")
+        self.assertEqual(self_archive.normalize_book_key("身份"), "self_facts")
+        self.assertEqual(self_archive.normalize_book_key("身份与三观"), "self_values")
         self.assertEqual(self_archive.normalize_book_key("不存在的本子"), "")
         self.assertEqual(self_archive.normalize_book_key(""), "")
+
+    def test_unknown_book_message_lists_the_eleven_keys(self):
+        message = self_archive.unknown_book_message("identity2")
+        self.assertIn("identity2", message)
+        for key in self_archive.BOOK_ORDER:
+            self.assertIn(key, message)
+
+    def test_context_text_labels_each_book_with_its_key(self):
+        self_archive.create_entry(
+            self.vault, **make_payload("作息", "通常凌晨一点睡"))
+        text = self_archive.context_text(self.vault)
+        self.assertIn("基础事实（self_facts", text)
 
     def test_duplicate_entries_collapse_and_merge_sources(self):
         text = "每天下班后爬坡二十分钟，已经坚持一个月，身体比之前稳定很多。"

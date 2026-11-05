@@ -99,6 +99,12 @@ _BOOK_ALIASES = {
     "矛盾": "self_paradox", "盲区": "self_paradox", "矛盾与盲区": "self_paradox",
     "时间线": "self_timeline", "人生时间线": "self_timeline",
     "验证": "self_experiments", "验证与更新": "self_experiments",
+    # 模型会把「身份（identity）」当成一个本子。身份文件本身不是本子：
+    # 对话里从这里沉淀的多是学历、职业、家庭这类稳定事实，归基础事实；
+    # 模型若直接抄来源标题「身份与三观」，按三观归入 self_values。
+    "identity": "self_facts", "self_identity": "self_facts",
+    "身份": "self_facts", "身份信息": "self_facts", "基本信息": "self_facts",
+    "身份与三观": "self_values",
 }
 
 
@@ -116,6 +122,18 @@ def normalize_book_key(value: Any) -> str:
         return f"self_{lowered}"
     return (_BOOK_TITLE_TO_KEY.get(text) or _BOOK_ALIASES.get(lowered)
             or _BOOK_ALIASES.get(text) or "")
+
+
+def book_key_hint() -> str:
+    """可选本子清单，给模型与用户都能读懂的 ``key（标题）`` 形式。"""
+    return "、".join(f"{key}（{title}）" for key, title, _folder, _types in BOOKS)
+
+
+def unknown_book_message(raw: Any) -> str:
+    """未知本子时不要只说“未知”：把允许的 11 个 key 一起给出来。"""
+    name = str(raw or "").strip() or "空"
+    return f"未知的档案本子：{name}（section 只能填 {book_key_hint()}）"
+
 
 _FILENAME_UNSAFE = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
 
@@ -185,7 +203,7 @@ def _ensure_write(read_only: bool, action: str) -> None:
 def book_meta(book_key: str) -> dict[str, Any]:
     item = BOOK_BY_KEY.get(normalize_book_key(book_key))
     if item is None:
-        raise SelfArchiveError("未知的档案本子", 404)
+        raise SelfArchiveError(unknown_book_message(book_key), 404)
     key, title, folder, types = item
     return {
         "key": key,
@@ -1003,7 +1021,7 @@ def context_text(vault_dir: Path | str, *, max_chars: int = 12_000) -> str:
         rows = list_entries(vault_dir, key)
         if not rows:
             continue
-        lines = [f"## {meta['title']}（{len(rows)} 条）"]
+        lines = [f"## {meta['title']}（{key} · {len(rows)} 条）"]
         for item in rows:
             text = _clean(item["text"], 360).replace("\n", " ")
             evidence = _clean(item["evidence"], 160).replace("\n", " ")
@@ -1050,7 +1068,8 @@ __all__ = [
     "BOOKS", "BOOK_BY_KEY", "BOOK_ORDER", "ENTRY_TYPES", "ENTRY_TYPE_LABELS",
     "CONFIDENCES", "CONFIDENCE_LABELS", "STATUSES", "ORIGINS",
     "SelfArchiveError", "SelfArchiveConflict",
-    "book_meta", "book_dir", "list_entries", "all_entries", "find_entry",
+    "book_meta", "book_dir", "book_key_hint", "unknown_book_message",
+    "list_entries", "all_entries", "find_entry",
     "create_entry", "supersede_entry", "read_portrait", "write_portrait",
     "context_text", "overview", "recover_incomplete_operations", "recovery_status",
     "OPS_RELATIVE",

@@ -16,3 +16,6 @@ python-multipart>=0.0.12,<1
 lunar-python>=1.4,<2
 pillow>=10,<13
 pillow-heif>=0.18,<2
+# 人生导师附件：PDF / Word 文本提取（文本文件不需要额外依赖）
+pypdf>=5,<7
+python-docx>=1.1,<2

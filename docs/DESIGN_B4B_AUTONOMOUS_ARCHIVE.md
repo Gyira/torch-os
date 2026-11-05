@@ -6,7 +6,10 @@
 
 - 导师对话可返回 `archive_updates`（创建或替代条目）；全量整理的 `archive_patches`
   走同一条链。服务端在 `backend/app/mentor_archive.py` 统一校验：
-  - 本子必须是 11 个固定本子之一；替代必须带现有 `entry_id`，且本子与原条目一致；
+  - 本子必须是 11 个固定本子之一；`section` 接受本子 key 与常见别名（`motivation`、
+    `身份` 等）。`identity` 文件不是本子：学历、职业、家庭等稳定事实落到 `self_facts`；
+    仍无法识别时错误里列出全部可用 key，而不是只说“未知”；
+  - 替代必须带现有 `entry_id`，且本子与原条目一致；
   - `fact` 必须有能通过角色范围校验的可信来源（本轮 S 编号 / context 来源 / 库内已存在
     Markdown），仅有外部 URL 或虚构路径不算；否则该项失败，不能把模型猜测写成事实；
   - 来源通过 `RolePolicy.reference` 绑定当前上下文；浏览器不能提交“已授权”标记；
@@ -34,9 +37,10 @@
 
 ## 验证
 
-`scripts/test_mentor_autonomous.py` 10 项通过：事实/推断标记、无来源/仅 URL/虚构路径
+`scripts/test_mentor_autonomous.py` 18 项通过：事实/推断标记、无来源/仅 URL/虚构路径
 事实拒绝、本地已有来源接受、替代历史链、部分失败、重复请求、开关回退、只读、
-全量整理自主/回退。`scripts/test_ui_polish.mjs` 覆盖更新卡片的类型、操作 ID、
+全量整理自主/回退、`identity` 归入基础事实、未知本子的报错列出可用 key。
+`scripts/test_ui_polish.mjs` 覆盖更新卡片的类型、操作 ID、
 历史链接与失败文案。`scripts/check_all.ps1` 全部通过。
 
 本地个人库后端已在原端口 `127.0.0.1:9168` 重启（原 PID 9944 → 最终 PID 7788）：

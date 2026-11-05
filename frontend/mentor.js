@@ -28,6 +28,7 @@ const state = {
   newConversation: false,
   editingPending: "",
   questionNotice: { message: "", tone: "" },
+  attachments: [],
   // 没有服务端 ID 的新对话也有稳定的本地身份，草稿和迟到响应都按它归属。
   localConversationId: "",
 };
@@ -41,6 +42,7 @@ const pendingMessages = new Map();
 let localConversationSeq = 0;
 let requestSeq = 0;
 let openSeq = 0;
+let attachmentSeq = 0;
 
 function el(id) { return document.getElementById(id); }
 function shell() { return state.host?.querySelector?.(".mentor-shell"); }
@@ -65,6 +67,74 @@ function draftKey() {
 
 function currentInput() {
   return state.host?.querySelector?.("[data-mentor-input]") || null;
+}
+
+function attachmentBar() {
+  return state.host?.querySelector?.("[data-mentor-attachment-bar]") || null;
+}
+
+function renderAttachments() {
+  const bar = attachmentBar();
+  if (!bar) return;
+  const rows = Array.isArray(state.attachments) ? state.attachments : [];
+  bar.hidden = !rows.length;
+  bar.innerHTML = rows.map((item) => {
+    const name = escapeHtml(item.name || "附件");
+    const meta = item.uploading ? "上传中…" : `${Number(item.chars) || 0} 字`;
+    return `<span class="mentor-attachment${item.uploading ? " is-uploading" : ""}" title="${name}">
+      <span class="mentor-attachment-icon" aria-hidden="true">${item.uploading ? "⏳" : "📄"}</span>
+      <span class="mentor-attachment-name">${name}</span>
+      <span class="mentor-attachment-meta">${escapeHtml(meta)}</span>
+      <button type="button" class="mentor-attachment-remove" data-mentor-attachment-remove="${escapeHtml(item.id)}" aria-label="移除 ${name}">×</button>
+    </span>`;
+  }).join("");
+}
+
+function clearAttachments() {
+  state.attachments = [];
+  renderAttachments();
+}
+
+async function uploadAttachmentFiles(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  if (state.attachments.length + list.length > 5) {
+    toast("一次最多附加 5 个文件。", "warning");
+    return;
+  }
+  const owner = conversationKey();
+  for (const file of list) {
+    if (file.size > 10 * 1024 * 1024) {
+      toast(`${file.name} 超过 10 MB，没有上传。`, "warning");
+      continue;
+    }
+    const tempId = `upload-${++attachmentSeq}`;
+    state.attachments.push({ id: tempId, name: file.name, uploading: true });
+    renderAttachments();
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const data = await api("/api/ai/attachments", {
+        method: "POST", body: form, timeoutMs: 120000,
+      });
+      if (conversationKey() !== owner) continue;
+      const index = state.attachments.findIndex((item) => item.id === tempId);
+      if (index >= 0) {
+        state.attachments[index] = {
+          id: data.id,
+          name: data.name || file.name,
+          chars: Number(data.chars) || 0,
+          truncated: Boolean(data.truncated),
+        };
+      }
+      renderAttachments();
+    } catch (error) {
+      if (conversationKey() !== owner) continue;
+      state.attachments = state.attachments.filter((item) => item.id !== tempId);
+      renderAttachments();
+      toast(`上传失败：${error.message}`, "error");
+    }
+  }
 }
 
 function rememberDraft() {
@@ -150,10 +220,15 @@ function shellMarkup() {
         <div class="mentor-messages" data-mentor-messages aria-live="polite"></div>
         <div class="mentor-inline-pending" data-mentor-inline-pending></div>
         <form class="mentor-composer" data-mentor-form>
+          <div class="mentor-attachment-bar" data-mentor-attachment-bar hidden></div>
           <label class="visually-hidden" for="mentor-input">给人生导师发消息</label>
           <textarea id="mentor-input" data-mentor-input rows="3" maxlength="8000" placeholder="想聊什么？也可以直接说「档案里这条不对，因为…」"></textarea>
           <div class="mentor-composer-actions">
-            <span class="status-message" data-mentor-status role="status"></span>
+            <div class="mentor-composer-left">
+              <button type="button" class="mentor-attach" data-mentor-attach aria-label="添加文件（文本、PDF、.docx）" title="添加文件（文本、PDF、.docx）">📎</button>
+              <input type="file" data-mentor-file-input multiple hidden accept=".md,.markdown,.txt,.text,.csv,.tsv,.json,.jsonl,.yaml,.yml,.log,.ini,.cfg,.conf,.toml,.xml,.html,.htm,.css,.scss,.sql,.rst,.tex,.py,.js,.mjs,.cjs,.ts,.tsx,.jsx,.java,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.swift,.kt,.gradle,.properties,.sh,.bash,.ps1,.bat,.cmd,.pdf,.docx" />
+              <span class="status-message" data-mentor-status role="status"></span>
+            </div>
             <span class="field-help">Enter 发送 · Shift+Enter 换行</span>
             <button type="submit" class="button primary" data-mentor-send>发送</button>
           </div>
@@ -225,6 +300,7 @@ function renderAll() {
   renderSessions();
   renderChatHead();
   renderMessages();
+  renderAttachments();
   renderSide();
 }
 
@@ -247,6 +323,8 @@ function syncComposer(message = "") {
     send.setAttribute("aria-busy", String(busy));
   }
   if (input) input.disabled = busy || state.legacyThread;
+  const attach = state.host?.querySelector?.("[data-mentor-attach]");
+  if (attach) attach.disabled = busy || state.legacyThread;
   setStatus(busy ? "导师正在想…" : message);
 }
 
@@ -283,8 +361,10 @@ async function openThread(threadId, { silent = false } = {}) {
       content: turn.content,
       html: turn.role === "assistant" ? renderMarkdown(turn.content) : "",
       sources: Array.isArray(turn.sources) ? turn.sources : [],
+      attachments: Array.isArray(turn.structured?.attachments) ? turn.structured.attachments : [],
       created_at: turn.created_at,
     }));
+    clearAttachments();
     const inflight = pendingMessages.get(conversationKey());
     if (inflight && !state.messages.some((item) =>
       item.role === "user" && item.content === inflight.content)) {
@@ -314,6 +394,7 @@ function newConversation() {
   state.messages = [];
   state.lastSources = [];
   state.newConversation = true;
+  state.attachments = [];
   ensureConversationIdentity(true);
   restoreDraft();
   renderAll();
@@ -335,12 +416,26 @@ function responseStatus(payload) {
 }
 
 async function sendMessage(text) {
-  const message = String(text || "").trim();
+  const pendingAttachments = state.attachments.filter((item) => !item.uploading);
+  const uploading = state.attachments.some((item) => item.uploading);
+  let message = String(text || "").trim();
   const key = conversationKey() || ensureConversationIdentity();
-  if (!message || !key || pendingRequests.has(key) || state.legacyThread) return;
+  if ((!message && !pendingAttachments.length) || !key
+      || pendingRequests.has(key) || state.legacyThread) return;
+  if (uploading) {
+    toast("还有文件在上传，稍等一下再发。", "warning");
+    return;
+  }
+  if (!message) message = "请先读一下我附加的文件。";
   const seq = ++requestSeq;
   pendingRequests.set(key, seq);
-  const pendingMessage = { role: "user", content: message, created_at: new Date().toISOString() };
+  const pendingMessage = {
+    role: "user", content: message,
+    attachments: pendingAttachments.map((item) => ({
+      id: item.id, name: item.name, chars: item.chars,
+    })),
+    created_at: new Date().toISOString(),
+  };
   pendingMessages.set(key, pendingMessage);
   const input = currentInput();
   state.messages.push({ ...pendingMessage });
@@ -359,6 +454,7 @@ async function sendMessage(text) {
         role_id: "mentor", mode: "converse", entry: "self.mentor",
         thread_id: state.threadId, message,
         selectors: [],
+        attachments: pendingAttachments.map((item) => item.id),
       }),
       timeoutMs: 300000,
     });
@@ -377,6 +473,8 @@ async function sendMessage(text) {
       appliedKey = nextKey;
     }
     state.newConversation = false;
+    state.attachments = [];
+    renderAttachments();
     const reply = String(payload.reply || "");
     state.messages.push({
       role: "assistant", content: reply, html: renderMarkdown(reply),
@@ -680,6 +778,17 @@ async function handleClick(event) {
   const thread = event.target.closest?.("[data-mentor-thread]");
   if (thread) { await openThread(thread.dataset.mentorThread); return; }
   if (event.target.closest?.("[data-mentor-new]")) { newConversation(); return; }
+  if (event.target.closest?.("[data-mentor-attach]")) {
+    state.host?.querySelector?.("[data-mentor-file-input]")?.click?.();
+    return;
+  }
+  const removeAttachment = event.target.closest?.("[data-mentor-attachment-remove]");
+  if (removeAttachment) {
+    state.attachments = state.attachments.filter(
+      (item) => item.id !== removeAttachment.dataset.mentorAttachmentRemove);
+    renderAttachments();
+    return;
+  }
   const synthesize = event.target.closest?.("[data-mentor-synthesize]");
   if (synthesize) { await runSynthesis(synthesize); return; }
   if (event.target.closest?.("[data-mentor-refresh]")) {
@@ -746,6 +855,25 @@ function bindEvents() {
     if (event.isComposing) return;
     event.preventDefault();
     sendMessage(input.value || "");
+  });
+  state.host?.addEventListener?.("change", (event) => {
+    const input = event.target.closest?.("[data-mentor-file-input]");
+    if (!input) return;
+    uploadAttachmentFiles(input.files).catch((error) => toast(`上传失败：${error.message}`, "error"));
+    input.value = "";
+  });
+  state.host?.addEventListener?.("paste", (event) => {
+    const input = event.target.closest?.("[data-mentor-input]");
+    if (!input) return;
+    const files = Array.from(event.clipboardData?.files || []);
+    if (!files.length) return;
+    event.preventDefault();
+    const uploadable = files.filter((file) => !String(file.type || "").startsWith("image/"));
+    if (uploadable.length) {
+      uploadAttachmentFiles(uploadable).catch((error) => toast(`上传失败：${error.message}`, "error"));
+    } else {
+      toast("导师对话暂不支持直接粘贴图片；请用回形针添加文本、PDF 或 Word。", "warning");
+    }
   });
   document.addEventListener("torch:mentor-prefill", (event) => {
     const detail = event.detail || {};

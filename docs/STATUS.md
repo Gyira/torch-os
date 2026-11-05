@@ -3,6 +3,23 @@
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
 
+## 2026-11-05 导师档案：`identity` 被当成未知本子（修复）
+
+- 现象：导师对话的「本轮档案更新」出现“未知的档案本子：identity”，该条未写入。
+  根因是模型把来源 S1「身份与三观（`身份（identity）.md`）」的 `identity` 当成本子 key，
+  而对话模式的提示词一直没列出 11 个合法 key（只有全量整理模式列了）。
+- 修复：`dsh/roles/mentor.md` 对话规则补齐 11 个 key 并说明身份文件不是本子；
+  档案上下文标题带上 key（`## 基础事实（self_facts · N 条）`）；
+  `normalize_book_key` 增加 `identity/身份` → `self_facts`、`身份与三观` → `self_values`
+  的别名；未知本子的报错与待确认卡都列出全部可用 key。
+- 验证：`scripts/test_mentor_autonomous.py`（18 项）、`scripts/test_self_archive_ops.py`、
+  `scripts/test_role_contract.py` 与 `scripts/check_all.ps1` 通过；个人库后端已在
+  `127.0.0.1:9168` 重启，`/api/self/books/identity` 返回 `self_facts`。
+- 数据修复：已把 2026-11-05 这轮对话里失败未写入的 4 条原样补进档案
+  （`self_facts` 2 条：成人本科在读、单位学历优待只认全日制；
+  `self_motivation` 2 条：考研顾虑集中在辞职代价、2027-12 初试窗口），
+  `origin: mentor`，重复执行按标题跳过。
+
 ## 2026-11-05 习惯 ↔ 滴答双向同步（本轮）
 
 - 新增 `backend/app/dida_habit_mapping.py`（RRULE/字段/基线哈希纯映射）和
