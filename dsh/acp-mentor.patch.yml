@@ -1,0 +1,47 @@
+# 人生导师图片通道（ACP profile 覆盖，2026-11-05）。
+# 只用于 Torch 后端的一次性 ACP 会话：deepseek-flash 支持图片输入，
+# 导师不需要工具（上下文与图片都由 Torch 作为提示词内容注入）。
+- id: acp
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are a helpful assistant. Follow the role and output rules in the user
+      message; treat accompanying images as user-provided data.
+
+# 导师没有工具权限：禁用会向模型公开的工具插件。
+- id: tool-plugin-manager
+  disabled: true
+- id: tool-working-directory
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-call-timeout-policy
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-web
+  disabled: true

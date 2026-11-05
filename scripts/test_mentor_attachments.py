@@ -41,9 +41,31 @@ class MentorAttachmentTests(unittest.TestCase):
 
     def test_unsupported_binary_is_rejected(self):
         with self.assertRaises(mentor_attachments.AttachmentError) as caught:
-            self.save("photo.png", b"\x89PNG\r\n\x1a\n")
+            self.save("archive.bin", b"\x00\x01\x02")
         self.assertEqual(caught.exception.status_code, 415)
-        self.assertIn("图片", str(caught.exception))
+
+    def test_corrupt_image_is_rejected(self):
+        with self.assertRaises(mentor_attachments.AttachmentError) as caught:
+            self.save("photo.png", b"\x89PNG\r\n\x1a\nnot really an image")
+        self.assertEqual(caught.exception.status_code, 422)
+
+    def test_image_round_trip_and_prompt_block(self):
+        from PIL import Image
+        buffer = io.BytesIO()
+        Image.new("RGB", (64, 32), "red").save(buffer, format="PNG")
+        meta = self.save("照片.PNG", buffer.getvalue())
+        self.assertEqual(meta["kind"], "image")
+        self.assertEqual(meta["media_type"], "image/png")
+        self.assertEqual(meta["width"], 64)
+        self.assertEqual(meta["height"], 32)
+        rows = mentor_attachments.load_attachments(self.vault, [meta["id"]])
+        self.assertEqual(rows[0]["kind"], "image")
+        self.assertEqual(rows[0]["media_type"], "image/png")
+        self.assertTrue(rows[0]["image_bytes"])
+        block = mentor_attachments.prompt_block(rows)
+        self.assertIn("图片 1", block)
+        self.assertIn("照片.PNG", block)
+        self.assertIn("64×32", block)
 
     def test_binary_content_with_text_extension_is_rejected(self):
         with self.assertRaises(mentor_attachments.AttachmentError):

@@ -31,8 +31,8 @@ import yaml
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import (identity, mentor_attachments, mentor_memory, mentor_pending,
-               mentor_questions, self_archive)
+from . import (acp_client, identity, mentor_attachments, mentor_memory,
+               mentor_pending, mentor_questions, self_archive)
 from .ai_context import ContextError, DEFAULT_TOTAL_CHARS, MAX_TOTAL_CHARS, assemble
 from .ai_gateway import AIError, HeadlessResult, headless_environment, run_headless
 from .ai_schemas import extract_json, parse_reply
@@ -813,7 +813,8 @@ class RoleService:
         )
 
     def _retry_visible_reply(self, role: RoleDefinition, message: str,
-                             previous: str, session_id: str, runner: Any) -> str:
+                             previous: str, session_id: str, runner: Any,
+                             execute: Any = None) -> str:
         """Ask once more when the model hid its answer inside structured fields."""
         correction = (
             f"你刚才对「{str(message or '')[:500]}」的可见回复是「{str(previous or '空')[:200]}」，"
@@ -823,12 +824,27 @@ class RoleService:
             "结构化字段只是附加数据，不能代替 reply。"
         )
         try:
-            result = self._execute(correction, role, session_id=session_id,
-                                   runner=runner)
+            if callable(execute):
+                result = execute(correction)
+            else:
+                result = self._execute(correction, role, session_id=session_id,
+                                       runner=runner)
         except Exception:  # noqa: BLE001 - retry is best-effort
             return ""
         retry_reply, retry_structured = parse_reply(result.text)
         return _visible_reply_text(retry_reply, result.text, retry_structured)
+
+    def _execute_acp(self, prompt: str, role: RoleDefinition, *,
+                     images: list[dict[str, Any]], session_id: str = "") -> acp_client.AcpResult:
+        """Run one image-bearing turn through the dsh ACP image channel."""
+        if self.workspace is None:
+            raise RuntimeError("角色运行目录未配置")
+        return acp_client.run_prompt(
+            prompt, images, workspace=self.workspace,
+            environ=self.environ, key=self._key(),
+            timeout=role.timeout_s, command=self._command(),
+            session_id=session_id,
+        )
 
     def prepare_context(self, role_id: str, source: str, builder: Any, *, love_settings: Any = None) -> PreparedContext:
         """Internal builders only: authorize before reading any source content."""
@@ -1235,6 +1251,7 @@ class RoleService:
                 raise ValueError("只有人生导师对话支持附件")
             attachment_rows = mentor_attachments.load_attachments(self.vault_dir, attachments)
             attachments_text = mentor_attachments.prompt_block(attachment_rows)
+        image_rows = [row for row in attachment_rows if row.get("kind") == "image"]
         selected = list(selectors or []) or self._default_selectors(role, mode, entry)
         if selection_path:
             RolePolicy.for_role(role_id, self.vault_dir).check_path(selection_path, note=True)
@@ -1256,16 +1273,24 @@ class RoleService:
             selection_text=selection_text, selection_source=selection_source,
             draft_text=draft_text, attachments_text=attachments_text,
         )
-        result = self._execute(prompt, role,
-                               session_id=str(thread.get("dsh_session_id") or ""),
-                               runner=runner)
+        session_id = str(thread.get("dsh_session_id") or "")
+
+        def execute(prompt_text: str):
+            if image_rows:
+                return self._execute_acp(
+                    prompt_text, role, images=image_rows, session_id=session_id)
+            return self._execute(prompt_text, role, session_id=session_id,
+                                 runner=runner)
+
+        result = execute(prompt)
         self._assert_policy(thread["id"], policy, mode, claim)
         reply, structured = parse_reply(result.text)
         visible_reply = _visible_reply_text(reply, result.text, structured)
         reply_retried = False
         if not visible_reply:
             visible_reply = self._retry_visible_reply(
-                role, message, reply.reply or result.text, result.session_id, runner)
+                role, message, reply.reply or result.text, result.session_id, runner,
+                execute=execute)
             reply_retried = bool(visible_reply)
         if not visible_reply:
             visible_reply = _fallback_reply_from_structured(reply)
@@ -1325,6 +1350,8 @@ class RoleService:
             "draft_sha256": turn_context.get("draft", {}).get("sha256", ""),
             "attachments": len(attachment_rows),
             "attachment_chars": sum(len(item.get("text") or "") for item in attachment_rows),
+            "attachment_images": len(image_rows),
+            "transport": "acp" if image_rows else "headless",
         })
         return {
             "thread_id": thread["id"],

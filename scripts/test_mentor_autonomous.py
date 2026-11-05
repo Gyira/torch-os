@@ -13,6 +13,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.app import mentor_attachments, mentor_pending, self_archive, self_synthesize
+from backend.app.acp_client import AcpResult
 from backend.app.ai_gateway import HeadlessResult
 from backend.app.ai_roles import (
     RoleRegistry, RoleService, _fallback_reply_from_structured, _visible_reply_text,
@@ -127,6 +128,33 @@ class AutonomousArchiveTests(unittest.TestCase):
         thread = self.service.thread(result["thread_id"])
         user_turn = next(turn for turn in thread["turns"] if turn["role"] == "user")
         self.assertEqual(user_turn["structured"]["attachments"][0]["name"], "笔记.md")
+
+    def test_image_attachment_uses_acp_transport(self):
+        import io
+        from PIL import Image
+        buffer = io.BytesIO()
+        Image.new("RGB", (16, 16), "blue").save(buffer, format="PNG")
+        attachment = mentor_attachments.save_attachment(
+            self.vault, "截图.png", buffer.getvalue())
+        self.assertEqual(attachment["kind"], "image")
+        self.service._execute_acp = Mock(return_value=AcpResult(
+            text="我看到了这张图片。", session_id="",
+            seconds=1.0, stop_reason="end_turn"))
+        result = self.service.chat(
+            "mentor", "converse", "看看这张图", entry="self.mentor",
+            selectors=[{"entry": "self_archive"}], attachments=[attachment["id"]])
+        self.assertEqual(result["reply"], "我看到了这张图片。")
+        self.assertEqual(self.service._execute_acp.call_count, 1)
+        self.assertEqual(self.service._execute.call_count, 0)
+        call = self.service._execute_acp.call_args
+        images = call.kwargs["images"]
+        self.assertEqual(images[0]["media_type"], "image/png")
+        self.assertIn("图片 1", call.args[0])
+        self.assertIn("截图.png", call.args[0])
+        self.assertEqual(result["attachments"][0]["kind"], "image")
+        thread = self.service.thread(result["thread_id"])
+        user_turn = next(turn for turn in thread["turns"] if turn["role"] == "user")
+        self.assertEqual(user_turn["structured"]["attachments"][0]["kind"], "image")
 
     def test_short_section_alias_is_normalized(self):
         result = self.chat(reply(archive_updates=[{

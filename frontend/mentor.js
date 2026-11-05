@@ -80,9 +80,12 @@ function renderAttachments() {
   bar.hidden = !rows.length;
   bar.innerHTML = rows.map((item) => {
     const name = escapeHtml(item.name || "附件");
-    const meta = item.uploading ? "上传中…" : `${Number(item.chars) || 0} 字`;
+    const meta = item.uploading
+      ? "上传中…"
+      : item.kind === "image" ? "图片" : `${Number(item.chars) || 0} 字`;
+    const icon = item.uploading ? "⏳" : item.kind === "image" ? "🖼" : "📄";
     return `<span class="mentor-attachment${item.uploading ? " is-uploading" : ""}" title="${name}">
-      <span class="mentor-attachment-icon" aria-hidden="true">${item.uploading ? "⏳" : "📄"}</span>
+      <span class="mentor-attachment-icon" aria-hidden="true">${icon}</span>
       <span class="mentor-attachment-name">${name}</span>
       <span class="mentor-attachment-meta">${escapeHtml(meta)}</span>
       <button type="button" class="mentor-attachment-remove" data-mentor-attachment-remove="${escapeHtml(item.id)}" aria-label="移除 ${name}">×</button>
@@ -104,8 +107,10 @@ async function uploadAttachmentFiles(files) {
   }
   const owner = conversationKey();
   for (const file of list) {
-    if (file.size > 10 * 1024 * 1024) {
-      toast(`${file.name} 超过 10 MB，没有上传。`, "warning");
+    const isImage = String(file.type || "").startsWith("image/");
+    const limit = isImage ? 8 : 10;
+    if (file.size > limit * 1024 * 1024) {
+      toast(`${file.name} 超过 ${limit} MB，没有上传。`, "warning");
       continue;
     }
     const tempId = `upload-${++attachmentSeq}`;
@@ -123,6 +128,8 @@ async function uploadAttachmentFiles(files) {
         state.attachments[index] = {
           id: data.id,
           name: data.name || file.name,
+          kind: data.kind || "text",
+          media_type: data.media_type || "",
           chars: Number(data.chars) || 0,
           truncated: Boolean(data.truncated),
         };
@@ -225,8 +232,8 @@ function shellMarkup() {
           <textarea id="mentor-input" data-mentor-input rows="3" maxlength="8000" placeholder="想聊什么？也可以直接说「档案里这条不对，因为…」"></textarea>
           <div class="mentor-composer-actions">
             <div class="mentor-composer-left">
-              <button type="button" class="mentor-attach" data-mentor-attach aria-label="添加文件（文本、PDF、.docx）" title="添加文件（文本、PDF、.docx）">📎</button>
-              <input type="file" data-mentor-file-input multiple hidden accept=".md,.markdown,.txt,.text,.csv,.tsv,.json,.jsonl,.yaml,.yml,.log,.ini,.cfg,.conf,.toml,.xml,.html,.htm,.css,.scss,.sql,.rst,.tex,.py,.js,.mjs,.cjs,.ts,.tsx,.jsx,.java,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.swift,.kt,.gradle,.properties,.sh,.bash,.ps1,.bat,.cmd,.pdf,.docx" />
+              <button type="button" class="mentor-attach" data-mentor-attach aria-label="添加文件（文本、PDF、.docx、图片）" title="添加文件（文本、PDF、.docx、图片）">📎</button>
+              <input type="file" data-mentor-file-input multiple hidden accept=".md,.markdown,.txt,.text,.csv,.tsv,.json,.jsonl,.yaml,.yml,.log,.ini,.cfg,.conf,.toml,.xml,.html,.htm,.css,.scss,.sql,.rst,.tex,.py,.js,.mjs,.cjs,.ts,.tsx,.jsx,.java,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.swift,.kt,.gradle,.properties,.sh,.bash,.ps1,.bat,.cmd,.pdf,.docx,.png,.jpg,.jpeg,.webp,.gif" />
               <span class="status-message" data-mentor-status role="status"></span>
             </div>
             <span class="field-help">Enter 发送 · Shift+Enter 换行</span>
@@ -426,13 +433,14 @@ async function sendMessage(text) {
     toast("还有文件在上传，稍等一下再发。", "warning");
     return;
   }
-  if (!message) message = "请先读一下我附加的文件。";
+  if (!message) message = "请先看一下我附加的内容。";
   const seq = ++requestSeq;
   pendingRequests.set(key, seq);
   const pendingMessage = {
     role: "user", content: message,
     attachments: pendingAttachments.map((item) => ({
-      id: item.id, name: item.name, chars: item.chars,
+      id: item.id, name: item.name, kind: item.kind || "text",
+      media_type: item.media_type || "", chars: item.chars,
     })),
     created_at: new Date().toISOString(),
   };
@@ -868,12 +876,14 @@ function bindEvents() {
     const files = Array.from(event.clipboardData?.files || []);
     if (!files.length) return;
     event.preventDefault();
-    const uploadable = files.filter((file) => !String(file.type || "").startsWith("image/"));
-    if (uploadable.length) {
-      uploadAttachmentFiles(uploadable).catch((error) => toast(`上传失败：${error.message}`, "error"));
-    } else {
-      toast("导师对话暂不支持直接粘贴图片；请用回形针添加文本、PDF 或 Word。", "warning");
-    }
+    const uploadable = files.map((file) => {
+      if (file.name && /\.[a-z0-9]+$/i.test(file.name)) return file;
+      const type = String(file.type || "");
+      const ext = type === "image/jpeg" ? ".jpg" : type === "image/webp" ? ".webp"
+        : type === "image/gif" ? ".gif" : type.startsWith("image/") ? ".png" : ".txt";
+      return new File([file], `粘贴附件-${Date.now()}${ext}`, { type });
+    });
+    uploadAttachmentFiles(uploadable).catch((error) => toast(`上传失败：${error.message}`, "error"));
   });
   document.addEventListener("torch:mentor-prefill", (event) => {
     const detail = event.detail || {};
