@@ -3327,3 +3327,13 @@ dialog.train-tracker-mode { width: min(680px, calc(100vw - 20px)); max-width: mi
   .ops-love .love-settings-drawer { width: 100vw; }
 }
 
+.love-details-scroll { overflow-x: auto; margin: 16px 0; }
+.love-details-table { width: 100%; min-width: 1080px; border-collapse: collapse; text-align: left; }
+.love-details-table th, .love-details-table td { padding: 10px; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+.love-details-table th { white-space: nowrap; }
+.love-details-table td:first-child { min-width: 110px; }
+.love-details-table td:nth-child(2) { min-width: 110px; }
+.love-details-table td:nth-child(n+3) { min-width: 210px; }
+.love-details textarea { box-sizing: border-box; width: 100%; padding: 8px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, #ddd); border-radius: 6px; resize: vertical; }
+.love-details-table small { display: block; opacity: .7; margin-top: 5px; }
+.love-details-table details p { white-space: pre-wrap; overflow-wrap: anywhere; }

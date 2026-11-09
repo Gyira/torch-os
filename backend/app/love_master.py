@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import (love_cycle, love_memory, love_schedule, note_editor, notebooks,
+from . import (love_cycle, love_details, love_memory, love_schedule, note_editor, notebooks,
                pillar_notes, vault_layout)
 from .db import Database
 from .love_layout import LovePaths
@@ -32,7 +32,7 @@ from .role_policy import RolePolicy
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 DAY = ZoneInfo("Asia/Shanghai")
-SKILLS = {"portrait", "deep_analysis", "report", "journal_batch"}
+SKILLS = {"portrait", "deep_analysis", "report", "journal_batch", "details"}
 MODE_BY_SKILL = {
     "portrait": "portrait",
     "deep_analysis": "deep",
@@ -553,6 +553,8 @@ def _run_json(row: sqlite3.Row, *, include_result: bool = True) -> dict[str, Any
     }
     if include_result:
         payload["result"] = _json_or_empty(row["result_json"])
+        if row["skill"] == "details":
+            payload["revision"] = love_details.revision(row["result_json"])
     return payload
 
 
@@ -866,6 +868,28 @@ def _execute_run(paths: LovePaths, database: Database, role_service: Any,
             con.execute("UPDATE runs SET status='running', progress='正在整理数据' WHERE id=?",
                         (run_id,))
             con.commit()
+        if skill == "details":
+            with _connect(paths.master_db) as con:
+                previous = con.execute(
+                    "SELECT result_json FROM runs WHERE skill='details' AND status='completed' "
+                    "AND id<? ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+            base = (_json_or_empty(previous["result_json"]).get("structured") or {}) if previous else {}
+
+            def progress(text):
+                with _connect(paths.master_db) as con:
+                    con.execute("UPDATE runs SET progress=? WHERE id=?", (text, run_id))
+
+            def checkpoint(data):
+                with _connect(paths.master_db) as con:
+                    con.execute("UPDATE runs SET result_json=? WHERE id=?",
+                                (json.dumps({"structured": data}, ensure_ascii=False), run_id))
+
+            data = love_details.generate(paths, role_service, base, progress, checkpoint)
+            with _connect(paths.master_db) as con:
+                con.execute("UPDATE runs SET status='completed', result_json=?, progress='', "
+                            "completed_at=? WHERE id=?",
+                            (json.dumps({"structured": data}, ensure_ascii=False), _now(), run_id))
+            return
         if skill == "journal_batch":
             result = _journal_batch(paths, database, role_service, run_id, params, read_only)
             with _connect(paths.master_db) as con:
@@ -950,7 +974,7 @@ def _render_run_html(run: dict[str, Any]) -> str:
 
 class RunPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    skill: str = Field(pattern=r"^(portrait|deep_analysis|report|journal_batch)$")
+    skill: str = Field(pattern=r"^(portrait|deep_analysis|report|journal_batch|details)$")
     days: int = Field(default=30, ge=0, le=3650)
     max_days: int = Field(default=10, ge=0, le=36500)
 
@@ -961,6 +985,16 @@ def create_master_router(paths: LovePaths, database: Database, *,
                          prefix: str = "/api/love/master") -> APIRouter:
     if not read_only:
         ensure_master_schema(paths)
+        # A server restart cannot leave a persisted "running" row blocking all future updates.
+        live_jobs = {thread.name for thread in threading.enumerate()}
+        with _connect(paths.master_db) as con:
+            interrupted = con.execute("SELECT id FROM runs WHERE skill='details' "
+                                      "AND status IN ('queued','running')").fetchall()
+            for row in interrupted:
+                if f"love-master-{row['id']}" not in live_jobs:
+                    con.execute("UPDATE runs SET status='failed', progress='', "
+                                "error='服务重启，整理已中断；已有完成记录保留，可重新整理', "
+                                "completed_at=? WHERE id=?", (_now(), row["id"]))
         for notebook_name in NOTEBOOK_BY_SKILL.values():
             try:
                 _ensure_master_notebook(paths, database, notebook_name)
@@ -993,6 +1027,12 @@ def create_master_router(paths: LovePaths, database: Database, *,
             raise HTTPException(503, "AI 不可用：dsh 角色服务没有启用")
         params = {"days": payload.days, "max_days": payload.max_days}
         with connection() as con:
+            if payload.skill == "details":
+                con.execute("BEGIN IMMEDIATE")
+                active = con.execute("SELECT id FROM runs WHERE skill='details' "
+                                     "AND status IN ('queued','running') LIMIT 1").fetchone()
+                if active:
+                    raise HTTPException(409, f"小细节正在整理中（#{active['id']}），请等待完成")
             cursor = con.execute(
                 "INSERT INTO runs (skill, status, params_json, created_at) "
                 "VALUES (?, 'queued', ?, ?)",
@@ -1046,6 +1086,40 @@ def create_master_router(paths: LovePaths, database: Database, *,
         if cursor.rowcount == 0:
             raise HTTPException(404, "分析记录不存在")
         return {"deleted": True}
+
+    @router.put("/runs/{run_id}/details")
+    def edit_details(run_id: int, payload: love_details.DetailsEdit):
+        try:
+            ensure_vault_writable(read_only, "修改小细节记录")
+        except VaultReadOnlyError as error:
+            raise HTTPException(409, str(error)) from error
+        with connection() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if con.execute("SELECT 1 FROM runs WHERE skill='details' AND status IN ('queued','running')").fetchone():
+                raise HTTPException(409, "正在整理小细节，请完成后再修改")
+            row = con.execute("SELECT * FROM runs WHERE id=? AND skill='details'", (run_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, "小细节记录不存在")
+            if row["status"] != "completed":
+                raise HTTPException(409, "只能修改已完成的记录")
+            latest = con.execute("SELECT MAX(id) FROM runs WHERE skill='details' "
+                                 "AND status='completed'").fetchone()[0]
+            if latest != run_id:
+                raise HTTPException(409, "已有更新的小细节记录，请在最新一份里修改")
+            result = love_details.edit_result(row["result_json"], payload)
+            raw = json.dumps(result, ensure_ascii=False)
+            con.execute("UPDATE runs SET result_json=? WHERE id=?", (raw, run_id))
+        return {"saved": True, "revision": love_details.revision(raw)}
+
+    @router.get("/runs/{run_id}/details.xlsx")
+    def export_details(run_id: int):
+        with connection() as con:
+            row = con.execute("SELECT * FROM runs WHERE id=? AND skill='details'", (run_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "小细节记录不存在")
+        if row["status"] != "completed":
+            raise HTTPException(409, "整理尚未完成；失败批次可在记录中查看，不能当成完整结果导出")
+        return love_details.export_xlsx(_json_or_empty(row["result_json"]).get("structured") or {})
 
     @router.get("/runs/{run_id}/html", response_class=HTMLResponse)
     def run_html(run_id: int):

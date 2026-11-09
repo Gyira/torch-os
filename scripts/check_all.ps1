@@ -47,6 +47,7 @@ try {
   Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }
   Invoke-Step '角色资料与会话边界回归' { & $python (Join-Path $projectRoot 'scripts\test_role_boundaries.py') }
   Invoke-Step '角色卡与权限契约回归' { & $python (Join-Path $projectRoot 'scripts\test_role_contract.py') }
+  Invoke-Step '恋爱小细节回归' { & $python (Join-Path $projectRoot 'scripts\test_love_details.py') }
   Invoke-Step '角色写入与受控动作回归' { & $python (Join-Path $projectRoot 'scripts\test_role_actions.py') }
   Invoke-Step '档案替代一致性与恢复回归' { & $python (Join-Path $projectRoot 'scripts\test_self_archive_ops.py') }
   Invoke-Step '导师自主更新回归' { & $python (Join-Path $projectRoot 'scripts\test_mentor_autonomous.py') }

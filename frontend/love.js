@@ -5,6 +5,7 @@ import { openRoleDrawer } from "./roles.js";
 import { COMPANIONS } from "./ai-companions.js";
 import { renderLoveCycle, handleLoveCycleAction } from "./love-cycle.js";
 import { invalidateChapterCache, openNoteEditor } from "./note-editor.js";
+import { detailsMarkup, detailsEditPayload } from "./love-details.js";
 
 const PAGE_TITLES = {
   memories: "恋爱记忆",
@@ -1466,7 +1467,7 @@ function masterTrendChart(trend) {
 }
 
 const MASTER_SKILL_LABELS = {
-  portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 补日记",
+  portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 补日记", details: "小细节记录",
 };
 const MASTER_STATUS_LABELS = {
   queued: "排队中", running: "进行中", completed: "已完成", failed: "失败",
@@ -1488,7 +1489,8 @@ function masterResultMarkup(run) {
   if (run.status === "running" || run.status === "queued") {
     return `<div class="love-analysis-running"><div class="love-spinner" aria-hidden="true"></div><div><strong>正在进行 ${escapeHtml(MASTER_SKILL_LABELS[run.skill] || run.skill)}</strong><p>${escapeHtml(run.progress || "正在整理数据并请求 dsh…")}</p><p class="meta">页面可以切走，任务仍在本地服务里跑。</p></div></div>`;
   }
-  if (run.status === "failed") return errorBox(run.error || "这次分析没有完成");
+  if (run.status === "failed") return errorBox(run.error || "这次分析没有完成") + (run.skill === "details" && run.result?.structured?.partial ? detailsMarkup(run) : "");
+  if (run.skill === "details") return detailsMarkup(run);
   const result = run.result || {};
   // 补日记的结果直接存在顶层的 created/failed/text，其他 skill 才在 structured 里。
   const structured = run.skill === "journal_batch"
@@ -1555,6 +1557,7 @@ async function renderMaster(content) {
     ["今日排班", today.work ? "上班" : today.rest ? "休息" : "未排班", today.duty || "点排班日历查看"],
   ].map(([label, value, hint]) => `<article class="love-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></article>`).join("");
   const skillCards = `
+    <article class="love-skill-card"><span class="eyebrow">DETAILS</span><h3>小细节记录</h3><p>从最早聊天开始，记偏好、约定和没做好的事。同一件事合并，省略人称，写得简短。之后只整理新增聊天，可修改、导出 Excel。</p><button class="button primary" type="button" data-love-action="master-run" data-skill="details">整理／更新小细节</button></article>
     <article class="love-skill-card"><span class="eyebrow">PORTRAIT</span><h3>关系画像</h3><p>从记忆、聊天与统计里提炼对象画像、沟通方式和照顾建议。</p><button class="button primary" type="button" data-love-action="master-run" data-skill="portrait">生成画像</button></article>
     <article class="love-skill-card"><span class="eyebrow">DEEP ANALYSIS</span><h3>深度分析</h3><p>看关系阶段、沟通模式、关键事件与风险。</p><div class="love-inline-actions"><select id="love-master-deep-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="deep_analysis">开始分析</button></div></article>
     <article class="love-skill-card"><span class="eyebrow">REPORT</span><h3>阶段报告</h3><p>生成可留档的报告，支持查看历史、删除与 HTML 导出。</p><div class="love-inline-actions"><select id="love-master-report-days" class="love-gallery-select"><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="0">全部</option></select><button class="button primary" type="button" data-love-action="master-run" data-skill="report">生成报告</button></div></article>
@@ -1600,10 +1603,12 @@ async function runMasterSkill(skill, button) {
       ? Number($id("love-master-deep-days")?.value ?? 30)
       : 30;
   const maxDays = Number($id("love-master-journal-days")?.value ?? 10);
-  const labels = { portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 批量补日记" };
+  const labels = { portrait: "关系画像", deep_analysis: "深度分析", report: "阶段报告", journal_batch: "AI 批量补日记", details: "小细节记录" };
   const message = skill === "journal_batch"
     ? "会把当天聊天原文（不脱敏，保留真实称呼）通过 dsh 发送给你配置的模型，逐日补写；范围选「全部未补日期」时会调用很多次，耗时较长，已补过的日期会自动跳过。"
-    : "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。";
+    : skill === "details"
+      ? "首次会从最早聊天开始分批整理，通过 dsh 发送脱敏文字，记录较多时需要多次调用。以后只处理新增聊天，合并进最近一次完成的记录，手动修改会保留。结果只保存在本机。"
+      : "会通过 dsh 读取本机恋爱数据的脱敏摘要并生成结果；可能需要几分钟，结果会保存在本机。";
   if (!await confirmAction({
     title: `开始${labels[skill] || "分析"}？`,
     message,
@@ -2034,6 +2039,20 @@ async function handleLoveAction(event) {
     case "master-run":
       await runMasterSkill(button.dataset.skill || "", button);
       return;
+    case "details-save": {
+      const container = button.closest("[data-details-run]");
+      if (!container) return;
+      await withBusy(button, "保存中…", async () => {
+        try {
+          const result = await loveApi(`/api/love/master/runs/${Number(container.dataset.detailsRun)}/details`, {
+            method: "PUT", body: JSON.stringify(detailsEditPayload(container)), timeoutMs: 30000,
+          });
+          container.dataset.revision = result.revision;
+          toast("已保存。", "success");
+        } catch (error) { toast(`保存失败：${error.message}`, "error"); }
+      });
+      return;
+    }
     case "master-select":
       love.masterSelectedId = Number(button.dataset.id) || 0;
       await renderLovePage();

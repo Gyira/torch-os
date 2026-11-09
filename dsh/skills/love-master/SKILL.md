@@ -30,6 +30,7 @@ whenToUse: 用户进入恋爱系统「恋爱大师」页面，或要求分析这
 | `report` | 可留档的阶段报告 | JSON：title / summary / sections / metrics |
 | `journal_batch` | 按天补恋爱日记 | JSON：title / body / mood |
 | `bazi` | 八字合婚解读 | JSON：him / her / hehun；本地命盘不可改 |
+| `details` | 小细节记录 | JSON：items / reflection；按日期合并去重，省略人称的简短备忘 |
 
 ## 3 写作纪律
 
