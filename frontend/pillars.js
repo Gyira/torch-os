@@ -15,7 +15,7 @@ import { buildJournalHeatmap, journalHeatmapMarkup } from "./journal-heatmap.js"
 import {
   deleteNoteFile, initNoteEditor, invalidateChapterCache, openNoteEditor,
 } from "./note-editor.js";
-import { initShareLink, openDeepSeekAsk, openShareLinkDialog } from "./share-link.js";
+import { initShareLink, openDeepSeekAsk, openChatGPTAsk, openShareLinkDialog } from "./share-link.js";
 import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
 import { openRoleDrawer } from "./roles.js";
 import {
@@ -652,14 +652,15 @@ function knowledgeHomeMarkup() {
       <div class="knowledge-hero-main">
         <p class="eyebrow">ASK · 问答</p>
         <h3 id="knowledge-hero-title">今天想弄明白什么？</h3>
-        <p class="knowledge-hero-copy">先打开 DeepSeek 提问；把值得留下的回答，用公开分享链接带回来。</p>
+        <p class="knowledge-hero-copy">在 ChatGPT 或 DeepSeek 讨论，把值得保留的内容通过分享链接或正文带回来。</p>
         <div class="knowledge-hero-actions">
-          <button type="button" class="button primary hero-button" data-ask-deepseek>打开 DeepSeek 提问 ↗</button>
+          <button type="button" class="button primary hero-button" data-ask-chatgpt>打开 ChatGPT 提问 ↗</button>
+          <button type="button" class="button secondary" data-ask-deepseek>打开 DeepSeek ↗</button>
           <button type="button" class="button secondary" data-share-link>粘贴分享链接</button>
         </div>
         <form class="ask-inline-form" data-share-quick-form>
-          <label class="sr-only" for="knowledge-share-url">DeepSeek 分享链接</label>
-          <input id="knowledge-share-url" data-share-quick-url type="url" maxlength="2048" autocomplete="off" placeholder="https://chat.deepseek.com/share/...">
+          <label class="sr-only" for="knowledge-share-url">ChatGPT / DeepSeek 分享链接</label>
+          <input id="knowledge-share-url" data-share-quick-url type="url" maxlength="2048" autocomplete="off" placeholder="ChatGPT / DeepSeek 公开分享链接">
           <button type="submit" class="button secondary">取回并归档</button>
         </form>
         <p class="field-help">${escapeHtml(hero.copy)}</p>
@@ -1532,6 +1533,10 @@ function bindPillarEvents() {
       }
       return;
     }
+    if (event.target.closest?.("[data-ask-chatgpt]")) {
+      openChatGPTAsk();
+      return;
+    }
     const askDeepSeek = event.target.closest?.("[data-ask-deepseek]");
     if (askDeepSeek) {
       openDeepSeekAsk();
@@ -1710,7 +1715,7 @@ function bindPillarEvents() {
     const input = form.querySelector("[data-share-quick-url]");
     const url = String(input?.value || "").trim();
     if (!url) {
-      toast("先粘贴 DeepSeek 的公开分享链接。", "warning");
+      toast("先粘贴 ChatGPT / DeepSeek 的公开分享链接。", "warning");
       input?.focus?.();
       return;
     }

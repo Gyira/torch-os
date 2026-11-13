@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -193,7 +194,24 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
             metadata[name] = value
     lines = ["---", *yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n"),
              "---", "", *text.split("\n"), ""]
-    path.write_text("\n".join(lines), encoding="utf-8", newline="")
+    # Publish complete bytes without overwriting a concurrently created note.
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", suffix=".tmp",
+                                         prefix=".new-note-", dir=target_dir, delete=False) as stream:
+            temp_path = Path(stream.name)
+            stream.write("\n".join(lines))
+            stream.flush()
+            os.fsync(stream.fileno())
+        while True:
+            try:
+                os.link(temp_path, path)
+                break
+            except FileExistsError:
+                path = _unique_path(target_dir, stem)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     relative = _relative(vault, path)
     return read_note(vault, relative)
 

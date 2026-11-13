@@ -116,12 +116,14 @@ def _ensure_write(read_only: bool, action: str) -> None:
 def create_note(database: Database, vault_dir: Path | str, *, chapter: str, title: str,
                 body: str = "", note_type: str = "", tags: list[str] | None = None,
                 source: str = "", date: str = "", generated_by: str = "",
-                read_only: bool = False) -> dict[str, Any]:
+                read_only: bool = False, extra_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     target = _require_writable_chapter(chapter, vault_dir)
     _ensure_custom_notebook_exists(vault_dir, target)
     _ensure_write(read_only, "新建笔记")
     pillar = chapter_pillar(target)
-    extra = {"generated_by": generated_by} if generated_by else None
+    extra = dict(extra_metadata or {})
+    if generated_by:
+        extra["generated_by"] = generated_by
     note = pillar_notes.create_note(
         vault_dir, pillar=pillar, chapter=target, title=title, body=body,
         note_type=note_type, tags=tags, source=source, date=date,

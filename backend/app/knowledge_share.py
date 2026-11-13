@@ -13,7 +13,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import note_editor, pillar_notes, share_link, vault_layout
+from . import note_editor, pillar_notes, share_link, vault_layout, share_capture
+from .share_store import ShareStore
+from .context_pack import create_context_pack_router
 from .db import Database
 from .proposals import ProposalError
 
@@ -23,14 +25,19 @@ MAX_PREVIEW_MARKDOWN = 200_000
 class PreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    url: str = Field(min_length=1, max_length=2048)
+    url: str = Field(default="", max_length=2048)
     rounds: str = Field(default="", max_length=80)
+    pasted_text: str = Field(default="", max_length=400_000)
+    answers_only: bool = False
+    preview_id: str = Field(default="", max_length=64)
+    content_hash: str = Field(default="", max_length=64)
 
 
 class ArchiveRequest(PreviewRequest):
     confirm: bool = Field(strict=True)
     chapter: str = Field(default="", max_length=40)
     title: str = Field(default="", max_length=200)
+    allow_copy: bool = False
 
 
 class DigestRequest(PreviewRequest):
@@ -58,10 +65,27 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
                                    role_service: Any = None, proposals: Any = None,
                                    read_only: bool = False, prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["knowledge-share"])
+    store = ShareStore(database, vault_dir)
+    router.include_router(create_context_pack_router(database, vault_dir, read_only=read_only))
+
+    def resolve(payload, *, existing=False):
+        if payload.preview_id:
+            result = store.load(payload.preview_id)
+            if payload.content_hash != result["content_hash"]:
+                raise HTTPException(409, "预览版本不匹配，请重新预览。")
+            return result
+        if existing:
+            # Compatibility for old url-only clients; new UI always sends preview_id.
+            pass
+        try:
+            return share_capture.capture(payload.url, rounds=payload.rounds,
+                                         pasted_text=payload.pasted_text, answers_only=payload.answers_only)
+        except (share_link.ShareLinkError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
 
     @router.post("/knowledge/share/preview")
     def preview(payload: PreviewRequest):
-        result = _preview_or_422(payload.url, payload.rounds)
+        result = store.save_preview(resolve(payload))
         if vault_layout.is_chapter_hidden(vault_dir, str(result.get("suggested_chapter") or "")):
             result["suggested_chapter"] = "inbox"
         if result["chars_markdown"] > MAX_PREVIEW_MARKDOWN:
@@ -73,24 +97,18 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
     def archive(payload: ArchiveRequest):
         if payload.confirm is not True:
             raise HTTPException(422, "请明确确认把分享归档到知识库")
-        result = _preview_or_422(payload.url, payload.rounds)
+        result = resolve(payload, existing=True)
         if len(result["markdown"].encode("utf-8")) > pillar_notes.MAX_BODY:
             raise HTTPException(413, "这篇分享太长，请用轮次缩小范围后再归档")
         chapter = _knowledge_chapter(payload.chapter, result["suggested_chapter"], vault_dir)
-        note = note_editor.create_note(
-            database, vault_dir, chapter=chapter,
-            title=payload.title or result["title"], body=result["markdown"],
-            note_type=vault_layout.chapter_default_type(chapter), source=result["share_url"],
-            generated_by="share-link", read_only=read_only,
-        )
-        return {"note": note, "chapter": chapter, "source": result["share_url"],
-                "turns": result["turns"], "chars": result["chars_markdown"]}
+        return store.archive(result, chapter=chapter, title=payload.title, read_only=read_only,
+                             allow_copy=payload.allow_copy)
 
     @router.post("/knowledge/share/digest")
     def digest(payload: DigestRequest):
         if role_service is None or proposals is None:
             raise HTTPException(409, "AI 导师未启用")
-        result = _preview_or_422(payload.url, payload.rounds)
+        result = resolve(payload, existing=True)
         if len(result["markdown"].encode("utf-8")) > pillar_notes.MAX_BODY:
             raise HTTPException(413, "这篇分享太长，请用轮次缩小范围后再整理")
         try:

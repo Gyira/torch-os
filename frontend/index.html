@@ -903,13 +903,15 @@
 </dialog>
 <dialog id="share-link-dialog" class="share-link-dialog" aria-labelledby="share-link-heading">
   <div class="note-editor-head">
-    <div><p class="eyebrow">KNOWLEDGE · Q&amp;A</p><h2 id="share-link-heading">DeepSeek 问答</h2><p class="field-help">在浏览器打开 chat.deepseek.com；问完复制公开分享链接回来。</p></div>
+    <div><p class="eyebrow">KNOWLEDGE · Q&amp;A</p><h2 id="share-link-heading">AI 对话归档</h2><p class="field-help">支持 ChatGPT / DeepSeek 公开分享；也可直接粘贴正文。分享链接可能被任何持链接者访问。</p></div>
     <button id="share-link-close" class="small-button" type="button">关闭</button>
   </div>
   <div class="share-link-form">
-    <label>分享链接<input id="share-link-url" type="url" maxlength="2048" placeholder="https://chat.deepseek.com/share/..." autocomplete="off" /></label>
+    <label>分享链接<input id="share-link-url" type="url" maxlength="2048" placeholder="https://chatgpt.com/share/... 或 DeepSeek 分享" autocomplete="off" /></label>
     <label>轮次<input id="share-link-rounds" type="text" maxlength="80" placeholder="默认全部，如 1,3-5" /></label>
-    <div class="form-actions"><button id="share-link-external" class="button secondary" type="button">打开 DeepSeek 问答 ↗</button><button id="share-link-preview" class="button primary" type="button">取回分享</button></div>
+    <label><input id="share-link-answers" type="checkbox" /> 仅保留回答（链接模式）</label>
+    <label>正文兜底<textarea id="share-link-paste" rows="5" maxlength="400000" placeholder="取回失败时粘贴正文；填写后按粘贴内容预览，不再抓取链接。不自动推断角色与轮次。"></textarea></label>
+    <div class="form-actions"><button id="share-link-chatgpt" class="button secondary" type="button">打开 ChatGPT ↗</button><button id="share-link-external" class="button secondary" type="button">打开 DeepSeek ↗</button><button id="share-link-preview" class="button primary" type="button">取回 / 预览正文</button><button id="context-pack-open" class="button secondary" type="button">导出 ChatGPT 资料包</button></div>
   </div>
   <p id="share-link-status" class="status-message" role="status"></p>
   <div id="share-link-result" class="share-link-result"></div>
