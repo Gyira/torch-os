@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import vault_layout
 from .vault import safe_note_path
+from .storage_layout import StorageLayout
 
 EXCLUDED = re.compile(r"微信|回收|备份|backup|trash|credential|secret|apikey|api_key|冲突", re.I)
 KEY = re.compile(r"(?:sk-[A-Za-z0-9_-]{16,}|-----BEGIN .*PRIVATE KEY|(?:api[_-]?key|access[_-]?token|password|密码)\s*[:=]\s*['\"]?[A-Za-z0-9_+/=-]{12,})", re.I)
@@ -78,10 +79,12 @@ def build(vault, request):
             "warnings": ["未检出密钥不代表完全脱敏；上传前请检查正文。", "附件未包含；导出后需手动上传或替换 ChatGPT 项目文件。"]}
 
 
-def create_context_pack_router(database, vault_dir, *, read_only=False):
+def create_context_pack_router(database, vault_dir, *, read_only=False, storage_layout=None):
     router = APIRouter()
-    scope = hashlib.sha256(str(Path(vault_dir).resolve()).encode()).hexdigest()[:16]
-    exports = database.path.parent / "context-packs" / scope
+    layout = storage_layout or StorageLayout.legacy(vault_dir, database.path)
+    if layout.notes != Path(vault_dir).resolve():
+        raise ValueError("存储配置不属于当前笔记库")
+    exports = layout.context_exports
 
     @router.get("/knowledge/context-pack/sources")
     def sources():

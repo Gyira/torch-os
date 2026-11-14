@@ -42,6 +42,11 @@ try {
   if ($syntaxBad) { $failures.Add('前端 JS 语法') }
 
   Invoke-Step 'Obsidian 插件语法' { & node --check (Join-Path $projectRoot 'obsidian-plugin\main.js') }
+  $companionRoot = Join-Path $projectRoot 'companion'
+  if (Test-Path -LiteralPath (Join-Path $companionRoot 'package.json')) {
+    Invoke-Step 'Companion TypeScript 类型' { & npm --prefix $companionRoot run typecheck }
+    Invoke-Step 'Companion 同步与文件恢复' { & npm --prefix $companionRoot test }
+  }
   Invoke-Step 'Obsidian 插件路径回归' { & node --test (Join-Path $projectRoot 'scripts\test_obsidian_plugin_paths.mjs') }
   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
   Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }

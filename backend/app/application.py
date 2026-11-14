@@ -246,6 +246,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             vault_scoped = VAULT_SCOPED
     if vault_scoped is None:
         vault_scoped = False
+    from .storage_layout import StorageLayout
+    storage_layout = StorageLayout.legacy(vault_dir, database.path)
     security = validate_runtime_config(host, database.path.parent, vault_dir, environ=security_environ)
     if runtime_label not in {'personal', 'qa'}:
         raise ValueError('Unsupported runtime label')
@@ -561,6 +563,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     def health():
         return {'status':'ok','service':'torch-os','version':APP_VERSION,'runtime_label':runtime_label,
                 'vault_id':vault_identity(vault_dir), 'vault_name':Path(vault_dir).name,
+                'workspace_id':storage_layout.workspace_id, 'storage_mode':storage_layout.mode,
                 'vault_scoped':bool(vault_scoped)}
 
     @app.get('/api/nav')

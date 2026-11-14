@@ -11,15 +11,17 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from . import note_editor, pillar_notes
+from .storage_layout import StorageLayout
 
 
 class ShareStore:
-    def __init__(self, database, vault_dir):
+    def __init__(self, database, vault_dir, *, storage_layout=None):
         self.database = database
         self.vault = Path(vault_dir).resolve()
-        import hashlib
-        scope = hashlib.sha256(str(self.vault).encode()).hexdigest()[:16]
-        self.path = database.path.parent / f"share-captures-{scope}.sqlite3"
+        layout = storage_layout or StorageLayout.legacy(self.vault, database.path)
+        if layout.notes != self.vault:
+            raise ValueError("存储配置不属于当前笔记库")
+        self.path = layout.share_database
 
     @contextmanager
     def connect(self):

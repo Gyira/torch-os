@@ -63,10 +63,10 @@ def _knowledge_chapter(value: str, fallback: str, vault_dir: Path | str) -> str:
 
 def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
                                    role_service: Any = None, proposals: Any = None,
-                                   read_only: bool = False, prefix: str = "/api") -> APIRouter:
+                                   read_only: bool = False, prefix: str = "/api", storage_layout=None) -> APIRouter:
     router = APIRouter(prefix=prefix, tags=["knowledge-share"])
-    store = ShareStore(database, vault_dir)
-    router.include_router(create_context_pack_router(database, vault_dir, read_only=read_only))
+    store = ShareStore(database, vault_dir, storage_layout=storage_layout)
+    router.include_router(create_context_pack_router(database, vault_dir, read_only=read_only, storage_layout=storage_layout))
 
     def resolve(payload, *, existing=False):
         if payload.preview_id:
