@@ -13,6 +13,7 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -53,7 +54,7 @@ class WorkspaceName(BaseModel):
 
 def data_dir_for(folder: str | Path) -> Path:
     """应用数据目录：用户文件夹下的隐藏目录，扫描与备份都会跳过。"""
-    return Path(folder) / APP_DIR_NAME
+    return workspace_path(Path(folder), APP_DIR_NAME)
 
 
 def load_registry(path: Path = REGISTRY_PATH) -> list[dict[str, Any]]:

@@ -11,6 +11,7 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import shutil
 from pathlib import Path
@@ -28,7 +29,7 @@ MAX_TEXT = 200
 
 
 def inbox_dir(vault_dir: Path | str) -> Path:
-    return Path(vault_dir) / INBOX_DIR
+    return workspace_path(Path(vault_dir), INBOX_DIR)
 
 
 def _safe_name(name: str) -> str:
@@ -112,13 +113,13 @@ def accept_draft(vault_dir: Path | str, name: str, *, read_only: bool = False) -
         "target": "memory", "field": field, "field_label": field_label,
         "path": note.get("path") or "", "title": note.get("title") or "",
     }
-    archived = _archive(path, Path(vault_dir) / ACCEPTED_DIR)
+    archived = _archive(path, workspace_path(Path(vault_dir), ACCEPTED_DIR))
     return {**result, "kind": draft["kind"], "text": text, "archived_as": archived}
 
 
 def reject_draft(vault_dir: Path | str, name: str) -> dict[str, Any]:
     path = _pending(vault_dir, name)
-    archived = _archive(path, Path(vault_dir) / REJECTED_DIR)
+    archived = _archive(path, workspace_path(Path(vault_dir), REJECTED_DIR))
     return {"rejected": True, "name": name, "archived_as": archived}
 
 

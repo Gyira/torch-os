@@ -12,6 +12,8 @@
 - 写入 .torch-os/self-archive-layout.json，幂等。
 """
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -56,7 +58,7 @@ def _stamp() -> str:
 
 
 def _marker_path(vault: Path) -> Path:
-    return vault / vault_layout.SELF_ARCHIVE_LAYOUT_MARKER
+    return workspace_path(vault, vault_layout.SELF_ARCHIVE_LAYOUT_MARKER)
 
 
 def _read_marker(vault: Path) -> dict[str, Any]:
@@ -81,11 +83,11 @@ def _write_marker(vault: Path, payload: dict[str, Any]) -> None:
 
 def _has_old_files(vault: Path) -> bool:
     for relative in OLD_DIRS:
-        directory = vault / relative
+        directory = workspace_path(vault, relative)
         if directory.is_dir() and any(directory.rglob("*.md")):
             return True
     for relative in (BAZI_OLD_DIR, YILING_OLD_DIR):
-        directory = vault / relative
+        directory = workspace_path(vault, relative)
         if directory.is_dir() and any(directory.rglob("*.md")):
             return True
     return False
@@ -94,17 +96,17 @@ def _has_old_files(vault: Path) -> bool:
 def _old_files(vault: Path) -> list[str]:
     result: list[str] = []
     for relative in (*OLD_DIRS, BAZI_OLD_DIR, YILING_OLD_DIR):
-        directory = vault / relative
+        directory = workspace_path(vault, relative)
         if not directory.is_dir():
             continue
         for path in sorted(directory.rglob("*.md")):
             if any(part.startswith(".") for part in path.relative_to(directory).parts):
                 continue
-            if path.parent == vault / IDENTITY_OLD_DIR and path.name in (
+            if path.parent == workspace_path(vault, IDENTITY_OLD_DIR) and path.name in (
                     "身份（identity）.md", "identity.md"):
                 # 身份文件由 _migrate_identity 单独处理，不当作普通档案条目。
                 continue
-            result.append(path.relative_to(vault).as_posix())
+            result.append(workspace_relative(vault, path).as_posix())
     return result
 
 
@@ -137,7 +139,7 @@ def preview(vault_dir: Path | str) -> dict[str, Any]:
                 plan.append({"source": relative, "target": target, "kind": "entry"})
             else:
                 plan.append({"source": relative, "target": "", "kind": "unmapped"})
-    conflicts = [row for row in plan if row["target"] and (vault / row["target"]).exists()]
+    conflicts = [row for row in plan if row["target"] and (workspace_path(vault, row["target"])).exists()]
     return {
         "schema": vault_layout.SELF_ARCHIVE_LAYOUT_SCHEMA,
         "needed": bool(files) and (
@@ -152,16 +154,16 @@ def preview(vault_dir: Path | str) -> dict[str, Any]:
 
 
 def _backup(vault: Path) -> str:
-    source = vault / vault_layout.SELF_ROOT
+    source = workspace_path(vault, vault_layout.SELF_ROOT)
     stamp = _stamp()
-    target = vault / (vault_layout.SELF_BACKUP_PREFIX + stamp)
+    target = workspace_path(vault, vault_layout.SELF_BACKUP_PREFIX + stamp)
     index = 2
     while target.exists():
-        target = vault / (vault_layout.SELF_BACKUP_PREFIX + f"{stamp}-{index}")
+        target = workspace_path(vault, vault_layout.SELF_BACKUP_PREFIX + f"{stamp}-{index}")
         index += 1
     target.mkdir(parents=True, exist_ok=True)
     if not source.is_dir():
-        return target.relative_to(vault).as_posix()
+        return workspace_relative(vault, target).as_posix()
     for child in source.iterdir():
         if child.name.startswith("99_重构备份-"):
             continue
@@ -173,11 +175,11 @@ def _backup(vault: Path) -> str:
                 shutil.copy2(child, destination)
         except OSError:
             continue
-    return target.relative_to(vault).as_posix()
+    return workspace_relative(vault, target).as_posix()
 
 
 def _move_to_backup(vault: Path, source: Path, backup_rel: str) -> None:
-    target = vault / backup_rel / "_迁移前原始文件" / source.relative_to(vault)
+    target = workspace_path(vault, backup_rel) / "_迁移前原始文件" / workspace_relative(vault, source)
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.replace(source, target)
@@ -231,7 +233,7 @@ def _migrate_entry(vault: Path, relative: str, *, read_only: bool) -> dict[str, 
 
 
 def _migrate_identity(vault: Path, *, read_only: bool) -> dict[str, Any]:
-    old_dir = vault / IDENTITY_OLD_DIR
+    old_dir = workspace_path(vault, IDENTITY_OLD_DIR)
     if not old_dir.is_dir():
         return {"moved": 0, "entries": 0}
     moved = 0
@@ -240,7 +242,7 @@ def _migrate_identity(vault: Path, *, read_only: bool) -> dict[str, Any]:
         source = old_dir / name
         if not source.is_file():
             continue
-        target = vault / vault_layout.SELF_IDENTITY_RELATIVE
+        target = workspace_path(vault, vault_layout.SELF_IDENTITY_RELATIVE)
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.resolve() != target.resolve():
             if target.exists():
@@ -292,7 +294,7 @@ def _bazi_profile(vault: Path, source: Path) -> None:
         "created": _now(),
         "updated": _now(),
     }
-    target = vault / vault_layout.SELF_BAZI_ROOT / "命盘.md"
+    target = workspace_path(vault, vault_layout.SELF_BAZI_ROOT) / "命盘.md"
     if target.exists():
         target = _unique_path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -335,7 +337,7 @@ def apply(vault_dir: Path | str, *, confirm: bool = False,
     identity_result = _migrate_identity(vault, read_only=read_only)
     entries += identity_result["entries"]
     for row in plan["plan"]:
-        source = vault / row["source"]
+        source = workspace_path(vault, row["source"])
         if not source.is_file():
             continue
         try:
@@ -346,7 +348,7 @@ def apply(vault_dir: Path | str, *, confirm: bool = False,
                 _move_to_backup(vault, source, backup)
                 moved += 1
             elif row["kind"] == "yiling_history":
-                target = _unique_path(vault / row["target"])
+                target = _unique_path(workspace_path(vault, row["target"]))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
                 moved += 1
@@ -356,7 +358,7 @@ def apply(vault_dir: Path | str, *, confirm: bool = False,
                     _bazi_profile(vault, source)
                     # 命盘.md 是生成物；原文本身保留为一篇可读解读。
                     target_rel = f"{vault_layout.SELF_BAZI_READINGS_DIR}/我的八字参考.md"
-                target = _unique_path(vault / target_rel)
+                target = _unique_path(workspace_path(vault, target_rel))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
                 moved += 1
@@ -365,12 +367,12 @@ def apply(vault_dir: Path | str, *, confirm: bool = False,
         except Exception as error:  # noqa: BLE001 - 迁移失败要记录而不是中断全部
             conflicts.append(f"{row['source']}：{error}")
     # .torch-os/忆灵 与身份候选：复制到历史，不移动原数据。
-    history = vault / vault_layout.SELF_MENTOR_HISTORY_DIR
-    _copy_tree(vault / ".torch-os/忆灵/画像.json",
+    history = workspace_path(vault, vault_layout.SELF_MENTOR_HISTORY_DIR)
+    _copy_tree(workspace_path(vault, ".torch-os/忆灵/画像.json"),
                history / "旧忆灵画像.json")
-    _copy_tree(vault / ".torch-os/忆灵/复盘卡", history / "旧忆灵复盘卡")
-    _copy_tree(vault / ".torch-os/忆灵/画像历史", history / "旧忆灵画像历史")
-    _copy_tree(vault / ".torch-os/身份待确认", history / "旧身份候选")
+    _copy_tree(workspace_path(vault, ".torch-os/忆灵/复盘卡"), history / "旧忆灵复盘卡")
+    _copy_tree(workspace_path(vault, ".torch-os/忆灵/画像历史"), history / "旧忆灵画像历史")
+    _copy_tree(workspace_path(vault, ".torch-os/身份待确认"), history / "旧身份候选")
     payload = {
         "schema": vault_layout.SELF_ARCHIVE_LAYOUT_SCHEMA,
         "status": "done" if not conflicts else "partial",

@@ -210,3 +210,15 @@ def test_readonly_archive_and_export_are_rejected(workspace):
         assert client.post("/api/knowledge/share/archive", json={"preview_id": preview["preview_id"],
             "content_hash": preview["content_hash"], "confirm": True}).status_code == 409
         assert client.post("/api/knowledge/context-pack/export", json={"paths": ["03_知识库/a.md"]}).status_code == 409
+
+
+def test_portable_fingerprint_and_mobile_note_reconciliation(workspace):
+    fixture = json.loads((Path(__file__).parents[1] / "companion/fixtures/capture.json").read_text(encoding="utf-8"))
+    result = share_capture.capture(pasted_text=fixture["text"])
+    assert result["content_hash"] == fixture["expectedHash"]
+    vault, db = workspace
+    note = pillar_notes.create_note(vault, chapter="inbox", title="手机归档", body="已归档的正文",
+                                   extra_metadata={"content_hash": result["content_hash"]})
+    archived = ShareStore(db, vault).archive(result, chapter="inbox", title="电脑重复归档")
+    assert archived["note"]["path"] == note["path"]
+    assert len(list(vault.rglob("*.md"))) == 1

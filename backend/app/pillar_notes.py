@@ -5,6 +5,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import is_workspace_path, workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -28,7 +30,7 @@ NOTE_TRASH_DIR = ".torch-os/笔记回收站"
 
 
 def _relative(vault: Path, path: Path) -> str:
-    return path.resolve().relative_to(vault.resolve()).as_posix()
+    return workspace_relative(vault.resolve(), path.resolve()).as_posix()
 
 
 def _clean_tags(values: list[str] | None) -> list[str]:
@@ -74,16 +76,16 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
         directory = vault_layout.chapter_dir(chapter)
         if not directory:
             raise HTTPException(422, "未知章节")
-        roots = [vault / directory]
+        roots = [workspace_path(vault, directory)]
     elif pillar == vault_layout.LOVE_PILLAR:
-        roots = [vault / vault_layout.LOVE_MEMORY_DIR]
+        roots = [workspace_path(vault, vault_layout.LOVE_MEMORY_DIR)]
     elif pillar:
         directory = vault_layout.PILLAR_DIRS.get(pillar)
         if not directory:
             raise HTTPException(422, "未知库")
-        roots = [vault / directory]
+        roots = [workspace_path(vault, directory)]
     else:
-        roots = [vault / directory for directory in vault_layout.PILLAR_DIRS.values()]
+        roots = [workspace_path(vault, directory) for directory in vault_layout.PILLAR_DIRS.values()]
     text = str(query or "").strip().casefold()
     hidden = vault_layout.hidden_chapters(vault)
     found: list[dict[str, Any]] = []
@@ -165,7 +167,7 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
     text = str(body or "").strip()
     if len(text.encode("utf-8")) > MAX_BODY:
         raise HTTPException(422, "正文过大")
-    target_dir = vault / directory
+    target_dir = workspace_path(vault, directory)
     target_dir.mkdir(parents=True, exist_ok=True)
     stem = vault_layout.safe_note_stem(clean_title)
     path = _unique_path(target_dir, stem)
@@ -262,7 +264,7 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
         loaded_source = load_note(source)
         if str(expected_revision) != loaded_source["revision"]:
             raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再移动")
-    target_dir = vault / directory
+    target_dir = workspace_path(vault, directory)
     target_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_path(target_dir, source.stem)
     os.replace(source, target)
@@ -298,11 +300,11 @@ def trash_note(vault_dir: Path | str, relative: str,
         raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再删除")
     metadata, body = parse_text(loaded["raw"].decode("utf-8-sig"))
 
-    trash_root = vault / NOTE_TRASH_DIR
+    trash_root = workspace_path(vault, NOTE_TRASH_DIR)
     try:
         trash_root.mkdir(parents=True, exist_ok=True)
         # 与 source 一样，回收站本身也不能是链接，否则会移动到库外。
-        if not trash_root.resolve().is_relative_to(vault):
+        if not is_workspace_path(vault, trash_root.resolve()):
             raise HTTPException(409, "笔记回收站目录不在库内，已停止删除")
         batch = trash_root / vault_layout.new_recycle_batch_name()
         target = batch / "files" / vault_layout.recycle_file_name(relative)
@@ -353,7 +355,7 @@ def backlinks(vault_dir: Path | str, target: str, limit: int = 50) -> list[dict[
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
     for directory in vault_layout.PILLAR_DIRS.values():
-        root = vault / directory
+        root = workspace_path(vault, directory)
         if not root.is_dir():
             continue
         for path in root.rglob("*.md"):

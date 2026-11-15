@@ -13,6 +13,8 @@ manifest 里。本模块只做统一读取、恢复和彻底删除，不搬动�
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -55,7 +57,7 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def _note_trash_root(vault: Path) -> Path:
-    return vault / NOTE_TRASH_DIR
+    return workspace_path(vault, NOTE_TRASH_DIR)
 
 
 def _iso_or_batch_time(batch: Path, value: Any) -> str:
@@ -77,8 +79,8 @@ def _note_item(vault: Path, batch: Path, path: Path, *, original: str,
                entry: dict[str, Any], fallback_title: str = "") -> dict[str, Any] | None:
     """把一个笔记回收文件投影成回收中心条目。"""
     try:
-        trash_rel = path.relative_to(vault).as_posix()
-        batch_rel = batch.relative_to(vault).as_posix()
+        trash_rel = workspace_relative(vault, path).as_posix()
+        batch_rel = workspace_relative(vault, batch).as_posix()
     except ValueError:
         return None
     original = vault_layout.normalize_relpath(original)
@@ -120,7 +122,7 @@ def _note_items_from_manifest(vault: Path, batch: Path,
         raw = str(entry.get("trash_path") or "").replace("\\", "/").strip("/")
         if not raw or ".." in raw.split("/"):
             continue
-        path = (vault / raw).resolve()
+        path = (workspace_path(vault, raw)).resolve()
         try:
             path.relative_to(batch.resolve())
         except ValueError:
@@ -263,12 +265,12 @@ def _safe_trash_file(vault: Path, item: dict[str, Any]) -> Path:
     batch_text = str(item.get("batch_path") or "")
     if not batch_text:
         raise _RecycleSkip("回收站批次不可用")
-    batch = (vault / batch_text).resolve()
+    batch = (workspace_path(vault, batch_text)).resolve()
     try:
         batch.relative_to(root)
     except ValueError as error:
         raise _RecycleSkip("回收站路径不合法") from error
-    source = (vault / str(item.get("trash_path") or "")).resolve()
+    source = (workspace_path(vault, str(item.get("trash_path") or ""))).resolve()
     try:
         source.relative_to(batch)
     except ValueError as error:
@@ -279,7 +281,7 @@ def _safe_trash_file(vault: Path, item: dict[str, Any]) -> Path:
 
 
 def _drop_note_manifest(vault: Path, item: dict[str, Any]) -> None:
-    batch = (vault / str(item.get("batch_path") or "")).resolve()
+    batch = (workspace_path(vault, str(item.get("batch_path") or ""))).resolve()
     manifest_path = batch / MANIFEST_NAME
     manifest = _read_json(manifest_path)
     if manifest is None:
@@ -329,7 +331,7 @@ def _prune_batch(batch: Path) -> None:
 
 
 def _cleanup_note_batch(vault: Path, item: dict[str, Any]) -> None:
-    batch = (vault / str(item.get("batch_path") or "")).resolve()
+    batch = (workspace_path(vault, str(item.get("batch_path") or ""))).resolve()
     _drop_note_manifest(vault, item)
     _prune_batch(batch)
 

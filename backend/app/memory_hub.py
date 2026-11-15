@@ -38,6 +38,7 @@ from .db import Database, utc_now
 from .journal_shared import shanghai_today
 from .proposals import ProposalError
 from .vault import parse_text, safe_note_path
+from .storage_layout import workspace_path, is_workspace_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -69,8 +70,8 @@ class MemoryHubError(RuntimeError):
 
 def _path(vault_dir: Path | str, relative: str) -> Path:
     root = Path(vault_dir)
-    path = root / relative
-    if not path.resolve().is_relative_to(root.resolve()):
+    path = workspace_path(root, relative)
+    if not is_workspace_path(root, path):
         raise MemoryHubError("忆灵路径越界", 422)
     return path
 
@@ -598,7 +599,7 @@ def apply_identity_patch(database: Database, vault_dir: Path | str,
     if not changed_fields:
         raise ProposalError("身份补丁没有可应用的字段", 422)
     backup_dir = _path(vault_dir, IDENTITY_BACKUP_REL)
-    source = Path(vault_dir) / vault_layout.identity_paths()[0]
+    source = workspace_path(Path(vault_dir), vault_layout.identity_paths()[0])
     if source.is_file():
         backup_dir.mkdir(parents=True, exist_ok=True)
         target = backup_dir / f"身份-{_stamp()}.md"

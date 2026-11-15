@@ -5,6 +5,7 @@
 图片暂不支持：当前导师链路是纯文本的 headless 通道。
 """
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import codecs
 import io
@@ -196,7 +197,7 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 
 def _upload_dir(vault_dir: Path | str) -> Path:
-    return Path(vault_dir) / UPLOAD_REL
+    return workspace_path(Path(vault_dir), UPLOAD_REL)
 
 
 def _write_manifest(path: Path, payload: dict[str, Any]) -> None:

@@ -38,6 +38,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .db import Database
+from .storage_layout import workspace_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 FORMAT = "torch-os-full-backup"
@@ -116,11 +117,11 @@ def _safe_vault(vault_dir: Path | str) -> Path:
 
 
 def _config_path(vault: Path) -> Path:
-    return vault / CONFIG_RELATIVE
+    return workspace_path(vault, CONFIG_RELATIVE)
 
 
 def _secret_path(vault: Path) -> Path:
-    return vault / SECRET_RELATIVE
+    return workspace_path(vault, SECRET_RELATIVE)
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -192,7 +193,7 @@ def save_config(vault_dir: Path | str, config: dict[str, Any]) -> None:
 
 
 def _local_key(vault: Path) -> bytes:
-    path = vault / ".torch-os" / "cloud-backup.key"
+    path = workspace_path(vault, ".torch-os/cloud-backup.key")
     try:
         raw = path.read_bytes()
         if len(raw) == 32:
@@ -586,7 +587,18 @@ def create_snapshot(vault_dir: Path | str, directory: Path | str, *,
     vault = _safe_vault(vault_dir)
     cloud = _validate_cloud_dir(vault, str(directory))
     keep = max(1, min(30, int(keep)))
-    staging_root = vault / STAGING_RELATIVE
+    from .storage_layout import active_layout
+    layout = active_layout(vault)
+    if layout:
+        from .storage_bundle import create_bundle
+        started = time.monotonic()
+        if progress:
+            progress("正在本机缓存生成并校验多根恢复包")
+        name = f"{SNAPSHOT_PREFIX}{_now().strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.token_hex(4)}" + (".zip.enc" if password else ".zip")
+        result = create_bundle(layout, cloud / name, password=password or "")
+        return {"filename": name, "bytes": (cloud / name).stat().st_size, "files": result["files"], "encrypted": bool(password),
+                "warnings": ["多根恢复包；用 storage_bundle 恢复到独立目录，跨数据库一致性需要停写窗口"], "removed": _prune(cloud, keep), "path": str(cloud / name), "created_at": _now_text(), "seconds": round(time.monotonic() - started, 2)}
+    staging_root = workspace_path(vault, STAGING_RELATIVE)
     staging_root.mkdir(parents=True, exist_ok=True)
     # 上次进程崩溃可能留下临时目录；超过一天的直接清理，不影响正在进行的快照。
     now_ts = time.time()

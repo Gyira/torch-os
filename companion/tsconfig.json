@@ -8,5 +8,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["core/**/*.ts", "node/**/*.ts", "baidu/**/*.ts", "tests/**/*.ts"]
+  "include": ["core/**/*.ts", "node/**/*.ts", "baidu/**/*.ts", "plugin/**/*.ts", "vendor/**/*.ts", "tests/**/*.ts"]
 }

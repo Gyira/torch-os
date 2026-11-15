@@ -10,6 +10,7 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import json
 import re
@@ -199,7 +200,7 @@ def _build_vault(root: Path, *, plugin_dir: Path) -> dict[str, Any]:
         "plugin_version": plugin_version(plugin_dir),
         "pillars": vault_layout.chapter_manifest()["pillars"],
     }
-    _write_json(root / MANIFEST_RELATIVE, manifest)
+    _write_json(workspace_path(root, MANIFEST_RELATIVE), manifest)
 
     return {
         "folders": created,

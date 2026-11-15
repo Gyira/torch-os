@@ -48,7 +48,7 @@ class DeviceRegistry:
             return identity
 
     def bind(self, layout: StorageLayout, *, legacy_paths=()):
-        """Explicit migration/test operation. Never called by ordinary app startup."""
+        """Explicit split binding (migration or opt-in startup), never legacy discovery."""
         if not layout.workspace_id or workspace_identity(layout.notes) != layout.workspace_id:
             raise ValueError("必须先验证笔记库的稳定身份")
         if self.root.is_relative_to(layout.notes) or layout.notes.is_relative_to(self.root):

@@ -13,6 +13,8 @@
 人生路与知识库开放。
 """
 from __future__ import annotations
+from .storage_layout import is_workspace_path, workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -76,7 +78,7 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
 
     relative = vault_layout.custom_notebook_path(clean, key_pillar)
     vault = Path(vault_dir).resolve()
-    target = vault / relative
+    target = workspace_path(vault, relative)
     try:
         if target.exists() or target.is_symlink():
             raise HTTPException(409, "这个本子已经存在")
@@ -148,9 +150,9 @@ def _count_markdown(root: Path) -> int:
 
 
 def _notebook_trash_root(vault: Path) -> Path:
-    root = vault / NOTEBOOK_TRASH_DIR
+    root = workspace_path(vault, NOTEBOOK_TRASH_DIR)
     root.mkdir(parents=True, exist_ok=True)
-    if not root.resolve().is_relative_to(vault):
+    if not is_workspace_path(vault, root.resolve()):
         raise HTTPException(409, "本子回收站目录不在库内，已停止删除")
     return root
 
@@ -177,7 +179,7 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
     if not name:
         raise HTTPException(422, "只能删除当前库的本子")
     relative = vault_layout.custom_notebook_path(name, pillar)
-    target = vault / relative
+    target = workspace_path(vault, relative)
     try:
         info = target.lstat()
     except FileNotFoundError as error:
@@ -191,8 +193,8 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
         root = vault_layout.notebook_root(pillar)
         if not root:
             raise HTTPException(409, "这个库不支持本子目录")
-        expected_parent = (vault / root).resolve()
-        if parent != expected_parent or not target.resolve().is_relative_to(vault):
+        expected_parent = (workspace_path(vault, root)).resolve()
+        if parent != expected_parent or not is_workspace_path(vault, target.resolve()):
             raise HTTPException(409, "本子目录不在库内，已停止删除")
         note_count = _count_markdown(target)
     except HTTPException:
@@ -210,8 +212,8 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
     except OSError as error:
         raise HTTPException(409, f"移入本子回收站失败：{error}") from error
 
-    trash_path = trash_target.relative_to(vault).as_posix()
-    batch_path = batch.relative_to(vault).as_posix()
+    trash_path = workspace_relative(vault, trash_target).as_posix()
+    batch_path = workspace_relative(vault, batch).as_posix()
     manifest = {
         "schema": 1,
         "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -259,7 +261,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
         relative = vault_layout.chapter_dir(chapter)
         if not relative:
             continue
-        source = vault / relative
+        source = workspace_path(vault, relative)
         if not source.exists() and not source.is_symlink():
             continue
         try:
@@ -268,7 +270,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
             raise HTTPException(409, f"本子文件夹不可读：{error}") from error
         if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
             raise HTTPException(409, "本子文件夹不是普通目录，已停止删除")
-        if not source.resolve().is_relative_to(vault):
+        if not is_workspace_path(vault, source.resolve()):
             raise HTTPException(409, "本子目录不在库内，已停止删除")
         note_count += _count_markdown(source)
         sources.append((chapter, source, relative))
@@ -289,7 +291,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(source, target)
             moved.append((source, target))
-            trash_paths.append(target.relative_to(vault).as_posix())
+            trash_paths.append(workspace_relative(vault, target).as_posix())
     except OSError as error:
         _rollback_moves(moved)
         raise HTTPException(409, f"移入本子回收站失败：{error}") from error
@@ -300,8 +302,8 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
         _rollback_moves(moved)
         raise HTTPException(409, f"记录本子删除状态失败：{error}") from error
 
-    batch_path = batch.relative_to(vault).as_posix()
-    trash_path = (batch / "notebooks" / pillar / key).relative_to(vault).as_posix()
+    batch_path = workspace_relative(vault, batch).as_posix()
+    trash_path = workspace_relative(vault, batch / "notebooks" / pillar / key).as_posix()
     manifest = {
         "schema": 1,
         "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

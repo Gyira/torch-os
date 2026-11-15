@@ -10,6 +10,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -144,7 +146,7 @@ def _target(kind: str, day: str) -> str:
 # ── 落盘 ──────────────────────────────────────────────────────────────────
 
 def _backup(vault_dir: Path | str, path: Path) -> str:
-    folder = Path(vault_dir) / BACKUP_REL
+    folder = workspace_path(Path(vault_dir), BACKUP_REL)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(SHANGHAI).strftime("%Y%m%dT%H%M%S")
     target = folder / f"{path.stem}-{stamp}.md"
@@ -223,7 +225,7 @@ def save_cards(database: Any, vault_dir: Path | str, day: str, cards: list[dict[
 def _save_diary(database: Any, vault_dir: Path | str, day: str, text: str) -> dict[str, Any]:
     if vault_layout.is_notebook_deleted(vault_dir, "life", "journal"):
         raise HTTPException(422, "日记本子已被删除，不能写入")
-    path = Path(vault_dir) / vault_layout.journal_path(day)
+    path = workspace_path(Path(vault_dir), vault_layout.journal_path(day))
     if path.is_file():
         original = path.read_text(encoding="utf-8", errors="replace")
         _backup(vault_dir, path)
@@ -249,7 +251,7 @@ def _unique_path(folder: Path, stem: str) -> Path:
 
 def _save_note(vault_dir: Path | str, day: str, kind: str, card: dict[str, Any]) -> dict[str, Any]:
     chapter = KIND_CHAPTER[kind]
-    folder = Path(vault_dir) / vault_layout.chapter_dir(chapter)
+    folder = workspace_path(Path(vault_dir), vault_layout.chapter_dir(chapter))
     title = (card.get("title") or "").strip() or _title(card.get("body") or "")
     body = (card.get("body") or "").strip()
     if not body:
@@ -267,7 +269,7 @@ def _save_note(vault_dir: Path | str, day: str, kind: str, card: dict[str, Any])
     content = f"{front}\n> {title}\n\n{body}\n"
     path = _unique_path(folder, f"{day} {title}")
     payload = _atomic_write(path, content)
-    return {"kind": kind, "path": path.resolve().relative_to(Path(vault_dir).resolve()).as_posix(),
+    return {"kind": kind, "path": workspace_relative(Path(vault_dir).resolve(), path.resolve()).as_posix(),
             "created": True, "sha256": hashlib.sha256(payload).hexdigest()}
 
 

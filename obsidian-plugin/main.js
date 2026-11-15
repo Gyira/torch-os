@@ -45,7 +45,7 @@ const DEFAULT_SETTINGS = {
 // repoRoot / pythonPath / instancePort 是“这台电脑”的属性，不能写进随库同步的
 // data.json：A 电脑的 D:\tools\torch-os 到了 B 电脑可能不存在。它们只存本机
 // LOCALAPPDATA（或对应平台配置目录），data.json 只保留 baseUrl / autoStart。
-const DEVICE_SETTING_KEYS = ['repoRoot', 'pythonPath', 'instancePort'];
+const DEVICE_SETTING_KEYS = ['repoRoot', 'pythonPath', 'instancePort', 'storageConfigPath'];
 const REPO_MARKERS = ['backend/app/run.py', 'backend/app/main.py'];
 
 function localConfigDir() {
@@ -503,6 +503,11 @@ class TorchSettingTab extends PluginSettingTab {
       text: '仓库路径、Python 路径和启动端口只保存在本机（'
         + localConfigDir() + '），不会随库同步。两台设备各自自动发现或手动指定一次即可。',
     });
+    new Setting(containerEl).setName('拆分存储配置（可选，仅本机）')
+      .setDesc('完成迁移演练后填写 device-storage.json；旧库留空。无效配置会停止启动。')
+      .addText(text => text.setValue(this.plugin.settings.storageConfigPath || '').onChange(value => {
+        this.plugin.settings.storageConfigPath = value.trim(); this.plugin.saveDeviceSettings();
+      }));
     new Setting(containerEl)
       .setName('自动拉起本地服务')
       .setDesc('打开面板时如果当前库还没有对应的后端实例，就用仓库里的 Python 启动一个（桌面版）。')
@@ -543,6 +548,7 @@ module.exports = class TorchPlugin extends Plugin {
    */
   hydrateDeviceSettings(synced = {}) {
     const device = this.deviceKey ? readDeviceSettings(this.deviceKey) : {};
+    this.settings.storageConfigPath = String(device.storageConfigPath || '');
     const hasLocalRepo = Object.prototype.hasOwnProperty.call(device, 'repoRoot');
     if (hasLocalRepo) {
       this.settings.repoRoot = String(device.repoRoot || '');
@@ -702,7 +708,16 @@ module.exports = class TorchPlugin extends Plugin {
     }
 
     const python = toolchain.pythonPath;
-    const dataDir = path.join(binding.path, '.torch-os');
+    let dataDir = path.join(binding.path, '.torch-os');
+    const storageConfigPath = String(this.settings.storageConfigPath || '').trim();
+    if (storageConfigPath) {
+      try {
+        const storage = JSON.parse(fs.readFileSync(storageConfigPath, 'utf8'));
+        if (storage.version !== 1 || !path.isAbsolute(storage.state) ||
+            normalizedVaultPath(storage.notes) !== normalizedVaultPath(binding.path)) throw new Error('存储配置不属于当前库');
+        dataDir = path.join(storage.state, 'vault-state');
+      } catch (error) { new Notice(`薪火OS 拆分存储配置不可用：${error.message}`); return false; }
+    }
     let logFsPath = '';
     let logFd = null;
     try {
@@ -721,6 +736,7 @@ module.exports = class TorchPlugin extends Plugin {
           PORT: String(port),
           VAULT_DIR: binding.path,
           DATA_DIR: dataDir,
+          TORCH_STORAGE_CONFIG: storageConfigPath,
           TORCH_VAULT_SCOPED: '1',
           WORKSPACE_NAME: binding.name,
           VAULT_READ_ONLY: '0',

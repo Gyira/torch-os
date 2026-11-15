@@ -21,8 +21,9 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 const bytes = (value: unknown) => encoder.encode(JSON.stringify(value));
 
 export function validateNotePath(path: string): void {
+  if (/^_Torch\/(?:收件|回执)\/[a-f0-9-]{36}\.md$/.test(path)) return;
   const parts = path.split("/");
-  if (!path.endsWith(".md") || path.length > 500 || path.normalize("NFC") !== path ||
+  if (!/\.(?:md|png|jpe?g|webp|gif|avif|pdf)$/i.test(path) || path.length > 500 || path.normalize("NFC") !== path ||
       /[\\:\x00-\x1f<>"|?*]/.test(path) || parts.some(p => !p || p === "." || p === ".." ||
         p.startsWith(".") || p.toLowerCase() === "_torch" || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) {
     throw new Error("Unsafe or unsupported note path");

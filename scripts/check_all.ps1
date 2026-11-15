@@ -46,6 +46,7 @@ try {
   if (Test-Path -LiteralPath (Join-Path $companionRoot 'package.json')) {
     Invoke-Step 'Companion TypeScript 类型' { & npm --prefix $companionRoot run typecheck }
     Invoke-Step 'Companion 同步与文件恢复' { & npm --prefix $companionRoot test }
+    Invoke-Step 'Companion 移动插件构建' { & npm --prefix $companionRoot run build }
   }
   Invoke-Step 'Obsidian 插件路径回归' { & node --test (Join-Path $projectRoot 'scripts\test_obsidian_plugin_paths.mjs') }
   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
@@ -60,6 +61,7 @@ try {
   Invoke-Step '前端目录映射与迁移回归' { & $python (Join-Path $projectRoot 'scripts\test_vault_alignment.py') }
 
   Invoke-Step 'Python 编译' { & $python -m compileall -q backend scripts }
+  Invoke-Step '存储拆分与导入单测' { & $python -m pytest (Join-Path $projectRoot 'tests') -q }
   Invoke-Step '依赖一致性' { & $python -m pip check }
 }
 finally {

@@ -10,6 +10,7 @@ windows cannot silently overwrite each other.
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
 
 import os
 import re
@@ -519,7 +520,7 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
             raise HTTPException(500, f"保存横幅图片失败：{error}") from error
         finally:
             temporary.unlink(missing_ok=True)
-        relative = destination.relative_to(Path(vault_dir).resolve()).as_posix()
+        relative = workspace_relative(Path(vault_dir).resolve(), destination).as_posix()
         return {"path": relative, "name": destination.name, "size": len(raw)}
 
     return router

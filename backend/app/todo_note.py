@@ -16,6 +16,7 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import json
 import re
@@ -381,7 +382,7 @@ MAX_DAILY_DAYS = 400
 
 
 def _daily_state_path(vault_dir: Path | str) -> Path:
-    return Path(vault_dir) / DAILY_STATE_REL
+    return workspace_path(Path(vault_dir), DAILY_STATE_REL)
 
 
 def _read_daily_marks(vault_dir: Path | str) -> dict[str, dict[str, bool]]:

@@ -22,6 +22,8 @@ v1.0 P3 起，回答**不再直接写身份**：问题只是忆灵的输入之�
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -202,7 +204,7 @@ def _answered_today(state: dict[str, Any], now: datetime) -> int:
 
 
 def queue_dir(vault_dir: Path | str) -> Path:
-    return Path(vault_dir) / QUEUE_DIR
+    return workspace_path(Path(vault_dir), QUEUE_DIR)
 
 
 def load_queue(vault_dir: Path | str, *, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -344,7 +346,7 @@ def _write_identity_field(vault_dir: Path | str, field: str, text: str,
     write_identity(vault_dir, IdentityWrite(**payload), read_only=read_only)
     identity_path = _identity_path(Path(vault_dir))
     return {"target": "identity", "field": field,
-            "path": identity_path.relative_to(Path(vault_dir).resolve()).as_posix(),
+            "path": workspace_relative(Path(vault_dir).resolve(), identity_path).as_posix(),
             "title": field}
 
 

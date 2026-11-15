@@ -3,6 +3,7 @@ export type Binding = { protocol: 1; workspace: string; account: string; remoteR
 export type Revision = {
   protocol: 1; binding: Binding; file: string; device: string; operation: string;
   parents: string[]; kind: "put" | "delete"; content: string | null;
+  path?: string;
 };
 export type Commit = { id: string; revision: Revision };
 export interface Transport {
@@ -21,7 +22,7 @@ export async function hash(bytes: Uint8Array): Promise<string> {
 }
 
 function bindingKey(b: Binding): string {
-  if (b.protocol !== 1 || !identifier.test(b.workspace) || !b.account || b.account.length > 256 ||
+  if (b.protocol !== 1 || typeof b.workspace !== "string" || !identifier.test(b.workspace) || typeof b.account !== "string" || !b.account || b.account.length > 256 || typeof b.remoteRoot !== "string" ||
       !b.remoteRoot.startsWith("/apps/") || b.remoteRoot.includes("\\") ||
       b.remoteRoot.split("/").some(p => p === "." || p === ".." || !p && b.remoteRoot.indexOf("//") >= 0)) {
     throw new Error("Invalid workspace/account/remote binding");
@@ -35,17 +36,19 @@ export function assertBinding(expected: Binding, actual: Binding): void {
 
 function canonical(r: Revision): string {
   bindingKey(r.binding);
-  if (r.protocol !== 1 || !identifier.test(r.file) || !identifier.test(r.device) || !identifier.test(r.operation) ||
-      !Array.isArray(r.parents) || r.parents.length > 128 || r.parents.some(p => !digest.test(p)) ||
+  if (r.protocol !== 1 || ![r.file, r.device, r.operation].every(v => typeof v === "string" && identifier.test(v)) ||
+      !Array.isArray(r.parents) || r.parents.length > 128 || r.parents.some(p => typeof p !== "string" || !digest.test(p)) ||
       new Set(r.parents).size !== r.parents.length ||
       !["put", "delete"].includes(r.kind) ||
       (r.kind === "put" ? !digest.test(r.content ?? "") : r.content !== null)) {
     throw new Error("Invalid revision");
   }
+  if (r.path !== undefined && (typeof r.path !== "string" || r.path.length > 500 || !/\.(?:md|png|jpe?g|webp|gif|avif|pdf)$/i.test(r.path) ||
+      /[\\:\x00-\x1f]/.test(r.path) || r.path.split("/").some(p => !p || p === "." || p === ".." || p.startsWith(".")))) throw new Error("Invalid revision path");
   return JSON.stringify({ protocol: 1,
     binding: [r.binding.protocol, r.binding.workspace, r.binding.account, r.binding.remoteRoot],
     file: r.file, device: r.device, operation: r.operation,
-    parents: [...r.parents].sort(), kind: r.kind, content: r.content });
+    parents: [...r.parents].sort(), kind: r.kind, content: r.content, ...(r.path === undefined ? {} : { path: r.path }) });
 }
 
 export async function commit(revision: Revision): Promise<Commit> {
@@ -72,7 +75,7 @@ export type View = {
   heads: Map<string, Commit[]>; pending: string[]; records: Map<string, Commit>;
 };
 
-export async function inspect(transport: Transport, expected: Binding): Promise<View> {
+export async function inspect(transport: Transport, expected: Binding, includeBody: (path?: string) => boolean = () => true): Promise<View> {
   bindingKey(expected);
   const input = await transport.listCommits(); // failures must propagate; never become empty state
   if (input.length > 10000) throw new Error("Commit scan limit exceeded; no destructive action allowed");
@@ -118,7 +121,7 @@ export async function inspect(transport: Transport, expected: Binding): Promise<
   // not every historical body on a mobile device. Historical reads verify on demand.
   for (const group of heads.values()) for (const record of group) {
     const content = record.revision.content;
-    if (content && !verified.has(content)) {
+    if (content && includeBody(record.revision.path) && !verified.has(content)) {
       if (await hash(await transport.getObject(content)) !== content) throw new Error("Stored object corrupted");
       verified.add(content);
     }

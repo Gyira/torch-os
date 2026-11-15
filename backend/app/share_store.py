@@ -63,7 +63,12 @@ class ShareStore:
         fingerprint = result["content_hash"] + (":" + chapter if allow_copy else "")
         with self.connect() as con:
             con.execute("BEGIN IMMEDIATE")
-            row = con.execute("SELECT * FROM imports WHERE fingerprint=?", (fingerprint,)).fetchone()
+            aliases = [fingerprint]
+            if result.get("legacy_content_hash"):
+                aliases.append(result["legacy_content_hash"] + (":" + chapter if allow_copy else ""))
+            row = con.execute("SELECT * FROM imports WHERE fingerprint IN ({})".format(",".join("?" for _ in aliases)), aliases).fetchone()
+            if row:
+                fingerprint = row["fingerprint"]
             if row and row["state"] == "committed":
                 previous = json.loads(row["result"])
                 previous["duplicate"] = True
@@ -87,7 +92,10 @@ class ShareStore:
             recovered = []
             for item in pillar_notes.list_notes(self.vault, pillar="knowledge", limit=None):
                 note = pillar_notes.read_note(self.vault, item["path"])
-                if note["raw_metadata"].get("share_import_id") == iid:
+                metadata = note["raw_metadata"]
+                known_hashes = {h for h in (result["content_hash"], result.get("legacy_content_hash")) if h}
+                mobile_match = (not allow_copy and metadata.get("content_hash", metadata.get("capture_hash")) in known_hashes)
+                if metadata.get("share_import_id") == iid or mobile_match:
                     recovered.append(note)
             if len(recovered) > 1:
                 raise HTTPException(409, "发现多个导入副本，请核对后再重试。")
@@ -96,6 +104,9 @@ class ShareStore:
                 body=result["markdown"], source=result["share_url"], generated_by="share-link",
                 extra_metadata={"share_import_id": iid, "capture_hash": result["content_hash"],
                                 "capture_method": result["capture_method"], "content_hash": result["content_hash"],
+                                "capture_completeness": result.get("completeness", "unknown"),
+                                "capture_provider": result.get("provider", "unknown"),
+                                "capture_fetched_at": result.get("fetched_at", ""),
                                 "previous_import_id": previous_import_id})
             output = {"note": note, "chapter": note.get("chapter", chapter), "source": result["share_url"],
                       "turns": result["turns"], "chars": result["chars_markdown"], "duplicate": bool(recovered)}

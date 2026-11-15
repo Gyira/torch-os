@@ -23,6 +23,7 @@ from typing import Any
 
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 from .vault_layout import LOVE_ROOT, LOVE_PAGE_DIRS
+from .storage_layout import active_layout, StorageLayout
 
 MEMORY_DIR, CHAT_DIR, SCHEDULE_DIR, CYCLE_DIR, GALLERY_DIR, BAZI_DIR, MASTER_DIR = LOVE_PAGE_DIRS
 ARCHIVE_DIR = f"{LOVE_ROOT}/_归档"
@@ -71,6 +72,7 @@ class LovePaths:
     bazi: Path
     master: Path
     archive: Path
+    storage: StorageLayout | None = None
 
     @property
     def chat_db(self) -> Path:
@@ -82,14 +84,20 @@ class LovePaths:
 
     @property
     def chat_media(self) -> Path:
+        if self.storage:
+            return self.storage.archive / "love" / Path(CHAT_DIR).name / CHAT_MEDIA_DIR
         return self.chat / CHAT_MEDIA_DIR
 
     @property
     def chat_exports(self) -> Path:
+        if self.storage:
+            return self.storage.archive / "love" / Path(CHAT_DIR).name / CHAT_EXPORTS_DIR
         return self.chat / CHAT_EXPORTS_DIR
 
     @property
     def schedule_excel(self) -> Path:
+        if self.storage:
+            return self.storage.archive / "love" / Path(SCHEDULE_DIR).name / SCHEDULE_EXCEL_DIR
         return self.schedule / SCHEDULE_EXCEL_DIR
 
     @property
@@ -110,14 +118,20 @@ class LovePaths:
 
     @property
     def gallery_photos(self) -> Path:
+        if self.storage:
+            return self.storage.archive / "love" / Path(GALLERY_DIR).name / GALLERY_PHOTOS
         return self.gallery / GALLERY_PHOTOS
 
     @property
     def gallery_videos(self) -> Path:
+        if self.storage:
+            return self.storage.archive / "love" / Path(GALLERY_DIR).name / GALLERY_VIDEOS
         return self.gallery / GALLERY_VIDEOS
 
     @property
     def gallery_thumbs(self) -> Path:
+        if self.storage:
+            return self.storage.cache / "love" / GALLERY_THUMBS
         return self.gallery / GALLERY_THUMBS
 
     @property
@@ -130,6 +144,8 @@ class LovePaths:
 
     @property
     def master_reports(self) -> Path:
+        if self.storage:
+            return self.storage.notes / MASTER_DIR / MASTER_REPORTS
         return self.master / MASTER_REPORTS
 
     def as_dict(self) -> dict[str, str]:
@@ -148,6 +164,13 @@ class LovePaths:
 
 def love_paths(vault_dir: Path | str) -> LovePaths:
     root = Path(vault_dir).resolve()
+    storage = active_layout(root)
+    if storage:
+        state = storage.state / "love"
+        return LovePaths(root=state, memory=root / MEMORY_DIR, chat=state / Path(CHAT_DIR).name,
+                         schedule=state / Path(SCHEDULE_DIR).name, cycle=state / Path(CYCLE_DIR).name,
+                         gallery=state / Path(GALLERY_DIR).name, bazi=state / Path(BAZI_DIR).name,
+                         master=state / Path(MASTER_DIR).name, archive=storage.archive / "love/_归档", storage=storage)
     return LovePaths(
         root=root / LOVE_ROOT,
         memory=root / MEMORY_DIR,

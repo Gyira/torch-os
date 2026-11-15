@@ -8,10 +8,14 @@
   },
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc --project tsconfig.json"
+    "typecheck": "tsc --project tsconfig.json",
+    "build": "node build.mjs",
+    "benchmark": "node --experimental-strip-types scripts/benchmark.mjs"
   },
   "devDependencies": {
     "@types/node": "24.0.0",
+    "esbuild": "0.24.2",
+    "obsidian": "1.14.4",
     "typescript": "5.7.2"
   }
 }

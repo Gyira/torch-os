@@ -17,6 +17,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -561,7 +563,7 @@ def list_custom_notebooks(vault_dir: Path | str,
     root_relative = notebook_root(pillar)
     if not root_relative:
         return []
-    root = Path(vault_dir) / root_relative
+    root = workspace_path(Path(vault_dir), root_relative)
     try:
         entries = list(root.iterdir())
     except OSError:
@@ -617,7 +619,7 @@ def can_delete_builtin_notebook(pillar: str, key: str) -> bool:
 
 
 def _deleted_notebooks_file(vault_dir: Path | str) -> Path:
-    return Path(vault_dir).resolve() / DELETED_NOTEBOOKS_REL
+    return workspace_path(Path(vault_dir).resolve(), DELETED_NOTEBOOKS_REL)
 
 
 def deleted_notebook_keys(vault_dir: Path | str) -> dict[str, set[str]]:
@@ -643,7 +645,7 @@ def deleted_notebook_keys(vault_dir: Path | str) -> dict[str, set[str]]:
 def _write_deleted_notebook_keys(vault_dir: Path | str,
                                  deleted: dict[str, set[str]]) -> None:
     root = Path(vault_dir).resolve()
-    path = root / DELETED_NOTEBOOKS_REL
+    path = workspace_path(root, DELETED_NOTEBOOKS_REL)
     if not any(deleted.values()) and not path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -822,7 +824,7 @@ def inbox_dir() -> str:
 
 
 def _ops_marker_path(root: Path) -> Path:
-    return root / OPS_LAYOUT_MARKER
+    return workspace_path(root, OPS_LAYOUT_MARKER)
 
 
 def _read_ops_marker(root: Path) -> dict[str, Any]:
@@ -892,7 +894,7 @@ def _merge_ops_tree(source: Path, target: Path, actions: list[str],
 
 
 def _backup_ops_sources(root: Path, sources: list[str], stamp: str) -> str:
-    backup_root = root / ".torch-os" / "backups" / "ops-layout" / stamp
+    backup_root = workspace_path(root, ".torch-os") / "backups" / "ops-layout" / stamp
     for source in sources:
         path = root / source
         if not path.is_dir():
@@ -904,7 +906,7 @@ def _backup_ops_sources(root: Path, sources: list[str], stamp: str) -> str:
         except OSError:
             # 备份失败不阻断搬移；标记里会记录失败，源目录仍然保留在回收站/原处。
             continue
-    return backup_root.relative_to(root).as_posix()
+    return workspace_relative(root, backup_root).as_posix()
 
 
 def plan_ops_layout(vault_dir: Path | str) -> dict[str, Any]:

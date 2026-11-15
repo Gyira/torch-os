@@ -8,6 +8,7 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -36,7 +37,7 @@ def trash_root(vault_dir: Path | str) -> Path:
 
 
 def legacy_trash_root(vault_dir: Path | str) -> Path:
-    return _vault_root(vault_dir) / LEGACY_TRASH_DIR
+    return workspace_path(_vault_root(vault_dir), LEGACY_TRASH_DIR)
 
 
 def batch_time(name: str) -> str:

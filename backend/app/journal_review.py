@@ -12,6 +12,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -81,7 +83,7 @@ def _rel(vault_dir: Path | str, value: Any) -> str:
     if not value:
         return ""
     try:
-        return Path(value).resolve().relative_to(Path(vault_dir).resolve()).as_posix()
+        return workspace_relative(Path(vault_dir).resolve(), Path(value).resolve()).as_posix()
     except (ValueError, OSError):
         return str(value)
 
@@ -504,7 +506,7 @@ def write_note(vault_dir: Path | str, day: str, content: str, *,
         raise HTTPException(400, "缺少 type: journal 的 front matter")
 
     relative = vault_layout.journal_path(day)
-    path = Path(vault_dir) / relative
+    path = workspace_path(Path(vault_dir), relative)
     old = path.read_bytes() if path.is_file() else b""
     if expected_sha and old and _sha256(old) != expected_sha:
         raise HTTPException(409, "这篇日记在预览之后被改过，请刷新再写。")
@@ -536,7 +538,7 @@ def write_note(vault_dir: Path | str, day: str, content: str, *,
 
 
 def _backup(vault_dir: Path | str, path: Path, day: str) -> Path:
-    folder = Path(vault_dir) / BACKUP_REL
+    folder = workspace_path(Path(vault_dir), BACKUP_REL)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(SHANGHAI).strftime("%Y%m%dT%H%M%S")
     target = folder / f"{day}-{stamp}.md"
@@ -550,7 +552,7 @@ def _backup(vault_dir: Path | str, path: Path, day: str) -> Path:
 
 def read_review(vault_dir: Path | str, day: str) -> dict[str, Any]:
     note = journal_note.read_note(vault_dir, day)
-    path = Path(vault_dir) / vault_layout.journal_path(day)
+    path = workspace_path(Path(vault_dir), vault_layout.journal_path(day))
     old = path.read_bytes() if path.is_file() else b""
     return {
         "day": day,

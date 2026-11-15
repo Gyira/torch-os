@@ -38,6 +38,7 @@ class ArchiveRequest(PreviewRequest):
     chapter: str = Field(default="", max_length=40)
     title: str = Field(default="", max_length=200)
     allow_copy: bool = False
+    allow_partial: bool = False
 
 
 class DigestRequest(PreviewRequest):
@@ -98,6 +99,8 @@ def create_knowledge_share_router(database: Database, vault_dir: Path | str, *,
         if payload.confirm is not True:
             raise HTTPException(422, "请明确确认把分享归档到知识库")
         result = resolve(payload, existing=True)
+        if result.get("completeness") == "partial" and not payload.allow_partial:
+            raise HTTPException(409, "部分附件未取回；请明确确认保存已取得的文本，或缩小轮次范围。")
         if len(result["markdown"].encode("utf-8")) > pillar_notes.MAX_BODY:
             raise HTTPException(413, "这篇分享太长，请用轮次缩小范围后再归档")
         chapter = _knowledge_chapter(payload.chapter, result["suggested_chapter"], vault_dir)

@@ -15,6 +15,7 @@ silently overwrite a concurrent external edit.
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -1510,7 +1511,7 @@ class HabitService:
         trash_path = ""
         if self.vault_dir is not None:
             stamp = datetime.now(SHANGHAI).strftime("%Y%m%dT%H%M%S")
-            trash = self.vault_dir / ".torch-os" / "habit-trash" / f"{stamp}-{current['uid']}"
+            trash = workspace_path(self.vault_dir, ".torch-os") / "habit-trash" / f"{stamp}-{current['uid']}"
             trash.mkdir(parents=True, exist_ok=True)
             (trash / "entries.json").write_text(
                 json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -34,6 +34,12 @@ def safe_note_path(vault_dir: Path, relative: str) -> Path:
     path = root / relative
     if Path(relative).is_absolute() or '..' in Path(relative).parts or not path.resolve().is_relative_to(root):
         raise ValueError('资料路径超出 Vault 范围')
+    if Path(relative).parts and Path(relative).parts[0] == '.torch-os':
+        from .storage_layout import workspace_path
+        path = workspace_path(root, relative)
+        # The resolver checks the entire local path, including the split state root.
+        from .storage_layout import checked_path
+        return checked_path(path)
     for part in [path, *path.parents]:
         if part == root:
             break

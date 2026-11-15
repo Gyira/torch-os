@@ -24,6 +24,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import json
 import os
@@ -215,7 +217,7 @@ def _move_done_tasks(vault: Path) -> tuple[int, list[dict[str, str]]]:
 
 def _migrate_old_trash(vault: Path, moves: list[dict[str, str]],
                        conflicts: list[str]) -> int:
-    old = vault / task_trash_store.LEGACY_TRASH_DIR
+    old = workspace_path(vault, task_trash_store.LEGACY_TRASH_DIR)
     if not old.is_dir():
         return 0
     new_root = task_trash_store.trash_root(vault)
@@ -233,11 +235,11 @@ def _migrate_old_trash(vault: Path, moves: list[dict[str, str]],
 
 
 def _backup(vault: Path, database: Any, stamp: str) -> Path:
-    backup = vault / BACKUP_ROOT_REL / stamp
+    backup = workspace_path(vault, BACKUP_ROOT_REL) / stamp
     backup.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []
     for relative in _BACKUP_DIRS:
-        source = vault / relative
+        source = workspace_path(vault, relative)
         if not source.exists():
             continue
         target = backup / relative
@@ -287,7 +289,7 @@ def _update_dida_relpaths(vault: Path, database: Any) -> int:
                 note = by_dida.get(dida_id)
                 if note is None or not old_rel:
                     continue
-                if (vault / old_rel).exists():
+                if (workspace_path(vault, old_rel)).exists():
                     continue
                 connection.execute(
                     """UPDATE dida_task_links
@@ -306,13 +308,13 @@ def plan_task_layout(vault_dir: Path | str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
     actions: list[str] = []
     for source, target in _RENAME_PAIRS:
-        if (vault / source).exists():
+        if (workspace_path(vault, source)).exists():
             actions.append(f"{source} -> {target}")
-    root = vault / vault_layout.TASK_ROOT
+    root = workspace_path(vault, vault_layout.TASK_ROOT)
     if (root / task_notes.LEGACY_INNER_DIR_NAME).is_dir():
         actions.append(f"展开 {root / task_notes.LEGACY_INNER_DIR_NAME}")
     for relative in vault_layout.TASK_SPECIAL_DIRS:
-        if not (vault / relative).is_dir():
+        if not (workspace_path(vault, relative)).is_dir():
             actions.append(f"创建 {relative}")
     try:
         notes, _warnings = task_notes.scan_task_notes(vault)
@@ -327,7 +329,7 @@ def plan_task_layout(vault_dir: Path | str) -> dict[str, Any]:
             actions.append(f"登记清单 {name}")
     except Exception:
         pass
-    if (vault / task_trash_store.LEGACY_TRASH_DIR).is_dir():
+    if (workspace_path(vault, task_trash_store.LEGACY_TRASH_DIR)).is_dir():
         actions.append("迁移旧 .torch-os/task-trash")
     return {"dry_run": True, "actions": actions, "count": len(actions)}
 
@@ -354,15 +356,15 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
 
     backup = _backup(vault, database, stamp)
     for source, target in _RENAME_PAIRS:
-        _move_or_merge(vault / source, vault / target, moves, conflicts)
-    _remove_empty(vault / "00_人生路/06_目标与计划")
+        _move_or_merge(workspace_path(vault, source), workspace_path(vault, target), moves, conflicts)
+    _remove_empty(workspace_path(vault, "00_人生路/06_目标与计划"))
 
     try:
         vault_layout.ensure_layout(vault)
     except Exception as error:
         errors.append(f"ensure_layout:{type(error).__name__}")
 
-    root = vault / vault_layout.TASK_ROOT
+    root = workspace_path(vault, vault_layout.TASK_ROOT)
     _flatten_inner_task_dir(vault, root, moves, conflicts)
     _move_loose_root_tasks(vault, root, moves, conflicts)
     list_folders = _ensure_list_folders(vault)
@@ -379,7 +381,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
         "run_id": stamp,
         "started_at": stamp,
         "finished_at": finished,
-        "backup_dir": str(backup.relative_to(vault)) if backup.exists() else "",
+        "backup_dir": str(workspace_relative(vault, backup)) if backup.exists() else "",
         "moves": moves,
         "conflicts": conflicts,
         "errors": errors,
@@ -389,11 +391,11 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
         "trash_batches_moved": trash_moved,
         "dida_relpaths_updated": db_updated,
     }
-    marker_path = vault / MARKER_REL
+    marker_path = workspace_path(vault, MARKER_REL)
     marker_path.parent.mkdir(parents=True, exist_ok=True)
     marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2) + "\n",
                            encoding="utf-8", newline="\n")
-    log_dir = vault / LOG_ROOT_REL / stamp
+    log_dir = workspace_path(vault, LOG_ROOT_REL) / stamp
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / "task-layout.json").write_text(
         json.dumps(marker, ensure_ascii=False, indent=2) + "\n",

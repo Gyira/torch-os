@@ -94,8 +94,11 @@ def parse_chatgpt(page: bytes) -> tuple[str, list[dict]]:
     parser = _Page()
     parser.feed(page.decode("utf-8", errors="replace"))
     try:
-        data = json.loads("".join(parser.parts))
-        shared = data["props"]["pageProps"]["serverResponse"]["data"]
+        if page.lstrip().startswith(b"{"):
+            shared = json.loads(page)
+        else:
+            data = json.loads("".join(parser.parts))
+            shared = data["props"]["pageProps"]["serverResponse"]["data"]
         nodes, current = shared["mapping"], shared["current_node"]
     except (ValueError, KeyError, TypeError):
         raise legacy.ShareLinkError("未识别到完整 ChatGPT 对话结构（可能页面改版）；请粘贴正文。")
@@ -103,6 +106,8 @@ def parse_chatgpt(page: bytes) -> tuple[str, list[dict]]:
         raise legacy.ShareLinkError("分享对话索引格式变化，请粘贴正文。")
     messages, visited = [], set()
     while current:
+        if not isinstance(current, str) or len(visited) > 10000:
+            raise legacy.ShareLinkError("分享对话链格式无效或过长。")
         if current in visited or current not in nodes:
             raise legacy.ShareLinkError("分享对话链不完整，拒绝作为完整原文导入。")
         visited.add(current)
@@ -117,20 +122,27 @@ def parse_chatgpt(page: bytes) -> tuple[str, list[dict]]:
             raise legacy.ShareLinkError("分享消息元数据格式变化，请粘贴正文。")
         role = author.get("role")
         content = message.get("content") or {}
+        if not isinstance(content, dict):
+            raise legacy.ShareLinkError("分享正文结构无效。")
         if (message.get("channel") not in (None, "final") or
                 metadata.get("is_visually_hidden_from_conversation")):
             current = node.get("parent")
             continue
         if role in ("user", "assistant"):
+            if role == "assistant" and content.get("content_type") in {"thoughts", "reasoning", "reasoning_recap", "model_editable_context"}:
+                current = node.get("parent")
+                continue
             if not isinstance(content, dict) or not isinstance(content.get("parts", []), list):
                 raise legacy.ShareLinkError("分享正文格式变化，请粘贴正文。")
             if message.get("status") not in (None, "finished_successfully"):
                 raise legacy.ShareLinkError("分享包含未完成回复，请粘贴核对后的正文。")
-            if content.get("content_type") != "text" or any(not isinstance(p, str) for p in content.get("parts", [])):
+            if content.get("content_type") not in {"text", "multimodal_text"}:
                 raise legacy.ShareLinkError("分享含暂不支持的媒体内容，请粘贴需要的正文。")
-            text = "\n\n".join(content.get("parts", [])).strip()
+            parts = content.get("parts", [])
+            partial = any(not isinstance(p, str) for p in parts)
+            text = "\n\n".join(p if isinstance(p, str) else "[附件未取回]" for p in parts).strip()
             if text:
-                messages.append({"role": role, "text": text, "at": None})
+                messages.append({"role": role, "text": text, "at": None, "partial": partial})
         current = node.get("parent")
         if current is not None and not isinstance(current, str):
             raise legacy.ShareLinkError("分享父节点格式变化，请粘贴正文。")
@@ -152,7 +164,13 @@ def capture(url: str = "", *, rounds: str = "", pasted_text: str = "",
         messages = [{"role": "assistant", "text": pasted_text.strip(), "at": None}]
         title = "粘贴的对话正文"
     elif provider == "chatgpt":
-        title, messages = parse_chatgpt(get_public(canonical, client=client, timeout=timeout))
+        page = get_public(canonical, client=client, timeout=timeout)
+        try:
+            title, messages = parse_chatgpt(page)
+        except legacy.ShareLinkError:
+            # Verified anonymously on a user-supplied sample. This is an internal
+            # web endpoint, not a documented stable public API; fail closed on change.
+            title, messages = parse_chatgpt(get_public("https://chatgpt.com/backend-api/share/" + sid, client=client, timeout=timeout))
     elif provider == "deepseek":
         raw = get_public(legacy.SHARE_API + "?share_id=" + sid, client=client, timeout=timeout)
         try:
@@ -182,15 +200,20 @@ def capture(url: str = "", *, rounds: str = "", pasted_text: str = "",
                               "messages": [(m["role"], m["text"]) for m in selected],
                               "method": method}, ensure_ascii=False, sort_keys=True)
     digest = hashlib.sha256(fingerprint.encode()).hexdigest()
+    legacy_digest = digest
+    canonical_fingerprint = json.dumps(["torch-capture-v1", provider, canonical, method,
+                                      [[m["role"], m["text"]] for m in selected]], ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(canonical_fingerprint.encode()).hexdigest()
     header = f"> 来源：{canonical or '用户粘贴'}\n> 获取：{fetched}\n> 获取方式：{method}；模型：unknown\n"
     if method == "paste":
         header += "> 用户提供正文，未与分享页核验角色或完整性。\n"
     markdown = header + "\n" + "\n\n".join(
         f"## {'我问' if m['role'] == 'user' else '回答'}\n\n{m['text']}" for m in selected) + "\n"
+    partial = any(m.get("partial") for m in selected)
     return {"provider": provider, "share_id": sid, "share_url": canonical, "title": title[:200],
-            "capture_method": method, "completeness": "user_provided" if method == "paste" else "complete",
+            "capture_method": method, "completeness": "user_provided" if method == "paste" else "partial" if partial else "complete",
             "parser_version": 1, "model": "unknown", "fetched_at": fetched,
-            "content_hash": digest, "markdown_hash": hashlib.sha256(markdown.encode()).hexdigest(),
+            "content_hash": digest, "legacy_content_hash": legacy_digest, "markdown_hash": hashlib.sha256(markdown.encode()).hexdigest(),
             "markdown": markdown, "chars_markdown": len(markdown), "too_long": len(markdown) > legacy.MAX_CHARS,
             "turns": sum(m["role"] == "user" for m in selected), "total_rounds": total,
             "picked_rounds": picked, "suggested_chapter": legacy.suggest_chapter(selected), "messages": [

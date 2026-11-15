@@ -195,6 +195,7 @@ async function renderPreview(result, requestSeq, revision) {
         <label>归档到 <select id="share-link-chapter">${options}</select></label>
         <label>标题 <input id="share-link-title" type="text" maxlength="200" value="${escapeHtml(result.title || "")}" /></label>
         <label><input id="share-link-copy" type="checkbox" /> 明确保存到所选本子为独立副本</label>
+        ${result.completeness === "partial" ? '<label><input id="share-link-partial" type="checkbox" /> 确认仅保存已取回文本，未取回附件已标记</label>' : ''}
       </div>
       <div class="md-body share-preview-body">${doc.html || "<p class='field-help'>没有可预览的正文。</p>"}</div>
       <div class="share-preview-actions">
@@ -219,6 +220,7 @@ async function archiveShare(button) {
       body: JSON.stringify({
         preview_id: state.preview.preview_id, content_hash: state.preview.content_hash,
         chapter, title, confirm: true, allow_copy: Boolean(el("share-link-copy")?.checked),
+        allow_partial: Boolean(el("share-link-partial")?.checked),
       }),
       timeoutMs: 120000,
     });

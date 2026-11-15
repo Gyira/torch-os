@@ -11,6 +11,51 @@ from uuid import UUID, uuid4
 import yaml
 
 MARKER = Path("_Torch/工作区.md")
+_ACTIVE_LAYOUTS: dict[Path, "StorageLayout"] = {}
+
+
+def register_layout(layout: "StorageLayout") -> None:
+    """Explicit application binding; never invoked during discovery or plan generation."""
+    if layout.mode != "split" or workspace_identity(layout.notes) != layout.workspace_id:
+        raise ValueError("不能激活未经身份验证的拆分布局")
+    current = _ACTIVE_LAYOUTS.get(layout.notes)
+    if current is not None and current != layout:
+        raise ValueError("该笔记库已在当前进程绑定到另一组根目录")
+    _ACTIVE_LAYOUTS[layout.notes] = layout
+
+
+def active_layout(notes: Path | str) -> "StorageLayout | None":
+    return _ACTIVE_LAYOUTS.get(Path(notes).resolve())
+
+
+def workspace_path(base: Path | str, relative: Path | str) -> Path:
+    """Resolve legacy .torch-os paths through an explicitly activated layout."""
+    root, part = Path(base).resolve(), Path(relative)
+    if ".." in part.parts or part.is_absolute():
+        raise ValueError("应用状态路径越界")
+    layout = _ACTIVE_LAYOUTS.get(root)
+    if layout is not None and part.parts and part.parts[0] == ".torch-os":
+        return checked_path(layout.state / "vault-state" / Path(*part.parts[1:]))
+    return root / part
+
+
+def workspace_relative(base: Path | str, path: Path | str) -> Path:
+    """Stable logical names for UI/journals, even when local state is outside notes."""
+    root, target = Path(base).resolve(), checked_path(path)
+    if target.is_relative_to(root):
+        return target.relative_to(root)
+    layout = _ACTIVE_LAYOUTS.get(root)
+    if layout is not None and target.is_relative_to(layout.state / "vault-state"):
+        return Path(".torch-os") / target.relative_to(layout.state / "vault-state")
+    raise ValueError("路径不属于当前笔记库或其应用状态")
+
+
+def is_workspace_path(base: Path | str, path: Path | str) -> bool:
+    try:
+        workspace_relative(base, path)
+        return True
+    except (ValueError, OSError):
+        return False
 
 
 def legacy_identity(notes: Path | str) -> str:

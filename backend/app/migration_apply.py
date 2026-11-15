@@ -6,6 +6,8 @@
 """
 
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -53,7 +55,7 @@ def _walk_vault(vault: Path) -> list[str]:
             path = Path(directory) / filename
             if path.is_symlink():
                 continue
-            found.append(path.relative_to(vault).as_posix())
+            found.append(workspace_relative(vault, path).as_posix())
     return found
 
 
@@ -62,7 +64,7 @@ def _snapshot_vault(vault: Path, run_dir: Path) -> dict[str, str]:
     target_root = run_dir / "vault-backup"
     manifest: dict[str, str] = {}
     for relative in _walk_vault(vault):
-        source = vault / relative
+        source = workspace_path(vault, relative)
         try:
             digest = _sha256(source)
         except OSError as error:
@@ -130,7 +132,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
         return {"applied": False, "reason": "没有需要移动的文件",
                 "plan_hash": plan.plan_hash}
     run_id = _run_id()
-    run_dir = vault / MIGRATIONS_DIR / run_id
+    run_dir = workspace_path(vault, MIGRATIONS_DIR) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_json(run_dir / "plan.json", plan.as_dict())
     state = {"run_id": run_id, "status": "snapshotting", "started_at": utc_now(),
@@ -155,8 +157,8 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
     moved: list[dict[str, str]] = []
     try:
         for item in moves:
-            source = vault / item.source
-            target = vault / item.target
+            source = workspace_path(vault, item.source)
+            target = workspace_path(vault, item.target)
             if not source.exists():
                 if target.exists() and _sha256(target) == item.sha256:
                     _append_journal(run_dir, {"action": "skip_moved", "source": item.source,
@@ -183,7 +185,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
         for relative in _walk_vault(vault):
             if not relative.casefold().endswith(".md"):
                 continue
-            path = vault / relative
+            path = workspace_path(vault, relative)
             old_relative = inverse.get(relative, relative)
             try:
                 loaded = load_note(path)
@@ -206,7 +208,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
         state.update({"status": "indexing", "rewritten": len(rewritten)})
         _write_json(run_dir / "state.json", state)
 
-        _write_json(vault / LAYOUT_FILE, {
+        _write_json(workspace_path(vault, LAYOUT_FILE), {
             "layout_version": vault_layout.LAYOUT_VERSION,
             "run_id": run_id, "plan_hash": plan.plan_hash, "applied_at": utc_now(),
         })
@@ -222,7 +224,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
             "layout": vault_layout.layout_status(vault),
         }
         _write_json(run_dir / "report.json", report)
-        report_dir = (vault / vault_layout.chapter_dir("task") / "_系统" / "迁移记录")
+        report_dir = (workspace_path(vault, vault_layout.chapter_dir("task")) / "_系统" / "迁移记录")
         report_dir.mkdir(parents=True, exist_ok=True)
         (report_dir / f"{run_id}.md").write_text(
             plan_markdown(plan) + "\n\n## 结果\n\n```json\n"
@@ -247,7 +249,7 @@ def apply_migration(vault_dir: Path | str, database: Database | None = None, *,
 def rollback_migration(vault_dir: Path | str, run_id: str,
                        database: Database | None = None) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    run_dir = vault / MIGRATIONS_DIR / run_id
+    run_dir = workspace_path(vault, MIGRATIONS_DIR) / run_id
     if not run_dir.is_dir():
         raise FileNotFoundError(f"迁移记录不存在：{run_id}")
     journal = run_dir / "journal.jsonl"
@@ -263,14 +265,14 @@ def rollback_migration(vault_dir: Path | str, run_id: str,
         backup_relative = entry.get("backup") or entry["path"]
         backup = run_dir / "vault-backup" / backup_relative
         if backup.is_file():
-            target = vault / entry["path"]
+            target = workspace_path(vault, entry["path"])
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(backup, target)
             restored_links += 1
     restored_moves = 0
     for entry in reversed(moves):
-        source = vault / entry["source"]
-        target = vault / entry["target"]
+        source = workspace_path(vault, entry["source"])
+        target = workspace_path(vault, entry["target"])
         if source.exists():
             continue
         if not target.exists():
@@ -279,7 +281,7 @@ def rollback_migration(vault_dir: Path | str, run_id: str,
             raise RuntimeError(f"回滚时目标内容已变化：{entry['target']}")
         _move(target, source)
         restored_moves += 1
-    marker = vault / LAYOUT_FILE
+    marker = workspace_path(vault, LAYOUT_FILE)
     if marker.exists():
         marker.unlink()
     if database is not None:
@@ -297,7 +299,7 @@ def rollback_migration(vault_dir: Path | str, run_id: str,
 
 def migration_status(vault_dir: Path | str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    root = vault / MIGRATIONS_DIR
+    root = workspace_path(vault, MIGRATIONS_DIR)
     runs: list[dict[str, Any]] = []
     if root.is_dir():
         for directory in sorted(root.iterdir(), reverse=True):

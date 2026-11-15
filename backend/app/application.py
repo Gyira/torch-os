@@ -234,11 +234,12 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                enable_dsh: bool | None = None,
                dsh_workspace: Path | None = None,
                love_legacy_migration: bool | None = None,
-               mentor_autonomous_archive: bool | None = None) -> FastAPI:
+               mentor_autonomous_archive: bool | None = None, storage_layout: Any = None) -> FastAPI:
     # 只有未注入工作区的真实个人实例才自动迁移旧恋爱数据；测试/QA 的临时库不会碰真实路径。
     provided_paths = database is not None or vault_dir is not None
     if database is None or vault_dir is None:
-        from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED
+        from .config import DB_PATH, VAULT_DIR, HOST, VAULT_SCOPED, STORAGE_LAYOUT
+        storage_layout = storage_layout or STORAGE_LAYOUT
         database = database or Database(DB_PATH)
         vault_dir = vault_dir or VAULT_DIR
         host = HOST
@@ -246,8 +247,14 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             vault_scoped = VAULT_SCOPED
     if vault_scoped is None:
         vault_scoped = False
-    from .storage_layout import StorageLayout
-    storage_layout = StorageLayout.legacy(vault_dir, database.path)
+    from .storage_layout import StorageLayout, register_layout
+    if storage_layout is not None:
+        if storage_layout.notes != Path(vault_dir).resolve() or not database.path.resolve().is_relative_to(storage_layout.state):
+            raise ValueError("启动数据库/笔记路径不属于指定工作区")
+        register_layout(storage_layout)
+        vault_scoped = True
+    else:
+        storage_layout = StorageLayout.legacy(vault_dir, database.path)
     security = validate_runtime_config(host, database.path.parent, vault_dir, environ=security_environ)
     if runtime_label not in {'personal', 'qa'}:
         raise ValueError('Unsupported runtime label')
@@ -255,6 +262,12 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         raise ValueError('QA runtime must be local-only')
     env_path = Path(env_file) if env_file is not None else Path(__file__).resolve().parents[2] / '.env'
     vault_read_only = read_only_enabled(security_environ)
+    local_device_id = None
+    if storage_layout.mode == "split" and not vault_read_only:
+        from .device_registry import DeviceRegistry
+        registry = DeviceRegistry(storage_layout.state / "device")
+        local_device_id = registry.device_id()
+        registry.bind(storage_layout)
     if mentor_autonomous_archive is None:
         from .config import MENTOR_AUTONOMOUS_ARCHIVE as default_autonomous
         mentor_autonomous_archive = default_autonomous
@@ -421,6 +434,18 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                 pass
             await asyncio.sleep(60)
 
+    queue_status = {"enabled": False, "last_result": None, "error": False}
+    async def share_queue_loop() -> None:
+        from .share_queue import ShareQueue
+        queue = ShareQueue(database, vault_dir, layout=storage_layout)
+        while True:
+            try:
+                queue_status["last_result"] = await run_in_threadpool(queue.run_once)
+                queue_status["error"] = False
+            except Exception:
+                queue_status["error"] = True
+            await asyncio.sleep(15)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         tasks_to_stop = [asyncio.create_task(scheduler_loop())]
@@ -430,6 +455,10 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             tasks_to_stop.append(asyncio.create_task(cloud_backup_loop()))
         if dida_service.supported:
             tasks_to_stop.append(asyncio.create_task(dida_sync_loop(dida_service, data_lock)))
+        if (not vault_read_only and runtime_label == 'personal' and storage_layout.workspace_id
+                and os.environ.get('TORCH_QUEUE_AUTHORITY') == storage_layout.workspace_id):
+            queue_status["enabled"] = True
+            tasks_to_stop.append(asyncio.create_task(share_queue_loop()))
         try:
             yield
         finally:
@@ -458,6 +487,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.runtime_label = runtime_label
     app.state.vault_scoped = bool(vault_scoped)
     app.state.data_lock = data_lock
+    app.state.share_queue_status = queue_status
     app.state.dida_sync_service = dida_service
     app.state.dsh_runtime = dsh_runtime
     app.state.dsh_proxy = dsh_proxy
@@ -564,6 +594,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         return {'status':'ok','service':'torch-os','version':APP_VERSION,'runtime_label':runtime_label,
                 'vault_id':vault_identity(vault_dir), 'vault_name':Path(vault_dir).name,
                 'workspace_id':storage_layout.workspace_id, 'storage_mode':storage_layout.mode,
+                'device_id':local_device_id,
                 'vault_scoped':bool(vault_scoped)}
 
     @app.get('/api/nav')
@@ -868,7 +899,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # v1.0 知识库分享链接：只抓 chat.deepseek.com 的公开分享；不做网页内嵌/登录态。
     app.include_router(knowledge_share.create_knowledge_share_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
-        read_only=vault_read_only))
+        read_only=vault_read_only, storage_layout=storage_layout))
     # v1.0 忆灵：事件/画像/复盘卡/身份补丁；身份只走 proposal handler。
     # 2026-11-01 起旧忆灵只作历史兼容；新入口是人生导师（self_api）。
     app.include_router(memory_hub.create_memory_hub_router(

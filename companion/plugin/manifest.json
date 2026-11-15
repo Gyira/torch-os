@@ -1,0 +1,9 @@
+{
+  "id": "torch-companion",
+  "name": "Torch Companion",
+  "version": "0.1.0",
+  "minAppVersion": "1.6.6",
+  "description": "轻量笔记同步、日志与对话归档；需先在独立测试库配对验收。",
+  "author": "Torch",
+  "isDesktopOnly": false
+}

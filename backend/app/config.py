@@ -21,6 +21,13 @@ def _path_from_env(name: str, default: Path) -> Path:
 DATA_DIR = _path_from_env("DATA_DIR", ROOT_DIR / "data")
 VAULT_DIR = _path_from_env("VAULT_DIR", DATA_DIR / "vault")
 DB_PATH = DATA_DIR / "torch_os.sqlite3"
+STORAGE_LAYOUT = None
+if os.getenv("TORCH_STORAGE_CONFIG"):
+    from .storage_layout import StorageLayout
+    STORAGE_LAYOUT = StorageLayout.load(os.environ["TORCH_STORAGE_CONFIG"])
+    VAULT_DIR = STORAGE_LAYOUT.notes
+    DATA_DIR = STORAGE_LAYOUT.state / "vault-state"
+    DB_PATH = DATA_DIR / "torch_os.sqlite3"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8765"))

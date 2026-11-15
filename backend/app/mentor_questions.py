@@ -10,6 +10,7 @@
 导师拟答由 ``mentor/question_draft`` 生成；用户确认拟答时同时写问答记忆与档案条目。
 """
 from __future__ import annotations
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -343,7 +344,7 @@ def append_dynamic_questions(vault_dir: Path | str, questions: Iterable[Mapping[
 
 
 def _state_path(vault: Path) -> Path:
-    return vault / STATE_RELATIVE
+    return workspace_path(vault, STATE_RELATIVE)
 
 
 def load_state(vault_dir: Path | str) -> dict[str, Any]:

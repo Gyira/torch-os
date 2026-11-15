@@ -10,6 +10,8 @@
 真正的“用户确认”在 mentor_pending 与 API 层。Torch 界面不提供手动编辑。
 """
 from __future__ import annotations
+from .storage_layout import workspace_relative
+from .storage_layout import workspace_path
 
 import hashlib
 import json
@@ -221,7 +223,7 @@ def book_dir(vault_dir: Path | str, book_key: str) -> Path:
 
 
 def _entry_relative(vault: Path, path: Path) -> str:
-    return path.resolve().relative_to(vault.resolve()).as_posix()
+    return workspace_relative(vault.resolve(), path.resolve()).as_posix()
 
 
 def _entry_id(path: Path, metadata: Mapping[str, Any]) -> str:
@@ -475,7 +477,7 @@ def _clean_op_id(value: Any) -> str:
 
 
 def _ops_dir(vault: Path) -> Path:
-    return vault / OPS_RELATIVE
+    return workspace_path(vault, OPS_RELATIVE)
 
 
 def _op_path(vault: Path, operation_id: str) -> Path:
@@ -643,7 +645,7 @@ def _create_entry_ledgered(vault: Path, payload: Mapping[str, Any],
         "title": payload["title"],
         "text_sha256": hashlib.sha256(payload["text"].encode("utf-8")).hexdigest(),
         "new_entry_id": entry_id,
-        "new_path": path.relative_to(vault).as_posix(),
+        "new_path": workspace_relative(vault, path).as_posix(),
     }
     _save_op(vault, record)
     try:
@@ -829,7 +831,7 @@ def _supersede_entry_locked(vault: Path, old_entry_id: str, operation_id: str, *
         "old_entry_id": old["entry_id"], "old_path": old["path"],
         "old_revision": old["revision"], "base_revision": str(base_revision or ""),
         "new_entry_id": new_id,
-        "new_path": new_path.relative_to(vault).as_posix(),
+        "new_path": workspace_relative(vault, new_path).as_posix(),
     }
     _save_op(vault, record)
     try:
@@ -950,7 +952,7 @@ def _incomplete_supersede_ids(vault: Path) -> dict[str, dict[str, Any]]:
 
 def read_portrait(vault_dir: Path | str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
-    path = vault / vault_layout.SELF_PORTRAIT_RELATIVE
+    path = workspace_path(vault, vault_layout.SELF_PORTRAIT_RELATIVE)
     try:
         raw = read_document(path, vault_dir=vault)
     except OSError:
@@ -991,7 +993,7 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
     if len(clean) > MAX_PORTRAIT_CHARS:
         clean = clean[: MAX_PORTRAIT_CHARS - 1].rstrip() + "…"
     vault = Path(vault_dir).resolve()
-    path = vault / vault_layout.SELF_PORTRAIT_RELATIVE
+    path = workspace_path(vault, vault_layout.SELF_PORTRAIT_RELATIVE)
     try:
         value = max(0.0, min(1.0, float(confidence)))
     except (TypeError, ValueError):
@@ -1008,7 +1010,7 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
         content = _entry_text(metadata, clean)
         update.write(content)
         result = _portrait_result(content.encode("utf-8"))
-        result["history_path"] = backup.relative_to(vault).as_posix() if backup else ""
+        result["history_path"] = workspace_relative(vault, backup).as_posix() if backup else ""
         return result
 
 
