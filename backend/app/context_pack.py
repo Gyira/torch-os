@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,11 +28,33 @@ class PackRequest(BaseModel):
     expected_hash: str = Field(default="", max_length=64)
 
 
+def allowed_part(part):
+    return part not in ("", ".", "..", "_Torch", "_系统") and not part.startswith(".") and not EXCLUDED.search(part)
+
+
+def source_candidates(vault):
+    """Prune excluded trees before descent; never walk linked external directories."""
+    def failed(error):
+        raise HTTPException(503, "暂时无法读取笔记目录，请检查访问权限后重试。") from error
+
+    for root in vault_layout.PILLAR_DIRS.values():
+        base = Path(vault) / root
+        if not base.exists() or base.is_symlink() or base.is_junction():
+            continue
+        for directory, folders, files in os.walk(base, topdown=True, onerror=failed, followlinks=False):
+            parent = Path(directory)
+            folders[:] = [name for name in folders if allowed_part(name)
+                          and not (parent / name).is_symlink() and not (parent / name).is_junction()]
+            for name in files:
+                if name.endswith(".md") and allowed_part(name):
+                    yield parent / name
+
+
 def source_path(vault, relative):
     relative = str(relative).replace("\\", "/")
     parts = relative.split("/")
     if (not parts or parts[0] not in vault_layout.PILLAR_DIRS.values()
-            or any(p in ("", ".", "..", "_Torch", "_系统") or p.startswith(".") or EXCLUDED.search(p) for p in parts)
+            or any(not allowed_part(p) for p in parts)
             or not relative.endswith(".md")):
         raise HTTPException(422, "资料包只能选择四库内的普通 Markdown，系统/备份/微信原始资料不可导出。")
     root = Path(vault).resolve()
@@ -89,16 +112,18 @@ def create_context_pack_router(database, vault_dir, *, read_only=False, storage_
     @router.get("/knowledge/context-pack/sources")
     def sources():
         found = []
-        for root in vault_layout.PILLAR_DIRS.values():
-            for path in (Path(vault_dir) / root).rglob("*.md"):
-                relative = path.relative_to(vault_dir).as_posix()
-                try:
-                    checked = source_path(vault_dir, relative)
-                except HTTPException:
-                    continue
-                # Generated conversations are opt-in through API, not preselected.
-                found.append({"path": relative, "bytes": checked.stat().st_size,
-                              "modified_at": datetime.fromtimestamp(checked.stat().st_mtime, timezone.utc).isoformat()})
+        for path in source_candidates(vault_dir):
+            relative = path.relative_to(vault_dir).as_posix()
+            try:
+                checked = source_path(vault_dir, relative)
+                info = checked.stat()
+            except (HTTPException, FileNotFoundError):
+                continue
+            except OSError as error:
+                raise HTTPException(503, "暂时无法读取笔记信息，请稍后重试。") from error
+            # Generated conversations are opt-in through API, not preselected.
+            found.append({"path": relative, "bytes": info.st_size,
+                          "modified_at": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()})
         return {"sources": sorted(found, key=lambda s: s["path"]), "default_selected": []}
 
     @router.post("/knowledge/context-pack/preview")

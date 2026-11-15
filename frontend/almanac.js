@@ -254,7 +254,7 @@ export function almanacSheetHtml(data, { name = "", progress = null, detailed = 
   const yiji = ["宜", "忌"].map((label) => {
     const good = label === "宜";
     return `<div class="almanac-yiji-row">
-      <span class="almanac-seal ${good ? "is-good" : "is-bad"}" aria-hidden="true">${label}</span>
+      <span class="almanac-seal ${good ? "is-good" : "is-bad"}">${label}</span>
       <div class="almanac-yiji-terms">${(good ? data.yi : data.ji).map((item) => `<span class="almanac-term">${esc(item)}</span>`).join("")}</div>
     </div>`;
   }).join("");

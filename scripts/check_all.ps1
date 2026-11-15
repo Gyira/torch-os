@@ -50,6 +50,7 @@ try {
   }
   Invoke-Step 'Obsidian 插件路径回归' { & node --test (Join-Path $projectRoot 'scripts\test_obsidian_plugin_paths.mjs') }
   Invoke-Step 'UI 输入与交互回归' { & node --test (Join-Path $projectRoot 'scripts\test_ui_polish.mjs') }
+  Invoke-Step '请求取消与任务刷新回归' { & node --test (Join-Path $projectRoot 'scripts\test_request_reliability.mjs') }
   Invoke-Step '记忆可靠性回归' { & $python (Join-Path $projectRoot 'scripts\test_memory_reliability.py') }
   Invoke-Step '角色资料与会话边界回归' { & $python (Join-Path $projectRoot 'scripts\test_role_boundaries.py') }
   Invoke-Step '角色卡与权限契约回归' { & $python (Join-Path $projectRoot 'scripts\test_role_contract.py') }

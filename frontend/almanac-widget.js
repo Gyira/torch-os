@@ -92,6 +92,10 @@ async function checkIn(button) {
 
 function paintDialog() {
   if (!cardState || !modalState) return;
+  const active = document.activeElement;
+  const focusAttribute = ["data-almanac-day", "data-almanac-nav", "data-almanac-year", "data-almanac-month"]
+    .find((attribute) => active?.hasAttribute(attribute));
+  const focusValue = focusAttribute ? active.getAttribute(focusAttribute) : null;
   const today = shanghaiDay();
   const data = almanacForDay(modalState.day);
   const progress = modalState.day === today ? cardState.progress : null;
@@ -103,6 +107,11 @@ function paintDialog() {
     viewMonth: modalState.viewMonth,
     today,
   }));
+  if (focusAttribute) {
+    const replacement = [...document.querySelectorAll(`#dialog-content [${focusAttribute}]`)]
+      .find((node) => node.getAttribute(focusAttribute) === focusValue);
+    (replacement || $("#dialog-content .almanac-day-cell.is-selected"))?.focus({ preventScroll: true });
+  }
 }
 
 function openDetail() {

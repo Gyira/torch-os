@@ -3,6 +3,8 @@
 // hero_focal/banner_mode）——编辑走 banner-editor.js。
 // 纯函数 + 一个应用函数，无 core.js 依赖，node 直测友好。
 
+import { applyMeters } from "./meter.js";
+
 function esc(value) {
   return String(value).replace(/[&<>"']/g, (char) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]
@@ -283,7 +285,7 @@ export function statsHtml(stats, options = {}) {
     '<div class="banner-stats-col banner-stats-right">',
     progress.map(([label, value, fill, isHeat]) =>
       `<div class="banner-stats-prog${isHeat ? " is-heat" : ""}"><div class="banner-stats-prog-head"><span class="banner-stats-prog-title">${esc(label)}</span><span class="banner-stats-prog-val">${esc(value)}</span></div>` +
-      (details ? `<div class="banner-stats-prog-track"><div class="banner-stats-prog-fill" style="width:${Math.max(0, Math.min(100, Number(fill) || 0))}%"></div></div>` : "") +
+      (details ? `<div class="banner-stats-prog-track"><div class="banner-stats-prog-fill" data-meter-percent="${Math.max(0, Math.min(100, Number(fill) || 0))}"></div></div>` : "") +
       `</div>`).join(""),
     "</div>",
   ].join("");
@@ -334,6 +336,7 @@ export function applyBanner(element, payload, stats) {
       const width = element.getBoundingClientRect?.().width
         || (typeof window !== "undefined" ? window.innerWidth : 1280);
       statsBox.innerHTML = statsHtml(stats, { ...banner, heatDays: heatDaysForWidth(width) });
+      applyMeters(statsBox);
     }
   }
   return banner;

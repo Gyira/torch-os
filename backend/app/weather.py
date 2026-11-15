@@ -16,7 +16,9 @@ from __future__ import annotations
 import json
 import math
 import os
+from concurrent.futures import Future
 from datetime import datetime
+from threading import Lock
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -31,6 +33,7 @@ ALLOWED_HOSTS = ("api.open-meteo.com", "geocoding-api.open-meteo.com", "ipwho.is
 TIMEOUT_SECONDS = 8.0
 MAX_RESPONSE_BYTES = 256_000
 CACHE_SECONDS = 30 * 60
+MAX_CACHE_ENTRIES = 64
 MAX_CITY_NAME = 60
 SEARCH_LIMIT = 8
 DEFAULT_CITY = ("北京", 39.90, 116.41)   # IP 定位不可用时回退到这里（可在界面上换城市，选择存本机）
@@ -181,18 +184,23 @@ def http_json(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         raise WeatherError(f"出站域名不在白名单：{host}")
     try:
         with httpx.Client(timeout=TIMEOUT_SECONDS, trust_env=False) as client:
-            response = client.get(url, params=params or {})
-            if response.status_code != 200:
-                raise WeatherError(f"天气服务返回 {response.status_code}，请稍后再试")
-            body = response.content
+            with client.stream("GET", url, params=params or {}) as response:
+                if response.status_code != 200:
+                    raise WeatherError(f"天气服务返回 {response.status_code}，请稍后再试")
+                body = bytearray()
+                for chunk in response.iter_bytes(chunk_size=16_384):
+                    if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                        raise WeatherError("天气服务返回内容超过大小上限，已停止抓取")
+                    body.extend(chunk)
     except (httpx.TimeoutException, httpx.HTTPError) as exc:
         raise WeatherError("无法连接天气服务，请检查网络后重试") from exc
-    if len(body) > MAX_RESPONSE_BYTES:
-        raise WeatherError("天气服务返回内容超过大小上限，已停止抓取")
     try:
-        return json.loads(body)
-    except json.JSONDecodeError as exc:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise WeatherError("天气服务返回的内容不是 JSON") from exc
+    if not isinstance(payload, dict):
+        raise WeatherError("天气服务返回的数据格式不正确")
+    return payload
 
 
 class WeatherService:
@@ -203,6 +211,10 @@ class WeatherService:
                               else os.getenv("WEATHER_CITY", "")).strip()
         self.clock = clock or (lambda: datetime.now().timestamp())
         self.cache: dict[tuple[str, float, float], dict[str, Any]] = {}  # (城市, 纬度, 经度) → {fetched_at, payload}
+        self._cache_lock = Lock()
+        self._location_lock = Lock()
+        self._location_cache: tuple[float, dict[str, Any]] | None = None
+        self._pending: dict[tuple, Future] = {}
 
     def locate(self, pick: str = "", latitude: Any = None,
                longitude: Any = None) -> dict[str, Any]:
@@ -285,13 +297,48 @@ class WeatherService:
 
     def current(self, force: bool = False, city: str = "",
                 latitude: Any = None, longitude: Any = None) -> dict[str, Any]:
-        place = self.locate(city, latitude, longitude)
+        # 相同地点的并发请求共用一次出站；刷新也只合并正在执行的一次，不缓存错误。
+        request_key = (city.strip(), latitude, longitude, bool(force))
+        with self._cache_lock:
+            pending = self._pending.get(request_key)
+            owner = pending is None
+            if owner:
+                pending = Future()
+                self._pending[request_key] = pending
+        if not owner:
+            return pending.result()
+        try:
+            result = self._current(force, city, latitude, longitude)
+            pending.set_result(result)
+            return result
+        except BaseException as error:
+            pending.set_exception(error)
+            raise
+        finally:
+            with self._cache_lock:
+                self._pending.pop(request_key, None)
+
+    def _current(self, force: bool, city: str,
+                 latitude: Any, longitude: Any) -> dict[str, Any]:
+        if city.strip():
+            place = self.locate(city, latitude, longitude)
+        else:
+            # 自动定位也有 TTL；否则每次命中天气缓存仍要等待一次 IP 服务。
+            with self._location_lock:
+                saved = self._location_cache
+                if not force and saved and 0 <= self.clock() - saved[0] < CACHE_SECONDS:
+                    place = saved[1]
+                else:
+                    place = self.locate(city, latitude, longitude)
+                    self._location_cache = (self.clock(), place)
         now = self.clock()
         # 缓存按城市 + 坐标分开：来回切城市不互相冲掉，同名异地也不会串数据。
         key = _place_key(place)
-        entry = self.cache.get(key)
-        if entry and not force and now - float(entry.get("fetched_at") or 0) < CACHE_SECONDS:
-            return {**entry["payload"], "cached": True}
+        with self._cache_lock:
+            entry = self.cache.get(key)
+        if entry and not force and 0 <= now - float(entry.get("fetched_at") or 0) < CACHE_SECONDS:
+            return {**entry["payload"], "source": place["source"],
+                    "note": place.get("note", ""), "cached": True}
         forecast = self.fetcher(FORECAST_URL, params={
             "latitude": place["latitude"], "longitude": place["longitude"],
             "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m",
@@ -319,7 +366,11 @@ class WeatherService:
             "fetched_at": datetime.fromtimestamp(now, SHANGHAI).isoformat(timespec="seconds"),
             "cached": False,
         }
-        self.cache[key] = {"fetched_at": now, "payload": payload}
+        with self._cache_lock:
+            self.cache.pop(key, None)
+            self.cache[key] = {"fetched_at": now, "payload": payload}
+            while len(self.cache) > MAX_CACHE_ENTRIES:
+                self.cache.pop(next(iter(self.cache)))
         return payload
 
 

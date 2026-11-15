@@ -80,7 +80,7 @@ function coverMarkup(identity) {
       <dl class="archive-fields">${fields}</dl>
       <div class="archive-meter">
         <span class="archive-meter-label">档案完整度 ${stats.filled}/${stats.total}</span>
-        <span class="archive-bar" role="img" aria-label="完整度 ${stats.percent}%"><i style="width:${stats.percent}%"></i></span>
+        <span class="archive-bar" role="img" aria-label="完整度 ${stats.percent}%"><i data-meter-percent="${stats.percent}"></i></span>
       </div>
       <p class="archive-next">${escape(next)}</p>
       <button type="button" class="button secondary" data-open-identity="${escape(identity?.path || "")}">在 Obsidian 打开身份卡</button>

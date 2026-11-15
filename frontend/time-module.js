@@ -316,7 +316,9 @@ export function renderTimeProgress(progress) {
   if (wrap) wrap.setAttribute("aria-valuenow", String(value ?? 0));
 }
 
+let taskLoadVersion = 0;
 export async function loadTimeTasks({ silent = false } = {}) {
+  const version = ++taskLoadVersion;
   let next;
   let goals = null;
   try {
@@ -325,12 +327,13 @@ export async function loadTimeTasks({ silent = false } = {}) {
       api("/api/goals").catch(() => null),
     ]);
   } catch (error) {
+    if (version !== taskLoadVersion) return;
     if (silent) return;  // 自动重读失败时别打扰用户，保留当前画面
-    board = null;
     setStatus("#time-status", `任务：${error.message}`, "warning");
     toast(`任务没读出来：${error.message}`, "error");   // 状态行在任务页；别的页也要看得见
     return;
   }
+  if (version !== taskLoadVersion) return;
   if (Array.isArray(goals)) {
     goalTitles = new Map(goals.map((goal) => [goal.path || goal.id, goal.title]));
   }

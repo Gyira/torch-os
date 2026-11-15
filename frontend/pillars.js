@@ -8,6 +8,7 @@ import {
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { archiveMarkup } from "./archive-markup.js";
+import { applyMeters } from "./meter.js";
 import { companionForReader, companionForView, documentChips } from "./ai-companions.js";
 import { opsHomeState } from "./ops-model.js";
 import { shanghaiDay } from "./journal-model.js";
@@ -1072,6 +1073,7 @@ function renderShell(view) {
         </section>
       </aside>
     </div>`;
+  applyMeters(root);
   if (view === "life" && chapter === "habit") {
     mountHabits().catch((error) => toast(error.message, "error"));
   }

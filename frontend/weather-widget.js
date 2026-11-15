@@ -42,6 +42,13 @@ let dialogOpen = false;
 let searchState = { query: "", results: [], loading: false, error: "" };
 let searchTimer = 0;
 let searchToken = 0;
+let searchController = null;
+
+function cancelSearch() {
+  searchToken += 1;
+  searchController?.abort();
+  searchController = null;
+}
 
 function storage() {
   try { return window.localStorage; } catch { return null; }
@@ -179,7 +186,8 @@ function paintCard() {
   }
   const card = document.getElementById(CARD_ID);
   if (card) {
-    card.setAttribute("aria-label", weatherAriaLabel(payload));
+    card.removeAttribute("aria-label");
+    card.setAttribute("aria-description", weatherAriaLabel(payload));
     card.setAttribute("aria-busy", loading ? "true" : "false");
     card.title = notice || "点击查看 5 日预报、城市切换与详细天气";
   }
@@ -187,6 +195,9 @@ function paintCard() {
 
 function paintDialog() {
   if (!dialogOpen) return;
+  const input = document.querySelector("#dialog-content [data-weather-city-search]");
+  const editing = input && document.activeElement === input && input.value.trim() === searchState.query.trim();
+  const draft = editing ? { value: input.value, start: input.selectionStart, end: input.selectionEnd } : null;
   $("#detail-dialog")?.classList.add("weather-mode");
   openDialog("天气详情", weatherDetailHtml(payload, {
     selected: selectedDay,
@@ -197,6 +208,15 @@ function paintDialog() {
     loading,
     searchState,
   }));
+  // 自动刷新天气不能打断正在搜索城市的输入或移动光标。
+  if (draft) {
+    const next = document.querySelector("#dialog-content [data-weather-city-search]");
+    if (next) {
+      next.value = draft.value;
+      next.focus({ preventScroll: true });
+      next.setSelectionRange(draft.start, draft.end);
+    }
+  }
 }
 
 async function loadWeather({ force = false, city = undefined } = {}) {
@@ -296,6 +316,7 @@ function mergeSearchResults(local, online) {
 
 async function runSearch(query) {
   const text = String(query || "").trim();
+  cancelSearch();
   const token = ++searchToken;
   searchState = { query: text, results: localResults(text), loading: false, error: "" };
   renderSearchResults();
@@ -304,8 +325,9 @@ async function runSearch(query) {
   if (searchState.results.some((city) => city.name === text)) return;
   searchState = { ...searchState, loading: true };
   renderSearchResults();
+  searchController = new AbortController();
   try {
-    const data = await api(`/api/weather/cities?q=${encodeURIComponent(text)}`);
+    const data = await api(`/api/weather/cities?q=${encodeURIComponent(text)}`, { signal: searchController.signal });
     if (token !== searchToken) return;
     const online = (Array.isArray(data?.results) ? data.results : [])
       .map((item) => normalizeCity(item)).filter(Boolean);
@@ -314,7 +336,7 @@ async function runSearch(query) {
       loading: false, error: "",
     };
   } catch (error) {
-    if (token !== searchToken) return;
+    if (token !== searchToken || error.name === "AbortError") return;
     searchState = {
       query: text, results: localResults(text), loading: false,
       error: `在线搜索不可用：${error.message}`,
@@ -334,7 +356,7 @@ function onSearchInput(value) {
   const query = String(value || "");
   const text = query.trim();
   window.clearTimeout(searchTimer);
-  searchToken += 1;
+  cancelSearch();
   searchState = { query, results: text ? localResults(text) : [], loading: false, error: "" };
   renderSearchResults();
   if (!text) return;
@@ -376,7 +398,7 @@ function openDetail() {
   dialogOpen = true;
   selectedDay = 0;
   window.clearTimeout(searchTimer);
-  searchToken += 1;
+  cancelSearch();
   searchState = { query: "", results: [], loading: false, error: "" };
   paintDialog();
   if (!payload && !loading) loadWeather({ city: targetCity() });
@@ -387,7 +409,7 @@ function closeDetail() {
   if (!dialogOpen) return;
   dialogOpen = false;
   previewToken += 1;
-  searchToken += 1;
+  cancelSearch();
   window.clearTimeout(searchTimer);
   $("#detail-dialog")?.classList.remove("weather-mode");
 }
@@ -411,7 +433,7 @@ function addCity(raw) {
     || favorites.find((item) => item.name === city.name);
   if (existing) {
     window.clearTimeout(searchTimer);
-    searchToken += 1;
+    cancelSearch();
     searchState = { query: "", results: [], loading: false, error: "" };
     loadWeather({ city: existing });
     return;
@@ -425,7 +447,7 @@ function addCity(raw) {
   markFavoritesReady();
   writeFavorites();
   window.clearTimeout(searchTimer);
-  searchToken += 1;
+  cancelSearch();
   searchState = { query: "", results: [], loading: false, error: "" };
   loadWeather({ city });
 }
@@ -495,12 +517,12 @@ function handleDialogClick(event) {
 
 function handleDialogInput(event) {
   const input = event.target?.closest?.("[data-weather-city-search]");
-  if (input) onSearchInput(input.value);
+  if (input && !event.isComposing) onSearchInput(input.value);
 }
 
 function handleDialogKeydown(event) {
   const input = event.target?.closest?.("[data-weather-city-search]");
-  if (!input || event.key !== "Enter") return;
+  if (!input || event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   if (searchState.results.length) {
     addCity(searchState.results[0]);

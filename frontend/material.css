@@ -174,3 +174,100 @@ dialog[open] { animation: material-dialog-in 240ms var(--m-ease) both; }
   :is(.button, .context-setting-button, .small-button, .text-button), :is(.widget-settings-list, #dida-sync-form) input::after { transition: none; }
   :is(.button, .context-setting-button, .small-button):not(:disabled):active { transform: none; }
 }
+
+/* Almanac: readable detail typography, independent of the compact dashboard card. */
+dialog.almanac-mode { width: min(1160px, calc(100vw - 24px)); max-width: min(1160px, calc(100vw - 24px)); }
+dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hidden; max-height: 92dvh; }
+.almanac-mode .dialog-head { flex-shrink: 0; }
+#detail-dialog.almanac-mode #dialog-content { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+.almanac-mode .almanac-dialog-body { grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 20px; }
+.almanac-mode .almanac-calendar, .almanac-mode .almanac-detail { border-radius: 16px; }
+.almanac-mode .almanac-calendar { padding: 14px; }
+.almanac-mode .almanac-calendar-title { font-weight: 600; line-height: 1.5; font-family: inherit; font-size: 20px; margin-bottom: 14px; }
+.almanac-mode .almanac-weekdays { font-size: 14px; margin-bottom: 8px; }
+.almanac-mode .almanac-day-cell { min-height: 56px; padding: 6px 2px; border-radius: 9px; gap: 3px; }
+.almanac-mode .almanac-day-num { font-size: 17px; }
+.almanac-mode .almanac-day-lunar { font-size: 12px; }
+.almanac-mode .almanac-day-cell.is-selected .almanac-day-lunar { color: var(--p-invert-ink); }
+.almanac-mode .almanac-day-cell.is-today:not(.is-selected) { border: 2px solid var(--p-accent); }
+.almanac-mode .almanac-calendar-hint { font-size: 13px; line-height: 1.7; margin-top: 14px; }
+.almanac-mode .almanac-dialog-toolbar { padding: 12px 18px; }
+.almanac-mode .almanac-dialog-nav :is(button, select) { min-height: 40px; font-size: 14px; padding: 7px 12px; }
+.almanac-mode .almanac-detail-head { padding: 18px 20px; }
+.almanac-mode .almanac-detail-head h3 { font-family: inherit; font-size: 22px; line-height: 1.5; }
+.almanac-mode .almanac-detail-head p { font-size: 14px; line-height: 1.8; margin-top: 6px; }
+.almanac-mode .almanac-today-badge { font-size: 13px; padding: 4px 10px; }
+.almanac-mode .almanac-sheet { font-size: 16px; line-height: 1.7; }
+.almanac-mode .almanac-top { grid-template-columns: minmax(0, 1fr); }
+.almanac-mode .almanac-datecol { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 18px 20px; border-right: 0; border-bottom: 1px solid var(--p-line); }
+.almanac-mode .almanac-lunar-name { writing-mode: horizontal-tb; font-size: 28px; line-height: 1.5; letter-spacing: .05em; }
+.almanac-mode .almanac-gz { flex-wrap: wrap; gap: 6px 16px; }
+.almanac-mode .almanac-gz span { writing-mode: horizontal-tb; font-size: 14px; line-height: 1.6; color: var(--p-ink-3); }
+.almanac-mode .almanac-info-row { grid-template-columns: 48px minmax(0, 1fr); padding: 10px 20px; gap: 12px; }
+.almanac-mode .almanac-info-key, .almanac-mode .almanac-god-label, .almanac-mode .almanac-term-label { font-size: 14px; line-height: 1.7; color: var(--p-ink-3); }
+.almanac-mode .almanac-info-value, .almanac-mode .almanac-term { font-size: 16px; line-height: 1.7; color: var(--p-ink); }
+.almanac-mode .almanac-god { padding: 14px 6px; gap: 4px; }
+.almanac-mode .almanac-god strong { font-size: 18px; }
+.almanac-mode .almanac-yiji { padding: 18px 20px; gap: 14px; }
+.almanac-mode .almanac-yiji-row { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; }
+.almanac-mode .almanac-seal { width: 28px; height: 28px; font-size: 15px; }
+.almanac-mode .almanac-yiji-terms, .almanac-mode .almanac-terms { gap: 6px 12px; padding-top: 0; }
+.almanac-mode .almanac-spirits { padding: 14px 20px; gap: 10px; }
+.almanac-mode .almanac-spirits p { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; }
+.almanac-mode .almanac-personal { padding: 18px 20px; }
+.almanac-mode .almanac-personal-title, .almanac-mode .almanac-meta { font-size: 14px; line-height: 1.7; color: var(--p-ink-3); }
+.almanac-mode .almanac-personal-level { font-size: 22px; }
+.almanac-mode .almanac-personal-line, .almanac-mode .almanac-personal-notes li { font-size: 16px; line-height: 1.75; }
+.almanac-mode .almanac-personal-notes { margin-top: 14px; gap: 14px 20px; }
+.almanac-mode .almanac-personal-notes li { color: var(--p-ink-3); }
+.almanac-mode .almanac-meta { margin-top: 14px; }
+/* Also make the dashboard summary readable without inflating its headline. */
+.almanac-compact .almanac-gzline, .almanac-compact .almanac-locked-hint { font-size: 12px; line-height: 1.6; }
+.almanac-compact .almanac-compact-yiji, .almanac-compact .almanac-checkin { font-size: 13px; line-height: 1.6; }
+@media (max-width: 920px) {
+  .almanac-mode .almanac-dialog-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .almanac-mode .almanac-dialog-body { padding: 10px; gap: 14px; }
+  .almanac-mode .almanac-dialog-toolbar { padding: 10px; gap: 8px; }
+  .almanac-mode .almanac-dialog-nav { gap: 4px; }
+  .almanac-mode .almanac-dialog-nav :is(button, select) { min-height: 44px; padding: 6px 9px; }
+  .almanac-mode .almanac-calendar { padding: 10px 6px; }
+  .almanac-mode .almanac-day-cell { min-height: 52px; }
+  .almanac-mode .almanac-detail-head, .almanac-mode .almanac-datecol,
+  .almanac-mode .almanac-yiji, .almanac-mode .almanac-personal, .almanac-mode .almanac-spirits { padding: 16px 14px; }
+  .almanac-mode .almanac-info-row { padding: 10px 14px; }
+  .almanac-mode .almanac-detail-head h3 { font-size: 20px; }
+  .almanac-mode .almanac-personal-notes { grid-template-columns: minmax(0, 1fr); }
+}
+.widget-drag-handle { width: 24px; left: -6px; }
+
+/* Context pack: keep the selection and its consequences visible at every step. */
+.context-pack-dialog { overflow: hidden; }
+.context-pack-dialog .note-editor-head { flex-shrink: 0; }
+.context-pack-dialog .note-editor-head p { margin: 6px 0 0; color: var(--p-ink-3); font-size: 14px; }
+.context-pack-body { min-height: 0; overflow-y: auto; padding: 18px 22px; }
+.context-pack-filters { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; }
+.context-pack-filters label { display: grid; gap: 7px; font-size: 14px; min-width: 0; }
+.context-pack-filters input { width: 100%; min-width: 0; min-height: 42px; padding: 9px 11px; border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-surface); color: var(--p-ink); font: inherit; }
+.context-pack-filters input:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+.context-pack-selection { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+.context-pack-sources { max-height: 32vh; overflow-y: auto; border: 1px solid var(--p-line); border-radius: 12px; }
+.context-pack-sources:empty { display: none; }
+.context-pack-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; font-size: 15px; line-height: 1.5; cursor: pointer; }
+.context-pack-row[hidden] { display: none; }
+.context-pack-row + .context-pack-row { border-top: 1px solid var(--p-line); }
+.context-pack-row:has(input:checked) { background: var(--p-fill); }
+.context-pack-row input { flex: 0 0 auto; margin-top: 4px; }
+.context-pack-row span { min-width: 0; overflow-wrap: anywhere; }
+.context-pack-row small { display: block; color: var(--p-ink-3); font-size: 12px; }
+.context-pack-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }
+.context-pack-result summary { padding: 12px 0; cursor: pointer; overflow-wrap: anywhere; }
+.context-pack-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--p-line); flex-shrink: 0; }
+@media (max-width: 520px) {
+  .context-pack-body { padding: 14px; }
+  .context-pack-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .context-pack-filters label:first-child { grid-column: 1 / -1; }
+  .context-pack-actions { padding: 12px; }
+  .context-pack-actions button { flex: 1; min-width: 0; white-space: normal; min-height: 44px; }
+}

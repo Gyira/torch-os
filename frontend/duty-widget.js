@@ -64,7 +64,8 @@ function renderCard() {
     }).join("");
   }
   card.classList.toggle("is-loading", loading);
-  card.setAttribute("aria-label",
+  card.removeAttribute("aria-label");
+  card.setAttribute("aria-description",
     `${model.dateLabel} ${state}${model.train ? `，值乘 ${model.train}` : ""}；${nextText}；点击查看值班日历`);
 }
 

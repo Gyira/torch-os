@@ -11,31 +11,46 @@ export const changed = () => document.dispatchEvent(new CustomEvent("data-change
 
 /** Central API boundary: JSON errors are shown without rendering server HTML. */
 export async function api(path, options = {}) {
-  const { timeoutMs = 30000, ...requestOptions } = options;
+  const { timeoutMs = 30000, signal, ...requestOptions } = options;
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const cancel = () => controller.abort(signal.reason);
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener("abort", cancel, { once: true });
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   try {
     // FormData 必须让浏览器自己带 multipart boundary；手写 Content-Type 反而会让上传失效。
     const isForm = typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
-    const headers = isForm
-      ? { ...requestOptions.headers }
-      : { "Content-Type": "application/json", ...requestOptions.headers };
+    const headers = new Headers(requestOptions.headers);
+    if (!isForm && requestOptions.body != null && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
     const response = await fetch(path, { ...requestOptions, headers, signal: controller.signal });
-    const payload = await response.json().catch(() => ({}));
+    let payload = {};
+    if (response.status !== 204) {
+      try { payload = await response.json(); }
+      catch (error) {
+        if (controller.signal.aborted) throw error;
+        if (response.ok) throw new Error("服务返回的数据不完整，请刷新核对结果，避免重复提交。");
+      }
+    }
     if (!response.ok) {
-      if (response.status === 401) throw new Error("本地会话已失效，请刷新页面后再试。");
-      const detail = payload.detail || payload.message;
+      const detail = payload?.detail || payload?.message;
       const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join("；") : "";
-      const error = new Error(message || `请求失败（${response.status}），请稍后重试。`);
+      const error = new Error(response.status === 401 ? "本地会话已失效，请刷新页面后再试。" : message || `请求失败（${response.status}），请稍后重试。`);
       error.status = response.status;
       throw error;
     }
     return payload;
   } catch (error) {
-    if (error.name === "AbortError") throw new Error("请求超时，请稍后检查结果，避免重复提交。");
+    if (signal?.aborted) throw new DOMException("请求已取消", "AbortError");
+    if (timedOut) throw new Error("请求超时，请稍后检查结果，避免重复提交。");
     if (error instanceof TypeError) throw new Error("无法连接本地服务，请确认服务正在运行后重试。");
     throw error;
-  } finally { window.clearTimeout(timer); }
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 

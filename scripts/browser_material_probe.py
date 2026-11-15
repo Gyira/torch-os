@@ -18,6 +18,7 @@ import websockets
 
 from browser_smoke import CDP, debug_targets, find_edge
 from browser_theme import DSH_LIGHT, DSH_DARK
+from browser_context_pack_checks import check_context_pack
 
 
 async def run(args):
@@ -87,6 +88,67 @@ async def run(args):
                 report['axe'][name] = result
                 checks['axe_' + name] = result == []
             await shot('workbench-light')
+            await check_context_pack(cdp, check, click, shot, args, report)
+            await check('widget_drag_target_size', "[...document.querySelectorAll('.widget-drag-handle')].filter(x=>x.getClientRects().length).every(x=>x.getBoundingClientRect().width>=24 && x.getBoundingClientRect().height>=24)")
+            await check('card_names_follow_visible_text', "['workbench-weather-card','workbench-duty','workbench-train-tracker'].every(id=>!document.getElementById(id).hasAttribute('aria-label'))")
+            # Intercept only city lookup: verify actual UI cancels superseded and closed searches.
+            await cdp.evaluate('''window.__searchFetch=window.fetch; window.__cityRequests=[];
+              window.fetch=(url, options)=>{
+                if (!String(url).startsWith('/api/weather/cities?')) return window.__searchFetch(url,options);
+                return new Promise((resolve,reject)=>{
+                  const entry={url:String(url),aborted:false}; window.__cityRequests.push(entry);
+                  options.signal.addEventListener('abort',()=>{entry.aborted=true;reject(new DOMException('cancelled','AbortError'))},{once:true});
+                });
+              };''')
+            await click('#workbench-weather-card')
+            await cdp.wait_for("!!document.querySelector('[data-weather-city-search]')")
+            await cdp.evaluate("(()=>{const i=document.querySelector('[data-weather-city-search]');i.value='TestCityAlpha';i.dispatchEvent(new Event('input',{bubbles:true}))})()")
+            await cdp.wait_for("window.__cityRequests.length===1")
+            await cdp.evaluate("(()=>{const i=document.querySelector('[data-weather-city-search]');i.value='TestCityBeta';i.dispatchEvent(new Event('input',{bubbles:true}))})()")
+            await cdp.wait_for("window.__cityRequests.length===2")
+            await check('weather_search_aborts_superseded', 'window.__cityRequests[0].aborted')
+            await cdp.evaluate("(()=>{const i=document.querySelector('[data-weather-city-search]');i.focus();i.setSelectionRange(2,5);window.__imeEvent=new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true});i.dispatchEvent(window.__imeEvent)})()")
+            await check('weather_ime_enter_not_consumed', '!window.__imeEvent.defaultPrevented && window.__cityRequests.length===2')
+            await cdp.evaluate('''(async()=>{
+              const searchFetch=window.fetch;
+              window.fetch=(url,options)=>String(url).startsWith('/api/weather?')
+                ? Promise.resolve(new Response(JSON.stringify({city:'测试城市',temperature:21,weather:'晴',icon:'☀️',forecast:[],cities:[]})))
+                : searchFetch(url,options);
+              try { await (await import('/assets/weather-widget.js')).loadWeatherWidget({force:true}); }
+              finally { window.fetch=searchFetch; }
+            })()''')
+            await check('weather_refresh_preserves_search_caret', "document.activeElement.matches('[data-weather-city-search]') && document.activeElement.value==='TestCityBeta' && document.activeElement.selectionStart===2 && document.activeElement.selectionEnd===5")
+            await click('#dialog-close')
+            await cdp.wait_for("!document.querySelector('#detail-dialog').open && window.__cityRequests[1].aborted")
+            await check('weather_search_aborts_on_close', 'window.__cityRequests.every(x=>x.aborted)')
+            await cdp.evaluate('window.fetch=window.__searchFetch')
+            # Almanac readability regression: synthetic checked-in data, no real check-in write.
+            await cdp.evaluate('''(async()=>{const {renderAlmanac}=await import('/assets/almanac-widget.js');
+              renderAlmanac(document.querySelector('#workbench-almanac'),{day:'2026-11-15',name:'测试用户',fortune:{checked_in:true}});
+              document.querySelector('[data-almanac-unlocked]').click();})()''')
+            await cdp.wait_for("document.querySelector('#detail-dialog').open")
+            await check('almanac_readable_type', "parseFloat(getComputedStyle(document.querySelector('.almanac-detail .almanac-info-value')).fontSize)>=16 && parseFloat(getComputedStyle(document.querySelector('.almanac-day-num')).fontSize)>=17")
+            await check('almanac_horizontal_date', "getComputedStyle(document.querySelector('.almanac-detail .almanac-lunar-name')).writingMode==='horizontal-tb'")
+            await check('almanac_single_scroll_container', "(()=>{const d=document.querySelector('#detail-dialog');return d.scrollHeight<=d.clientHeight+1})()")
+            await shot('almanac-desktop')
+            await cdp.evaluate("const d=document.querySelector('[data-almanac-day=\"2026-11-22\"]'); d.focus(); d.click()")
+            await check('almanac_date_focus', "document.activeElement.dataset.almanacDay==='2026-11-22'")
+            await check('almanac_selected_term_contrast', "getComputedStyle(document.querySelector('.almanac-day-cell.is-selected .almanac-day-lunar')).color===getComputedStyle(document.querySelector('.almanac-day-cell.is-selected')).color")
+            if args.axe:
+                await cdp.evaluate(Path(args.axe).read_text(encoding='utf-8'))
+                result = await cdp.evaluate("(async()=>{await Promise.all(document.querySelector('#detail-dialog').getAnimations().map(a=>a.finished)); return (await axe.run('#detail-dialog',{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}));})()")
+                report['axe']['almanac'] = result
+                checks['axe_almanac'] = result == []
+            for width in [390, 320]:
+                await cdp.call('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
+                await check(f'almanac_no_overflow_{width}', "(()=>{const d=document.querySelector('#dialog-content');return d.scrollWidth<=d.clientWidth+1})()")
+                if width == 390:
+                    await shot('almanac-mobile')
+            await cdp.call('Emulation.setDeviceMetricsOverride', {'width': 1440, 'height': 1050, 'deviceScaleFactor': 1, 'mobile': False})
+            await cdp.call('Emulation.setEmulatedMedia', {'features': [{'name':'prefers-color-scheme','value':'dark'}]})
+            await shot('almanac-dark')
+            await click('#dialog-close')
+            await cdp.call('Emulation.setEmulatedMedia', {'features': [{'name':'prefers-color-scheme','value':'light'}]})
             report['fonts'] = await cdp.evaluate("({body:getComputedStyle(document.body).fontFamily, dialog:getComputedStyle(document.querySelector('#context-settings-dialog')).fontFamily})")
             await click('[data-context-settings="widgets"]')
             await cdp.wait_for("document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').inert")
@@ -103,14 +165,14 @@ async def run(args):
             await key('Tab', modifiers=8)
             await check('dialog_focus_trapped', "document.querySelector('#context-settings-dialog').contains(document.activeElement)")
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             await check('escape_returns_focus', "document.activeElement.dataset.contextSettings==='widgets'")
             await check('original_form_restored', "document.querySelector('#settings-view #widget-settings-list')===window.__widgetForm")
             await click('[data-context-settings="schedule"]')
             await cdp.wait_for("document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').inert")
             await cdp.evaluate("const i=document.querySelector('#schedule-morning-time'); i.value='07:43'; i.dispatchEvent(new Event('input',{bubbles:true}))")
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             await click('[data-context-settings="schedule"]')
             await check('unsaved_draft_survives', "document.querySelector('#schedule-morning-time').value==='07:43'")
             await audit('schedule-light')
@@ -119,7 +181,7 @@ async def run(args):
             await cdp.wait_for("document.querySelector('#schedule-feedback').classList.contains('success')")
             await check('save_uses_existing_api', "(async()=>{const r=await fetch('/api/schedule').then(r=>r.json());return r.settings.morning_time==='07:43'})()")
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             # Fast nav changes must settle at committed state without waiting for decoration.
             for view in ['settings', 'workbench', 'ops', 'settings']:
                 await click(f'.panel-nav-item[data-view="{view}"]')
@@ -141,7 +203,7 @@ async def run(args):
                     await audit('widgets-mobile')
                     await shot('widgets-mobile')
                 await key('Escape')
-                await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+                await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
                 await check(f'workbench_no_overflow_{width}', 'document.documentElement.scrollWidth<=innerWidth')
                 if width == 390:
                     await shot('workbench-mobile')
@@ -157,7 +219,7 @@ async def run(args):
             await audit('widgets-dark')
             await shot('widgets-dark')
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             await click('.panel-nav-item[data-view="settings"]')
             await asyncio.sleep(.05)
             await check('reduced_motion_indicator_static', "document.querySelector('.panel-nav-scroll .material-indicator').getAnimations().length===0")
@@ -184,7 +246,7 @@ async def run(args):
             await cdp.wait_for("document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').hasAttribute('aria-busy')")
             await check('failed_load_does_not_enable_empty_form', "document.querySelector('#context-settings-content').inert && document.querySelector('#dida-feedback').classList.contains('error')")
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             await cdp.evaluate('window.__materialDidaFail=false')
             await click('[data-context-settings="dida"]')
             await cdp.wait_for("document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').inert")
@@ -194,7 +256,7 @@ async def run(args):
             await cdp.call('Emulation.setDeviceMetricsOverride', {'width': 390, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
             await check('dida_mobile_no_overflow', "(()=>{const d=document.querySelector('#context-settings-dialog');return d.scrollWidth<=d.clientWidth+1})()")
             await key('Escape')
-            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open")
+            await cdp.wait_for("!document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').children.length")
             await cdp.evaluate('''(async()=>{const {state}=await import('/assets/core.js'); window.fetch=window.__materialFetch;
               state.config.capabilities.dida_sync=window.__originalDidaCapability;
               document.dispatchEvent(new CustomEvent('torch:config'));

@@ -217,7 +217,7 @@ function detailRow(key, row, data) {
       <span class="heat-detail-value">${escapeHtml(value)}</span>
     </div>
     <div class="heat-meter" role="img" aria-label="${escapeHtml(label)} 完成度 ${percent}%">
-      <i style="width:${Math.max(0, Math.min(100, percent))}%"></i>
+      <i data-meter-percent="${Math.max(0, Math.min(100, percent))}"></i>
     </div>
     ${note ? `<p class="heat-detail-note">${escapeHtml(note)}</p>` : ""}
     ${docs}${habits}
@@ -315,7 +315,7 @@ function summaryPanel(data) {
       : `活跃 ${active} 天`;
     return `<article class="heat-summary-row${key === "total" ? " is-total" : ""}">
       <div class="heat-summary-row-head"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
-      <div class="heat-summary-meter"><i style="width:${percent}%"></i></div>
+      <div class="heat-summary-meter"><i data-meter-percent="${percent}"></i></div>
       <div class="heat-summary-meta"><span>${escapeHtml(detail)}</span><span>${percent}%</span></div>
     </article>`;
   }).join("");

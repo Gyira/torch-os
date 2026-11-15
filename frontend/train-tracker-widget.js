@@ -75,7 +75,8 @@ function renderCard(error = "") {
   if (meta) meta.textContent = model.meta;
   if (progress) progress.setAttribute("aria-valuenow", String(Math.round(model.progress)));
   if (fill) fill.style.width = `${model.progress}%`;
-  card.setAttribute("aria-label",
+  card.removeAttribute("aria-label");
+  card.setAttribute("aria-description",
     model.route ? `${model.code} ${model.status}，点击查看` : `${model.code}，点击添加或查看车次`);
   card.classList.toggle("is-loading", loading);
 }
