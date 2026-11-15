@@ -25,6 +25,8 @@ import { initRoleDrawer } from "./roles.js";
 import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
 import { initSelectionAsk } from "./selection-ask.js";
 import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
+import { initMaterialMotion } from "./material-motion.js";
+import { initContextSettings } from "./context-settings.js";
 
 const titles = NAV_LABELS;
 
@@ -452,6 +454,8 @@ initRestoreDrill();
 initDidaSync();
 applyNavOrder();
 renderPanelNav();
+initMaterialMotion();
+initContextSettings();
 document.addEventListener("click", async (event) => {
   const navigation = event.target.closest("[data-view], [data-go-view]");
   if (navigation) {

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /><link rel="stylesheet" href="/assets/material.css" /><link rel="modulepreload" href="/assets/app.js" /><link rel="modulepreload" href="/assets/core.js" /><link rel="modulepreload" href="/assets/workbench.js" /><link rel="modulepreload" href="/assets/time-module.js" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -33,7 +33,7 @@
     <header class="topbar"><div><span class="eyebrow">PERSONAL MENTOR</span><h1 id="page-title" tabindex="-1">今日</h1></div><div class="topbar-actions"><span id="scan-status" class="status-message" role="status">尚未扫描</span><button id="scan-btn" class="button secondary">扫描 Vault</button></div></header>
     <section id="workbench-view" class="view active-view" data-module="workbench" aria-labelledby="page-title">
       <!-- 人生导师常驻条：今日三问 / 待确认 / 最近画像；整张卡片可点，进入自我档案 → 人生导师。 -->
-      <div id="workbench-mentor" class="mentor-strip" data-mentor-strip hidden></div>
+      <div id="workbench-mentor" class="mentor-strip" data-mentor-strip aria-busy="true"><div class="mentor-strip-inner"><span class="mentor-strip-mark" aria-hidden="true">导</span><div class="mentor-strip-copy"><p class="eyebrow">LIFE MENTOR · 人生导师</p><p>正在整理今日提醒…</p></div></div></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
           <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
@@ -98,6 +98,11 @@
               <!-- 网页书签栏（2026-10-28）：和问候语同一行靠右，点书签用默认浏览器打开，右端齿轮管理。 -->
               <nav id="workbench-bookmarks" class="bookmark-bar" aria-label="网页书签栏" hidden></nav>
             </div>
+          <div class="workbench-controls" role="group" aria-label="工作台偏好">
+            <span class="workbench-controls-caption">留一点空间，专注今天</span>
+            <button type="button" class="context-setting-button" data-context-settings="schedule" aria-haspopup="dialog" aria-controls="context-settings-dialog">晨晚报与提醒</button>
+            <button type="button" class="context-setting-button" data-context-settings="widgets" aria-haspopup="dialog" aria-controls="context-settings-dialog"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="12" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="12" width="6" height="6" rx="1.5"/><rect x="12" y="12" width="6" height="6" rx="1.5"/></svg>布置工作台</button>
+          </div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
             <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
@@ -111,6 +116,7 @@
             <div class="time-main" id="time-tasks-page" role="tabpanel" aria-labelledby="time-tab-tasks">
               <header class="time-head">
                 <h3 id="time-board-title">今天</h3>
+                <button type="button" class="context-setting-button" data-context-settings="dida" aria-haspopup="dialog" aria-controls="context-settings-dialog">同步设置</button>
                 <div class="time-progress" role="group" aria-label="今日闭环完成度（含日记）"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
                 <button type="button" id="time-ai-btn" class="text-button" title="让 AI 生活助理看看今天的任务">AI 助手</button><button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="false">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="time-dida-sync" class="text-button" title="从滴答清单拉取最新任务" hidden>立即同步</button>
               </header>
@@ -157,6 +163,7 @@
                   <span id="habit-page-count" class="habit-page-count" role="status"></span>
                 </div>
                 <div class="habit-page-actions">
+                  <button type="button" class="context-setting-button" data-context-settings="dida" aria-haspopup="dialog" aria-controls="context-settings-dialog">同步设置</button>
                   <button type="button" id="habit-dida-sync" class="text-button" hidden>滴答同步</button>
                   <span id="habit-dida-status" class="meta" role="status" hidden></span>
                   <button type="button" id="habit-archived-toggle" class="habit-toggle-button" aria-pressed="false">已归档</button>
@@ -421,15 +428,20 @@
 
 
     <section id="settings-view" class="view" data-module="settings" aria-labelledby="page-title" hidden>
+      <p class="settings-intro">让工作台适合你的节奏。小组件、提醒与任务同步也可以在工作台直接调整；这里集中管理连接、数据与维护。</p>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="设置分区">
+          <span class="settings-nav-label">日常偏好与连接</span>
           <button class="settings-nav-item active" type="button" data-settings-nav="status" aria-current="true">服务状态</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">导航顺序</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="widgets" aria-current="false">工作台小组件</button>
           <button class="settings-nav-item" type="button" data-settings-nav="schedule" aria-current="false">定时提醒</button>
           <button class="settings-nav-item" type="button" data-settings-nav="dida" aria-current="false">滴答同步</button>
+          <span class="settings-nav-label">数据与维护</span>
           <button class="settings-nav-item" type="button" data-settings-nav="backup" aria-current="false">备份与恢复</button>
           <button class="settings-nav-item" type="button" data-settings-nav="data" aria-current="false">数据与导出</button>
-          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="migration" aria-current="false">库结构与迁移</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button><button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">界面</button>
-          <button class="settings-nav-item" type="button" data-settings-nav="widgets" aria-current="false">工作台小组件</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="obsidian" aria-current="false">库与工作区</button><button class="settings-nav-item" type="button" data-settings-nav="migration" aria-current="false">库结构与迁移</button><button class="settings-nav-item" type="button" data-settings-nav="audit" aria-current="false">透明度</button>
+          <span class="settings-nav-label">支持</span>
           <button class="settings-nav-item" type="button" data-settings-nav="help" aria-current="false">帮助</button><button class="settings-nav-item" type="button" data-settings-nav="about" aria-current="false">关于</button>
         </nav>
         <div class="settings-content">
@@ -447,22 +459,26 @@
           </section>
           <section class="settings-section" data-settings-section="dida" aria-labelledby="settings-dida-heading" hidden>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">DIDA SYNC</span><h2 id="settings-dida-heading" tabindex="-1">滴答同步</h2><p>从滴答清单双向同步任务与习惯；私有 V2 Web API，实验性功能。</p></div><span id="dida-status-badge" class="badge" role="status"></span></div>
-              <div id="dida-status-panel"></div>
+              <div class="settings-card-head"><div><span class="eyebrow">DIDA SYNC</span><h2 id="settings-dida-heading" tabindex="-1">滴答同步</h2><p>实验性功能：在滴答和工作台之间同步任务、习惯与打卡。</p></div><span id="dida-status-badge" class="badge" role="status"></span></div>
+              <details class="settings-disclosure"><summary>连接状态与同步记录</summary><div id="dida-status-panel"></div></details>
               <form id="dida-sync-form" class="form-panel">
                 <div class="form-grid">
                   <div class="field"><label class="check-label" for="dida-enabled"><input id="dida-enabled" type="checkbox" />启用定时同步</label></div>
-                  <div class="field"><label class="check-label" for="dida-habits-enabled"><input id="dida-habits-enabled" type="checkbox" checked />同步习惯与打卡（双向）</label><p class="field-help">拉取滴答习惯和打卡，并把本地习惯的新增/改名/频率、完成/失败/取消打卡写回滴答。主动休息只留在本地；备注、提示、最小行动、分组、优先级和排序也不上传。</p></div>
-                  <div class="field"><label class="check-label" for="dida-push-deletes"><input id="dida-push-deletes" type="checkbox" />本地删除同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机已删除的已同步任务/清单/习惯会在下一次推送时从滴答删除；滴答回收站可能可恢复。缺少 _csrf_token 时不会删除远端内容。</p></div>
-                  <div class="field"><label class="check-label" for="dida-push-changes"><input id="dida-push-changes" type="checkbox" />本地新增/修改同步到滴答（需要 CSRF）</label><p class="field-help">开启后，本机新建任务、改名、改清单、日期/时间、优先级、标签、完成状态，以及习惯定义和打卡会写回滴答：每次操作后立即尝试回写（250ms 防抖），后台每 15 秒再兜底检查一次；任务正文、重复规则、提醒、附件暂不回写。缺少 _csrf_token 时不会写回。</p></div>
+                  <div class="field"><label class="check-label" for="dida-habits-enabled"><input id="dida-habits-enabled" type="checkbox" checked />同步习惯与打卡（双向）</label><p class="field-help">同步习惯与打卡；主动休息、备注、提示、最小行动、分组、优先级和排序留在本机。</p></div>
+                  <div class="field"><label class="check-label" for="dida-push-deletes"><input id="dida-push-deletes" type="checkbox" />本地删除同步到滴答（需要 CSRF）</label><p class="field-help">开启后，已关联任务、清单和习惯的删除会同步到滴答。需要有效的 CSRF 凭据；滴答回收站可能可恢复。</p></div>
+                  <div class="field"><label class="check-label" for="dida-push-changes"><input id="dida-push-changes" type="checkbox" />本地新增/修改同步到滴答（需要 CSRF）</label><p class="field-help">同步任务与习惯的新增和修改，需要有效的 CSRF 凭据。任务正文、重复规则、提醒和附件暂不回写。</p></div>
                   <div class="field"><label for="dida-region">区域</label><select id="dida-region"><option value="dida365">滴答清单（中国）</option><option value="ticktick">TickTick（国际）</option></select></div>
                   <div class="field"><label for="dida-interval">同步间隔（分钟）</label><input id="dida-interval" type="number" min="5" max="1440" value="15" /></div>
                   <div class="field"><label for="dida-completed-days">已完成回看天数</label><input id="dida-completed-days" type="number" min="0" max="3650" value="30" /></div>
-                  <div class="field"><label for="dida-timezone">时区</label><input id="dida-timezone" type="text" maxlength="64" value="Asia/Shanghai" /></div>
-                  <div class="field"><label for="dida-device-version">x-device 版本（高级）</label><input id="dida-device-version" type="number" min="1" max="99999" value="8000" /></div>
                 </div>
+                <details id="dida-account-details" class="settings-disclosure" open><summary>账号连接</summary>
                 <div class="field"><label for="dida-cookie">t cookie（必填）</label><textarea id="dida-cookie" rows="3" autocomplete="off" spellcheck="false" placeholder="粘贴 t=... 或完整 Cookie"></textarea><p class="field-help">只保存在当前工作区数据目录（插件模式为 <code>.torch-os/dida-credentials.json</code>）中；接口不回显。cookie 等同账号访问权，不要分享或提交到 git。</p></div>
                 <div class="field"><label for="dida-csrf">_csrf_token（本地删除写回必需）</label><input id="dida-csrf" type="password" autocomplete="off" placeholder="从浏览器 Cookie 复制；已保存时留空" /><p class="field-help">在浏览器 DevTools → Application/存储 → Cookies → <code>dida365.com</code> 里复制 <code>_csrf_token</code> 的值（或把含 <code>_csrf_token</code> 的完整 Cookie 重新粘贴到上方 t cookie 框）。没有它只能拉取，无法把本地删除写回滴答。</p></div>
+                </details>
+                <details class="settings-disclosure"><summary>高级连接选项</summary><div class="form-grid">
+                  <div class="field"><label for="dida-timezone">时区</label><input id="dida-timezone" type="text" maxlength="64" value="Asia/Shanghai" /></div>
+                  <div class="field"><label for="dida-device-version">客户端版本</label><input id="dida-device-version" type="number" min="1" max="99999" value="8000" /></div>
+                </div></details>
                 <div class="form-actions">
                   <button id="dida-save" class="button primary" type="submit">保存设置</button>
                   <button id="dida-test" class="button secondary" type="button">测试连接</button>
@@ -622,14 +638,14 @@
           </section>
           <section class="settings-section" data-settings-section="appearance" aria-labelledby="settings-appearance-heading" hidden>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">NAVIGATION</span><h2 id="settings-appearance-heading" tabindex="-1">侧边栏菜单</h2><p>调整左侧菜单的显示顺序；只保存在这台浏览器，不影响任何数据与备份。</p></div><button id="nav-order-reset" class="text-button" type="button">恢复默认顺序</button></div>
+              <div class="settings-card-head"><div><span class="eyebrow">NAVIGATION</span><h2 id="settings-appearance-heading" tabindex="-1">导航顺序</h2><p>把常用页面放在前面。顺序保存在当前个人数据库，顶部导航与侧边导航共用这份偏好。</p></div><button id="nav-order-reset" class="text-button" type="button">恢复默认顺序</button></div>
               <ul id="nav-order-list" class="nav-order-list" aria-label="菜单顺序"></ul>
               <p id="nav-order-feedback" class="status-message" role="status"></p>
             </article>
           </section>
           <section class="settings-section" data-settings-section="widgets" aria-labelledby="settings-widgets-heading" hidden>
             <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">WORKBENCH WIDGETS</span><h2 id="settings-widgets-heading" tabindex="-1">工作台小组件</h2><p>关掉的小组件不再出现在工作台，也不会请求数据；顺序与显隐都保存在当前个人数据库的 <code>.torch-os/personal-data.json</code>。</p></div><button id="widget-settings-reset" class="text-button" type="button">恢复默认</button></div>
+              <div class="settings-card-head"><div><span class="eyebrow">WORKBENCH WIDGETS</span><h2 id="settings-widgets-heading" tabindex="-1">只留下你需要的</h2><p>关闭的小组件会暂停读取数据。可以随时重新打开，也可以在工作台拖动调整位置。</p></div><button id="widget-settings-reset" class="text-button" type="button">恢复默认</button></div>
               <ul id="widget-settings-list" class="widget-settings-list" aria-label="小组件开关"></ul>
               <p id="widget-settings-feedback" class="status-message" role="status"></p>
             </article>
@@ -688,12 +704,12 @@
           <button id="banner-heat-reset" type="button" class="text-button">默认绿</button>
         </div>
         <div id="banner-heat-presets" class="banner-heat-presets" role="group" aria-label="热力格预设颜色">
-          <button type="button" class="banner-heat-preset" data-heat-preset="#2f9e6a" style="--swatch:#2f9e6a" aria-label="绿色" title="绿色"></button>
-          <button type="button" class="banner-heat-preset" data-heat-preset="#3b82f6" style="--swatch:#3b82f6" aria-label="蓝色" title="蓝色"></button>
-          <button type="button" class="banner-heat-preset" data-heat-preset="#14b8a6" style="--swatch:#14b8a6" aria-label="青色" title="青色"></button>
-          <button type="button" class="banner-heat-preset" data-heat-preset="#8b5cf6" style="--swatch:#8b5cf6" aria-label="紫色" title="紫色"></button>
-          <button type="button" class="banner-heat-preset" data-heat-preset="#f59e0b" style="--swatch:#f59e0b" aria-label="橙色" title="橙色"></button>
-          <button type="button" class="banner-heat-preset" data-heat-preset="#ec4899" style="--swatch:#ec4899" aria-label="粉色" title="粉色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#2f9e6a" aria-label="绿色" title="绿色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#3b82f6" aria-label="蓝色" title="蓝色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#14b8a6" aria-label="青色" title="青色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#8b5cf6" aria-label="紫色" title="紫色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#f59e0b" aria-label="橙色" title="橙色"></button>
+          <button type="button" class="banner-heat-preset" data-heat-preset="#ec4899" aria-label="粉色" title="粉色"></button>
         </div>
         <span class="field-help">只影响热力格与热力进度条；横幅其它强调色、图片和座右铭不受影响。</span>
       </div>
@@ -921,5 +937,9 @@
   <span id="selection-ask-label">问 AI</span>
 </button>
 <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" inert></div>
+<dialog id="context-settings-dialog" class="context-settings-dialog" aria-labelledby="context-settings-title" aria-describedby="context-settings-status">
+  <header class="context-settings-head"><div><h2 id="context-settings-title">工作台设置</h2><p id="context-settings-status" role="status"></p></div><button id="context-settings-close" class="button secondary" type="button" autofocus>关闭</button></header>
+  <div id="context-settings-content"></div>
+</dialog>
 <script type="module" src="/assets/app.js"></script>
 </body></html>

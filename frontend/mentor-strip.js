@@ -31,10 +31,12 @@ function render() {
     <span class="text-button mentor-strip-open" aria-hidden="true">去看看 ›</span>
   </div>`;
   host.hidden = false;
+  host.setAttribute("aria-busy", "false");
   host.dataset.mentorStripOpen = "";
   host.setAttribute("role", "button");
   host.setAttribute("tabindex", "0");
-  host.setAttribute("aria-label", `打开人生导师：${hint}`);
+  // Use the visible copy as the accessible name, including the daily counts.
+  host.removeAttribute("aria-label");
 }
 
 function openMentor() {

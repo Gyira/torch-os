@@ -49,14 +49,16 @@ function labelOf(key) {
 function renderWidgetSettings(message = "") {
   const list = $("#widget-settings-list");
   if (!list) return;
+  const focusedKey = list.contains(document.activeElement) ? document.activeElement.dataset.widgetToggle : null;
   const hidden = new Set(currentHidden());
   list.innerHTML = WIDGET_MANIFEST.map((item) => {
     const checked = hidden.has(item.key) ? "" : " checked";
     return `<li data-widget-setting="${item.key}">
       <div><strong>${escapeText(item.label)}</strong><small>${escapeText(item.description)}</small></div>
-      <label><input type="checkbox" data-widget-toggle="${item.key}"${checked} />显示</label>
+      <label><input type="checkbox" aria-label="显示${escapeText(item.label)}" data-widget-toggle="${item.key}"${checked} />显示</label>
     </li>`;
   }).join("");
+  if (focusedKey) list.querySelector(`[data-widget-toggle="${focusedKey}"]`)?.focus({ preventScroll: true });
   const feedback = $("#widget-settings-feedback");
   if (feedback && message) feedback.textContent = message;
 }

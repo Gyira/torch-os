@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
@@ -495,7 +496,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.state.ai_roles = role_registry
     app.state.ai_service = ai_service
     app.state.proposals = proposal_service
-    app.mount('/assets', StaticFiles(directory=frontend), name='assets')
+    # Compress only UI assets. API responses, downloads and streaming AI stay untouched.
+    app.mount('/assets', GZipMiddleware(StaticFiles(directory=frontend), minimum_size=1000, compresslevel=5), name='assets')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1','localhost','[::1]','testserver',host])
 
     def session_cookie_name(request: Request) -> str:

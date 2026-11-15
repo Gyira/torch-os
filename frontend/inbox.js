@@ -13,13 +13,13 @@ const weeklyAvailable = () => state.config?.capabilities?.scheduler_weekly === t
 export async function loadSchedulePanel() {
   if (!available()) {
     setStatus("#schedule-status", state.config ? "当前运行的服务尚未支持定时提醒。" : "正在检查服务能力…");
-    return;
+    return false;
   }
   const request = ++scheduleId;
   setStatus("#schedule-status", "正在读取定时设置…");
   try {
     const result = await api("/api/schedule");
-    if (request !== scheduleId) return;
+    if (request !== scheduleId) return false;
     const settings = result.settings || {};
     $("#schedule-morning-enabled").checked = Boolean(settings.morning_enabled);
     $("#schedule-morning-time").value = settings.morning_time || "08:00";
@@ -49,9 +49,11 @@ export async function loadSchedulePanel() {
     const runtimeText = result.runtime ? (failing ? `调度连续失败 ${failing} 次` : "调度正常") : "";
     const runsText = runs.length ? `今天已生成 ${runs.length} 条草稿` : "今天还没有生成草稿";
     setStatus("#schedule-status", runtimeText ? `${runsText} · ${runtimeText}` : runsText, failing ? "error" : "success");
+    return true;
   } catch (error) {
-    if (request !== scheduleId) return;
+    if (request !== scheduleId) return false;
     setStatus("#schedule-status", `读取失败：${error.message}`, "error");
+    return false;
   }
 }
 

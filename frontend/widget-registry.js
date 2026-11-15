@@ -10,7 +10,7 @@ export const WIDGET_MANIFEST = Object.freeze([
   },
   {
     key: "countdown", label: "倒计时", column: "left",
-    description: "目标日期/时间倒计时，支持提醒与背景；配置存在 .torch-os。",
+    description: "为重要目标倒数，设置日期、提醒和喜欢的背景。",
   },
   {
     key: "anniversary", label: "纪念日", column: "left",

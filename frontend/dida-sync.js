@@ -35,7 +35,7 @@ function renderQuickState() {
     : !quickStatus ? "正在读取滴答同步状态…"
     : !quickStatus.supported ? "当前运行环境不支持滴答同步"
     : quickStatus.read_only ? "当前库是只读模式，不能同步"
-    : !quickStatus.configured ? "请先到 设置 → 滴答同步 配置登录凭据"
+    : !quickStatus.configured ? "点击旁边的“同步设置”配置登录凭据"
     : running ? "正在从滴答清单同步…"
     : "从滴答清单同步任务与习惯";
   const fullTitle = ((quickStatus?.push_deletes || quickStatus?.push_changes)
@@ -69,6 +69,7 @@ async function loadQuickStatus() {
 function applyCapability() {
   const nav = document.querySelector('[data-settings-nav="dida"]');
   const section = document.querySelector('[data-settings-section="dida"]');
+  document.querySelectorAll('[data-context-settings="dida"]').forEach(button => { button.hidden = !available(); });
   if (!available()) {
     if (nav) nav.hidden = true;
     if (section) section.hidden = true;
@@ -124,6 +125,8 @@ function renderStatus(status) {
       `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;
   }
   if ($("#dida-enabled")) $("#dida-enabled").checked = Boolean(status.enabled);
+  const accountDetails = $("#dida-account-details");
+  if (accountDetails) accountDetails.open = !status.cookie_set;
   if ($("#dida-push-deletes")) $("#dida-push-deletes").checked = Boolean(status.push_deletes);
   if ($("#dida-push-changes")) $("#dida-push-changes").checked = Boolean(status.push_changes);
   if ($("#dida-habits-enabled")) $("#dida-habits-enabled").checked = status.habits_enabled !== false;
@@ -180,13 +183,13 @@ function renderConflicts(rows = []) {
   }).join("")}</ul><p class="field-help">“保留本地”会把滴答当前状态记为已同步基线；习惯冲突会在下一次同步把本地版本写回滴答。不会修改本地笔记。</p>`;
 }
 
-async function loadDidaSync() {
-  if (!available()) return;
+export async function loadDidaSync() {
+  if (!available()) return false;
   const request = ++loadId;
   setStatus("#dida-feedback", "正在读取滴答同步状态…");
   try {
     const status = await api("/api/sync/dida/status");
-    if (request !== loadId) return;
+    if (request !== loadId) return false;
     // renderStatus 会在缺 _csrf_token 等情况下写入警告，不能在读取结束后清掉。
     setStatus("#dida-feedback", "");
     renderStatus(status);
@@ -196,10 +199,12 @@ async function loadDidaSync() {
     const habitConflicts = status.habit_conflicts || status.habit_checkin_conflicts
       ? await api("/api/sync/dida/habit-conflicts?limit=100")
       : { conflicts: [] };
-    if (request !== loadId) return;
+    if (request !== loadId) return false;
     renderConflicts([...(conflicts.conflicts || []), ...(habitConflicts.conflicts || [])]);
+    return true;
   } catch (error) {
     if (request === loadId) setStatus("#dida-feedback", error.message, "error");
+    return false;
   }
 }
 
