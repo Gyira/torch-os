@@ -135,7 +135,8 @@ def _journals_recent_context(vault_dir: Path | str, selector: Mapping[str, Any],
         days = 14
     today = shanghai_today()
     blocks: list[str] = []
-    for offset in range(days - 1, -1, -1):
+    # Newest first: a bounded context must not drop today's diary before older entries.
+    for offset in range(days):
         day = (today - timedelta(days=offset)).isoformat()
         note = journal_note.read_note(vault_dir, day)
         if not note.get("exists"):
@@ -378,21 +379,26 @@ def assemble(database: Database, vault_dir: Path | str, *,
     blocks: list[str] = []
     truncated = False
     used = 0
+    reserve = min(1500, max(1, (budget - 2 * len(items)) // len(items)))
     for index, selector in enumerate(items, start=1):
         with scoped_reads(policy):
             meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}",
                                           love_settings=love_settings)
         truncated = truncated or cut
-        remaining = budget - used
+        remaining = budget - used - (2 if blocks else 0)
         if remaining <= 0:
             truncated = True
             break
-        if len(block) > remaining:
-            block, _ = _trim(block, remaining)
+        allowance = max(1, remaining - (len(items) - index) * (reserve + 2))
+        if len(block) > allowance:
+            block, _ = _trim(block, allowance)
             truncated = True
+            cut = True
+        meta = {**meta, "chars": len(block.partition("\n")[2]),
+                "included_chars": len(block), "truncated": bool(cut)}
         sources.append(meta)
         blocks.append(block)
-        used += len(block) + 2
+        used += len(block) + (2 if len(blocks) > 1 else 0)
     text = "\n\n".join(blocks).strip()
     return ContextBundle(text=text, sources=sources, chars=len(text), truncated=truncated)
 

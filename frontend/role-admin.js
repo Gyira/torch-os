@@ -101,6 +101,10 @@ export function initRoleAdmin() {
   el("role-admin-editor")?.addEventListener("input", onEditorInput);
   el("role-admin-editor")?.addEventListener("click", onEditorClick);
   el("role-admin-editor")?.addEventListener("submit", onEditorSubmit);
+  document.addEventListener("torch:ai-model-changed", async () => {
+    try { state.aiStatus = await api("/api/ai/status"); renderReadiness(); }
+    catch (error) { setStatus("#role-admin-list-status", `模型已保存，状态刷新失败：${error.message}`, "warning"); }
+  });
   window.addEventListener("beforeunload", (event) => {
     if (!dirty()) return;
     event.preventDefault();
@@ -109,6 +113,7 @@ export function initRoleAdmin() {
 }
 
 export async function loadRoleAdmin() {
+  import("./ai-model-settings.js").then(module => module.loadModelSettings()).catch(() => {});
   if (!el("roles-view")) return;
   initRoleAdmin();
   if (state.loading) return;

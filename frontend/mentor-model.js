@@ -1,6 +1,7 @@
 // 人生导师页的纯渲染函数（2026-11-01）。
 // 不 import core.js / DOM；node --test 可直接跑。
 import { escape, pendingCardMarkup } from "./self-archive-model.js";
+import { modelLabel } from "./roles-model.js";
 
 export const SIDE_TABS = [
   { key: "questions", label: "今日提问" },
@@ -77,7 +78,7 @@ export function messageMarkup(message = {}) {
     ? `<div class="md-body mentor-message-body">${message.html || escape(message.content || "").replace(/\n/g, "<br>")}</div>`
     : `<div class="mentor-message-body">${escape(message.content || "").replace(/\n/g, "<br>")}</div>`;
   return `<article class="mentor-message is-${role}" data-message-role="${role}">
-    <div class="mentor-message-head"><span>${role === "user" ? "我" : "人生导师"}</span><span>${escape(time)}</span></div>
+    <div class="mentor-message-head"><span>${role === "user" ? "我" : `人生导师${message.model ? ` · ${escape(modelLabel(message.model))}` : ""}`}</span><span>${escape(time)}</span></div>
     ${attachments.length ? `<div class="mentor-message-attachments">${attachments.map((item) => {
       const name = escape(item.name || "附件");
       const meta = item.kind === "image" ? "图片" : item.chars ? `${Number(item.chars) || 0} 字` : "";
@@ -87,7 +88,7 @@ export function messageMarkup(message = {}) {
     ${body}
     ${archiveUpdatesMarkup(updates)}
     ${sources.length ? `<details class="mentor-sources"><summary>用了 ${sources.length} 份资料</summary>
-      <ul>${sources.map((item) => `<li>${escape(item.title || item.kind || item.id || "")}${item.path ? ` · ${escape(item.path)}` : ""}</li>`).join("")}</ul>
+      <ul>${sources.map((item) => `<li>${escape(item.title || item.kind || item.id || "")}${item.truncated ? " · 节选" : ""}${item.path ? ` · ${escape(item.path)}` : ""}</li>`).join("")}</ul>
     </details>` : ""}
   </article>`;
 }

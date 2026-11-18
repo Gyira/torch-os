@@ -12,6 +12,7 @@ const MAX_DRAFT_CHARS = 12000;
 
 const state = {
   role: null,
+  available: true,
   mode: "",
   entry: "",
   selectors: [],
@@ -70,6 +71,16 @@ export function initRoleDrawer() {
     backdropPressed = false;
   });
   el("role-drawer-dock")?.addEventListener("click", toggleRoleDock);
+  el("role-drawer-handoff")?.addEventListener("click", async () => {
+    if (!state.role || state.busy) return;
+    let selectors = withNoteSelector(state.selectors);
+    if (state.getSelectors) { try { selectors = withNoteSelector(state.getSelectors()); } catch { /* use current note */ } }
+    const payload = { role_id: state.role.id, mode: state.mode, entry: state.entry,
+      thread_id: state.threadId, selectors, draft_text: currentDraftText(),
+      selection_text: state.selection?.text || "", message: el("role-drawer-input")?.value.trim() || "请结合背景，帮我继续理清当前问题。" };
+    try { await (await import("./ai-handoff.js")).openAIHandoff(payload); }
+    catch (error) { toast(error.message, "error"); }
+  });
   el("role-drawer-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     sendRoleMessage(el("role-drawer-input")?.value || "");
@@ -89,6 +100,16 @@ export function initRoleDrawer() {
   document.addEventListener("torch:open-role", (event) => {
     const detail = event.detail || {};
     if (detail.roleId) openRoleDrawer(detail);
+  });
+  document.addEventListener("torch:ai-model-changed", async () => {
+    const session = roleSession;
+    try {
+      const status = await api("/api/ai/status");
+      if (session !== roleSession) return;
+      state.available = status.available === true;
+      el("role-drawer-status").textContent = state.available ? `下一轮：${status.model_settings?.label || "DeepSeek · dsh"}` : status.reason;
+      syncSendState();
+    } catch { /* retain the displayed status until the next open */ }
   });
   // 角色管理页保存后清掉缓存，下一次打开抽屉会读到新的名字、入口与模式。
   document.addEventListener("torch:roles-changed", () => {
@@ -312,10 +333,7 @@ export async function openRoleDrawer(options = {}) {
     return false;
   }
   if (session !== roleSession) return false;
-  if (!status?.available) {
-    reportRoleError(status?.reason || "AI 角色暂不可用，请先在 dsh 里配置 DeepSeek Key。");
-    return false;
-  }
+  state.available = status?.available === true;
   let items;
   try {
     if (!rolesCache) {
@@ -365,7 +383,9 @@ export async function openRoleDrawer(options = {}) {
   const avatar = el("role-drawer-avatar");
   if (avatar) avatar.textContent = Array.from(String(role.name || "AI"))[0] || "AI";
   el("role-drawer-subtitle").textContent = drawerSubtitle(role, mode, state.note);
-  el("role-drawer-status").textContent = "";
+  el("role-drawer-status").textContent = state.available
+    ? `本次回答：${status?.model_settings?.label || "DeepSeek · dsh"}`
+    : `${status?.reason || "应用内模型未就绪"}；仍可准备背景，到 ChatGPT 继续聊。`;
   el("role-drawer-preview").textContent = "";
   el("role-drawer-preview").hidden = true;
   el("role-drawer-input").value = drafts.get(draftKey()) || options.prompt || "";
@@ -445,7 +465,7 @@ function withNoteSelector(list) {
 
 async function sendRoleMessage(text) {
   const message = String(text || "").trim();
-  if (!message || state.busy || !state.role) return;
+  if (!message || state.busy || !state.role || !state.available) return;
   const session = roleSession;
   const selection = state.selection;
   const draftText = currentDraftText();
@@ -496,6 +516,7 @@ async function sendRoleMessage(text) {
     const rendered = renderMarkdownDocument(reply);
     state.messages.push({
       role: "assistant",
+      model: payload.model,
       content: reply,
       html: rendered.html,
       sources: payload.sources || [],
@@ -525,7 +546,7 @@ async function sendRoleMessage(text) {
 function syncSendState() {
   const send = el("role-drawer-send");
   if (!send) return;
-  send.disabled = state.busy || !el("role-drawer-input")?.value.trim();
+  send.disabled = state.busy || !state.available || !el("role-drawer-input")?.value.trim();
   send.setAttribute("aria-busy", String(state.busy));
   send.textContent = state.busy ? "思考中…" : "发送";
 }

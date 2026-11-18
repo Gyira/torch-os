@@ -345,13 +345,18 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database.path.parent, enabled=runtime_label == 'personal')
     # v1.0 AI 角色层：角色卡属于仓库（dsh/roles），不属于用户库；换库只换数据，不换人格。
     role_registry = RoleRegistry(Path(__file__).resolve().parents[2] / 'dsh' / 'roles')
-    ai_enabled = runtime_label == 'personal' and getattr(dsh_runtime, 'enabled', False)
+    ai_enabled = runtime_label == 'personal' and enable_dsh is not False
+    from .ai_models import ModelSettings
+    model_directory = (Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'Torch' / 'ai-models'
+                       if runtime_label == 'personal' else database.path.parent / 'ai-models-qa')
+    role_models = ModelSettings(model_directory, enabled=runtime_label == 'personal', environ=dict(os.environ))
     from .proposal_actions import register_proposal_handlers
     proposal_service = ProposalService(database, vault_dir=vault_dir)
     register_proposal_handlers(proposal_service, database, vault_dir, read_only=vault_read_only)
     ai_service = RoleService(
         role_registry, deepseek_balance,
-        enabled=ai_enabled,
+        enabled=runtime_label == 'personal' and enable_dsh is not False,
+        models=role_models,
         environ=dict(os.environ),
         agents_home=Path(__file__).resolve().parents[2] / 'dsh' / 'roles',
         workspace=database.path.parent / 'ai-runtime' / 'workspace',

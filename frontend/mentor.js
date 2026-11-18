@@ -237,6 +237,7 @@ function shellMarkup() {
               <span class="status-message" data-mentor-status role="status"></span>
             </div>
             <span class="field-help">Enter 发送 · Shift+Enter 换行</span>
+            <button type="button" class="button secondary" data-mentor-handoff>到 ChatGPT 继续聊</button>
             <button type="submit" class="button primary" data-mentor-send>发送</button>
           </div>
         </form>
@@ -369,6 +370,7 @@ async function openThread(threadId, { silent = false } = {}) {
       html: turn.role === "assistant" ? renderMarkdown(turn.content) : "",
       sources: Array.isArray(turn.sources) ? turn.sources : [],
       attachments: Array.isArray(turn.structured?.attachments) ? turn.structured.attachments : [],
+      model: turn.structured?.model,
       created_at: turn.created_at,
     }));
     clearAttachments();
@@ -486,6 +488,7 @@ async function sendMessage(text) {
     const reply = String(payload.reply || "");
     state.messages.push({
       role: "assistant", content: reply, html: renderMarkdown(reply),
+      model: payload.model,
       sources: Array.isArray(payload.sources) ? payload.sources : [],
       archive_updates: Array.isArray(payload.archive_updates) ? payload.archive_updates : [],
       created_at: new Date().toISOString(),
@@ -783,6 +786,14 @@ function openQuestionEditor(questionId) {
 }
 
 async function handleClick(event) {
+  if (event.target.closest?.("[data-mentor-handoff]")) {
+    try {
+      await (await import("./ai-handoff.js")).openAIHandoff({ role_id: "mentor", mode: "converse", entry: "self.mentor",
+        thread_id: state.legacyThread ? "" : state.threadId,
+        message: currentInput()?.value.trim() || "请结合我的近期记录，帮我继续理清当前问题。" });
+    } catch (error) { toast(error.message, "error"); }
+    return;
+  }
   const thread = event.target.closest?.("[data-mentor-thread]");
   if (thread) { await openThread(thread.dataset.mentorThread); return; }
   if (event.target.closest?.("[data-mentor-new]")) { newConversation(); return; }

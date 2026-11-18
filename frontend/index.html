@@ -398,6 +398,18 @@
         </div>
       </div>
       <div id="role-admin-warning" class="role-admin-warning" hidden></div>
+      <details class="ai-model-panel"><summary>对话模型 · GPT / DeepSeek</summary>
+        <form id="ai-model-form" class="ai-model-form">
+          <p class="field-help">角色、资料范围和记忆归 Torch 管理。这里选择应用内的回答模型；“与神对话”仍使用 dsh，ChatGPT 网页版继续通过资料包和分享取回衔接。</p>
+          <div class="context-pack-filters"><label>回答通道<select name="provider"><option value="deepseek">DeepSeek · 沿用 dsh 配置</option><option value="openai">GPT · OpenAI API</option></select></label>
+          <label>OpenAI 模型 ID<input name="model" type="text" maxlength="100" placeholder="账户可用的模型 ID" /></label>
+          <label>GPT 推理强度<select name="reasoning_effort"><option value="">模型默认</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label></div>
+          <div class="context-pack-filters"><label>OpenAI API Key<input name="api_key" type="password" maxlength="300" autocomplete="new-password" placeholder="留空保留已有 Key" /></label><label>最大输出 token<input name="max_output_tokens" type="number" min="512" max="32768" value="8192" /></label></div>
+          <label><input name="clear_key" type="checkbox" /> 清除本机保存的 OpenAI Key（不删除环境变量）</label>
+          <p class="field-help">OpenAI Key 仅加密保存在本机，不写入笔记库。API 使用 OpenAI API 账户计费；ChatGPT 网页版权益不等于这里可直接调用。保存不会测试连接或产生模型调用。</p>
+          <p id="ai-model-status" role="status">正在读取模型设置…</p><button type="submit" class="button primary" disabled>保存，下一轮生效</button>
+        </form>
+      </details>
       <div class="role-admin-shell">
         <aside class="role-admin-rail" aria-label="AI 角色列表">
           <div class="role-admin-rail-head">
@@ -769,7 +781,7 @@
   <form id="role-drawer-form" class="role-drawer-form">
     <label class="visually-hidden" for="role-drawer-input">给角色发消息</label>
     <textarea id="role-drawer-input" rows="3" maxlength="8000" placeholder="想聊什么？"></textarea>
-    <div class="role-drawer-actions"><span id="role-drawer-hint" class="field-help">AI 只提议，采纳后才写入。</span><button type="submit" id="role-drawer-send" class="button primary">发送</button></div>
+    <div class="role-drawer-actions"><span id="role-drawer-hint" class="field-help">AI 只提议，采纳后才写入。</span><button type="button" id="role-drawer-handoff" class="button secondary">到 ChatGPT 继续聊</button><button type="submit" id="role-drawer-send" class="button primary">发送</button></div>
   </form>
 </aside>
 </dialog>

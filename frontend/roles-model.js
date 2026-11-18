@@ -18,6 +18,10 @@ export function modeLabel(mode) {
   return MODE_LABELS[String(mode || "")] || String(mode || "");
 }
 
+export function modelLabel(model) {
+  return model?.provider === "openai" ? `GPT · ${model.model || "OpenAI"}` : model?.provider === "deepseek" ? "DeepSeek" : "";
+}
+
 export function roleTitle(role, mode) {
   const name = String(role?.name || "AI 角色");
   const label = modeLabel(mode);
@@ -28,7 +32,7 @@ export function sourceMarkup(sources) {
   const items = (Array.isArray(sources) ? sources : [])
     .filter((source) => source && source.id)
     .map((source) => `<li><span class="role-source-id">${escapeRoleText(source.id)}</span>`
-      + `<span>${escapeRoleText(source.title || source.kind || "")}</span></li>`)
+      + `<span>${escapeRoleText(source.title || source.kind || "")}${source.truncated ? " · 节选" : ""}</span></li>`)
     .join("");
   return items ? `<ul class="role-sources" aria-label="本轮参考来源">${items}</ul>` : "";
 }
@@ -56,7 +60,7 @@ export function messageMarkup(message) {
     ? String(message.html)
     : `<p>${escapeRoleText(message?.content || "")}</p>`;
   return `<article class="role-message role-message-${role}" data-role-message="${role}">
-    <div class="role-message-label">${label}</div>
+    <div class="role-message-label">${label}${role === "assistant" && message.model ? ` · ${escapeRoleText(modelLabel(message.model))}` : ""}</div>
     ${role === "user" ? quoteMarkup(message?.context) : ""}
     <div class="role-message-body">${content}</div>
     ${sourceMarkup(message?.sources)}
@@ -70,7 +74,7 @@ export function emptyMarkup(roleName = "AI 角色", note = null, roleId = "") {
     return `<div class="role-empty">
     <p class="eyebrow">ROLE</p>
     <h3>${escapeRoleText(roleName)}</h3>
-    <p>已经读完《${escapeRoleText(noteTitle)}》。直接问这篇里的任何东西，不用先复述内容。</p>
+    <p>发送时会读取《${escapeRoleText(noteTitle)}》。可以直接提问，实际参考范围会随回答列出。</p>
     <p class="role-empty-hint">${mentor
       ? "普通提议采纳后写入；导师的档案更新经服务端校验后直接提交。"
       : "它只提议；要改正文时，仍由你决定。"}</p>

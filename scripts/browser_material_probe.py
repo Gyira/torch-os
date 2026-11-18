@@ -19,6 +19,7 @@ import websockets
 from browser_smoke import CDP, debug_targets, find_edge
 from browser_theme import DSH_LIGHT, DSH_DARK
 from browser_context_pack_checks import check_context_pack
+from browser_ai_checks import check_ai
 
 
 async def run(args):
@@ -88,6 +89,7 @@ async def run(args):
                 report['axe'][name] = result
                 checks['axe_' + name] = result == []
             await shot('workbench-light')
+            await check_ai(cdp, check, click, shot, args, report)
             await check_context_pack(cdp, check, click, shot, args, report)
             await check('widget_drag_target_size', "[...document.querySelectorAll('.widget-drag-handle')].filter(x=>x.getClientRects().length).every(x=>x.getBoundingClientRect().width>=24 && x.getBoundingClientRect().height>=24)")
             await check('card_names_follow_visible_text', "['workbench-weather-card','workbench-duty','workbench-train-tracker'].every(id=>!document.getElementById(id).hasAttribute('aria-label'))")
