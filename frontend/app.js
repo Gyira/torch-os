@@ -129,19 +129,16 @@ function renderPanelNav() {
       group.setAttribute("role", "group");
       group.setAttribute("aria-label", "生活运营及常用系统");
       group.append(button);
-      const systems = document.createElement("div");
-      systems.className = "panel-nav-systems";
       for (const [target, label] of [["health", "健康"], ["love", "恋爱"]]) {
         const shortcut = document.createElement("button");
         shortcut.type = "button";
-        shortcut.className = "panel-nav-system";
+        shortcut.className = "panel-nav-item panel-nav-system";
+        shortcut.dataset.view = target;
         shortcut.dataset.system = target;
         shortcut.textContent = label;
         shortcut.setAttribute("aria-label", `打开${label}系统`);
-        shortcut.addEventListener("click", () => goTo(target));
-        systems.append(shortcut);
+        group.append(shortcut);
       }
-      group.append(systems);
       scroll.append(group);
     } else scroll.appendChild(button);
   }
@@ -187,7 +184,7 @@ const GO_TARGETS = {
   workbench: ["workbench", ""], today: ["workbench", ""],
   identity: ["self", ""], self: ["self", ""], profile: ["self", ""], memory: ["self", ""],
   bazi: ["self", ""], goals: ["life", ""], habits: ["life", ""],
-  life: ["life", ""], ops: ["ops", ""],
+  life: ["life", ""], ops: ["ops", "ops-view"],
   health: ["ops", "health-view"], love: ["ops", "love-view"],
   brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
   notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
@@ -248,8 +245,6 @@ export async function switchView(view, updateHash = true) {
     document.body.classList.add(`view-${view}`);
   }
   document.querySelectorAll(".nav-item, .panel-nav-item").forEach((button) => { const active = button.dataset.view === view; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
-  // 小屏顶部标签栏是横向滚动：切页后把当前标签带到可见范围。
-  document.querySelector(".panel-nav-scroll .panel-nav-item.active")?.scrollIntoView?.({ block: "nearest", inline: "center" });
   // 两级导航：侧边栏选模块，模块内再用 #module-nav 选分区。
   const module = MODULES[view];
   const panes = module?.panes || [];
@@ -271,6 +266,8 @@ export async function switchView(view, updateHash = true) {
     section.classList.toggle("active-view", active);
   });
   renderSidebarState(view);
+  // Pane selection determines the one active top-level button, including health/love.
+  document.querySelector(".panel-nav-scroll .panel-nav-item.active")?.scrollIntoView?.({ block: "nearest", inline: "center" });
   renderModuleNav(view);
   runModuleLoaders(view, wanted);
   const heading = $("#page-title");
@@ -322,7 +319,7 @@ function renderModuleNav(view) {
   if (!bar) return;
   const module = MODULES[view];
   // 顶层应用侧栏已经统一收起（浏览器和 Obsidian 都是顶部导航），模块内分区改由这条顶栏承载。
-  if (!module || module.ownNav || !module.panes.length) {
+  if (!module || module.ownNav || !module.panes.length || (topNavMode && view === "ops")) {
     bar.hidden = true;
     bar.replaceChildren();
     return;
@@ -354,6 +351,12 @@ function syncModuleNavActive(view) {
 function renderSidebarState(view) {
   const module = MODULES[view];
   const current = module?.stacked ? (paneChoice[view] || module.panes[0]?.[0]) : paneChoice[view];
+  const opsButton = document.querySelector('.panel-nav-item[data-view="ops"]');
+  if (opsButton) {
+    const active = view === "ops" && current === "ops-view";
+    opsButton.classList.toggle("active", active);
+    if (active) opsButton.setAttribute("aria-current", "page"); else opsButton.removeAttribute("aria-current");
+  }
   document.querySelectorAll(".panel-nav-system").forEach((button) => {
     const active = view === "ops" && current === `${button.dataset.system}-view`;
     button.classList.toggle("active", active);

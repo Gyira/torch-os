@@ -41,14 +41,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC"
 .module-nav-item { border-radius: 11px; font-size: 13px; }
 .material-track { isolation: isolate; }
 .panel-nav-scroll.material-track, .time-rail.material-track, .love-nav.material-track { position: relative; }
-.material-track > button { position: relative; z-index: 1; }
+.material-track > button, .material-track > .panel-nav-family > button { position: relative; z-index: 1; }
 .material-indicator {
   position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
   border: 1px solid var(--m-edge); border-radius: 11px; background: var(--p-surface);
   box-shadow: var(--m-shadow-raised); transform-origin: left top;
 }
 .panel-nav-scroll > .material-indicator { background: var(--p-fill); }
-.material-track.material-ready > button:is(.active, .is-active, [aria-selected="true"]) {
+.material-track.material-ready > button:is(.active, .is-active, [aria-selected="true"]),
+.material-track.material-ready > .panel-nav-family > button.active {
   background: transparent; border-color: transparent; color: var(--p-ink-strong);
 }
 .topbar { padding-bottom: 12px; margin-bottom: 24px; }
@@ -280,12 +281,8 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 /* Direct routes, with the two everyday systems always within reach. */
 .top-nav-mode .panel-nav { gap: 10px; padding: 10px 14px; border-radius: 0 0 20px 20px; border-bottom: 1px solid var(--p-line); box-shadow: 0 8px 30px rgb(0 0 0 / 4%); }
 .panel-nav-scroll { align-items: center; gap: 5px; }
-.panel-nav-family { display: flex; flex: 0 0 auto; flex-direction: column; align-items: stretch; padding: 3px 6px; border: 1px solid var(--p-line); border-radius: 15px; background: var(--p-surface); }
-.panel-nav-family > .panel-nav-item { min-height: 30px; padding-block: 4px; }
-.panel-nav-systems { display: flex; gap: 3px; }
-.panel-nav-system { flex: 1; min-height: 30px; padding: 3px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--p-ink-3); font: inherit; font-size: 12px; cursor: pointer; }
-.panel-nav-system:hover, .panel-nav-system.active { background: var(--p-line); color: var(--p-ink); }
-.panel-nav-system:focus-visible { outline: 2px solid var(--p-accent, #3576d6); outline-offset: 2px; }
+.panel-nav-family { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.panel-nav-family > .panel-nav-item { flex: 0 0 auto; }
 .standalone-agent .dsh-frame-wrap { height: calc(100dvh - var(--panel-nav-h, 86px) - 160px); min-height: 420px; }
 .standalone-agent .dsh-frame { height: 100%; }
 #workbench-train-tracker[data-duty-hidden="true"] { display: none !important; }
@@ -303,6 +300,5 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
   .recycle-toolbar { grid-template-columns: minmax(0, 1fr); padding: 14px; }
   .recycle-batch-actions { justify-content: flex-start; }
   .top-nav-mode .panel-nav { gap: 5px; padding: 8px; }
-  .panel-nav-system { min-height: 36px; }
   .panel-nav-help { display: none; }
 }
