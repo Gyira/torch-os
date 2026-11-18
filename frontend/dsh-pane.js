@@ -206,3 +206,9 @@ export async function loadDshPane() {
 export function isDshPaneActive() {
   return state.active;
 }
+
+export function suspendDshPane() {
+  state.active = false;
+  window.clearTimeout(state.timer);
+  state.timer = 0;
+}

@@ -1,6 +1,6 @@
 import { $, state, api, escapeHtml } from "./core.js";
 import { initSettings, loadSettings, confirmSettingsLeave, openSettingsSection } from "./settings.js";
-import { initDshPane, loadDshPane } from "./dsh-pane.js";
+import { loadAgentPane, setAgentProvider } from "./agent-pane.js";
 import { initLovePane, loadLovePane } from "./love.js";
 import { initHealthPane, loadHealthPane } from "./health.js";
 import { initInbox, loadSchedulePanel } from "./inbox.js";
@@ -69,7 +69,7 @@ const PANE_GUARDS = {};
 const MODULE_GUARDS = { settings: () => confirmSettingsLeave() };
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
-  "agent-view": () => { initDshPane(); loadDshPane(); },
+  "agent-view": loadAgentPane,
   "recycle-view": () => { initRecycleCenter(); loadRecycleCenter(); },
   "love-view": () => { initLovePane(); loadLovePane(); },
   "health-view": () => { initHealthPane(); loadHealthPane(); },
@@ -307,6 +307,10 @@ function renderPanelNav() {
       const family = buildOpsFamily(button);
       opsMenu = family.menu;
       scroll.append(family.node);
+    } else if (view === "agent") {
+      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{ key: "chatgpt", title: "ChatGPT" }, { key: "dsh", title: "DSH" }]);
+      family.menu.setAttribute("aria-label", "与神对话平台");
+      scroll.append(family.node); notebookMenus.push(family.menu);
     } else if (["life", "knowledge"].includes(view)) {
       const family = buildNotebookNav(button, view, async (target, key) => {
         try { if (await goTo(target)) await openLibraryNotebook(target, key); }
@@ -385,6 +389,7 @@ export async function showPane(view, paneId, updateHash = true) {
 }
 
 async function goTo(target, updateHash = true) {
+  if (["chatgpt", "dsh"].includes(target)) { setAgentProvider(target); return switchView("agent", updateHash); }
   if (["roles", "role", "ai"].includes(target)) {
     if (!(await switchView("settings", updateHash))) return false;
     return openSettingsSection("roles");

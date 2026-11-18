@@ -383,3 +383,11 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
   .library-selection-bar button, .nav-order-actions button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { #nav-order-list li { transition: none; } }
+/* Conversation providers keep separate mounted sessions. */
+.agent-provider-tabs { display: flex; gap: 6px; margin: 8px 0 16px; }
+.agent-provider-tabs button, .chatgpt-toolbar button { border: 1px solid var(--p-line); background: var(--p-surface); color: var(--p-ink); border-radius: 12px; padding: 10px 18px; }
+.agent-provider-tabs button[aria-pressed="true"] { background: var(--p-accent-bg); color: var(--p-invert-ink); }
+.chatgpt-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px; border: 1px solid var(--p-line); border-radius: 16px 16px 0 0; background: var(--p-surface); }
+#chatgpt-status { flex: 1; font-size: 13px; color: var(--p-ink-3); }
+#chatgpt-stage { height: max(440px, calc(100dvh - 240px)); border: 1px solid var(--p-line); background: var(--p-surface); border-radius: 0 0 16px 16px; overflow: hidden; }
+.chatgpt-placeholder { padding: 48px 24px; max-width: 680px; margin: auto; line-height: 1.8; }

@@ -1,9 +1,13 @@
 /* 薪火OS 的 Obsidian 视图：整页 iframe 占满，边距归零。 */
 .torch-view {
+  position: relative;
   padding: 0;
   height: 100%;
   overflow: hidden;
 }
+
+.torch-chatgpt-webview { position: absolute; display: flex; border: 0; z-index: 2; background: var(--background-primary); }
+.torch-chatgpt-webview[hidden] { display: none !important; }
 
 .torch-view .torch-frame {
   display: block;

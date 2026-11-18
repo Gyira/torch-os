@@ -2,7 +2,7 @@ import { api } from "./core.js";
 import { buildNotebookCards } from "./notebook-model.js";
 
 /** Notebook menus share the Ops menu surface; the primary button still opens its home. */
-export function buildNotebookNav(trigger, view, navigate) {
+export function buildNotebookNav(trigger, view, navigate, choices = null) {
   const family = document.createElement("div");
   family.className = "panel-nav-family"; family.dataset.navFamily = view;
   const menu = document.createElement("div");
@@ -27,13 +27,13 @@ export function buildNotebookNav(trigger, view, navigate) {
     if (focus) trigger.focus({ preventScroll: true });
   }
   function render(payload) {
-    const books = buildNotebookCards(view, payload.chapters, payload.custom_notebooks, payload.deleted_notebooks);
+    const books = choices || buildNotebookCards(view, payload.chapters, payload.custom_notebooks, payload.deleted_notebooks);
     card.replaceChildren();
     for (const book of books) {
       const button = document.createElement("button"); button.type = "button";
       button.className = "panel-nav-item panel-nav-system"; button.dataset.navNotebook = book.key;
       const label = document.createElement("span"); label.textContent = payload.notebook_titles?.[book.key] || book.title;
-      const count = document.createElement("small"); count.textContent = `${book.count} 篇`;
+      const count = document.createElement("small"); count.textContent = choices ? "" : `${book.count} 篇`;
       button.append(label, count);
       button.addEventListener("click", async () => {
         close(); await navigate(view, book.key);
@@ -45,7 +45,8 @@ export function buildNotebookNav(trigger, view, navigate) {
     clearTimeout(timer);
     document.dispatchEvent(new CustomEvent("torch:nav-menu-open", { detail: view }));
     menu.hidden = false; family.classList.add("menu-open"); trigger.setAttribute("aria-expanded", "true");
-    if (cache) render(cache);
+    if (choices) render({});
+    else if (cache) render(cache);
     else {
       card.textContent = "正在读取本子…"; position();
       const version = generation;

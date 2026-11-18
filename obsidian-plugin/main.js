@@ -391,6 +391,13 @@ class WorkbenchView extends ItemView {
     this.registerDomEvent(window, 'message', (event) => {
       if (!event || event.source !== this.frame?.contentWindow) return;
       const data = event.data;
+      if (data?.type === 'torch:chatgpt') {
+        let origin;
+        try { origin = new URL(this.plugin.instanceUrl).origin; } catch { return; }
+        if (event.origin !== origin) return;
+        this.chatgptMessage(data);
+        return;
+      }
       if (data?.type === 'torch:theme-request') { this.plugin.pushTheme(this.frame); return; }
       if (data?.type === 'torch:open-note') { this.plugin.openNote(data.path, event.origin); }
       if (data?.type === 'torch:new-note') { this.plugin.createNote(data.path, data.content, event.origin); }
@@ -398,6 +405,7 @@ class WorkbenchView extends ItemView {
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+      if (this.chatgpt) this.chatgpt.hidden = leaf !== this.leaf || !this.chatgptBounds?.visible;
       if (leaf === this.leaf && this.frame && Date.now() - this.lastLoad > STALE_RELOAD_MS) {
         this.reload();
       }
@@ -412,6 +420,7 @@ class WorkbenchView extends ItemView {
   }
 
   reload() {
+    if (this.chatgpt) this.chatgpt.hidden = true;
     if (!this.frame || !this.plugin.instanceUrl) return;
     const scheme = document.body.classList.contains('theme-dark') ? 'dark' : 'light';
     const url = new URL(`${this.plugin.instanceUrl.replace(/\/+$/, '')}/`);
@@ -423,6 +432,7 @@ class WorkbenchView extends ItemView {
   }
 
   showOffline(message) {
+    if (this.chatgpt) this.chatgpt.hidden = true;
     if (this.frame) this.frame.hidden = true;
     if (!this.offline) {
       this.offline = this.contentEl.createEl('div', { cls: 'torch-offline' });
@@ -436,6 +446,56 @@ class WorkbenchView extends ItemView {
       this.offline.remove();
       this.offline = null;
     }
+  }
+
+  chatgptStatus(message) {
+    try { this.frame?.contentWindow?.postMessage({ type: 'torch:chatgpt-status', message }, new URL(this.plugin.instanceUrl).origin); } catch {}
+  }
+
+  chatgptMessage(data) {
+    if (data.action === 'reload') {
+      try { this.chatgpt?.reload(); } catch { this.chatgptStatus('无法重新载入，请使用浏览器打开。'); }
+      return;
+    }
+    if (data.action !== 'bounds') return;
+    this.chatgptBounds = data;
+    if (!data.visible) { if (this.chatgpt) this.chatgpt.hidden = true; return; }
+    const rect = data.rect;
+    if (!rect || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) || rect.width <= 0 || rect.height <= 0) return;
+    if (!this.chatgpt) {
+      // Host-owned guest browser: no Node integration, preload, proxy or page-script injection.
+      const guest = document.createElement('webview');
+      guest.className = 'torch-chatgpt-webview';
+      guest.setAttribute('partition', 'persist:torch-chatgpt');
+      guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
+      guest.setAttribute('title', 'ChatGPT 网页');
+      guest.addEventListener('dom-ready', () => { window.clearTimeout(this.chatgptTimer); this.chatgptStatus('网页已载入；请在 ChatGPT 中登录或开始对话。'); });
+      guest.addEventListener('did-start-loading', () => this.chatgptStatus('正在载入 ChatGPT…'));
+      guest.addEventListener('did-fail-load', (event) => {
+        if (event.errorCode === -3 || event.isMainFrame === false) return;
+        this.chatgptStatus('ChatGPT 加载失败，可重新载入或在浏览器中打开。');
+      });
+      guest.addEventListener('new-window', (event) => {
+        event.preventDefault?.();
+        try { if (new URL(event.url).protocol === 'https:') this.plugin.openExternalUrl(event.url, new URL(this.plugin.instanceUrl).origin); } catch {}
+      });
+      guest.setAttribute('src', 'https://chatgpt.com/');
+      this.contentEl.appendChild(guest);
+      this.chatgpt = guest;
+      this.chatgptTimer = window.setTimeout(() => this.chatgptStatus('网页尚未就绪；若出现空白或登录限制，请使用浏览器打开。'), 25000);
+      this.chatgptStatus('正在载入 ChatGPT；登录或验证遇到限制时可使用浏览器打开。');
+    }
+    const outer = this.contentEl.getBoundingClientRect(), box = this.frame.getBoundingClientRect();
+    const x = Math.max(box.left, box.left + rect.x), y = Math.max(box.top, box.top + rect.y);
+    const right = Math.min(box.right, box.left + rect.x + rect.width);
+    const bottom = Math.min(box.bottom, box.top + rect.y + rect.height);
+    Object.assign(this.chatgpt.style, { left: `${x - outer.left}px`, top: `${y - outer.top}px`, width: `${Math.max(0, right - x)}px`, height: `${Math.max(0, bottom - y)}px` });
+    this.chatgpt.hidden = right <= x || bottom <= y || this.app.workspace.activeLeaf !== this.leaf;
+  }
+
+  async onClose() {
+    window.clearTimeout(this.chatgptTimer);
+    this.chatgpt?.remove(); this.chatgpt = null; this.chatgptBounds = null;
   }
 }
 
@@ -910,6 +970,7 @@ module.exports = class TorchPlugin extends Plugin {
 
 // 供 node --test 覆盖纯路径发现逻辑；Obsidian 运行时不会读取这个属性。
 module.exports._test = {
+  WorkbenchView,
   localConfigDir,
   deviceConfigPath,
   readDeviceSettings,
