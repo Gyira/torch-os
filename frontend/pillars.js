@@ -121,8 +121,8 @@ const state = {
   reading: {},
 };
 
-async function ensureManifest() {
-  if (!state.manifest) state.manifest = await api("/api/pillars");
+async function ensureManifest(refresh = false) {
+  if (refresh || !state.manifest) state.manifest = await api("/api/pillars");
   return state.manifest;
 }
 
@@ -421,8 +421,7 @@ function readerMarkup(view, reading, railItems) {
               ${tagsMarkup}
             </header>
             <div class="md-body">${doc.html || `<p class="pillar-reader-empty">${taskDocument ? "这篇任务文档还没有正文；点「应用内编辑」写点什么。" : "这篇笔记还没有正文。在 Obsidian 里写点什么吧。"}</p>`}</div>
-            ${linkedSection}
-            ${backlinksSection}
+            <div data-reader-related>${linkedSection}${backlinksSection}</div>
             <footer class="pillar-reader-foot">
               <p class="field-help">${taskDocument ? "任务文档可以在应用内编辑；标题就是任务板上的名字，排期与完成仍在任务板。" : canWrite ? "这篇可以应用内编辑；也可以随时回 Obsidian 改，保存时会用 revision 防止互相覆盖。" : "这是只读阅读视图；正文、标签和所在章节都在 Obsidian 里改。"}</p>
               ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">应用内编辑</button>` : ""}
@@ -1080,14 +1079,23 @@ function renderShell(view) {
   return root;
 }
 
-async function loadPillar(view, { keepChapter = false } = {}) {
-  await ensureManifest();
+const pillarLoads = new Map();
+let noteOpenSequence = 0;
+
+async function loadPillar(view, { keepChapter = false, reuseOverview = false } = {}) {
+  const sequence = (pillarLoads.get(view) || 0) + 1;
+  pillarLoads.set(view, sequence);
+  const current = () => pillarLoads.get(view) === sequence;
+  await ensureManifest(!reuseOverview);
+  if (!current()) return;
   if (!keepChapter) {
     // 模块切换时保留用户上次看的章节；首次进入看总览。
     if (!(view in state.chapter)) state.chapter[view] = "";
   }
   if (!(view in state.notebook)) state.notebook[view] = "";
-  const overview = await api(`/api/pillars/${view}/overview`);
+  const overview = reuseOverview && state.overviews[view]
+    ? state.overviews[view] : await api(`/api/pillars/${view}/overview`);
+  if (!current()) return;
   state.overviews[view] = overview;
   let notebook = notebookById(view, state.notebook[view] || "");
   if (!notebook) state.notebook[view] = "";
@@ -1114,17 +1122,24 @@ async function loadPillar(view, { keepChapter = false } = {}) {
     state.reading[view] = null;
   }
   if (state.search[view]) {
-    state.notes[view] = (await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`)).items;
+    const response = await api(`/api/search?pillar=${view}&q=${encodeURIComponent(state.search[view])}`);
+    if (!current()) return;
+    state.notes[view] = response.items;
   } else if (notebook && state.chapter[view]) {
-    state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
+    const response = await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`);
+    if (!current()) return;
+    state.notes[view] = response.items;
   } else if (notebook) {
     // 一个本子可能由多个章节组成（反思/周复盘/月复盘）。分别读取后按日期合并，
     // 用户看到的是“一个本子”，而不是三个孤立章节。
     const groups = await Promise.all(notebook.chapters.map((key) => api(
       `/api/pillars/${view}/notes?chapter=${encodeURIComponent(key)}`).then((payload) => payload.items)));
+    if (!current()) return;
     state.notes[view] = mergeNotesByRecency(groups);
   } else if (state.chapter[view]) {
-    state.notes[view] = (await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`)).items;
+    const response = await api(`/api/pillars/${view}/notes?chapter=${encodeURIComponent(state.chapter[view])}`);
+    if (!current()) return;
+    state.notes[view] = response.items;
   } else {
     state.notes[view] = overview.recent || [];
   }
@@ -1349,7 +1364,7 @@ function bindPillarEvents() {
         if (!result) return;
         state.reading[view] = null;
         await loadPillar(view);
-        toast("已删除，可在「工作台 → 回收中心」恢复。", "success", { timeout: 8000 });
+        toast("已删除，可在「回收中心」恢复。", "success", { timeout: 8000 });
       } catch (error) {
         if (error.status === 409) {
           toast("这篇笔记已在别处修改，未删除。请刷新后重试。", "warning");
@@ -1470,7 +1485,7 @@ function bindPillarEvents() {
       const builtinHint = notebook.custom ? "" : "这个内置本子会从首页隐藏，相关入口也会停用；";
       const ok = await confirmAction({
         title: "删除这个本子？",
-        message: `${builtinHint}「${notebook.title}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后仍可在文件管理器里找回。`,
+        message: `${builtinHint}「${notebook.title}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后可在顶部「回收中心」整本恢复。`,
         confirmLabel: "删除本子", danger: true,
       });
       if (!ok) return;
@@ -1513,7 +1528,7 @@ function bindPillarEvents() {
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
       try {
-        await loadPillar(view);
+        await loadPillar(view, { reuseOverview: true });
         document.querySelector(`#${view}-view .notebook-page h3`)?.focus?.({ preventScroll: true });
       } catch (error) {
         toast(error.message, "error");
@@ -1529,7 +1544,7 @@ function bindPillarEvents() {
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
       try {
-        await loadPillar(view);
+        await loadPillar(view, { reuseOverview: true });
       } catch (error) {
         toast(error.message, "error");
       }
@@ -1625,7 +1640,7 @@ function bindPillarEvents() {
       state.search[view] = "";
       state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
       try {
-        await loadPillar(view, { keepChapter: true });
+        await loadPillar(view, { keepChapter: true, reuseOverview: true });
         // 重绘后把焦点放回当前项，键盘用户不会回到页面开头。
         if (focusCurrent) {
           document.querySelector(`#${view}-view .pillar-rail-item.is-active, #${view}-view .notebook-chip.is-active`)
@@ -1759,21 +1774,11 @@ async function copyText(text) {
 }
 
 export async function openNote(path) {
+  const sequence = ++noteOpenSequence;
   try {
-    const [note, links] = await Promise.all([
-      api(`/api/notes?path=${encodeURIComponent(path)}`),
-      api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
-    ]);
-    const backlinks = Array.isArray(links.items) ? links.items : [];
-    let linkedTasks = [];
-    if (GOAL_CHAPTERS.has(note.chapter)) {
-      try {
-        const board = await api("/api/time/tasks");
-        linkedTasks = (board.tasks || []).filter((task) => task.goal === note.path);
-      } catch {
-        linkedTasks = [];
-      }
-    }
+    const note = await api(`/api/notes?path=${encodeURIComponent(path)}`);
+    if (sequence !== noteOpenSequence) return;
+    const backlinks = [], linkedTasks = [];
     const view = note.pillar;
     if (!PILLAR_META[view]) {
       toast("这篇笔记不在四库里，请在 Obsidian 里打开。", "warning");
@@ -1785,6 +1790,24 @@ export async function openNote(path) {
       focusPending: true,
       scrollY: typeof window.scrollY === "number" ? window.scrollY : 0,
     };
+    const reading = state.reading[view];
+    // Related information must not block the actual document from opening.
+    Promise.all([
+      api(`/api/notes/backlinks?path=${encodeURIComponent(path)}`).catch(() => ({ items: [] })),
+      GOAL_CHAPTERS.has(note.chapter) ? api("/api/time/tasks").catch(() => ({ tasks: [] })) : Promise.resolve({ tasks: [] }),
+    ]).then(([links, board]) => {
+      if (sequence !== noteOpenSequence || state.reading[view] !== reading) return;
+      reading.backlinks = Array.isArray(links.items) ? links.items : [];
+      reading.linkedTasks = (board.tasks || []).filter((task) => task.goal === note.path);
+      if (appState.view === view && (reading.backlinks.length || reading.linkedTasks.length)) {
+        const target = document.querySelector(`#${view}-view [data-reader-related]`);
+        if (target) {
+          const template = document.createElement("template");
+          template.innerHTML = readerMarkup(view, reading, "");
+          target.replaceChildren(...template.content.querySelector("[data-reader-related]").childNodes);
+        }
+      }
+    });
     if (appState.view === view) {
       renderShell(view);
       return;
@@ -1969,6 +1992,10 @@ export function initPillars() {
   initNoteMoveDialog();
   initNotebookCreate();
   initShareLink();
+  document.addEventListener("data-changed", () => {
+    state.manifest = null;
+    invalidateChapterCache();
+  });
   // 编辑器保存/移动/删除后刷新列表；正在阅读同一篇时保持阅读位置但重读最新内容。
   document.addEventListener("torch:notes-changed", (event) => {
     const detail = event.detail || {};

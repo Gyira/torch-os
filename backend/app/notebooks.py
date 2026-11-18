@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import pillar_notes, vault_layout
 from .db import Database
+from .memory_store import operation_lock
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 NOTEBOOK_TRASH_DIR = ".torch-os/本子回收站"
@@ -229,9 +230,9 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
         (batch / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8", newline="\n")
-    except OSError:
-        # 文件夹已经安全移进回收站；manifest 只用于找回提示，不因它失败而谎报删除失败。
-        pass
+    except OSError as error:
+        _rollback_moves([(target, trash_target)])
+        raise HTTPException(409, "回收清单保存失败，已尝试将本子恢复原位") from error
     database.audit("notebook_deleted", {
         "pillar": pillar, "name": name, "path": relative,
         "trash": trash_path, "count": note_count, "builtin": False,
@@ -255,10 +256,14 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
     chapters = vault_layout.builtin_notebook_chapters(pillar, key)
     if not title or not chapters:
         raise HTTPException(422, "只能删除人生路/知识库的内置本子或自建本子")
+    directories = [vault_layout.chapter_dir(chapter) for chapter in chapters]
+    common = os.path.commonpath(directories).replace("\\", "/")
+    # Move the containing notebook too: covers attachments and leaves no ghost folder.
+    if common != vault_layout.PILLAR_DIRS[pillar]:
+        directories = [common]
     sources: list[tuple[str, Path, str]] = []
     note_count = 0
-    for chapter in chapters:
-        relative = vault_layout.chapter_dir(chapter)
+    for relative in directories:
         if not relative:
             continue
         source = workspace_path(vault, relative)
@@ -273,7 +278,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
         if not is_workspace_path(vault, source.resolve()):
             raise HTTPException(409, "本子目录不在库内，已停止删除")
         note_count += _count_markdown(source)
-        sources.append((chapter, source, relative))
+        sources.append(("", source, relative))
 
     try:
         batch = _new_notebook_batch(vault)
@@ -321,8 +326,10 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
         (batch / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8", newline="\n")
-    except OSError:
-        pass
+    except OSError as error:
+        _rollback_moves(moved)
+        vault_layout.mark_notebook_deleted(vault, pillar, key, deleted=False)
+        raise HTTPException(409, "回收清单保存失败，已尝试恢复原本子") from error
     database.audit("notebook_deleted", {
         "pillar": pillar, "name": title, "key": key,
         "path": ",".join(relative for _chapter, _source, relative in sources),
@@ -341,7 +348,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
     }
 
 
-def delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
+def _delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
                     key: str, confirm: bool = False,
                     read_only: bool = False) -> dict[str, Any]:
     """软删除内置或自建本子；随笔/收件箱和任务/习惯等非本子路径拒绝删除。"""
@@ -369,6 +376,13 @@ def delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
         return _delete_custom_notebook(database, vault, key_pillar, notebook_key)
 
     raise HTTPException(422, "只能删除当前库的本子")
+
+
+def delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
+                    key: str, confirm: bool = False, read_only: bool = False) -> dict[str, Any]:
+    with operation_lock(f"notebook-recycle|{Path(vault_dir).resolve()}"):
+        return _delete_notebook(database, vault_dir, pillar=pillar, key=key,
+                                confirm=confirm, read_only=read_only)
 
 
 def create_notebook_router(database: Database, vault_dir: Path | str, *,

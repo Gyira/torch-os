@@ -1,5 +1,5 @@
 import { $, state, api, escapeHtml } from "./core.js";
-import { initSettings, loadSettings } from "./settings.js";
+import { initSettings, loadSettings, confirmSettingsLeave, openSettingsSection } from "./settings.js";
 import { initDshPane, loadDshPane } from "./dsh-pane.js";
 import { initLovePane, loadLovePane } from "./love.js";
 import { initHealthPane, loadHealthPane } from "./health.js";
@@ -22,7 +22,7 @@ import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
-import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
+import { initRoleAdmin, loadRoleAdmin } from "./role-admin.js";
 import { initSelectionAsk } from "./selection-ask.js";
 import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 import { initMaterialMotion } from "./material-motion.js";
@@ -30,27 +30,42 @@ import { initContextSettings } from "./context-settings.js";
 
 const titles = NAV_LABELS;
 
-// 五大模块（工作台内含「与神对话」「回收中心」，帮助并进设置）：侧边栏只选模块，模块内再选分区。
-// 工作台的待办事项与 dsh 界面同页上下排列，二级菜单只做滚动定位；回收中心是独立页面。
+// Keep existing element identities and event bindings while giving these pages their own route.
+const mainPages = $("#main-content");
+for (const name of ["agent", "recycle"]) {
+  const page = $(`#${name}-view`);
+  if (page && mainPages) {
+    page.classList.remove("pane", "workbench-agent", "workbench-recycle");
+    page.classList.add("view", `standalone-${name}`);
+    page.dataset.module = name;
+    mainPages.append(page);
+  }
+}
+const rolesPage = $("#roles-view");
+const settingsContent = $("#settings-view .settings-content");
+if (rolesPage && settingsContent) {
+  rolesPage.classList.remove("view");
+  rolesPage.dataset.settingsSection = "roles";
+  rolesPage.dataset.module = "settings";
+  settingsContent.append(rolesPage);
+}
+
+// 顶层页面独立路由；生活运营保留系统分区，AI 角色管理归入设置中心。
 const MODULES = {
-  // 待办事项和与神对话同页上下排列，二级菜单只做滚动定位；回收中心是独立页面。
-  workbench: {
-    stacked: true,
-    pagePanes: ["recycle-view"],
-    panes: [["workbench-view", "待办事项"], ["agent-view", "与神对话"], ["recycle-view", "回收中心"]],
-  },
+  workbench: { panes: [], ownNav: true },
+  agent: { panes: [], ownNav: true },
+  recycle: { panes: [], ownNav: true },
   // 四库：模块内部由 pillars.js 自己的章节轨导航，不再使用通用二级菜单。
   life: { panes: [], ownNav: true },
   self: { panes: [], ownNav: true },
   // 生活运营保留自己的章节轨，同时在模块顶部多「恋爱系统 / 健康系统」两个二级分区。
   ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"], ["health-view", "健康系统"]] },
   knowledge: { panes: [], ownNav: true },
-  roles: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
 };
 const paneChoice = {};
 const PANE_GUARDS = {};
-const MODULE_GUARDS = { roles: () => confirmRoleAdminLeave() };
+const MODULE_GUARDS = { settings: () => confirmSettingsLeave() };
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": () => { initDshPane(); loadDshPane(); },
@@ -107,8 +122,28 @@ function renderPanelNav() {
     button.className = "panel-nav-item";
     button.dataset.view = view;
     button.textContent = titles[view] || view;
-    button.addEventListener("click", () => { switchView(view); });
-    scroll.appendChild(button);
+    // One delegated handler below owns navigation; a second handler doubles data loads.
+    if (view === "ops") {
+      const group = document.createElement("div");
+      group.className = "panel-nav-family";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", "生活运营及常用系统");
+      group.append(button);
+      const systems = document.createElement("div");
+      systems.className = "panel-nav-systems";
+      for (const [target, label] of [["health", "健康"], ["love", "恋爱"]]) {
+        const shortcut = document.createElement("button");
+        shortcut.type = "button";
+        shortcut.className = "panel-nav-system";
+        shortcut.dataset.system = target;
+        shortcut.textContent = label;
+        shortcut.setAttribute("aria-label", `打开${label}系统`);
+        shortcut.addEventListener("click", () => goTo(target));
+        systems.append(shortcut);
+      }
+      group.append(systems);
+      scroll.append(group);
+    } else scroll.appendChild(button);
   }
   nav.appendChild(scroll);
   const help = document.createElement("button");
@@ -139,7 +174,7 @@ if (embedMode) {
   window.addEventListener("message", (event) => {
     const data = event?.data;
     if (!data || data.type !== "torch:navigate" || typeof data.view !== "string") return;
-    if (!Object.hasOwn(titles, data.view)) return;
+    if (!Object.hasOwn(titles, data.view) && data.view !== "roles") return;
     // dsh 侧栏的二级菜单会带上 pane。分区可能属于另一个模块（stacked 的工作台不会
     // 自己切模块），所以走 showPane：先切到那个模块，再定位到分区。
     if (typeof data.pane === "string" && data.pane) showPane(data.view, data.pane);
@@ -156,16 +191,24 @@ const GO_TARGETS = {
   health: ["ops", "health-view"], love: ["ops", "love-view"],
   brain: ["knowledge", ""], knowledge: ["knowledge", ""], documents: ["knowledge", ""],
   notes: ["knowledge", ""], archive: ["knowledge", ""], settings: ["settings", ""],
-  roles: ["roles", ""], role: ["roles", ""], ai: ["roles", ""],
-  recycle: ["workbench", "recycle-view"],
+  agent: ["agent", ""], dsh: ["agent", ""],
+  roles: ["settings", ""], role: ["settings", ""], ai: ["settings", ""],
+  recycle: ["recycle", ""],
 };
 
 export async function showPane(view, paneId, updateHash = true) {
-  if (!(await switchView(view, updateHash))) return false;
-  return activatePane(view, paneId);
+  if (paneId === "agent-view" || paneId === "recycle-view") return switchView(paneId.replace("-view", ""), updateHash);
+  const previous = paneChoice[view];
+  if (MODULES[view]?.panes?.some(([id]) => id === paneId)) paneChoice[view] = paneId;
+  if (!(await switchView(view, updateHash))) { paneChoice[view] = previous; return false; }
+  return true;
 }
 
 async function goTo(target, updateHash = true) {
+  if (["roles", "role", "ai"].includes(target)) {
+    if (!(await switchView("settings", updateHash))) return false;
+    return openSettingsSection("roles");
+  }
   if (target === "help") {
     // 帮助已经并进设置：深链接 #help 仍然要把那个分区打开。
     if (!(await switchView("settings", updateHash))) return false;
@@ -189,6 +232,7 @@ async function goTo(target, updateHash = true) {
 }
 
 export async function switchView(view, updateHash = true) {
+  if (view === "roles") return goTo("roles", updateHash);
   if (!Object.hasOwn(titles, view)) return false;
   if (navigationPending) return false;
   if (state.view !== view && !(await confirmLeaving(state.view))) {
@@ -310,6 +354,11 @@ function syncModuleNavActive(view) {
 function renderSidebarState(view) {
   const module = MODULES[view];
   const current = module?.stacked ? (paneChoice[view] || module.panes[0]?.[0]) : paneChoice[view];
+  document.querySelectorAll(".panel-nav-system").forEach((button) => {
+    const active = view === "ops" && current === `${button.dataset.system}-view`;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current");
+  });
   document.querySelectorAll(".nav-sublist").forEach((list) => { list.hidden = list.dataset.sublist !== view; });
   document.querySelectorAll(".nav-item").forEach((button) => {
     const own = button.dataset.view === view;

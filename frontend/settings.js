@@ -2,6 +2,7 @@ import { $, state, api, escapeHtml, renderState, formatDate, setStatus, toast } 
 import { NAV_LABELS, applyNavOrder, clearOrder, currentNavOrder, moveItem, storeOrder } from "./nav-order.js";
 import { initVaultMigration, loadVaultMigration } from "./vault-migration.js";
 import { initWidgetSettings, loadWidgetSettings } from "./widget-settings.js";
+import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
 
 let loadId = 0;
 let backupLoadId = 0;
@@ -136,7 +137,14 @@ function downloadExportBundle() {
 
 let currentSettingsSection = "status";
 
-function showSettingsSection(name, { focus = true } = {}) {
+export function confirmSettingsLeave() {
+  return currentSettingsSection === "roles" ? confirmRoleAdminLeave() : true;
+}
+
+export async function openSettingsSection(name) { return showSettingsSection(name); }
+
+async function showSettingsSection(name, { focus = true } = {}) {
+  if (name !== currentSettingsSection && !(await confirmSettingsLeave())) return false;
   const sections = Array.from(document.querySelectorAll("[data-settings-section]"));
   if (!sections.length) return;
   const target = sections.find((section) => section.dataset.settingsSection === name) || sections[0];
@@ -155,7 +163,9 @@ function showSettingsSection(name, { focus = true } = {}) {
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
   if (currentSettingsSection === "widgets") loadWidgetSettings();
+  if (currentSettingsSection === "roles") { initRoleAdmin(); loadRoleAdmin(); }
   if (currentSettingsSection === "backup" && cloudBackupAvailable()) loadCloudBackup();
+  return true;
 }
 
 // The last user action stays visible: a background refresh redraws the list and

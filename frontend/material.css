@@ -276,3 +276,33 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 .ai-model-form { display: grid; gap: 14px; margin-top: 16px; }
 .ai-model-form select { min-width: 0; width: 100%; min-height: 42px; }
 .ai-handoff-text { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 14px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); color: var(--p-ink); line-height: 1.6; font-size: 14px; }
+
+/* Direct routes, with the two everyday systems always within reach. */
+.top-nav-mode .panel-nav { gap: 10px; padding: 10px 14px; border-radius: 0 0 20px 20px; border-bottom: 1px solid var(--p-line); box-shadow: 0 8px 30px rgb(0 0 0 / 4%); }
+.panel-nav-scroll { align-items: center; gap: 5px; }
+.panel-nav-family { display: flex; flex: 0 0 auto; flex-direction: column; align-items: stretch; padding: 3px 6px; border: 1px solid var(--p-line); border-radius: 15px; background: var(--p-surface); }
+.panel-nav-family > .panel-nav-item { min-height: 30px; padding-block: 4px; }
+.panel-nav-systems { display: flex; gap: 3px; }
+.panel-nav-system { flex: 1; min-height: 30px; padding: 3px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--p-ink-3); font: inherit; font-size: 12px; cursor: pointer; }
+.panel-nav-system:hover, .panel-nav-system.active { background: var(--p-line); color: var(--p-ink); }
+.panel-nav-system:focus-visible { outline: 2px solid var(--p-accent, #3576d6); outline-offset: 2px; }
+.standalone-agent .dsh-frame-wrap { height: calc(100dvh - var(--panel-nav-h, 86px) - 160px); min-height: 420px; }
+.standalone-agent .dsh-frame { height: 100%; }
+#workbench-train-tracker[data-duty-hidden="true"] { display: none !important; }
+.recycle-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, 220px); gap: 14px 20px; padding: 20px; margin: 20px 0 12px; border: 1px solid var(--p-line); border-radius: 18px; background: var(--p-surface); }
+.recycle-toolbar label { display: grid; gap: 6px; font-size: 13px; color: var(--p-ink-3); }
+.recycle-toolbar input[type="search"], .recycle-toolbar select { min-height: 42px; width: 100%; min-width: 0; }
+.recycle-toolbar .recycle-select-all { display: flex; align-items: center; gap: 8px; }
+.recycle-batch-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.recycle-select input, .recycle-select-all input { width: 18px; height: 18px; }
+.recycle-item-main { min-width: 0; flex: 1; }
+.recycle-location { font-size: 12px; color: var(--p-ink-3); margin-top: 8px; }
+.recycle-location p { overflow-wrap: anywhere; }
+.recycle-meta, #recycle-summary { color: var(--p-ink-2); }
+@media (max-width: 700px) {
+  .recycle-toolbar { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .recycle-batch-actions { justify-content: flex-start; }
+  .top-nav-mode .panel-nav { gap: 5px; padding: 8px; }
+  .panel-nav-system { min-height: 36px; }
+  .panel-nav-help { display: none; }
+}

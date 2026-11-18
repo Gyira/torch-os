@@ -23,6 +23,7 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from .vault import safe_note_path
+from .memory_store import operation_lock
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 TRACKER_RELATIVE = ".torch-os/train-tracker"
@@ -123,6 +124,7 @@ def normalize_train(code: Any, raw: Any) -> dict[str, Any] | None:
         "stops": stops,
         "source": str(raw.get("source") or "local")[:20],
         "synced_at": str(raw.get("synced_at") or "")[:40],
+        "timetable_date": str(raw.get("timetable_date") or "")[:10],
     }
 
 
@@ -162,10 +164,11 @@ def save_timetable(vault_dir: Path | str, timetable: dict[str, dict[str, Any]],
         raise HTTPException(409, str(error)) from error
     path = _timetable_path(vault_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(timetable, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
-    os.replace(temporary, path)
+    with operation_lock(f"train-file|{path.resolve()}"):
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(timetable, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        os.replace(temporary, path)
 
 
 def migrate_legacy_timetable(vault_dir: Path | str, candidates: list[Path] | tuple[Path, ...],
@@ -392,6 +395,8 @@ def _search_train_no(client: httpx.Client, code: str, date_text: str,
         ]
         if matched:
             exact = matched
+    if len({str(item.get("train_no") or "") for item in exact}) > 1:
+        raise TrainSyncError("这趟车有多个匹配，请填写准确的起止站后再同步。")
     train_no = str(exact[0].get("train_no") or "").strip()
     if not train_no:
         raise TrainSyncError("12306 车次搜索没有返回 train_no。")
@@ -462,15 +467,15 @@ def fetch_12306_train(code: str, from_station: str, to_station: str,
         raise TrainSyncError("车次号格式不正确。")
     if not DATE_PATTERN.fullmatch(date_text):
         raise TrainSyncError("日期格式应为 YYYY-MM-DD。")
-    if not from_station.strip() or not to_station.strip():
-        raise TrainSyncError("本地没有这趟车的起止站；请在同步表单里填写出发站和到达站。")
     client = _client()
     try:
         try:
             # 新路径：车次搜索按日期返回车次本身，发车后仍可用；也不需要先拿余票会话。
             train_no = _search_train_no(client, code, date_text,
                                         from_station.strip(), to_station.strip())
-        except TrainSyncError:
+        except TrainSyncError as error:
+            if not from_station.strip() or not to_station.strip():
+                raise TrainSyncError("车次自动识别失败；请在同步表单里填写出发站和到达站后重试。") from error
             # 旧路径：余票查询 + 车站表。只在车次搜索失败时使用。
             _bootstrap(client)
             stations = _station_map(client)
@@ -614,8 +619,11 @@ def create_train_tracker_router(vault_dir: Path | str, *, read_only: bool = Fals
         train = normalize_train(code, raw_train)
         if not train:
             raise HTTPException(422, "12306 没有返回可用的车次信息")
-        timetable[code] = train
-        save_timetable(vault_dir, timetable, read_only=read_only)
+        train["timetable_date"] = date_text
+        with operation_lock(f"train-update|{Path(vault_dir).resolve()}"):
+            timetable = load_timetable(vault_dir)
+            timetable[code] = train
+            save_timetable(vault_dir, timetable, read_only=read_only)
         return {"success": True, "code": code, "train": train,
                 "message": f"{code} 已从 12306 同步。"}
 

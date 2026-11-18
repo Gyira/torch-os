@@ -7,12 +7,7 @@
   <aside class="sidebar" aria-label="工作台导航">
     <div class="brand"><span class="brand-mark" aria-hidden="true">火</span><div><strong>薪火OS</strong><small>本地认知工作台</small></div></div>
     <nav aria-label="主要页面">
-      <button class="nav-item active" data-view="workbench" aria-current="page" aria-expanded="true" aria-controls="nav-sub-workbench"><span aria-hidden="true">◷</span>工作台</button>
-      <div class="nav-sublist" id="nav-sub-workbench" data-sublist="workbench" role="group" aria-label="工作台分区">
-        <button type="button" class="nav-subitem active" data-pane="workbench-view" aria-current="true">待办事项</button>
-        <button type="button" class="nav-subitem" data-pane="agent-view" aria-current="false">与神对话</button>
-        <button type="button" class="nav-subitem" data-pane="recycle-view" aria-current="false">回收中心</button>
-      </div>
+      <button class="nav-item active" data-view="workbench" aria-current="page"><span aria-hidden="true">◷</span>工作台</button>
       <button class="nav-item" data-view="life"><span aria-hidden="true">行</span>人生路</button>
       <button class="nav-item" data-view="self"><span aria-hidden="true">我</span>自我档案</button>
       <button class="nav-item" data-view="ops" aria-expanded="false" aria-controls="nav-sub-ops"><span aria-hidden="true">营</span>生活运营</button>
@@ -22,8 +17,9 @@
         <button type="button" class="nav-subitem" data-pane="health-view" aria-current="false">健康系统</button>
       </div>
       <button class="nav-item" data-view="knowledge"><span aria-hidden="true">知</span>知识库</button>
-      <button class="nav-item" data-view="roles"><span aria-hidden="true">角</span>AI 角色</button>
-      <button class="nav-item" data-view="settings" aria-expanded="false"><span aria-hidden="true">⚙</span>设置与状态</button>
+      <button class="nav-item" data-view="agent"><span aria-hidden="true">聊</span>与神对话</button>
+      <button class="nav-item" data-view="recycle"><span aria-hidden="true">↺</span>回收中心</button>
+      <button class="nav-item" data-view="settings"><span aria-hidden="true">⚙</span>设置中心</button>
     </nav>
     <div class="sidebar-footer"><span id="service-dot" class="status-dot" aria-hidden="true"></span><span class="sidebar-service"><span id="service-label">正在检查本地服务…</span><span id="service-version">版本读取中…</span></span></div>
   </aside>
@@ -196,7 +192,7 @@
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>
             <section class="time-page" id="time-trash-page" role="tabpanel" aria-labelledby="time-tab-trash" hidden aria-label="回收站">
               <header class="time-head"><h3>回收站</h3><span id="time-trash-count" class="meta" role="status"></span><button type="button" id="time-trash-refresh" class="text-button">刷新</button></header>
-              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>02_生活运营/00_待办事项/回收站</code>），包括滴答清单远端删除的任务。四库其他文档统一在「工作台 → 回收中心」查看；只有“彻底删除”才会真正删除 md 文件。</p>
+              <p class="field-help">任务或清单文件夹删除后会先移到这里（<code>02_生活运营/00_待办事项/回收站</code>），包括滴答清单远端删除的任务。四库其他文档统一在「回收中心」查看；只有“彻底删除”才会真正删除 md 文件。</p>
               <p id="time-trash-status" class="status-message" role="status"></p>
               <div id="time-trash-list"></div>
             </section>
@@ -264,13 +260,20 @@
             <div>
               <p class="eyebrow">四库 · 回收中心</p>
               <h2>回收中心</h2>
-              <p class="pillar-subtitle">四库删除的笔记、日记和任务会先停在这里。恢复会回到原位置（任务按清单/完成状态回到对应文件夹）；只有「彻底删除」才会真正移除文件。</p>
+              <p class="pillar-subtitle">本子、笔记和任务统一管理。恢复会放回原位置；彻底删除会移除回收站内的文件夹与内容。</p>
             </div>
           </div>
           <div class="pillar-head-actions">
             <button type="button" id="recycle-refresh" class="button secondary">刷新</button>
           </div>
         </header>
+        <div class="recycle-toolbar">
+          <label>搜索回收项目<input id="recycle-search" type="search" placeholder="本子名称、笔记标题或原路径"></label>
+          <label>项目类型<select id="recycle-kind"><option value="">全部类型</option><option value="notebook">本子与文件夹</option><option value="note">笔记</option><option value="journal">日记</option><option value="task">任务</option><option value="task_folder">任务清单</option></select></label>
+          <label class="recycle-select-all"><input id="recycle-select-visible" type="checkbox">选择当前结果（最多 200 项）</label>
+          <div class="recycle-batch-actions"><button id="recycle-restore-selected" class="button secondary" type="button" disabled>恢复所选（0）</button><button id="recycle-purge-selected" class="button secondary" type="button" disabled>彻底删除所选（0）</button></div>
+        </div>
+        <p id="recycle-summary" class="meta" role="status"></p>
         <p id="recycle-status" class="status-message" role="status" aria-live="polite"></p>
         <div id="recycle-groups"></div>
       </div>
@@ -445,6 +448,7 @@
         <nav class="settings-nav" aria-label="设置分区">
           <span class="settings-nav-label">日常偏好与连接</span>
           <button class="settings-nav-item active" type="button" data-settings-nav="status" aria-current="true">服务状态</button>
+          <button class="settings-nav-item" type="button" data-settings-nav="roles" aria-current="false">AI 角色与模型</button>
           <button class="settings-nav-item" type="button" data-settings-nav="appearance" aria-current="false">导航顺序</button>
           <button class="settings-nav-item" type="button" data-settings-nav="widgets" aria-current="false">工作台小组件</button>
           <button class="settings-nav-item" type="button" data-settings-nav="schedule" aria-current="false">定时提醒</button>

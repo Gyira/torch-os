@@ -2,7 +2,8 @@ from pathlib import Path
 
 
 async def check_ai(cdp, check, click, shot, args, report):
-    await click('[data-view="roles"]')
+    await click('.panel-nav-item[data-view="settings"]')
+    await click('[data-settings-nav="roles"]')
     await cdp.wait_for("document.querySelector('#ai-model-status').textContent.includes('测试环境')")
     await cdp.evaluate("document.querySelector('.ai-model-panel').open=true")
     await check('model_settings_disabled_in_qa', "document.querySelector('#ai-model-form button[type=submit]').disabled")

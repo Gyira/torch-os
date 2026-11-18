@@ -1028,6 +1028,7 @@ function openScheduleDay(day) {
   $id("love-schedule-clear")?.addEventListener("click", async () => {
     try {
       await loveApi(`/api/love/schedule/override?date=${encodeURIComponent(day.date)}`, { method: "DELETE", timeoutMs: 20000 });
+      document.dispatchEvent(new CustomEvent("torch:duty-changed"));
       $id("detail-dialog")?.close();
       toast("已恢复跟随 Excel。", "success");
       await renderLovePage();
@@ -1049,6 +1050,7 @@ function openScheduleDay(day) {
           body: JSON.stringify({ date: day.date, status, duty: duty || null }),
           timeoutMs: 20000,
         });
+        document.dispatchEvent(new CustomEvent("torch:duty-changed"));
         await loveApi("/api/love/schedule/note", {
           method: "PUT",
           body: JSON.stringify({ date: day.date, note }),

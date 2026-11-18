@@ -992,7 +992,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_health_router(
         database, vault_dir, role_service=ai_service, read_only=vault_read_only))
     # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
-    # 12306 同步只在用户点击时发生；QA 模式禁用同步，但仍可导入本地时刻表。
+    # 当天值乘车次可自动刷新 12306 时刻表；QA 模式禁用外部同步，仍可导入本地数据。
     app.include_router(create_train_tracker_router(
         vault_dir, read_only=vault_read_only,
         legacy_paths=train_tracker_legacy,

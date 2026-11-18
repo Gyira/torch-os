@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import pillar_notes, task_trash, task_trash_store, vault_layout
+from .notebook_recycle import list_notebook_recycle, restore_notebook, purge_notebook
 from .db import Database
 from .vault import safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -214,7 +215,7 @@ def _task_items(vault: Path) -> list[dict[str, Any]]:
 
 def _iter_items(vault: Path) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
-    for item in [*_note_items(vault), *_task_items(vault)]:
+    for item in [*_note_items(vault), *_task_items(vault), *list_notebook_recycle(vault)]:
         trash_rel = str(item.get("trash_path") or "")
         if not trash_rel or trash_rel in seen:
             continue
@@ -403,9 +404,10 @@ def restore_recycle(database: Database, vault_dir: Path | str, *, paths: list[st
             task_paths.append(rel)
             continue
         try:
-            _restore_note(vault, item)
+            if item["source"] == "notebooks": restore_notebook(vault, rel)
+            else: _restore_note(vault, item)
             restored += 1
-        except _RecycleSkip as reason:
+        except (_RecycleSkip, ValueError) as reason:
             skipped.append({"path": rel, "reason": str(reason)})
         except OSError as error:
             errors.append({"path": rel, "reason": type(error).__name__})
@@ -447,9 +449,10 @@ def purge_recycle(database: Database, vault_dir: Path | str, *, paths: list[str]
             task_paths.append(rel)
             continue
         try:
-            _purge_note(vault, item)
+            if item["source"] == "notebooks": purge_notebook(vault, rel)
+            else: _purge_note(vault, item)
             deleted += 1
-        except _RecycleSkip as reason:
+        except (_RecycleSkip, ValueError) as reason:
             skipped.append({"path": rel, "reason": str(reason)})
         except OSError as error:
             errors.append({"path": rel, "reason": type(error).__name__})

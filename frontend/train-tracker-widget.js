@@ -1,8 +1,9 @@
-// 工作台「列车追踪」小组件：独立于恋爱系统。
+// 工作台「列车追踪」小组件：跟随恋爱系统里的今日值班，休息日隐藏。
 // 关注列表是用户自己添加的车次号；经停时刻来自本地 .torch-os/train-tracker/timetable.json，
 // 也可以在弹窗里手动从 12306 官方接口同步一次（失败保留本地数据）。
 import { $, api, confirmAction, escapeHtml, jsonBody, openDialog, setStatus, toast } from "./core.js";
 import { shanghaiDay } from "./journal-model.js";
+import { loadDutySchedule, dutyTrainCodes, chooseDutyTrain } from "./duty-service.js";
 import {
   TRAIN_WATCH_KEY, addWatchCode, cardModel, formatCountdown, normalizeWatch,
   normalizeTrainCode, removeWatchCode, selectWatchCode,
@@ -20,6 +21,9 @@ let requestToken = 0;
 let timer = 0;
 let dialogOpen = false;
 let watchError = "";
+let dutyCode = "";
+let dutyHint = "";
+const automaticAttempts = new Map();
 
 function storage() {
   try { return window.localStorage; } catch { return null; }
@@ -41,7 +45,7 @@ function writeWatch() {
 }
 
 function selectedCode() {
-  return watch.selected || "";
+  return dialogOpen ? (watch.selected || dutyCode) : dutyCode;
 }
 
 function scheduleRefresh() {
@@ -55,6 +59,8 @@ function renderCard(error = "") {
   const card = $(`#${CARD_ID}`);
   if (!card) return;
   const model = cardModel(payload, selectedCode());
+  if (dutyHint && !dialogOpen) model.meta = dutyHint + (payload?.found ? ` · ${model.meta}` : "");
+  if (!dutyCode && !dialogOpen) { model.code = "今日值乘"; model.status = dutyHint || "正在读取排班"; }
   if (error) {
     model.status = "暂时读不到数据";
     model.meta = error;
@@ -101,14 +107,54 @@ export async function loadTrainTrackerWidget() {
   watch = normalizeWatch(readWatch());
   let error = "";
   try {
-    statusPayload = await api("/api/train-tracker/status", { timeoutMs: 15000 });
+    const [status, schedule] = await Promise.all([
+      api("/api/train-tracker/status", { timeoutMs: 15000 }), loadDutySchedule(),
+    ]);
+    if (token !== requestToken) return;
+    statusPayload = status;
+    const today = schedule.days?.find((day) => day.date === schedule.today);
+    const offDuty = today?.in_range && (today.rest === true || today.work === false);
+    const card = $(`#${CARD_ID}`);
+    if (card) card.dataset.dutyHidden = String(Boolean(offDuty));
+    const codes = dutyTrainCodes(today);
+    dutyCode = "";
+    dutyHint = !schedule.found || !today?.in_range ? "排班暂不可用" : !codes.length ? "今天未填写值乘车次" : "跟随今日值班 · 按时刻表推算";
+    const rows = [];
+    for (const code of codes) {
+      let row = await api(`/api/train-tracker/train?code=${encodeURIComponent(code)}`, { timeoutMs: 15000 });
+      if (token !== requestToken) return;
+      // Local information is immediately usable even when the official sync is slow.
+      const preview = chooseDutyTrain([...rows, row]);
+      dutyCode = preview?.code || code;
+      payload = preview;
+      renderCard();
+      const key = `${schedule.today}:${code}`;
+      const recent = automaticAttempts.get(key) || 0;
+      const stale = !row.found || row.train?.timetable_date !== schedule.today;
+      if (stale && status.sync_enabled && Date.now() - recent > 15 * 60000) {
+        automaticAttempts.set(key, Date.now());
+        if (automaticAttempts.size > 32) automaticAttempts.delete(automaticAttempts.keys().next().value);
+        try {
+          await api("/api/train-tracker/sync", { ...jsonBody("POST", { code, date: schedule.today }), timeoutMs: 60000 });
+          row = await api(`/api/train-tracker/train?code=${encodeURIComponent(code)}`);
+        } catch { if (token === requestToken) dutyHint = "今日值乘 · 同步暂不可用，保留本地时刻表"; }
+      }
+      if (token !== requestToken) return;
+      rows.push(row);
+    }
+    const selected = chooseDutyTrain(rows);
+    dutyCode = selected?.code || codes[0] || "";
+    payload = selected;
+    if (dutyCode && !dialogOpen) watch.selected = dutyCode;
   } catch (problem) {
+    if (token !== requestToken) return;
     statusPayload = null;
+    dutyCode = "";
     error = problem.message;
   }
   if (token !== requestToken) return;
   if (error) payload = null;
-  else await loadSelected();
+  else if (dialogOpen) await loadSelected();
   if (token !== requestToken) return;
   loading = false;
   renderCard(error);
@@ -183,7 +229,7 @@ function dialogHtml() {
     <p class="field-help">导入会替换本地时刻表；只想补一趟车，用下面的 12306 同步。</p>
     <details class="train-sync" ${selected && !payload?.found ? "open" : ""}>
       <summary>从 12306 同步时刻表</summary>
-      <p class="field-help">只在你点击时请求 12306 官方接口；可能被限流或改版，失败时保留本地时刻表。首次同步新车型时请填写起止站。</p>
+      <p class="field-help">今日值乘车次会自动刷新时刻表，也可在这里手动同步。12306 接口可能限流，失败时保留本地数据；新车次若无法自动识别，请填写起止站。</p>
       <div class="train-sync-grid">
         <label>日期<input id="train-sync-date" type="date" value="${escapeHtml(shanghaiDay())}" /></label>
         <label>出发站<input id="train-sync-from" maxlength="60" value="${escapeHtml(from)}" placeholder="如 北京南" /></label>
@@ -319,9 +365,11 @@ export function initTrainTrackerWidget() {
     if (!dialogOpen) return;
     dialogOpen = false;
     $("#detail-dialog")?.classList.remove("train-tracker-mode");
+    loadTrainTrackerWidget();
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadTrainTrackerWidget();
   });
+  document.addEventListener("torch:duty-changed", loadTrainTrackerWidget);
   loadTrainTrackerWidget();
 }

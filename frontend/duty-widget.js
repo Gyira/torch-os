@@ -1,11 +1,11 @@
 // 工作台「值班」小组件：只读排班表里的上班/休息和当天值乘车次。
 // 数据来自恋爱系统的值班日历 API（同一份排班表）；编辑备注仍去「生活运营 → 恋爱系统 → 值班日历」。
-import { $, api, escapeHtml, openDialog } from "./core.js";
+import { $, escapeHtml, openDialog } from "./core.js";
 import { dutyCardModel, dutyDialogRows } from "./duty-model.js";
+import { loadDutySchedule } from "./duty-service.js";
 
 const CARD_ID = "workbench-duty";
 const REFRESH_MS = 5 * 60 * 1000;
-const UPCOMING_URL = "/api/love/schedule/upcoming?days=31";
 
 let payload = null;
 let initialized = false;
@@ -99,7 +99,7 @@ export async function loadDutyWidget() {
   loading = true;
   renderCard();
   try {
-    payload = await api(UPCOMING_URL, { timeoutMs: 15000 });
+    payload = await loadDutySchedule();
   } catch (error) {
     payload = { found: false, error: error.message, days: [] };
   }
@@ -139,5 +139,6 @@ export function initDutyWidget() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadDutyWidget();
   });
+  document.addEventListener("torch:duty-changed", loadDutyWidget);
   loadDutyWidget();
 }

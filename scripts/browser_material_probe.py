@@ -20,6 +20,7 @@ from browser_smoke import CDP, debug_targets, find_edge
 from browser_theme import DSH_LIGHT, DSH_DARK
 from browser_context_pack_checks import check_context_pack
 from browser_ai_checks import check_ai
+from browser_navigation_checks import check_navigation
 
 
 async def run(args):
@@ -91,6 +92,7 @@ async def run(args):
             await shot('workbench-light')
             await check_ai(cdp, check, click, shot, args, report)
             await check_context_pack(cdp, check, click, shot, args, report)
+            await check_navigation(cdp, check, click, shot, args, report)
             await check('widget_drag_target_size', "[...document.querySelectorAll('.widget-drag-handle')].filter(x=>x.getClientRects().length).every(x=>x.getBoundingClientRect().width>=24 && x.getBoundingClientRect().height>=24)")
             await check('card_names_follow_visible_text', "['workbench-weather-card','workbench-duty','workbench-train-tracker'].every(id=>!document.getElementById(id).hasAttribute('aria-label'))")
             # Intercept only city lookup: verify actual UI cancels superseded and closed searches.
@@ -226,9 +228,9 @@ async def run(args):
             await asyncio.sleep(.05)
             await check('reduced_motion_indicator_static', "document.querySelector('.panel-nav-scroll .material-indicator').getAnimations().length===0")
             # Check the existing module routes too; no AI invocation or real third-party sync.
-            for view in ['life', 'self', 'ops', 'knowledge', 'roles']:
+            for view in ['life', 'self', 'ops', 'knowledge', 'agent', 'recycle']:
                 await click(f'.panel-nav-item[data-view="{view}"]')
-                await cdp.wait_for(f"!document.querySelector('#{view}-view').hidden")
+                await cdp.wait_for("['ops','love','health'].some(id=>!document.querySelector('#'+id+'-view').hidden)" if view == 'ops' else f"!document.querySelector('#{view}-view').hidden")
                 await check(f'module_{view}_layout', 'document.documentElement.scrollWidth<=innerWidth')
             await click('.panel-nav-item[data-view="workbench"]')
             await cdp.evaluate('''(async()=>{

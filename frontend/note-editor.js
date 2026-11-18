@@ -916,7 +916,7 @@ export async function deleteNoteFile(note, { dirtyNote = false } = {}) {
   const title = String(note?.title || (journal ? "这篇日记" : "这篇笔记"));
   const ok = await confirmAction({
     title: journal ? "删除这篇日记？" : "删除这篇笔记？",
-    message: `《${title}》会移入应用回收站（.torch-os/笔记回收站），之后可在「工作台 → 回收中心」恢复，也可在文件管理器里找回。${dirtyNote ? "当前未保存的修改也会一起丢弃。" : ""}`,
+    message: `《${title}》会移入应用回收站（.torch-os/笔记回收站），之后可在「回收中心」恢复，也可在文件管理器里找回。${dirtyNote ? "当前未保存的修改也会一起丢弃。" : ""}`,
     confirmLabel: "删除", danger: true,
   });
   if (!ok) return null;
@@ -947,7 +947,7 @@ async function deleteCurrentNote() {
     await closeEditor({ force: true });
     dispatchNotesChanged(
       { path: deletedPath, chapter, pillar }, deletedPath, true);
-    toast("已删除，可在「工作台 → 回收中心」恢复。", "success", { timeout: 8000 });
+    toast("已删除，可在「回收中心」恢复。", "success", { timeout: 8000 });
   } catch (error) {
     if (error.status === 409) {
       setStatus("这篇笔记已在别处修改，未删除。请重新载入核对后再试。", "error");

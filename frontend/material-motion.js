@@ -1,6 +1,6 @@
 // Decoration follows committed navigation state; it never delays routing or moves hit targets.
 const GROUPS = '.panel-nav-scroll, #module-nav, .time-rail, .settings-nav, .love-nav';
-const SELECTED = ':scope > button.active, :scope > button.is-active, :scope > button[aria-selected="true"]';
+const SELECTED = ':scope > button.active, :scope > .panel-nav-family > button.active, :scope > button.is-active, :scope > button[aria-selected="true"]';
 
 export function initMaterialMotion() {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -34,6 +34,12 @@ export function initMaterialMotion() {
       const active = nav.querySelector(SELECTED);
       if (!active || !active.getClientRects().length) {
         record.pill.hidden = true; record.target = ''; continue;
+      }
+      // Keep the selected top-level destination visible when the window narrows.
+      // Scroll this strip only; do not disturb document or editor scroll positions.
+      if (resizing && nav.classList.contains('panel-nav-scroll') && nav.scrollWidth > nav.clientWidth) {
+        const item = active.getBoundingClientRect(), strip = nav.getBoundingClientRect();
+        if (item.left < strip.left || item.right > strip.right) nav.scrollLeft += item.left - strip.left - (strip.width - item.width) / 2;
       }
       const box = active.getBoundingClientRect();
       const parent = nav.getBoundingClientRect();
