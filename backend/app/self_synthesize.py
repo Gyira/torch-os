@@ -105,20 +105,27 @@ def _apply_patches_autonomous(vault: Path, patches: list[dict[str, Any]], *,
     return updates, errors
 
 
-def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool) -> int:
+def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool,
+                    bindings: list[dict[str, Any]] | None = None) -> int:
     timeline: list[dict[str, Any]] = []
     core_text = ""
     for item in updates[:30]:
         kind = str(getattr(item, "kind", "") or "")
         text = str(getattr(item, "text", "") or "").strip()
         sources = list(getattr(item, "sources", []) or [])
+        if bindings is not None:
+            # S numbers only have meaning in this synthesis turn; persist resolved provenance.
+            policy = RolePolicy.for_role("mentor", vault)
+            known = {row["id"] for row in bindings}
+            sources = [policy.reference(source, bindings=bindings) for source in sources
+                       if source.strip("[]") in known]
         if not text:
             continue
         if kind == "core":
             core_text = text
             continue
         timeline.append({"kind": "state" if kind in ("timeline", "state") else kind,
-                         "text": text, "sources": sources})
+                           "text": text, "sources": sources, "origin": "model_inference"})
     count = 0
     if timeline:
         try:
@@ -193,7 +200,8 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
     else:
         patches, patch_errors = _persist_patches(
             vault, parsed.archive_patches, read_only=read_only)
-    memory_count = _persist_memory(vault, parsed.memory_updates, read_only=read_only)
+    memory_count = _persist_memory(vault, parsed.memory_updates, read_only=read_only,
+                                   bindings=result.get("sources") or [])
     questions: list[dict[str, Any]] = []
     dynamic_rows = []
     for item in parsed.question_candidates[:12]:

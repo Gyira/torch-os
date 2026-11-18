@@ -1210,13 +1210,41 @@ class RoleService:
                     read_only=self.read_only))
         return result
 
-    def _ingest_memory_notes(self, reply, role: RoleDefinition, *, errors: list[str] | None = None) -> int:
+    def _ingest_memory_notes(self, reply, role: RoleDefinition, *, errors: list[str] | None = None,
+                             message: str = "", thread_id: str = "", context=None) -> int:
         if role.id != "mentor" or self.vault_dir is None or not reply.memory_notes:
             return 0
-        entries = [
-            {"kind": note.kind, "text": note.text, "sources": note.sources}
-            for note in reply.memory_notes if str(note.text or "").strip()
-        ]
+        entries = []
+        bindings = context.sources if context else []
+        visible_ids = {key for source in bindings if source.get("kind") == "mentor_memory"
+                       for key in source.get("memory_ids", [])}
+        policy = RolePolicy.for_role("mentor", self.vault_dir)
+        for note in reply.memory_notes:
+            evidence = note.evidence.strip()
+            quoted = len(evidence) >= 6 and evidence in message
+            try:
+                if note.kind in {"decision", "correction", "goal_change"} and not quoted:
+                    raise ValueError("决定、目标变化与纠正需要本轮用户原话；本次未写入这条记忆")
+                if note.supersedes and (note.kind != "correction" or not quoted or not set(note.supersedes) <= visible_ids):
+                    raise ValueError("纠正只能关联本轮已读取的旧记忆；本次未覆盖旧记录")
+                resolved = []
+                for source in note.sources:
+                    if quoted and source in {"用户原话", "本轮用户原话", "本轮对话", "用户本轮消息"}:
+                        continue
+                    # Only sources actually supplied this turn may support an AI observation.
+                    if source.strip("[]") not in {row["id"] for row in bindings}:
+                        raise ValueError("记忆来源不属于本轮已读取的资料")
+                    resolved.append(policy.reference(source, bindings=bindings, thread_id=thread_id))
+                if quoted:
+                    resolved.append(f"用户原话·会话 {thread_id}")
+                if not resolved:
+                    raise ValueError("缺少可核对来源，本次未写入记忆")
+                entries.append({"kind": note.kind, "text": evidence if quoted else note.text,
+                                "sources": resolved, "origin": "user_quote" if quoted else "model_inference",
+                                "supersedes": note.supersedes})
+            except ValueError as error:
+                if errors is not None:
+                    errors.append(str(error))
         if not entries:
             return 0
         try:
@@ -1292,6 +1320,7 @@ class RoleService:
             entry=entry or (role.entry[0] if role.entry else ""),
             max_chars=self._max_chars(role),
             love_settings=self.love_settings,
+            query=message,
         )
         attachment_bindings: list[dict[str, Any]] = []
         attachments_text = ""
@@ -1361,7 +1390,8 @@ class RoleService:
         pending = archive_result["pending"]
         archive_updates = archive_result["updates"]
         memory_errors: list[str] = []
-        memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors)
+        memory_notes = self._ingest_memory_notes(reply, role, errors=memory_errors,
+                                                  message=message, thread_id=thread["id"], context=context)
         question_candidates = self._append_question_candidates(reply, role)
         turn_context: dict[str, Any] = {}
         if selection_text.strip():
@@ -1453,6 +1483,7 @@ class RoleService:
             entry=entry or (role.entry[0] if role.entry else ""),
             max_chars=budget,
             love_settings=self.love_settings,
+            query="" if mode == "synthesize" else input_text,
         )
         prompt = self.build_prompt(role_id, mode, context_text="\n\n".join(filter(None, [prepared_text, context.text])),
                                    user_text=input_text)
@@ -1480,7 +1511,8 @@ class RoleService:
         policy = RolePolicy.for_role(role_id, self.vault_dir)
         selectors = payload.selectors or self._default_selectors(role, payload.mode, payload.entry)
         context = assemble(self.database, self.vault_dir, role_id=role_id, selectors=selectors,
-                           max_chars=min(self._max_chars(role), 16000), love_settings=self.love_settings)
+                           max_chars=min(self._max_chars(role), 16000), love_settings=self.love_settings,
+                           query=payload.message)
         history = ""
         if payload.thread_id and payload.include_history:
             thread = self._thread_row(payload.thread_id)

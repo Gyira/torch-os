@@ -330,11 +330,11 @@ class MemoryReliabilityTests(unittest.TestCase):
 
     def test_chat_memory_failure_has_explicit_error(self):
         service = SimpleNamespace(vault_dir=self.vault, read_only=False)
-        note = SimpleNamespace(kind="observation", text="remember me", sources=[])
+        note = SimpleNamespace(kind="observation", text="remember me", sources=[], evidence="remember me", supersedes=[])
         errors = []
         with patch.object(memory, "append_timeline", side_effect=memory.MentorMemoryError("save failed", 500)):
             count = RoleService._ingest_memory_notes(service, SimpleNamespace(memory_notes=[note]),
-                                                     SimpleNamespace(id="mentor"), errors=errors)
+                                                     SimpleNamespace(id="mentor"), errors=errors, message="remember me", thread_id="test")
         self.assertEqual(count, 0)
         self.assertEqual(errors, ["save failed"])
 

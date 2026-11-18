@@ -87,6 +87,8 @@ class MemoryNote(_Loose):
     kind: str = Field(default="observation", max_length=40)
     text: str = Field(default="", max_length=300)
     sources: list[str] = Field(default_factory=list, max_length=20)
+    evidence: str = Field(default="", max_length=300)
+    supersedes: list[str] = Field(default_factory=list, max_length=10)
 
 
 class QuestionDraft(_Loose):

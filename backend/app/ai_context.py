@@ -25,6 +25,7 @@ from .journal_shared import shanghai_today, validate_day
 from .vault import parse_text
 from .role_policy import RolePolicy, scoped_reads
 from .habits import HabitService
+from .ai_retrieval import related_notes
 
 MAX_SELECTORS = 8
 MAX_TOTAL_CHARS = 80_000
@@ -210,8 +211,8 @@ def _finance_context(vault_dir: Path | str, source_id: str) -> tuple[dict[str, A
 
 
 def _self_archive_context(vault_dir: Path | str,
-                          source_id: str) -> tuple[dict[str, Any], str, bool]:
-    body = self_archive.context_text(vault_dir, max_chars=20_000)
+                          source_id: str, query: str = "") -> tuple[dict[str, Any], str, bool]:
+    body = self_archive.context_text(vault_dir, max_chars=20_000, query=query)
     if not body:
         body = "自我档案还没有条目。"
     return _source(source_id, "self_archive", "自我档案（当前条目）",
@@ -219,16 +220,34 @@ def _self_archive_context(vault_dir: Path | str,
 
 
 def _mentor_memory_context(vault_dir: Path | str,
-                           source_id: str) -> tuple[dict[str, Any], str, bool]:
-    body = mentor_memory.context_text(vault_dir, max_chars=13_000)
+                           source_id: str, query: str = "") -> tuple[dict[str, Any], str, bool]:
+    body = mentor_memory.context_text(vault_dir, max_chars=13_000, query=query)
     if not body:
         body = "人生导师还没有记忆。"
-    return _source(source_id, "mentor_memory", "人生导师记忆",
-                   vault_layout.SELF_MENTOR_MEMORY_DIR, body, 13_000)
+    meta, block, cut = _source(source_id, "mentor_memory", "人生导师记忆",
+                               vault_layout.SELF_MENTOR_MEMORY_DIR, body, 13_000)
+    lines = set(block.splitlines())
+    meta["memory_ids"] = [item["id"] for item in mentor_memory.read_timeline(vault_dir, limit=1_000_000)
+                          if item["status"] == "active" and any(line.startswith(f"- [{item['id']}] ") for line in lines)]
+    return meta, block, cut
 
 
 def _recent_notes_context(vault_dir: Path | str, selector: Mapping[str, Any],
-                          source_id: str) -> tuple[dict[str, Any], str, bool]:
+                          source_id: str, query: str = "") -> tuple[dict[str, Any], str, bool]:
+    if query.strip():
+        matches, limited = related_notes(vault_dir, query)
+        lines = ["按本轮问题做本地关键词匹配；资料是参考，不能据此认定用户赞同其中观点。"]
+        for match in matches:
+            lines.append(f"### {match['title']}（{match['path']}）\n日期：{match['date'] or '未标注'}\n{match['excerpt']}")
+        if not matches:
+            lines.append("本次检索范围内没有关键词匹配资料，不代表库里一定没有。")
+        if limited:
+            lines.append("检索达到文件/字节上限或部分文件无法读取，未覆盖全部资料。")
+        meta, block, cut = _source(source_id, "recent_notes", "与当前问题相关的知识资料",
+                                   vault_layout.PILLAR_DIRS["knowledge"], "\n\n".join(lines), 8_000)
+        meta["retrieval"] = "local_keywords"
+        meta["coverage_limited"] = limited
+        return meta, block, cut or limited
     try:
         days = max(1, min(int(selector.get("days") or 30), 365))
     except (TypeError, ValueError):
@@ -318,7 +337,7 @@ def _love_context(source_id: str, love_settings: Any = None) -> tuple[dict[str, 
 
 
 def _build_one(database: Database, vault_dir: Path | str, selector: Any,
-               source_id: str, love_settings: Any = None) -> tuple[dict[str, Any], str, bool]:
+               source_id: str, love_settings: Any = None, query: str = "") -> tuple[dict[str, Any], str, bool]:
     if not isinstance(selector, Mapping):
         raise ContextError("选择器必须是对象")
     entry = str(selector.get("entry") or "").strip()
@@ -343,11 +362,11 @@ def _build_one(database: Database, vault_dir: Path | str, selector: Any,
     if entry == "love":
         return _love_context(source_id, love_settings)
     if entry == "self_archive":
-        return _self_archive_context(vault_dir, source_id)
+        return _self_archive_context(vault_dir, source_id, query)
     if entry == "mentor_memory":
-        return _mentor_memory_context(vault_dir, source_id)
+        return _mentor_memory_context(vault_dir, source_id, query)
     if entry == "recent_notes":
-        return _recent_notes_context(vault_dir, selector, source_id)
+        return _recent_notes_context(vault_dir, selector, source_id, query)
     if entry == "ops_summary":
         return _ops_summary_context(database, vault_dir, source_id)
     if entry == "bazi_chart":
@@ -359,7 +378,7 @@ def assemble(database: Database, vault_dir: Path | str, *,
              role_id: str,
              selectors: Iterable[Any] | None = None,
              entry: str = "", max_chars: int = DEFAULT_TOTAL_CHARS,
-             love_settings: Any = None) -> ContextBundle:
+             love_settings: Any = None, query: str = "") -> ContextBundle:
     """Read the selected sources and return numbered, budget-limited text.
 
     Empty selectors send no stored data. RoleService supplies explicit defaults;
@@ -383,7 +402,7 @@ def assemble(database: Database, vault_dir: Path | str, *,
     for index, selector in enumerate(items, start=1):
         with scoped_reads(policy):
             meta, block, cut = _build_one(database, vault_dir, selector, f"S{index}",
-                                          love_settings=love_settings)
+                                          love_settings=love_settings, query=query)
         truncated = truncated or cut
         remaining = budget - used - (2 if blocks else 0)
         if remaining <= 0:
@@ -396,6 +415,9 @@ def assemble(database: Database, vault_dir: Path | str, *,
             cut = True
         meta = {**meta, "chars": len(block.partition("\n")[2]),
                 "included_chars": len(block), "truncated": bool(cut)}
+        if "memory_ids" in meta:
+            meta["memory_ids"] = [key for key in meta["memory_ids"]
+                                  if any(line.startswith(f"- [{key}] ") for line in block.splitlines())]
         sources.append(meta)
         blocks.append(block)
         used += len(block) + (2 if len(blocks) > 1 else 0)

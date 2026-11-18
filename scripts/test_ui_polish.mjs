@@ -10,6 +10,20 @@ import * as roleModel from "../frontend/roles-model.js";
 import * as mentorModel from "../frontend/mentor-model.js";
 import * as roleAdminModel from "../frontend/role-admin-model.js";
 
+test("memory panel distinguishes quoted decisions, hypotheses and corrected history", () => {
+  const html = mentorModel.memoryMarkup({ timeline_recent: [
+    { date: "2026-11-18", kind: "decision", text: "在职考研", origin: "user_quote", sources: ["会话 <unsafe>"] },
+    { kind: "observation", text: "猜测", origin: "model_inference" },
+    { text: "过去看法", status: "superseded" },
+  ] });
+  assert.match(html, /用户原话/);
+  assert.match(html, /模型观察 · 待核实/);
+  assert.match(html, /已被纠正/);
+  assert.match(html, /旧记录 · 未校验原话/);
+  assert.ok(!html.includes("<unsafe>"));
+  assert.match(html, /&lt;unsafe&gt;/);
+});
+
 class Element {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = []; this.attrs = {};

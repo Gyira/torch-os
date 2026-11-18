@@ -154,7 +154,12 @@ export function memoryMarkup(memory = {}, qa = {}) {
       <span class="meta">${escape(memory?.core?.updated_at || "")}</span></header>
     ${core ? `<div class="md-body">${escape(core).replace(/\n/g, "<br>")}</div>` : `<p class="field-help">还没有核心记忆。全量整理后由导师写入。</p>`}
     <header class="mentor-side-section-head"><p class="eyebrow">TIMELINE</p><h3>记忆时间线</h3></header>
-    ${timeline.length ? `<ul class="mentor-timeline">${timeline.slice().reverse().map((item) => `<li><time>${escape(item.date || "")}</time><span>${escape(item.text || "")}</span></li>`).join("")}</ul>` : `<p class="field-help">还没有记忆条目。</p>`}
+    <p class="field-help">保留你的原话与决定；模型观察单独标注。已被纠正的记录保留历史，不作为当前记忆。</p>
+    ${timeline.length ? `<ul class="mentor-timeline">${timeline.slice().reverse().map((item) => {
+      const origin = item.origin === "user_quote" ? "用户原话" : item.origin === "model_inference" ? "模型观察 · 待核实" : "旧记录 · 未校验原话";
+      const status = item.status === "superseded" ? "已被纠正" : item.kind === "correction" ? "纠正" : item.kind === "decision" ? "决定" : "记忆";
+      return `<li><time>${escape(item.date || "")}</time><span><strong>${escape(status)}</strong> · ${escape(origin)}<br>${escape(item.text || "")}${item.sources?.length ? `<br><small class="meta">来源：${escape(item.sources.join("、"))}</small>` : ""}</span></li>`;
+    }).join("")}</ul>` : `<p class="field-help">还没有记忆条目。</p>`}
     <header class="mentor-side-section-head"><p class="eyebrow">Q&amp;A</p><h3>问答记忆</h3></header>
     ${qaText ? `<details><summary>最近问答（${qaText.length} 字）</summary><pre class="mentor-memory-qa">${escape(qaText)}</pre></details>` : `<p class="field-help">还没有问答记录。</p>`}
     <div class="mentor-memory-paths">

@@ -1014,21 +1014,31 @@ def write_portrait(vault_dir: Path | str, text: str, *, sources: Any = None,
         return result
 
 
-def context_text(vault_dir: Path | str, *, max_chars: int = 12_000) -> str:
+def context_text(vault_dir: Path | str, *, max_chars: int = 12_000, query: str = "") -> str:
     """给人生导师的档案摘要：只放 active 条目，按本子分组，控制总长度。"""
     blocks: list[str] = []
     used = 0
-    for key in BOOK_ORDER:
+    from .ai_retrieval import score, excerpt
+    grouped = {key: list_entries(vault_dir, key) for key in BOOK_ORDER}
+    def relevance(item):
+        return score(item["title"], query) * 3 + score(item["text"], query)
+    order = sorted(BOOK_ORDER, key=lambda key: max((relevance(item) for item in grouped[key]), default=0), reverse=True) if query else BOOK_ORDER
+    for key in order:
         meta = book_meta(key)
-        rows = list_entries(vault_dir, key)
+        rows = grouped[key]
+        if query:
+            rows = sorted(rows, key=relevance, reverse=True)
         if not rows:
             continue
         lines = [f"## {meta['title']}（{key} · {len(rows)} 条）"]
         for item in rows:
-            text = _clean(item["text"], 360).replace("\n", " ")
+            text = excerpt(item["text"], query, 360).replace("\n", " ")
             evidence = _clean(item["evidence"], 160).replace("\n", " ")
-            line = (f"- [{item['entry_type_label']}|{item['confidence_label']}] "
+            line = (f"- [{item['entry_id']}|{item['entry_type_label']}|{item['confidence_label']}] "
                     f"{item['title']}：{text}")
+            line += f"（路径：{item['path']}；更新：{item['updated'] or item['created']}）"
+            if item.get("supersedes"):
+                line += f"（已取代旧条目：{item['supersedes']}）"
             if evidence:
                 line += f"（证据：{evidence}）"
             if item["sources"]:
