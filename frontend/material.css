@@ -389,5 +389,12 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 .agent-provider-tabs button[aria-pressed="true"] { background: var(--p-accent-bg); color: var(--p-invert-ink); }
 .chatgpt-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px; border: 1px solid var(--p-line); border-radius: 16px 16px 0 0; background: var(--p-surface); }
 #chatgpt-status { flex: 1; font-size: 13px; color: var(--p-ink-3); }
-#chatgpt-stage { height: max(440px, calc(100dvh - 240px)); border: 1px solid var(--p-line); background: var(--p-surface); border-radius: 0 0 16px 16px; overflow: hidden; }
+#chatgpt-stage { position: relative; height: max(440px, calc(100dvh - 240px)); border: 1px solid var(--p-line); background: var(--p-surface); border-radius: 0 0 16px 16px; overflow: hidden; }
 .chatgpt-placeholder { padding: 48px 24px; max-width: 680px; margin: auto; line-height: 1.8; }
+/* 宿主载入失败时的卡面：盖住空白的 #chatgpt-stage，把原因写在用户眼前。 */
+.chatgpt-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 48px 24px; background: var(--p-surface); }
+.chatgpt-overlay[hidden] { display: none; }
+.chatgpt-overlay h2 { margin: 0; font-size: 18px; color: var(--p-ink-strong); }
+.chatgpt-overlay p { margin: 0; max-width: 640px; line-height: 1.8; color: var(--p-ink); }
+.chatgpt-overlay-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.chatgpt-overlay-actions button { border: 1px solid var(--p-line); background: var(--p-surface); color: var(--p-ink); border-radius: 12px; padding: 10px 18px; }

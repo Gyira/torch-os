@@ -1,4 +1,10 @@
-# 薪火OS · Obsidian 插件（2.2.2）
+# 薪火OS · Obsidian 插件（2.2.3）
+
+2.2.3 修正“ChatGPT 显示不出来”的两种表现：①宿主的 webview 只按 `dom-ready` 判定成功，被 DNS 劫持/直连失败时停在空白页却仍报“网页已载入”；②前端只在“内容区可见”的那一帧上报位置，切页或顶栏下拉开合造成的瞬时不可见会让占位文案一直留着。现在：
+
+- 落点域名不是 chatgpt.com / openai.com 就判定为载入失败，收起 guest，把原因写回内容区的卡片（重新载入 / 浏览器打开）；
+- 新增设置项“ChatGPT 内嵌浏览器代理（仅本机）”：只对 `persist:torch-chatgpt` 分区 `setProxy`，宿主主会话与 iframe 不受影响，留空跟随系统代理；
+- 位置上报带重试与去重，DSH 与 ChatGPT 来回切换不会再卡在占位状态。
 
 2.2.2 新增“与神对话 → ChatGPT / DSH”。ChatGPT 由桌面宿主的 webview 承载在页面内容区域，首次使用需要在该网页中登录。会话使用本机独立分区 `persist:torch-chatgpt`，与外部浏览器的登录状态不自动互通。切换平台保留页面，关闭工作台销毁视图；登录 cookie 由本机 Electron 分区保留。
 

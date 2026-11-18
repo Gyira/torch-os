@@ -28,6 +28,9 @@ const VIEW_TYPE = 'torch-workbench';
 const RIBBON_ICON = 'layout-dashboard';
 const STALE_RELOAD_MS = 120000;
 const DEFAULT_PORT = 8765;
+const CHATGPT_URL = 'https://chatgpt.com/';
+// ChatGPT 住在自己的持久分区里：登录态由 Electron 保存，宿主主会话不受影响。
+const CHATGPT_PARTITION = 'persist:torch-chatgpt';
 // 插件自己的实例从 9168 起找端口：8765 留给浏览器/手动模式的 .env 工作区，
 // 两者可以同时运行，互不抢端口。
 const PLUGIN_PORT_BASE = 9168;
@@ -39,13 +42,15 @@ const DEFAULT_SETTINGS = {
   pythonPath: '',
   autoStart: true,
   instancePort: 0,
+  chatgptProxy: '',
+  agentProvider: 'dsh',
 };
 
 // ── 本机工具链发现 ─────────────────────────────────────────────────────
 // repoRoot / pythonPath / instancePort 是“这台电脑”的属性，不能写进随库同步的
 // data.json：A 电脑的 D:\tools\torch-os 到了 B 电脑可能不存在。它们只存本机
 // LOCALAPPDATA（或对应平台配置目录），data.json 只保留 baseUrl / autoStart。
-const DEVICE_SETTING_KEYS = ['repoRoot', 'pythonPath', 'instancePort', 'storageConfigPath'];
+const DEVICE_SETTING_KEYS = ['repoRoot', 'pythonPath', 'instancePort', 'storageConfigPath', 'chatgptProxy', 'agentProvider'];
 const REPO_MARKERS = ['backend/app/run.py', 'backend/app/main.py'];
 
 function localConfigDir() {
@@ -332,6 +337,48 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * ChatGPT 只认自己的域名。DNS 被污染或运营商重定向时，guest 里停下来的 host
+ * 会是别的地方（实测见过被丢到 iana.org 一类页面），这时不能再报“已载入”。
+ */
+function isChatgptUrl(value) {
+  try {
+    const host = new URL(String(value || '')).hostname.toLowerCase();
+    return host === 'chatgpt.com' || host.endsWith('.chatgpt.com')
+      || host === 'chat.openai.com' || host === 'openai.com' || host.endsWith('.openai.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 登录页不是故障现场（2026-11-19 用户实测踩到）：点「使用 Google 登录」本来就会
+ * 跳到 accounts.google.com 走 OAuth，把这种正常跳转判成 DNS 劫持会直接盖掉登录页。
+ * 这些域一律放行，登录完自己会回到 chatgpt.com。
+ */
+const AUTH_HOSTS = [
+  'accounts.google.com', 'accounts.youtube.com', 'appleid.apple.com',
+  'login.microsoftonline.com', 'login.live.com', 'login.microsoft.com',
+  'auth.openai.com', 'auth0.openai.com', 'login.openai.com',
+];
+function isSigninUrl(value) {
+  try {
+    const host = new URL(String(value || '')).hostname.toLowerCase();
+    return AUTH_HOSTS.some((item) => host === item || host.endsWith(`.${item}`));
+  } catch {
+    return false;
+  }
+}
+
+/** 设置里的代理：可写 127.0.0.1:7892、http://127.0.0.1:7892，也可直接写 http=a:1;https=a:1。 */
+function proxyRulesOf(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.includes('=')) return text;
+  const hostport = text.replace(/^[a-z0-9+.-]+:\/\//i, '').replace(/\/+$/, '');
+  return hostport ? `http=${hostport};https=${hostport}` : '';
+}
+
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
@@ -373,6 +420,9 @@ class WorkbenchView extends ItemView {
     this.frame = null;
     this.lastLoad = 0;
     this.offline = null;
+    this.chatgptPhase = '';
+    this.chatgptSeen = false;
+    this.chatgptFailure = null;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -405,7 +455,7 @@ class WorkbenchView extends ItemView {
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
-      if (this.chatgpt) this.chatgpt.hidden = leaf !== this.leaf || !this.chatgptBounds?.visible;
+      if (this.chatgpt) this.chatgpt.hidden = this.chatgptPhase === 'blocked' || leaf !== this.leaf || !this.chatgptBounds?.visible;
       if (leaf === this.leaf && this.frame && Date.now() - this.lastLoad > STALE_RELOAD_MS) {
         this.reload();
       }
@@ -428,6 +478,7 @@ class WorkbenchView extends ItemView {
     url.searchParams.set('panel', '1');
     url.searchParams.set('host', 'obsidian');
     url.searchParams.set('theme', scheme);
+    url.searchParams.set('agent', this.plugin.settings.agentProvider === 'chatgpt' ? 'chatgpt' : 'dsh');
     this.frame.setAttribute('src', url.toString());
   }
 
@@ -448,13 +499,118 @@ class WorkbenchView extends ItemView {
     }
   }
 
+  /** 把状态发回 iframe；内容区自己决定要不要把说明卡盖上来。 */
+  chatgptState(state, message = '') {
+    this.chatgptPhase = state;
+    try {
+      this.frame?.contentWindow?.postMessage(
+        { type: 'torch:chatgpt-state', state, message },
+        new URL(this.plugin.instanceUrl).origin);
+    } catch {}
+  }
+
   chatgptStatus(message) {
     try { this.frame?.contentWindow?.postMessage({ type: 'torch:chatgpt-status', message }, new URL(this.plugin.instanceUrl).origin); } catch {}
   }
 
+  /** ChatGPT 那个持久分区的会话（登录态就存在这里）。 */
+  chatgptSession() {
+    try { return require('electron').session.fromPartition(CHATGPT_PARTITION); } catch { return null; }
+  }
+
+  /** 代理只作用于 ChatGPT 分区：宿主主会话和 iframe 都保持原样。 */
+  applyChatgptProxy() {
+    const session = this.chatgptSession();
+    if (!session) return Promise.resolve(false);
+    const rules = proxyRulesOf(this.plugin.settings?.chatgptProxy);
+    try {
+      const applied = rules ? session.setProxy({ proxyRules: rules }) : session.setProxy({ mode: 'system' });
+      return Promise.resolve(applied).then(() => true).catch(() => false);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+
+  armChatgptTimer() {
+    window.clearTimeout(this.chatgptTimer);
+    this.chatgptTimer = window.setTimeout(() => {
+      // 已经进过 ChatGPT 或正停在登录页：这不是“打不开”，别弹失败卡片。
+      if (this.chatgptPhase === 'ready' || this.chatgptSeen || !this.chatgpt) return;
+      this.blockChatgpt(this.chatgpt, 'ChatGPT 网页 25 秒内没有就绪。本机可能访问不了 chatgpt.com（DNS 污染或需要代理）。');
+    }, 25000);
+  }
+
+  /** 载入失败或被重定向：收起 guest，把原因写回 iframe，别让一片空白顶掉提示。 */
+  blockChatgpt(guest, message) {
+    window.clearTimeout(this.chatgptTimer);
+    if (guest) guest.hidden = true;
+    this.chatgptState('blocked', message);
+  }
+
+  /**
+   * 判断这一帧到底算不算“打不开”。只有「一次都没到过 ChatGPT、落地域名又不认识」
+   * 才判劫持；登录跳转（Google/Apple/Microsoft 的 OAuth）和站内跳转都放行。
+   */
+  onChatgptDomReady(guest) {
+    let url = '';
+    try { url = guest.getURL ? guest.getURL() : ''; } catch { url = ''; }
+
+    // 刚报过主框架加载失败：Chromium 的错误页也会触发 dom-ready，别把失败洗成成功。
+    const failure = this.chatgptFailure;
+    if (failure && failure.url === url && Date.now() - failure.at < 3000) return;
+
+    if (isChatgptUrl(url)) {
+      window.clearTimeout(this.chatgptTimer);
+      this.chatgptSeen = true;
+      this.chatgptState('ready', '网页已载入；请在 ChatGPT 中登录或开始对话。');
+      return;
+    }
+    if (isSigninUrl(url)) {
+      // OAuth 登录页：用户要在这里点，不能盖卡片、不能收起来。
+      window.clearTimeout(this.chatgptTimer);
+      this.chatgptSeen = true;
+      this.chatgptState('ready', '正在登录…登录完成后会自动回到 ChatGPT。');
+      return;
+    }
+    if (this.chatgptSeen) {
+      // 已经进过 ChatGPT，之后是用户自己点出去的页面：不拦。
+      this.chatgptState('ready', '');
+      return;
+    }
+    let host = '';
+    try { host = new URL(url).host; } catch { host = ''; }
+    this.blockChatgpt(guest, host
+      ? `网络把 chatgpt.com 带到了 ${host}：本机大概无法直连 ChatGPT（DNS 被污染或需要代理）。请在插件设置里填写代理，或用「浏览器打开」。`
+      : 'ChatGPT 网页没有载入成功：本机可能访问不了 chatgpt.com（需要代理）。可以填代理后用「重新载入」，或用「浏览器打开」。');
+  }
+
   chatgptMessage(data) {
+    if (data.action === 'provider') {
+      // iframe 在 Obsidian 里是第三方上下文，localStorage 会被拦；偏好放本机设置里，
+      // 下次 reload() 再用 ?agent= 传回去。
+      const value = data.value === 'chatgpt' ? 'chatgpt' : 'dsh';
+      if (this.plugin.settings.agentProvider !== value) {
+        this.plugin.settings.agentProvider = value;
+        this.plugin.saveDeviceSettings();
+      }
+      return;
+    }
     if (data.action === 'reload') {
-      try { this.chatgpt?.reload(); } catch { this.chatgptStatus('无法重新载入，请使用浏览器打开。'); }
+      if (!this.chatgpt) { this.chatgptBounds = null; return; }
+      this.chatgptState('loading', '正在重新载入 ChatGPT…');
+      this.chatgpt.hidden = true;
+      // 被劫持/重定向过的 guest 还停在别人的页面上：reload() 只会重载那个地址，
+      // 所以这里先回到 chatgpt.com，确实还在 ChatGPT 上才用 reload() 保住当前会话。
+      let current = '';
+      try { current = this.chatgpt.getURL ? this.chatgpt.getURL() : ''; } catch { current = ''; }
+      try {
+        // 停在登录页时重载登录页；停在别的（被劫持的）站点才拉回 chatgpt.com。
+        if (isChatgptUrl(current) || isSigninUrl(current)) this.chatgpt.reload();
+        else this.chatgpt.setAttribute('src', CHATGPT_URL);
+      } catch {
+        this.blockChatgpt(this.chatgpt, '无法重新载入，请使用浏览器打开。');
+      }
+      this.armChatgptTimer();
       return;
     }
     if (data.action !== 'bounds') return;
@@ -463,39 +619,61 @@ class WorkbenchView extends ItemView {
     const rect = data.rect;
     if (!rect || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) || rect.width <= 0 || rect.height <= 0) return;
     if (!this.chatgpt) {
-      // Host-owned guest browser: no Node integration, preload, proxy or page-script injection.
+      // Host-owned guest browser: no preload, no page-script injection; Obsidian
+      // forces sandbox + no node integration for every guest it attaches.
       const guest = document.createElement('webview');
       guest.className = 'torch-chatgpt-webview';
-      guest.setAttribute('partition', 'persist:torch-chatgpt');
+      guest.setAttribute('partition', CHATGPT_PARTITION);
       guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
       guest.setAttribute('title', 'ChatGPT 网页');
-      guest.addEventListener('dom-ready', () => { window.clearTimeout(this.chatgptTimer); this.chatgptStatus('网页已载入；请在 ChatGPT 中登录或开始对话。'); });
-      guest.addEventListener('did-start-loading', () => this.chatgptStatus('正在载入 ChatGPT…'));
+      guest.addEventListener('dom-ready', () => { if (this.chatgpt === guest) this.onChatgptDomReady(guest); });
+      guest.addEventListener('did-start-loading', () => {
+        if (this.chatgpt === guest && this.chatgptPhase !== 'ready') this.chatgptState('loading', '正在载入 ChatGPT…');
+      });
       guest.addEventListener('did-fail-load', (event) => {
         if (event.errorCode === -3 || event.isMainFrame === false) return;
-        this.chatgptStatus('ChatGPT 加载失败，可重新载入或在浏览器中打开。');
+        this.chatgptFailure = { url: String(event.validatedURL || ''), at: Date.now() };
+        const reason = `ChatGPT 加载失败（${event.errorDescription || event.errorCode}）。本机可能访问不了 chatgpt.com。`;
+        // 已经正常进过 ChatGPT 时（比如正停在登录页）只提示，不把页面收走。
+        if (this.chatgptSeen) this.chatgptState('loading', reason);
+        else this.blockChatgpt(guest, reason);
       });
       guest.addEventListener('new-window', (event) => {
         event.preventDefault?.();
-        try { if (new URL(event.url).protocol === 'https:') this.plugin.openExternalUrl(event.url, new URL(this.plugin.instanceUrl).origin); } catch {}
+        try {
+          const url = new URL(event.url);
+          // 登录弹窗（Google/Apple 等）留在同一分区里，换掉也会丢登录态；只放行 https。
+          if (url.protocol === 'https:' && isSigninUrl(url.toString())) {
+            guest.setAttribute('src', url.toString());
+            return;
+          }
+          if (url.protocol === 'https:') this.plugin.openExternalUrl(url.toString(), new URL(this.plugin.instanceUrl).origin);
+        } catch {}
       });
-      guest.setAttribute('src', 'https://chatgpt.com/');
       this.contentEl.appendChild(guest);
       this.chatgpt = guest;
-      this.chatgptTimer = window.setTimeout(() => this.chatgptStatus('网页尚未就绪；若出现空白或登录限制，请使用浏览器打开。'), 25000);
-      this.chatgptStatus('正在载入 ChatGPT；登录或验证遇到限制时可使用浏览器打开。');
+      this.chatgptFailure = null;
+      this.chatgptState('loading', '正在载入 ChatGPT；登录或验证遇到限制时可使用浏览器打开。');
+      if (proxyRulesOf(this.plugin.settings?.chatgptProxy)) {
+        // 先让分区拿到代理再导航，否则第一个请求已经走了直连。
+        this.applyChatgptProxy().finally(() => { if (this.chatgpt === guest) guest.setAttribute('src', CHATGPT_URL); });
+      } else {
+        guest.setAttribute('src', CHATGPT_URL);
+      }
+      this.armChatgptTimer();
     }
     const outer = this.contentEl.getBoundingClientRect(), box = this.frame.getBoundingClientRect();
     const x = Math.max(box.left, box.left + rect.x), y = Math.max(box.top, box.top + rect.y);
     const right = Math.min(box.right, box.left + rect.x + rect.width);
     const bottom = Math.min(box.bottom, box.top + rect.y + rect.height);
     Object.assign(this.chatgpt.style, { left: `${x - outer.left}px`, top: `${y - outer.top}px`, width: `${Math.max(0, right - x)}px`, height: `${Math.max(0, bottom - y)}px` });
-    this.chatgpt.hidden = right <= x || bottom <= y || this.app.workspace.activeLeaf !== this.leaf;
+    this.chatgpt.hidden = this.chatgptPhase === 'blocked'
+      || right <= x || bottom <= y || this.app.workspace.activeLeaf !== this.leaf;
   }
 
   async onClose() {
     window.clearTimeout(this.chatgptTimer);
-    this.chatgpt?.remove(); this.chatgpt = null; this.chatgptBounds = null;
+    this.chatgpt?.remove(); this.chatgpt = null; this.chatgptBounds = null; this.chatgptPhase = '';
   }
 }
 
@@ -563,6 +741,19 @@ class TorchSettingTab extends PluginSettingTab {
       text: '仓库路径、Python 路径和启动端口只保存在本机（'
         + localConfigDir() + '），不会随库同步。两台设备各自自动发现或手动指定一次即可。',
     });
+    new Setting(containerEl)
+      .setName('ChatGPT 内嵌浏览器代理（可选，仅本机）')
+      .setDesc('国内网络直连不了 chatgpt.com（DNS 会被污染或被重定向到别的站）。填本机代理端口，'
+        + '例如 127.0.0.1:7892 或 http://127.0.0.1:7892；代理只作用于 ChatGPT 那个网页分区，'
+        + '留空表示跟随 Windows 系统代理。')
+      .addText((text) => text.setPlaceholder('127.0.0.1:7892')
+        .setValue(this.plugin.settings.chatgptProxy || '')
+        .onChange((value) => {
+          this.plugin.settings.chatgptProxy = value.trim();
+          this.plugin.saveDeviceSettings();
+          const view = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view;
+          if (view?.applyChatgptProxy) view.applyChatgptProxy();
+        }));
     new Setting(containerEl).setName('拆分存储配置（可选，仅本机）')
       .setDesc('完成迁移演练后填写 device-storage.json；旧库留空。无效配置会停止启动。')
       .addText(text => text.setValue(this.plugin.settings.storageConfigPath || '').onChange(value => {
