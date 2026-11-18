@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import pillar_notes, vault_layout
+from .library_management import NotebookTitleRequest, LibraryNoteRequest, set_notebook_title, manage_note, notebook_titles, clear_notebook_title
 from .db import Database
 from .memory_store import operation_lock
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
@@ -99,6 +100,12 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
     except OSError as error:
         raise HTTPException(500, f"创建本子失败：{error}") from error
 
+    try:
+        if key_pillar in {"life", "knowledge"}:
+            clear_notebook_title(vault, key_pillar, vault_layout.custom_notebook_key(clean, key_pillar))
+    except Exception:
+        target.rmdir()  # Only the empty folder this request just created.
+        raise
     if audit:
         database.audit("notebook_created", {
             "pillar": key_pillar, "name": clean, "path": relative,
@@ -177,6 +184,7 @@ def _rollback_moves(moved: list[tuple[Path, Path]]) -> None:
 def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
                             key: str) -> dict[str, Any]:
     name = vault_layout.custom_notebook_name(key)
+    display_title = notebook_titles(vault, pillar).get(key, name)
     if not name:
         raise HTTPException(422, "只能删除当前库的本子")
     relative = vault_layout.custom_notebook_path(name, pillar)
@@ -223,6 +231,7 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
         "key": key,
         "builtin": False,
         "original_path": relative,
+        "display_title": display_title,
         "trash_path": trash_path,
         "note_count": note_count,
     }
@@ -240,7 +249,7 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
     return {
         "deleted": True,
         "key": key,
-        "title": name,
+        "title": display_title,
         "builtin": False,
         "path": relative,
         "paths": [relative],
@@ -253,6 +262,7 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
 def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
                              key: str) -> dict[str, Any]:
     title = vault_layout.builtin_notebook_title(pillar, key)
+    display_title = notebook_titles(vault, pillar).get(key, title)
     chapters = vault_layout.builtin_notebook_chapters(pillar, key)
     if not title or not chapters:
         raise HTTPException(422, "只能删除人生路/知识库的内置本子或自建本子")
@@ -317,6 +327,7 @@ def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
         "key": key,
         "builtin": True,
         "chapters": list(chapters),
+        "display_title": display_title,
         "original_paths": [relative for _chapter, _source, relative in sources],
         "trash_paths": trash_paths,
         "trash_path": trash_path,
@@ -392,6 +403,14 @@ def create_notebook_router(database: Database, vault_dir: Path | str, *,
     @router.get("/notebooks")
     def notebooks(pillar: str = Query(default="life")):
         return list_notebooks(vault_dir, pillar)
+
+    @router.post("/notebooks/title")
+    def title(payload: NotebookTitleRequest):
+        return set_notebook_title(database, vault_dir, payload, read_only=read_only)
+
+    @router.post("/library/notes/action")
+    def note_action(payload: LibraryNoteRequest):
+        return manage_note(database, vault_dir, payload, read_only=read_only)
 
     @router.post("/notebooks")
     def create(payload: NotebookCreateRequest):

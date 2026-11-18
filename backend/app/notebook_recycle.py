@@ -9,6 +9,7 @@ from typing import Any
 
 from . import vault_layout as layout
 from .memory_store import operation_lock
+from .library_management import restore_notebook_title
 from .storage_layout import checked_path, workspace_path, workspace_relative
 
 TRASH = ".torch-os/本子回收站"
@@ -106,7 +107,7 @@ def list_notebook_recycle(vault: Path) -> list[dict[str, Any]]:
             try: pairs = _mappings(vault, batch, manifest)
             except ValueError as error: pairs, reason = [], str(error)
             paths = [workspace_relative(vault, target).as_posix() for _, target in pairs]
-            result.append({"source": "notebooks", "kind": "notebook", "title": manifest.get("name") or child.name,
+            result.append({"source": "notebooks", "kind": "notebook", "title": manifest.get("display_title") or manifest.get("name") or child.name,
                            "pillar": manifest.get("pillar"), "chapter": "", "key": manifest.get("key"),
                            "trash_path": relative, "batch_path": relative, "original_path": "、".join(paths),
                            "original_paths": paths, "deleted_at": manifest.get("deleted_at") or child.name,
@@ -140,6 +141,7 @@ def restore_notebook(vault: Path, relative: str) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
                 moved.append((source, target))
+            restore_notebook_title(vault, manifest)
             if manifest.get("builtin"):
                 if not pairs:
                     for chapter in layout.builtin_notebook_chapters(manifest["pillar"], manifest["key"]):

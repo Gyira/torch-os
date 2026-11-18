@@ -1,3 +1,4 @@
+import { libraryTools, initLibraryFiles } from "./library-files.js";
 // 四库前端（2026-10-21）：章节轨 + 条目列表 + 详情 + 跳转 Obsidian。
 // 2026-10-26 起四库只读：这里不写任何 Markdown，新建/修改都跳回 Obsidian 原生编辑。
 // 工作台完全独立；这里只读四库接口，不碰 time-module / workbench 的 DOM。
@@ -164,7 +165,21 @@ function notebookCardsFor(view) {
     : (overview.chapters || []);
   return buildNotebookCards(
     view, chapters, overview.custom_notebooks || [],
-    overview.deleted_notebooks || []);
+    overview.deleted_notebooks || []).map((book) => ({ ...book, title: overview.notebook_titles?.[book.key] || book.title }));
+}
+
+function displayNotebook(view, key) {
+  const book = notebookById(view, key);
+  return book ? { ...book, title: state.overviews[view]?.notebook_titles?.[key] || book.title } : null;
+}
+
+export async function openLibraryNotebook(view, key) {
+  state.reading[view] = null;
+  state.notebook[view] = key;
+  state.chapter[view] = "";
+  state.search[view] = "";
+  state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
+  await loadPillar(view, { reuseOverview: true });
 }
 
 /** 本子定义里的 chapters 是 key 字符串；本子卡片里的 chapters 是 {key,...} 对象。 */
@@ -472,6 +487,7 @@ function noteCardMarkup(view, note) {
       </span>
     </button>
     ${moveButton}
+    ${libraryTools("note", card.path, card.title, view, card.chapter)}
   </div>`;
 }
 
@@ -480,7 +496,7 @@ function notebookCardMarkup(view, notebook) {
     pillar: view,
     chapterTitle: chapterTitle(view, notebook.latest.chapter),
   }) : null;
-  return `<button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}${notebook.empty ? " is-empty" : ""}" data-notebook="${escapeHtml(notebook.key)}" data-notebook-view="${escapeHtml(view)}">
+  return `<div class="library-book-wrap"><button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}${notebook.empty ? " is-empty" : ""}" data-notebook="${escapeHtml(notebook.key)}" data-notebook-view="${escapeHtml(view)}">
     <span class="notebook-card-top">
       <span class="notebook-icon" aria-hidden="true">${escapeHtml(notebook.icon || "本")}</span>
       <span class="notebook-count">${Number(notebook.count) || 0} 篇</span>
@@ -489,7 +505,7 @@ function notebookCardMarkup(view, notebook) {
     <span class="notebook-desc">${escapeHtml(notebook.description || "")}</span>
     <span class="notebook-latest">${latest ? `最近：${escapeHtml(latest.title)}` : (notebook.key === "task" ? "还没有任务文档" : "还没有记录，打开写下第一篇")}</span>
     <span class="notebook-open">打开本子 <i aria-hidden="true">→</i></span>
-  </button>`;
+  </button>${libraryTools("book", notebook.key, notebook.title, view)}</div>`;
 }
 
 function companionCardMarkup(view, { task = false } = {}) {
@@ -796,7 +812,7 @@ function opsHomeMarkup() {
 function notebookPageMarkup(view) {
   const overview = state.overviews[view] || {};
   const chapter = state.chapter[view] || "";
-  const notebook = notebookById(view, state.notebook[view] || "");
+  const notebook = displayNotebook(view, state.notebook[view] || "");
   const notebookCard = notebook
     ? notebookCardsFor(view).find((card) => card.key === notebook.key)
     : null;
@@ -897,6 +913,7 @@ function notebookPageMarkup(view) {
 }
 
 function renderShell(view) {
+  queueMicrotask(() => document.dispatchEvent(new CustomEvent("torch:library-rendered", { detail: { view, overview: state.overviews[view] } })));
   const root = $(`#${view}-view .pillar-shell`);
   if (!root) return null;
   const meta = PILLAR_META[view];
@@ -922,7 +939,7 @@ function renderShell(view) {
   const railItems = rail.items.map((item) => (item.type === "group"
     ? railGroupMarkup(view, item, collapsedGroups, chapter, countFor)
     : railChapterMarkup(view, item, chapter, countFor(item.key)))).join("");
-  const activeNotebook = notebookById(view, state.notebook[view] || "");
+  const activeNotebook = displayNotebook(view, state.notebook[view] || "");
   const headNewChapter = chapter || defaultChapterForNotebook(activeNotebook)
     || defaultWriteChapter(view);
   const lifeHome = view === "life" && !chapter && !activeNotebook;
@@ -1097,7 +1114,7 @@ async function loadPillar(view, { keepChapter = false, reuseOverview = false } =
     ? state.overviews[view] : await api(`/api/pillars/${view}/overview`);
   if (!current()) return;
   state.overviews[view] = overview;
-  let notebook = notebookById(view, state.notebook[view] || "");
+  let notebook = displayNotebook(view, state.notebook[view] || "");
   if (!notebook) state.notebook[view] = "";
   // 自定义本子可能在 Obsidian 里被删掉：回首页，不要让用户停在一个不存在的本子里。
   if (notebook?.custom
@@ -1478,7 +1495,7 @@ function bindPillarEvents() {
     if (deleteNotebook) {
       const key = deleteNotebook.dataset.notebookDelete || "";
       const view = deleteNotebook.dataset.notebookDeletePillar || appState.view;
-      const notebook = notebookById(view, key);
+      const notebook = displayNotebook(view, key);
       const card = notebookCardsFor(view).find((item) => item.key === key);
       if (!notebook || !card || !canDeleteNotebook(view, notebook)) return;
       const count = Number(card.count) || 0;
@@ -1581,7 +1598,7 @@ function bindPillarEvents() {
     const editorNew = event.target.closest?.("[data-editor-new]");
     if (editorNew) {
       const view = editorNew.dataset.editorNew || appState.view;
-      const notebook = notebookById(view, state.notebook[view] || "");
+      const notebook = displayNotebook(view, state.notebook[view] || "");
       const chapter = editorNew.dataset.newChapter || state.chapter[view]
         || defaultChapterForNotebook(notebook)
         || defaultWriteChapter(view);
@@ -1986,6 +2003,11 @@ async function openTodayJournal() {
 }
 
 export function initPillars() {
+  initLibraryFiles({ books: notebookCardsFor, refresh: async (view) => {
+    state.reading[view] = null;
+    invalidateChapterCache();
+    await loadPillar(view);
+  } });
   bindPillarEvents();
   bindHabitEvents();
   initNoteEditor();

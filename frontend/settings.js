@@ -185,7 +185,7 @@ function renderNavOrder(message, tone = "") {
   const order = currentNavOrder();
   list.innerHTML = order.map((key, index) => {
     const label = NAV_LABELS[key] || key;
-    return `<li><span>${escapeHtml(label)}</span><div class="nav-order-actions"><button type="button" class="small-button" data-nav-move="-1" data-nav-key="${escapeHtml(key)}" ${index === 0 ? "disabled" : ""} aria-label="上移${escapeHtml(label)}">↑</button><button type="button" class="small-button" data-nav-move="1" data-nav-key="${escapeHtml(key)}" ${index === order.length - 1 ? "disabled" : ""} aria-label="下移${escapeHtml(label)}">↓</button></div></li>`;
+    return `<li draggable="true" data-nav-card="${escapeHtml(key)}"><span class="nav-order-grip" aria-hidden="true">⠿</span><span class="nav-order-name"><small>${index + 1}</small>${escapeHtml(label)}</span><div class="nav-order-actions"><button type="button" class="small-button" data-nav-move="-1" data-nav-key="${escapeHtml(key)}" ${index === 0 ? "disabled" : ""} aria-label="上移${escapeHtml(label)}">↑</button><button type="button" class="small-button" data-nav-move="1" data-nav-key="${escapeHtml(key)}" ${index === order.length - 1 ? "disabled" : ""} aria-label="下移${escapeHtml(label)}">↓</button></div></li>`;
   }).join("");
   setStatus("#nav-order-feedback", navOrderNotice.message || "顺序保存在当前个人数据库的 .torch-os；可随时恢复默认。", navOrderNotice.tone);
   if (activeKey) focusNavMoveButton(activeKey, activeMove);
@@ -554,6 +554,41 @@ async function runBackup(filename = null) {
 }
 
 export function initSettings() {
+  const orderList = $("#nav-order-list");
+  let draggedKey = "";
+  const endDrag = () => {
+    draggedKey = "";
+    orderList?.querySelectorAll("li").forEach((card) => card.classList.remove("is-dragging", "is-drop-target"));
+  };
+  orderList?.addEventListener("dragstart", (event) => {
+    const card = event.target.closest("[data-nav-card]");
+    if (!card) return;
+    draggedKey = card.dataset.navCard;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggedKey);
+    card.classList.add("is-dragging");
+  });
+  orderList?.addEventListener("dragover", (event) => {
+    const target = event.target.closest("[data-nav-card]");
+    if (!draggedKey || !target) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    orderList.querySelectorAll("li").forEach((card) => card.classList.toggle("is-drop-target", card === target && card.dataset.navCard !== draggedKey));
+  });
+  orderList?.addEventListener("drop", (event) => {
+    const target = event.target.closest("[data-nav-card]");
+    if (!draggedKey || !target) return;
+    event.preventDefault();
+    const order = currentNavOrder();
+    const key = draggedKey;
+    const next = moveItem(order, key, order.indexOf(target.dataset.navCard) - order.indexOf(key));
+    endDrag();
+    storeOrder(next);
+    applyNavOrder();
+    renderNavOrder(`“${NAV_LABELS[key]}”已移到第 ${next.indexOf(key) + 1} 位。`, "success");
+    focusNavMoveButton(key, -1);
+  });
+  orderList?.addEventListener("dragend", endDrag);
   initVaultMigration();
   initWidgetSettings();
   $("#refresh-settings").addEventListener("click", loadSettings);

@@ -15,7 +15,8 @@ import { initToolCatalog } from "./tool-catalog.js";
 import { initRestoreDrill } from "./restore-drill.js";
 import { initWorkbench, loadWorkbench } from "./workbench.js";
 import { initDidaSync } from "./dida-sync.js";
-import { initPillars, loadPillarModule } from "./pillars.js";
+import { initPillars, loadPillarModule, openLibraryNotebook } from "./pillars.js";
+import { buildNotebookNav } from "./notebook-nav.js";
 import { initSelf, loadSelf } from "./self.js";
 import { initMentorStrip } from "./mentor-strip.js";
 import { openGlobalSearch } from "./global-search.js";
@@ -143,6 +144,7 @@ function positionOpsMenu() {
 }
 
 function openOpsMenu() {
+  document.dispatchEvent(new CustomEvent("torch:nav-menu-open", { detail: "ops" }));
   const family = opsNavFamily();
   const menu = opsNavMenu();
   const trigger = family?.querySelector(".panel-nav-trigger");
@@ -221,6 +223,7 @@ function buildOpsFamily(trigger) {
 
 /** 悬停、方向键、Esc、焦点移出：下拉层的全部打开／收起入口。 */
 function bindOpsMenu() {
+  document.addEventListener("torch:nav-menu-open", (event) => { if (event.detail !== "ops") closeOpsMenu(); });
   const family = opsNavFamily();
   const menu = opsNavMenu();
   const trigger = family?.querySelector(".panel-nav-trigger");
@@ -292,6 +295,7 @@ function renderPanelNav() {
   const scroll = document.createElement("div");
   scroll.className = "panel-nav-scroll";
   let opsMenu = null;
+  const notebookMenus = [];
   for (const view of currentNavOrder()) {
     const button = document.createElement("button");
     button.type = "button";
@@ -303,10 +307,17 @@ function renderPanelNav() {
       const family = buildOpsFamily(button);
       opsMenu = family.menu;
       scroll.append(family.node);
+    } else if (["life", "knowledge"].includes(view)) {
+      const family = buildNotebookNav(button, view, async (target, key) => {
+        try { if (await goTo(target)) await openLibraryNotebook(target, key); }
+        catch (error) { toast(error.message, "error"); }
+      });
+      scroll.append(family.node); notebookMenus.push(family.menu);
     } else scroll.appendChild(button);
   }
   nav.appendChild(scroll);
   if (opsMenu) nav.append(opsMenu);
+  nav.append(...notebookMenus);
   const help = document.createElement("button");
   help.type = "button";
   help.className = "panel-nav-help";
@@ -409,6 +420,7 @@ export async function switchView(view, updateHash = true) {
     return false;
   }
   state.view = view;
+  document.dispatchEvent(new CustomEvent("torch:nav-menu-open", { detail: null }));
   // 离开生活运营（或它的下拉分区）时把下拉层收起来，别让它悬在别的页面上。
   if (view !== "ops") closeOpsMenu();
   // 工作台不再摆顶部大标题（2026-10-05 用户反馈）：给 body 打一个 view-* 类，样式据此隐藏

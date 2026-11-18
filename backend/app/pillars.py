@@ -74,6 +74,7 @@ def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
 
 
 def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[str, Any]:
+    from .library_management import notebook_titles
     key = _pillar_or_404(pillar)
     notes = pillar_notes.list_notes(vault_dir, pillar=key, limit=500)
     hidden = vault_layout.hidden_chapters(vault_dir)
@@ -96,6 +97,7 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
         "chapters": chapters,
         "recent": notes[:8],
         "count": len(notes),
+        "notebook_titles": notebook_titles(vault_dir, key) if key in {"life", "knowledge"} else {},
     }
     if key in vault_layout.BUILTIN_NOTEBOOKS:
         payload["deleted_notebooks"] = sorted(
