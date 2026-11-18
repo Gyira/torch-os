@@ -24,7 +24,7 @@ function device(name) {
   }) };
 }
 const a = device("desktop"), b = device("phone-model"), encode = new TextEncoder();
-for (let i = 0; i < 448; i++) a.files.set(`03_知识库/00_收件箱/synthetic-${i}.md`, encode.encode(`合成样例 ${i}\n` + "合成记录".repeat(200)));
+for (let i = 0; i < 448; i++) a.files.set(`知识库/收件箱/synthetic-${i}.md`, encode.encode(`合成样例 ${i}\n` + "合成记录".repeat(200)));
 const sourceBytes = [...a.files.values()].reduce((n, bytes) => n + bytes.length, 0), steps = [];
 for (const [name, engine] of [["initial_publish", a.engine], ["initial_receive", b.engine], ["unchanged_receive", b.engine]]) {
   const start = performance.now(), before = reads, result = await engine.sync();

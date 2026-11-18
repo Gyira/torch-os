@@ -1,8 +1,8 @@
 """Read-only export of Markdown goals and tasks (2026-10-22).
 
 The old SQLite goals/tasks export was retired. Goals come from the life-plan
-notes under ``00_人生路/04_目标``; tasks come from one-task-one-note
-Markdown files under ``02_生活运营/00_待办事项``. This is a snapshot: it never changes a
+notes under ``人生路/目标``; tasks come from one-task-one-note
+Markdown files under ``生活运营/待办事项``. This is a snapshot: it never changes a
 note and never calls a model.
 """
 

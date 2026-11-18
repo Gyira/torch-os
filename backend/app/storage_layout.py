@@ -203,7 +203,7 @@ def migration_plan(source, layout: StorageLayout):
                 destination, action = "state/legacy-vault/" + relative, "review_runtime_or_device_config"
             elif suffix in {".db", ".sqlite", ".sqlite3", ".json", ".key", ".enc"} or name.endswith(("-wal", "-shm")):
                 destination, action = "state/legacy-vault/" + relative, "review_business_state"
-            elif suffix == ".md" and relative.startswith(("00_人生路/", "01_自我档案/", "02_生活运营/", "03_知识库/")):
+            elif suffix == ".md" and relative.startswith(("人生路/", "自我档案/", "生活运营/", "知识库/")):
                 destination, action = "notes/" + relative, "candidate_note_requires_link_audit"
             else:
                 destination, action = "archive/legacy-vault/" + relative, "review_attachment_or_unknown"

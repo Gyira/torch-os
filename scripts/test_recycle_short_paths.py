@@ -25,7 +25,7 @@ class RecycleShortPathTests(unittest.TestCase):
         self.vault.mkdir()
 
     def test_note_trash_uses_short_flat_name_and_restores_original_path(self):
-        relative = f"03_知识库/01_主题笔记/{LONG_TITLE}.md"
+        relative = f"知识库/主题笔记/{LONG_TITLE}.md"
         source = self.vault / relative
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(
@@ -35,7 +35,7 @@ class RecycleShortPathTests(unittest.TestCase):
         result = pillar_notes.trash_note(self.vault, relative)
         trash_rel = result["trash_path"]
         self.assertLess(len(trash_rel), 120, trash_rel)
-        self.assertNotIn("01_主题笔记", trash_rel)
+        self.assertNotIn("主题笔记", trash_rel)
         self.assertIn("/files/", trash_rel)
         self.assertFalse(source.exists())
 

@@ -273,7 +273,7 @@ def seed_markdown(day: date) -> dict[str, str]:
     files: dict[str, str] = {}
 
     # 今天的日记：四库「人生路」最近 7 天里唯一写完的一天，详情只读。
-    files[f"00_人生路/01_日记/{stamp}.md"] = _note_file(
+    files[f"人生路/日记/{stamp}.md"] = _note_file(
         "journal", stamp,
         "\n".join([
             f"# {stamp}（第{week}周，{WEEKDAYS[day.weekday()]}）",
@@ -297,11 +297,11 @@ def seed_markdown(day: date) -> dict[str, str]:
         ("QA 触动", "qa-seed-inbox-feeling",
          "我觉得这件事很触动我，先记下来，之后再想清楚。"),
     ):
-        files[f"03_知识库/00_收件箱/{title}.md"] = _note_file(
+        files[f"知识库/收件箱/{title}.md"] = _note_file(
             "inbox", title, body, note_id=note_id, created=stamp, status="inbox")
 
     # 主题笔记：全局搜索「考研」的确定性命中；正文覆盖阅读视图的表格/标注块/任务清单/目录。
-    files["03_知识库/01_主题笔记/考研规划.md"] = _note_file(
+    files["知识库/主题笔记/考研规划.md"] = _note_file(
         "topic", "考研规划",
         "\n".join([
             "准备考研的示例笔记，用于 QA 探针的全局搜索。",
@@ -323,9 +323,9 @@ def seed_markdown(day: date) -> dict[str, str]:
         ]),
         note_id="qa-seed-topic-exam", created=stamp)
 
-    # 当日健康记录：健康系统页面（02_健康系统/01_每日健康）的权威来源。
+    # 当日健康记录：健康系统页面（健康系统/每日健康）的权威来源。
     # 只放事实，不写健康评价；数值与真实记录同构，探针才能走通录入与图表。
-    files[f"02_生活运营/02_健康系统/01_每日健康/{day.isoformat()}.md"] = "\n".join([
+    files[f"生活运营/健康系统/每日健康/{day.isoformat()}.md"] = "\n".join([
         "---",
         "type: health_day",
         f"title: {day.isoformat()} 健康记录",
@@ -813,7 +813,7 @@ def _compute_ok(report: dict) -> bool:
         and all(retired_writes.get(path) == 404 for path in RETIRED_WRITES)
         # 头部新建仍跳 Obsidian；n 在人生路/知识库打开应用内「写一条」编辑器
         and pillar_new.get("present") is True
-        and jump_is(new_jump.get("first", ""), "new", "03_知识库/")
+        and jump_is(new_jump.get("first", ""), "new", "知识库/")
         and new_jump.get("capture_dialog") is False
         and shortcut_editor.get("open") is True
         and shortcut_editor.get("has_body") is True
@@ -849,7 +849,7 @@ def _compute_ok(report: dict) -> bool:
         and ops.get("has_form") is False
         and ops.get("has_delete") is False
         and ops.get("has_open_file") is True
-        and jump_is(ops_jump.get("first", ""), "open", "02_生活运营/")
+        and jump_is(ops_jump.get("first", ""), "open", "生活运营/")
         # 管家提案只读
         and steward.get("apply_hooks") == 0
         and steward.get("open_actions") == steward.get("proposals")

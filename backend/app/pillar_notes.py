@@ -124,6 +124,8 @@ def list_notes(vault_dir: Path | str, *, pillar: str = "", chapter: str = "",
 
 def read_note(vault_dir: Path | str, relative: str) -> dict[str, Any]:
     vault = Path(vault_dir).resolve()
+    from .directory_names import canonical_path
+    relative = canonical_path(relative)
     vault_layout.validate_target(relative)
     path = safe_note_path(vault, relative)
     loaded = load_note(path)

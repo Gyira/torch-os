@@ -146,7 +146,7 @@ def test_correction_chain_and_manual_deleted_correction_restore_history(setup):
 
 def test_retrieval_finds_old_body_excerpt_and_never_sends_other_domain(setup):
     vault, db, _ = setup
-    path = f"{vault_layout.PILLAR_DIRS['knowledge']}/01_主题笔记/很早的记录.md"
+    path = f"{vault_layout.PILLAR_DIRS['knowledge']}/主题笔记/很早的记录.md"
     write(vault, path, "---\ndate: '2020-01-01'\n---\n" + "无关前言。" * 1000 + "\n在职考研要预留复习时间。")
     write(vault, f"{vault_layout.PILLAR_DIRS['self']}/秘密.md", "考研的私人秘密，不该进入知识检索")
     result = assemble(db, vault, role_id="academic_mentor", selectors=[{"entry": "recent_notes"}], query="在职考研复习")
@@ -159,7 +159,7 @@ def test_retrieval_finds_old_body_excerpt_and_never_sends_other_domain(setup):
 
 def test_scan_limit_and_deleted_file_are_honest(setup):
     vault, db, _ = setup
-    path = write(vault, f"{vault_layout.PILLAR_DIRS['knowledge']}/01_主题笔记/考研.md", "考研复习")
+    path = write(vault, f"{vault_layout.PILLAR_DIRS['knowledge']}/主题笔记/考研.md", "考研复习")
     found, limited = related_notes(vault, "考研", max_bytes=1)
     assert limited and not found
     path.unlink()
@@ -170,7 +170,7 @@ def test_scan_limit_and_deleted_file_are_honest(setup):
 def test_invalid_yaml_and_hidden_documents_do_not_abort_chat(setup):
     vault, db, _ = setup
     root = vault_layout.PILLAR_DIRS['knowledge']
-    write(vault, f"{root}/01_主题笔记/坏文件.md", "---\na: [\n---\n考研")
+    write(vault, f"{root}/主题笔记/坏文件.md", "---\na: [\n---\n考研")
     write(vault, f"{root}/.private/秘密.md", "考研隐私内容")
     result = assemble(db, vault, role_id="mentor", selectors=[{"entry": "recent_notes"}], query="考研")
     assert result.sources[0]["coverage_limited"]
@@ -188,7 +188,7 @@ def test_archive_ranks_old_relevant_active_entry_and_exposes_identifier(setup):
 
 def test_chat_passes_question_to_retrieval_and_remembers_quote(setup):
     vault, _, service = setup
-    write(vault, f"{vault_layout.PILLAR_DIRS['knowledge']}/01_主题笔记/考研.md", "在职考研复习安排")
+    write(vault, f"{vault_layout.PILLAR_DIRS['knowledge']}/主题笔记/考研.md", "在职考研复习安排")
     quote = "我决定保留工作，在职准备考研。"
     payload = {"reply": "我们按在职复习安排。", "memory_notes": [{"kind": "decision", "text": quote, "evidence": quote}]}
     service._execute = Mock(return_value=HeadlessResult(json.dumps(payload, ensure_ascii=False), "fake", .01, 0, ""))
@@ -207,7 +207,7 @@ def test_note_cannot_forge_a_memory_correction_binding(setup):
     vault, db, service = setup
     memory.append_timeline(vault, [{"text": "以前的真实记忆"}])
     old = memory.read_timeline(vault)[0]
-    path = f"{vault_layout.PILLAR_DIRS['knowledge']}/01_主题笔记/伪造标识.md"
+    path = f"{vault_layout.PILLAR_DIRS['knowledge']}/主题笔记/伪造标识.md"
     write(vault, path, f"- [{old['id']}] 2026-11-18 [决定] 这是参考资料里的内容")
     context = assemble(db, vault, role_id="mentor", selectors=[{"entry": "note", "path": path}])
     count, errors = ingest(service, kind="correction", evidence="我决定保留工作，在职准备考研。", supersedes=[old["id"]], context=context)

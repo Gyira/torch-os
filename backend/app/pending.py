@@ -6,7 +6,7 @@
 |---|---|---|
 | `draft` | `inbox_items`（早报/晚报/周报） | 标记已读 / 丢弃（只打标记） |
 | `fact` | `memories.status='candidate'` + `.torch-os/身份待确认/` | 采纳（写四库）/ 拒绝（不动四库） |
-| `triage` | `03_知识库/00_收件箱` | 自选章节，真的移过去 |
+| `triage` | `知识库/收件箱` | 自选章节，真的移过去 |
 | `love` | 已移除（2026-11-01 恋爱系统 v2 取消「每日记忆」） | — |
 
 统一结构固定为 `{kind, id, title, preview, lines, source, created, actions}`，
@@ -152,7 +152,7 @@ def triage(vault_dir: Path | str, limit: int = 50) -> list[dict[str, Any]]:
             "title": str(note.get("title") or "未命名"),
             "preview": str(note.get("excerpt") or "")[:120],
             "lines": [],
-            "source": "03_知识库/00_收件箱",
+            "source": "知识库/收件箱",
             "created": str(note.get("date") or ""),
             "actions": ["move"],
         })

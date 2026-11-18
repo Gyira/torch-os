@@ -53,7 +53,7 @@ test("encrypted transport performs the full XPan precreate/slice/create/readback
   await transport.initializeEmpty();
   const body = encode("private 中文正文"), id = await hash(body);
   await transport.putObject(id, body); assert.deepEqual(await transport.getObject(id), body);
-  const c = await commit({ protocol: 1, binding, file: "file", path: "03_知识库/test.md", device: "a", operation: "one", parents: [], kind: "put", content: id });
+  const c = await commit({ protocol: 1, binding, file: "file", path: "知识库/test.md", device: "a", operation: "one", parents: [], kind: "put", content: id });
   await transport.putCommit(c); assert.deepEqual(await transport.listCommits(), [c]);
   assert.ok([...wire.files.values()].every(f => !new TextDecoder().decode(f.bytes).includes("private")));
   const wrong = await SecureTransport.open(api, binding, "wrong-password-12345");

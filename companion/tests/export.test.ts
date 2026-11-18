@@ -5,7 +5,7 @@ import { commit, hash } from "../core/protocol.ts";
 import type { Commit } from "../core/protocol.ts";
 test("readable recovery exports independent conflicts and refuses missing history", async () => {
   const binding = { protocol: 1 as const, workspace: "test", account: "test", remoteRoot: "/apps/test" }, bytes = new TextEncoder().encode("原文"), digest = await hash(bytes);
-  const make = (operation: string, parents: string[] = []) => commit({ protocol: 1, binding, device: "a", file: "f", operation, parents, path: "03_知识库/a.md", kind: "put", content: digest });
+  const make = (operation: string, parents: string[] = []) => commit({ protocol: 1, binding, device: "a", file: "f", operation, parents, path: "知识库/a.md", kind: "put", content: digest });
   let records = [await make("one"), await make("two")];
   const remote = { listCommits: async () => records, getObject: async () => bytes, putObject: async () => {}, putCommit: async (_: Commit) => {} };
   const result = await readableExport(remote, binding);

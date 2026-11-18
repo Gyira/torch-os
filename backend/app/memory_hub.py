@@ -8,7 +8,7 @@ Data layout
 - `.torch-os/忆灵/复盘卡/已采纳|已忽略/`
 - `.torch-os/忆灵/事件/`            main-dsh/script dropped events (P3; optional)
 - `.torch-os/忆灵/state.json`       local synthesis state
-- `01_自我档案/08_忆灵观察/`        append-only portrait/observation snapshots (user-readable)
+- `自我档案/忆灵观察/`        append-only portrait/observation snapshots (user-readable)
 
 Identity has exactly two write paths: a reviewed memory-hub patch (no dialogue token
 needed) or a Socratic patch that carries the AI's verdict token.  Both end in

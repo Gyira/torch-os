@@ -5,11 +5,11 @@ import { api, toast } from "./core.js";
 const PILLAR_COPY = {
   life: {
     eyebrow: "人生路 · 新本子",
-    help: "会在 <code>00_人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
+    help: "会在 <code>人生路/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
   },
   knowledge: {
     eyebrow: "知识库 · 新本子",
-    help: "会在 <code>03_知识库/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
+    help: "会在 <code>知识库/</code> 下创建同名文件夹。本子就是文件夹，Obsidian 里也能直接看到和编辑。",
   },
 };
 

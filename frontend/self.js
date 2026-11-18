@@ -258,7 +258,7 @@ async function runSearch(query) {
   try {
     const payload = await api(`/api/search?pillar=self&q=${encodeURIComponent(text)}&limit=30`);
     const items = (payload.items || []).filter((item) =>
-      String(item.path || "").startsWith("01_自我档案/01_档案/"));
+      String(item.path || "").startsWith("自我档案/档案/"));
     panel.innerHTML = items.length
       ? items.map((item) => `<button type="button" class="self-search-item" data-self-search-path="${escapeHtml(item.path)}">
           <strong>${escapeHtml(item.title)}</strong>

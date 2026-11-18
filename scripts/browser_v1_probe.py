@@ -133,7 +133,7 @@ async def run(base_url: str, port: int = 9334) -> dict:
             await cdp.evaluate("document.querySelector('#life-view [data-notebook-back]').click()")
             await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
 
-            # 新建本子 = 在 00_人生路 下建一个文件夹；创建后直接进入本子。
+            # 新建本子 = 在 人生路 下建一个文件夹；创建后直接进入本子。
             notebook_name = f"验收本子-{int(time.time()) % 1_000_000}"
             await cdp.evaluate("document.querySelector('#life-view [data-notebook-create]').click()")
             await cdp.wait_for("document.querySelector('#notebook-create-dialog')?.open === true", timeout=20)

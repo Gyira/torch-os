@@ -69,7 +69,7 @@ class RoleContractTests(unittest.TestCase):
 
     def test_mentor_write_scope_is_self_archive_only(self):
         self.assertEqual(ROLE_ROOTS["mentor"], tuple(vault_layout.PILLAR_DIRS.values()))
-        self.assertEqual(WRITE_ROOTS["mentor"], ("01_自我档案",))
+        self.assertEqual(WRITE_ROOTS["mentor"], ("自我档案",))
         self.assertEqual(ROLE_ACTIONS["mentor"], frozenset())
         self.assertTrue(self.manifest["mentor_autonomous_archive"])
 

@@ -23,7 +23,7 @@ DATASETS = {
     "health": {
         "chapter": "health",
         "type": "health_month",
-        # 2026-10-31 起健康数据改由健康系统（02_生活运营/02_健康系统）的每日记录承载；
+        # 2026-10-31 起健康数据改由健康系统（生活运营/健康系统）的每日记录承载；
         # 这里只保留旧月度表 API 的兼容读取，新库不会生成 YYYY-MM.md。
         "title": "健康系统（旧月度表）",
         "columns": [("row_id", "ID"), ("date", "日期"), ("weight_kg", "体重kg"),
@@ -58,7 +58,7 @@ def _month(value: str) -> str:
     return text
 
 
-LEGACY_HEALTH_DIR = "02_生活运营/01_健康与体重"
+LEGACY_HEALTH_DIR = "生活运营/01_健康与体重"
 
 
 def month_path(vault_dir: Path | str, dataset: str, month: str) -> str:

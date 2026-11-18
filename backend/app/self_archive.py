@@ -2,9 +2,9 @@
 
 数据目录与前端左栏一一对应：
 
-- ``01_自我档案/01_档案/<本子文件夹>/*.md``  每个条目一篇 Markdown；
-- ``01_自我档案/01_档案/00_画像.md``         缩略版现状画像；
-- 身份文件 ``01_自我档案/01_档案/身份（identity）.md`` 仍由 identity.py 管理。
+- ``自我档案/档案/<本子文件夹>/*.md``  每个条目一篇 Markdown；
+- ``自我档案/档案/00_画像.md``         缩略版现状画像；
+- 身份文件 ``自我档案/档案/身份（identity）.md`` 仍由 identity.py 管理。
 
 写入权只有人生导师：本模块提供 create / supersede / portrait 的原语，
 真正的“用户确认”在 mentor_pending 与 API 层。Torch 界面不提供手动编辑。
@@ -60,17 +60,17 @@ OP_OPEN_STATUSES = ("preparing", "new_written")
 
 # key, 标题, 文件夹, 默认条目类型（顺序就是左栏顺序）
 BOOKS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
-    ("self_facts", "基础事实", "01_基础事实", ("fact", "behavior")),
-    ("self_body", "身体与能量", "02_身体与能量", ("fact", "behavior", "inference")),
-    ("self_behavior", "行为与习惯", "03_行为与习惯", ("behavior", "fact")),
-    ("self_emotion", "情绪与压力", "04_情绪与压力", ("behavior", "inference", "hypothesis")),
-    ("self_motivation", "动机与需求", "05_动机与需求", ("inference", "narrative", "fact")),
-    ("self_values", "三观与决策", "06_三观与决策", ("narrative", "fact", "inference")),
-    ("self_relationship", "关系与边界", "07_关系与边界", ("behavior", "inference", "fact")),
-    ("self_narrative", "自我叙事", "08_自我叙事", ("narrative",)),
-    ("self_paradox", "矛盾与盲区", "09_矛盾与盲区", ("inference", "hypothesis")),
-    ("self_timeline", "人生时间线", "10_人生时间线", ("fact", "narrative")),
-    ("self_experiments", "验证与更新", "11_验证与更新", ("hypothesis", "behavior", "fact")),
+    ("self_facts", "基础事实", "基础事实", ("fact", "behavior")),
+    ("self_body", "身体与能量", "身体与能量", ("fact", "behavior", "inference")),
+    ("self_behavior", "行为与习惯", "行为与习惯", ("behavior", "fact")),
+    ("self_emotion", "情绪与压力", "情绪与压力", ("behavior", "inference", "hypothesis")),
+    ("self_motivation", "动机与需求", "动机与需求", ("inference", "narrative", "fact")),
+    ("self_values", "三观与决策", "三观与决策", ("narrative", "fact", "inference")),
+    ("self_relationship", "关系与边界", "关系与边界", ("behavior", "inference", "fact")),
+    ("self_narrative", "自我叙事", "自我叙事", ("narrative",)),
+    ("self_paradox", "矛盾与盲区", "矛盾与盲区", ("inference", "hypothesis")),
+    ("self_timeline", "人生时间线", "人生时间线", ("fact", "narrative")),
+    ("self_experiments", "验证与更新", "验证与更新", ("hypothesis", "behavior", "fact")),
 )
 BOOK_BY_KEY = {item[0]: item for item in BOOKS}
 BOOK_ORDER = tuple(item[0] for item in BOOKS)

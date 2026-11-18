@@ -1,13 +1,13 @@
 """四库布局的唯一路径与索引策略来源（2026-10-26 人生路 v2）。
 
-- 四个用户库：00_人生路 / 01_自我档案 / 02_生活运营 / 03_知识库；
-- 人生路 v2 把反思复盘、目标、项目收进分组目录（`02_反思复盘`、`04_目标`、`05_项目`），
+- 四个用户库：人生路 / 自我档案 / 生活运营 / 知识库；
+- 人生路 v2 把反思复盘、目标、项目收进分组目录（`反思复盘`、`目标`、`项目`），
   侧边栏分组见 `CHAPTER_GROUPS`；v1 的旧章节目录只由迁移搬到新路径
   （见 `V1_CHAPTER_MOVES`），运行时不再写入；
-- 工作台任务与待办在 `02_生活运营/00_待办事项`（任务根 + 收集箱/已完成/回收站）；
-  旧 00_人生路/07_任务与待办、08_任务与待办、00-System 只做只读兜底与迁移；
+- 工作台任务与待办在 `生活运营/待办事项`（任务根 + 收集箱/已完成/回收站）；
+  旧 人生路/07_任务与待办、08_任务与待办、00-System 只做只读兜底与迁移；
 - 2026-11-01 生活运营目录重排：`03_体检与医疗` 退役并入
-  `02_健康系统/03_体检与检验`，其余目录压紧编号（见 `OPS_LAYOUT_MOVES`）；
+  `健康系统/体检与检验`，其余目录压紧编号（见 `OPS_LAYOUT_MOVES`）；
 - 2026-11-03 前端对齐：人生路 01–07，生活运营 00–04；固定目录缺失自动补建。
   既有库显式运行 scripts/align_vault_layout.py，避免运行时隐式搬动个人资料；
 - 旧布局（02-Life/journal、01-Identity、90-Inbox…）只做只读兜底，迁移后不再写入。
@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-LAYOUT_VERSION = "pillars-v2"
+LAYOUT_VERSION = "pillars-v3-names"
 SYSTEM_DIR = "00-System"
 FOREIGN_FILES = ("dashboard.md", "dashboard-2.md")
 
@@ -45,21 +45,21 @@ PILLAR_TITLES = {
     "love": "恋爱记忆",
 }
 PILLAR_DIRS = {
-    "life": "00_人生路",
-    "self": "01_自我档案",
-    "ops": "02_生活运营",
-    "knowledge": "03_知识库",
+    "life": "人生路",
+    "self": "自我档案",
+    "ops": "生活运营",
+    "knowledge": "知识库",
 }
 PILLAR_ORDER = ("life", "self", "ops", "knowledge")
 
 # 恋爱系统 v2（2026-11-01）：生活运营下的二级分区；记忆使用独立写作域，
 # 但不进入四库首页/迁移状态，避免把“四库”变成五库。
 LOVE_PILLAR = "love"
-LOVE_ROOT = "02_生活运营/01_恋爱系统"
+LOVE_ROOT = "生活运营/恋爱系统"
 LOVE_PAGE_DIRS = tuple(f"{LOVE_ROOT}/{name}" for name in (
-    "01_恋爱记忆", "02_微信聊天", "03_排班日历", "04_经期关怀",
-    "05_恋爱相册", "06_八字合婚", "07_恋爱大师"))
-LOVE_MEMORY_DIR = f"{LOVE_ROOT}/01_恋爱记忆"
+    "恋爱记忆", "微信聊天", "排班日历", "经期关怀",
+    "恋爱相册", "八字合婚", "恋爱大师"))
+LOVE_MEMORY_DIR = f"{LOVE_ROOT}/恋爱记忆"
 LOVE_JOURNAL_DIR = f"{LOVE_MEMORY_DIR}/恋爱日志"
 LOVE_DRAFT_DIR = f"{LOVE_MEMORY_DIR}/AI 草稿"
 LOVE_JOURNAL_CHAPTER = "love_journal"
@@ -69,7 +69,7 @@ LOVE_NOTEBOOK_PREFIX = "custom:love:"
 PROTECTED_LOVE_NOTEBOOKS = frozenset({"关系画像", "深度分析", "阶段报告"})
 
 # 任务数据层（2026-10-31）：落在生活运营下，根目录直接是收集箱/已完成/回收站/各清单文件夹。
-TASK_ROOT = "02_生活运营/00_待办事项"
+TASK_ROOT = "生活运营/待办事项"
 TASK_INBOX_DIR = f"{TASK_ROOT}/收集箱"
 TASK_DONE_DIR = f"{TASK_ROOT}/已完成"
 TASK_TRASH_DIR = f"{TASK_ROOT}/回收站"
@@ -97,13 +97,13 @@ def recycle_file_name(relative: str) -> str:
     return f"{stem}-{digest}{suffix}"
 
 # 自我档案重构（2026-11-01）：三个部分一一对应三个目录。
-# - 01_档案：11 个固定本子 + 身份/画像两个特殊文件；
-# - 02_人生导师：分层记忆、待确认、每日三问与历史；
-# - 03_八字系统：个人命盘与 AI 解读。
+# - 档案：11 个固定本子 + 身份/画像两个特殊文件；
+# - 人生导师：分层记忆、待确认、每日三问与历史；
+# - 八字系统：个人命盘与 AI 解读。
 SELF_ROOT = PILLAR_DIRS["self"]
-SELF_ARCHIVE_ROOT = f"{SELF_ROOT}/01_档案"
-SELF_MENTOR_ROOT = f"{SELF_ROOT}/02_人生导师"
-SELF_BAZI_ROOT = f"{SELF_ROOT}/03_八字系统"
+SELF_ARCHIVE_ROOT = f"{SELF_ROOT}/档案"
+SELF_MENTOR_ROOT = f"{SELF_ROOT}/人生导师"
+SELF_BAZI_ROOT = f"{SELF_ROOT}/八字系统"
 SELF_IDENTITY_RELATIVE = f"{SELF_ARCHIVE_ROOT}/身份（identity）.md"
 SELF_PORTRAIT_RELATIVE = f"{SELF_ARCHIVE_ROOT}/00_画像.md"
 SELF_BACKUP_PREFIX = ".torch-os/backups/self-archive/99_重构备份-"
@@ -124,81 +124,81 @@ SELF_ARCHIVE_LAYOUT_MARKER = ".torch-os/self-archive-layout.json"
 
 # key, pillar, 显示名, 相对路径, 默认 type
 CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
-    # 00_人生路
-    ("journal", "life", "日记", "00_人生路/01_日记", "journal"),
-    ("reflection", "life", "反思", "00_人生路/02_反思复盘/01_反思", "reflection"),
-    ("insight_life", "life", "生活心得", "00_人生路/03_心得体会/01_生活心得", "insight"),
-    ("insight_work", "life", "工作心得", "00_人生路/03_心得体会/02_工作心得", "insight"),
-    ("insight_study", "life", "学习心得", "00_人生路/03_心得体会/03_学习心得", "insight"),
-    ("review_week", "life", "周复盘", "00_人生路/02_反思复盘/02_周复盘", "weekly_review"),
-    ("review_month", "life", "月复盘", "00_人生路/02_反思复盘/03_月复盘", "monthly_review"),
-    ("goal_year", "life", "年度目标", "00_人生路/04_目标/01_年度目标", "goal"),
-    ("goal_quarter", "life", "季度目标", "00_人生路/04_目标/02_季度目标", "goal"),
-    ("goal_month", "life", "月度目标", "00_人生路/04_目标/03_月度目标", "goal"),
-    ("habit", "life", "习惯追踪", "00_人生路/04_目标/04_习惯追踪", "habit_log"),
-    ("project_plan", "life", "项目计划", "00_人生路/05_项目/01_项目计划", "plan"),
-    ("work_review_project", "life", "项目复盘", "00_人生路/05_项目/02_项目复盘", "reflection"),
-    ("work_review_meeting", "life", "会议收获", "00_人生路/07_工作复盘/01_会议收获", "insight"),
-    ("work_review_pitfall", "life", "踩坑记录", "00_人生路/07_工作复盘/02_踩坑记录", "insight"),
+    # 人生路
+    ("journal", "life", "日记", "人生路/日记", "journal"),
+    ("reflection", "life", "反思", "人生路/反思复盘/反思", "reflection"),
+    ("insight_life", "life", "生活心得", "人生路/心得体会/生活心得", "insight"),
+    ("insight_work", "life", "工作心得", "人生路/心得体会/工作心得", "insight"),
+    ("insight_study", "life", "学习心得", "人生路/心得体会/学习心得", "insight"),
+    ("review_week", "life", "周复盘", "人生路/反思复盘/周复盘", "weekly_review"),
+    ("review_month", "life", "月复盘", "人生路/反思复盘/月复盘", "monthly_review"),
+    ("goal_year", "life", "年度目标", "人生路/目标/年度目标", "goal"),
+    ("goal_quarter", "life", "季度目标", "人生路/目标/季度目标", "goal"),
+    ("goal_month", "life", "月度目标", "人生路/目标/月度目标", "goal"),
+    ("habit", "life", "习惯追踪", "人生路/目标/习惯追踪", "habit_log"),
+    ("project_plan", "life", "项目计划", "人生路/项目/项目计划", "plan"),
+    ("work_review_project", "life", "项目复盘", "人生路/项目/项目复盘", "reflection"),
+    ("work_review_meeting", "life", "会议收获", "人生路/工作复盘/会议收获", "insight"),
+    ("work_review_pitfall", "life", "踩坑记录", "人生路/工作复盘/踩坑记录", "insight"),
     # 编号遵循前端 LIFE_NOTEBOOKS：项目 → 随笔 → 工作复盘。
-    ("essay", "life", "随笔", "00_人生路/06_随笔", "essay"),
-    # 01_自我档案（旧章节：2026-11-01 重构后只做迁移/只读兜底，不再创建空目录）
-    ("core_values", "self", "内核与三观", "01_自我档案/01_内核与三观", "value"),
-    ("memory", "self", "记忆与自传", "01_自我档案/02_记忆与自传", "memory"),
-    ("idea", "self", "想法与灵感", "01_自我档案/03_想法与灵感", "idea"),
-    ("relationship", "self", "情感与关系", "01_自我档案/04_情感与关系", "relationship"),
-    ("meaning", "self", "意义与目标", "01_自我档案/05_意义与目标", "meaning"),
-    ("distill_work", "self", "工作方法沉淀", "01_自我档案/06_沉淀与创作/01_工作方法", "principle"),
-    ("distill_career", "self", "职业原则", "01_自我档案/06_沉淀与创作/02_职业原则", "principle"),
+    ("essay", "life", "随笔", "人生路/随笔", "essay"),
+    # 自我档案（旧章节：2026-11-01 重构后只做迁移/只读兜底，不再创建空目录）
+    ("core_values", "self", "内核与三观", "自我档案/内核与三观", "value"),
+    ("memory", "self", "记忆与自传", "自我档案/记忆与自传", "memory"),
+    ("idea", "self", "想法与灵感", "自我档案/想法与灵感", "idea"),
+    ("relationship", "self", "情感与关系", "自我档案/情感与关系", "relationship"),
+    ("meaning", "self", "意义与目标", "自我档案/意义与目标", "meaning"),
+    ("distill_work", "self", "工作方法沉淀", "自我档案/沉淀与创作/工作方法", "principle"),
+    ("distill_career", "self", "职业原则", "自我档案/沉淀与创作/职业原则", "principle"),
     # 命理参考：个人命盘与长期自省用，独立成一个侧边栏分区
-    ("bazi", "self", "我的八字参考", "01_自我档案/07_我的八字参考", "bazi"),
+    ("bazi", "self", "我的八字参考", "自我档案/我的八字参考", "bazi"),
     # v1.0 忆灵观察：AI 画像快照与观察报告，只追加不覆盖；memory: false，避免再次进入候选池。
-    ("yiling", "self", "忆灵观察", "01_自我档案/08_忆灵观察", "observation"),
-    # 01_自我档案（v2，2026-11-01）：01_档案 下的 11 个固定本子。
+    ("yiling", "self", "忆灵观察", "自我档案/忆灵观察", "observation"),
+    # 自我档案（v2，2026-11-01）：档案 下的 11 个固定本子。
     # 顺序就是左栏顺序；本子文件夹固定，不可在应用内删除/重命名。
-    ("self_facts", "self", "基础事实", "01_自我档案/01_档案/01_基础事实", "self_archive_entry"),
-    ("self_body", "self", "身体与能量", "01_自我档案/01_档案/02_身体与能量", "self_archive_entry"),
-    ("self_behavior", "self", "行为与习惯", "01_自我档案/01_档案/03_行为与习惯", "self_archive_entry"),
-    ("self_emotion", "self", "情绪与压力", "01_自我档案/01_档案/04_情绪与压力", "self_archive_entry"),
-    ("self_motivation", "self", "动机与需求", "01_自我档案/01_档案/05_动机与需求", "self_archive_entry"),
-    ("self_values", "self", "三观与决策", "01_自我档案/01_档案/06_三观与决策", "self_archive_entry"),
-    ("self_relationship", "self", "关系与边界", "01_自我档案/01_档案/07_关系与边界", "self_archive_entry"),
-    ("self_narrative", "self", "自我叙事", "01_自我档案/01_档案/08_自我叙事", "self_archive_entry"),
-    ("self_paradox", "self", "矛盾与盲区", "01_自我档案/01_档案/09_矛盾与盲区", "self_archive_entry"),
-    ("self_timeline", "self", "人生时间线", "01_自我档案/01_档案/10_人生时间线", "self_archive_entry"),
-    ("self_experiments", "self", "验证与更新", "01_自我档案/01_档案/11_验证与更新", "self_archive_entry"),
-    # 02_生活运营
+    ("self_facts", "self", "基础事实", "自我档案/档案/基础事实", "self_archive_entry"),
+    ("self_body", "self", "身体与能量", "自我档案/档案/身体与能量", "self_archive_entry"),
+    ("self_behavior", "self", "行为与习惯", "自我档案/档案/行为与习惯", "self_archive_entry"),
+    ("self_emotion", "self", "情绪与压力", "自我档案/档案/情绪与压力", "self_archive_entry"),
+    ("self_motivation", "self", "动机与需求", "自我档案/档案/动机与需求", "self_archive_entry"),
+    ("self_values", "self", "三观与决策", "自我档案/档案/三观与决策", "self_archive_entry"),
+    ("self_relationship", "self", "关系与边界", "自我档案/档案/关系与边界", "self_archive_entry"),
+    ("self_narrative", "self", "自我叙事", "自我档案/档案/自我叙事", "self_archive_entry"),
+    ("self_paradox", "self", "矛盾与盲区", "自我档案/档案/矛盾与盲区", "self_archive_entry"),
+    ("self_timeline", "self", "人生时间线", "自我档案/档案/人生时间线", "self_archive_entry"),
+    ("self_experiments", "self", "验证与更新", "自我档案/档案/验证与更新", "self_archive_entry"),
+    # 生活运营
     ("task", "ops", "待办事项", TASK_ROOT, "task"),
     # 健康系统（2026-10-31）：与恋爱系统平级的生活运营二级分区，数据全部在
-    # `02_健康系统/`；旧 `01_健康与体重` 月度表只做只读兜底，不再写入。
-    ("health", "ops", "健康系统", "02_生活运营/02_健康系统", "health_day"),
-    ("health_daily", "ops", "每日健康", "02_生活运营/02_健康系统/01_每日健康", "health_day"),
-    ("health_profile", "ops", "身体档案", "02_生活运营/02_健康系统/02_身体档案", "health_profile"),
-    ("health_lab", "ops", "体检与检验", "02_生活运营/02_健康系统/03_体检与检验", "health_lab"),
-    ("health_train", "ops", "训练记录", "02_生活运营/02_健康系统/04_训练记录", "health_train"),
-    ("health_consult", "ops", "问诊记录", "02_生活运营/02_健康系统/05_问诊记录", "health_consult"),
-    ("finance", "ops", "财富与记账", "02_生活运营/03_财务系统/收支记账", "finance_month"),
+    # `健康系统/`；旧 `01_健康与体重` 月度表只做只读兜底，不再写入。
+    ("health", "ops", "健康系统", "生活运营/健康系统", "health_day"),
+    ("health_daily", "ops", "每日健康", "生活运营/健康系统/每日健康", "health_day"),
+    ("health_profile", "ops", "身体档案", "生活运营/健康系统/身体档案", "health_profile"),
+    ("health_lab", "ops", "体检与检验", "生活运营/健康系统/体检与检验", "health_lab"),
+    ("health_train", "ops", "训练记录", "生活运营/健康系统/训练记录", "health_train"),
+    ("health_consult", "ops", "问诊记录", "生活运营/健康系统/问诊记录", "health_consult"),
+    ("finance", "ops", "财富与记账", "生活运营/财务系统/收支记账", "finance_month"),
     # 2026-11-01：体检/医疗不再单独占一个生活运营顶层目录；检验记录归
-    # `02_健康系统/03_体检与检验`，`medical` 章节退役。旧产物归入所属系统，
+    # `健康系统/体检与检验`，`medical` 章节退役。旧产物归入所属系统，
     # 不再独占生活运营入口；目录按需创建，保留原章节 key 与 API。
-    ("affairs", "ops", "证件与事务", "02_生活运营/04_家庭系统/证件与事务", "document"),
+    ("affairs", "ops", "证件与事务", "生活运营/家庭系统/证件与事务", "document"),
     # AI 确认后的每日聊天记忆（只写摘要，原文留在 .torch-os/love）
     ("love_memory", "ops", "情感与记忆", f"{LOVE_MEMORY_DIR}/聊天摘要", "memory"),
     # v1.0 生活运营 AI 报告：专家角色生成的可读产物，落数据层；家庭是占位章节。
-    ("health_report", "ops", "健康报告", "02_生活运营/02_健康系统/00_健康报告", "report"),
-    ("finance_report", "ops", "财务报告", "02_生活运营/03_财务系统/财务报告", "report"),
-    ("life_advice", "ops", "生活建议", "02_生活运营/04_家庭系统/生活建议", "advice"),
-    ("family", "ops", "家庭系统", "02_生活运营/04_家庭系统", "family"),
-    # 03_知识库
-    ("inbox", "knowledge", "收件箱", "03_知识库/00_收件箱", "inbox"),
-    ("topic", "knowledge", "主题笔记", "03_知识库/01_主题笔记", "topic"),
-    ("reading", "knowledge", "读书笔记", "03_知识库/02_读书笔记", "reading"),
-    ("course", "knowledge", "课程笔记", "03_知识库/03_课程笔记", "course"),
-    ("concept", "knowledge", "概念卡片", "03_知识库/04_概念卡片", "concept"),
-    ("method_work", "knowledge", "工作方法", "03_知识库/05_方法库/01_工作方法", "method"),
-    ("method_general", "knowledge", "通用方法", "03_知识库/05_方法库/02_通用方法", "method"),
-    ("output", "knowledge", "输出与作品", "03_知识库/06_输出与作品", "output"),
-    # 02_生活运营 / 01_恋爱系统：只给恋爱记忆写作域使用，不进入四库首页。
+    ("health_report", "ops", "健康报告", "生活运营/健康系统/健康报告", "report"),
+    ("finance_report", "ops", "财务报告", "生活运营/财务系统/财务报告", "report"),
+    ("life_advice", "ops", "生活建议", "生活运营/家庭系统/生活建议", "advice"),
+    ("family", "ops", "家庭系统", "生活运营/家庭系统", "family"),
+    # 知识库
+    ("inbox", "knowledge", "收件箱", "知识库/收件箱", "inbox"),
+    ("topic", "knowledge", "主题笔记", "知识库/主题笔记", "topic"),
+    ("reading", "knowledge", "读书笔记", "知识库/读书笔记", "reading"),
+    ("course", "knowledge", "课程笔记", "知识库/课程笔记", "course"),
+    ("concept", "knowledge", "概念卡片", "知识库/概念卡片", "concept"),
+    ("method_work", "knowledge", "工作方法", "知识库/方法库/工作方法", "method"),
+    ("method_general", "knowledge", "通用方法", "知识库/方法库/通用方法", "method"),
+    ("output", "knowledge", "输出与作品", "知识库/输出与作品", "output"),
+    # 生活运营 / 恋爱系统：只给恋爱记忆写作域使用，不进入四库首页。
     (LOVE_JOURNAL_CHAPTER, LOVE_PILLAR, "恋爱日志", LOVE_JOURNAL_DIR, "love_memory"),
     (LOVE_DRAFT_CHAPTER, LOVE_PILLAR, "AI 草稿", LOVE_DRAFT_DIR, "love_memory"),
 )
@@ -282,16 +282,16 @@ _NOTEBOOK_FOLDED_RESERVED_TITLES = {
 # v1 → v2 章节搬迁（只给迁移预览/执行用）：旧目录下的文件按相对子路径搬到新章节，
 # 未列出的旧目录（日记、任务、习惯、会议、踩坑…）保持原地不动。
 V1_CHAPTER_MOVES: dict[str, str] = {
-    "00_人生路/02_反思": "reflection",
-    "00_人生路/04_周复盘": "review_week",
-    "00_人生路/05_月复盘": "review_month",
-    "00_人生路/06_目标与计划/01_年度目标": "goal_year",
-    "00_人生路/06_目标与计划/02_季度目标": "goal_quarter",
-    "00_人生路/06_目标与计划/03_月度目标": "goal_month",
-    "00_人生路/06_目标与计划/04_习惯追踪": "habit",
-    "00_人生路/06_目标与计划/05_项目计划": "project_plan",
-    "00_人生路/07_工作复盘/01_项目复盘": "work_review_project",
-    "00_人生路/06_工作复盘/01_项目复盘": "work_review_project",
+    "人生路/02_反思": "reflection",
+    "人生路/04_周复盘": "review_week",
+    "人生路/05_月复盘": "review_month",
+    "人生路/06_目标与计划/年度目标": "goal_year",
+    "人生路/06_目标与计划/季度目标": "goal_quarter",
+    "人生路/06_目标与计划/月度目标": "goal_month",
+    "人生路/06_目标与计划/习惯追踪": "habit",
+    "人生路/06_目标与计划/05_项目计划": "project_plan",
+    "人生路/工作复盘/01_项目复盘": "work_review_project",
+    "人生路/06_工作复盘/01_项目复盘": "work_review_project",
 }
 
 CHAPTER_BY_KEY = {item[0]: item for item in CHAPTERS}
@@ -306,12 +306,12 @@ LEGACY_CHAPTER_KEYS = frozenset({
 })
 
 # 2026-11-01 生活运营目录重排：取消独立的「03_体检与医疗」，它的内容并入
-# `02_健康系统/03_体检与检验`；其余目录压紧编号。迁移只动顶层目录，逐个文件
+# `健康系统/体检与检验`；其余目录压紧编号。迁移只动顶层目录，逐个文件
 # 冲突保留原文件，不覆盖。标记写 `.torch-os/ops-layout.json`，幂等可重跑。
-OPS_ROOT = "02_生活运营"
+OPS_ROOT = "生活运营"
 OPS_LAYOUT_SCHEMA = "ops-layout-v2"
 OPS_LAYOUT_MARKER = ".torch-os/ops-layout.json"
-OPS_HEALTH_LAB = f"{OPS_ROOT}/02_健康系统/03_体检与检验"
+OPS_HEALTH_LAB = f"{OPS_ROOT}/健康系统/体检与检验"
 OPS_LAYOUT_MOVES: tuple[tuple[str, str], ...] = (
     (f"{OPS_ROOT}/03_体检与医疗", OPS_HEALTH_LAB),
     (f"{OPS_ROOT}/04_证件与事务", CHAPTER_BY_KEY["affairs"][3]),
@@ -325,16 +325,16 @@ OPS_LAYOUT_MOVES: tuple[tuple[str, str], ...] = (
 
 # 一级分区与 frontend/ops-model.js 对齐；无独立入口的旧产物按需落盘。
 OPS_SYSTEM_DIRS = tuple(f"{OPS_ROOT}/{name}" for name in (
-    "00_待办事项", "01_恋爱系统", "02_健康系统", "03_财务系统", "04_家庭系统"))
+    "待办事项", "恋爱系统", "健康系统", "财务系统", "家庭系统"))
 LAZY_CHAPTER_KEYS = frozenset({"affairs", "finance_report", "life_advice"})
 
 # 旧布局 → 新章节（只在迁移预览里使用；运行时读取旧路径只做只读兜底）。
 LEGACY_DIRS = {
-    "02-life/journal": "00_人生路/01_日记",
-    "01-identity": "01_自我档案/01_内核与三观",
-    "90-inbox": "03_知识库/00_收件箱",
-    "80-wolai": "03_知识库/00_收件箱/_导入",
-    "提示词": "03_知识库/00_收件箱",
+    "02-life/journal": "人生路/日记",
+    "01-identity": "自我档案/内核与三观",
+    "90-inbox": "知识库/收件箱",
+    "80-wolai": "知识库/收件箱/_导入",
+    "提示词": "知识库/收件箱",
 }
 
 # 扫描/活动/审计共用的跳过目录（大小写不敏感）。
@@ -395,7 +395,7 @@ def chapter_manifest(*, hidden: set[str] | frozenset[str] = frozenset()) -> dict
 
 def pillar_of(relpath: str) -> str:
     text = normalize_relpath(relpath)
-    # 恋爱记忆在 02_生活运营 下，必须先于 ops 匹配，否则会被误判成生活运营。
+    # 恋爱记忆在 生活运营 下，必须先于 ops 匹配，否则会被误判成生活运营。
     if text == LOVE_MEMORY_DIR or text.startswith(LOVE_MEMORY_DIR + "/"):
         return LOVE_PILLAR
     for key, directory in PILLAR_DIRS.items():
@@ -725,7 +725,7 @@ def v1_chapter_move(relpath: str) -> tuple[str, str] | None:
     if not text:
         return None
     folded = text.casefold()
-    # 长目录优先，避免 `06_目标与计划/01_年度目标` 被更短的父目录抢先匹配。
+    # 长目录优先，避免 `06_目标与计划/年度目标` 被更短的父目录抢先匹配。
     for source, chapter in sorted(V1_CHAPTER_MOVES.items(), key=lambda pair: -len(pair[0])):
         prefix = source.casefold()
         if not folded.startswith(prefix + "/"):
@@ -792,7 +792,8 @@ def safe_note_stem(title: str, *, fallback: str = "未命名") -> str:
 
 def validate_target(relpath: str) -> str:
     """只允许写进四库章节；任务章节由工作台专用接口管理，旧 00-System 不再写入。"""
-    text = normalize_relpath(relpath)
+    from .directory_names import canonical_path
+    text = canonical_path(normalize_relpath(relpath))
     if not text or not pillar_of(text):
         raise ValueError("目标必须是四库章节内的路径")
     if text.split("/")[0].casefold() == SYSTEM_DIR.casefold() or is_foreign(text):
@@ -801,13 +802,13 @@ def validate_target(relpath: str) -> str:
 
 
 def journal_path(day: str) -> str:
-    return f"00_人生路/01_日记/{day}.md"
+    return f"人生路/日记/{day}.md"
 
 
 def identity_paths() -> tuple[str, str]:
-    """身份文件的新旧路径：新路径在 01_档案 下，旧路径只读兜底。"""
+    """身份文件的新旧路径：新路径在 档案 下，旧路径只读兜底。"""
     current = SELF_IDENTITY_RELATIVE
-    legacy = "01_自我档案/01_内核与三观/身份（identity）.md"
+    legacy = "自我档案/内核与三观/身份（identity）.md"
     return current, legacy
 
 

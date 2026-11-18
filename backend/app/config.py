@@ -39,7 +39,7 @@ MENTOR_AUTONOMOUS_ARCHIVE = os.getenv(
     "TORCH_MENTOR_AUTONOMOUS_ARCHIVE", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 # ── 恋爱系统（v2）──────────────────────────────────────────────────
-# 运行时私人数据在 <Vault>/02_生活运营/01_恋爱系统/ 的七个页面目录；
+# 运行时私人数据在 <Vault>/生活运营/恋爱系统/ 的七个页面目录；
 # 下面这些变量只作为旧 .torch-os/love/ 的迁移来源/兼容配置，不再决定新数据路径。
 # 车次时刻表已独立到 <Vault>/.torch-os/train-tracker/。
 LOVE_DATA_DIR = _path_from_env("LOVE_DATA_DIR", DATA_DIR / "love")

@@ -3,16 +3,16 @@
 把旧布局一次性、幂等地整理成：
 
 ```
-02_生活运营/00_待办事项/
+生活运营/待办事项/
   收集箱/ 已完成/ 回收站/ _系统/ <清单>...
 ```
 
 迁移内容：
 
 - 工作复盘由目录对齐迁移管理；任务启动迁移不再改它的编号。
-- `06_目标与计划/04_习惯追踪` → `04_目标/04_习惯追踪`
+- `06_目标与计划/习惯追踪` → `目标/习惯追踪`
 - `08_任务与待办` → `07_任务与待办`（旧布局）
-- `00_人生路/07_任务与待办` → `02_生活运营/00_待办事项`
+- `人生路/07_任务与待办` → `生活运营/待办事项`
 - 展开根下 `任务/`：清单文件夹上移，散落任务进收集箱
 - done 任务统一进 `已完成/`，并写 frontmatter `清单`
 - 旧 `.torch-os/task-trash` 批次搬进新回收站
@@ -43,18 +43,18 @@ BACKUP_ROOT_REL = Path(".torch-os", "backups", "task-layout")
 LOG_ROOT_REL = Path(".torch-os", "migrations")
 
 _RENAME_PAIRS = (
-    ("00_人生路/06_目标与计划/04_习惯追踪", "00_人生路/04_目标/04_习惯追踪"),
-    ("00_人生路/08_任务与待办", "00_人生路/07_任务与待办"),
-    ("00_人生路/07_任务与待办", vault_layout.TASK_ROOT),
+    ("人生路/06_目标与计划/习惯追踪", "人生路/目标/习惯追踪"),
+    ("人生路/08_任务与待办", "人生路/07_任务与待办"),
+    ("人生路/07_任务与待办", vault_layout.TASK_ROOT),
 )
 _BACKUP_DIRS = (
-    "00_人生路/04_目标",
-    "00_人生路/06_目标与计划",
-    "00_人生路/06_工作复盘",
-    "00_人生路/07_工作复盘",
-    "00_人生路/07_任务与待办",
-    "00_人生路/08_任务与待办",
-    "02_生活运营/00_待办事项",
+    "人生路/目标",
+    "人生路/06_目标与计划",
+    "人生路/06_工作复盘",
+    "人生路/工作复盘",
+    "人生路/07_任务与待办",
+    "人生路/08_任务与待办",
+    "生活运营/待办事项",
     "00-System/任务",
     "00-System/任务（tasks）.md",
     "00-System/待办（todos）.md",
@@ -357,7 +357,7 @@ def ensure_task_data_layout(vault_dir: Path | str, *, database: Any = None,
     backup = _backup(vault, database, stamp)
     for source, target in _RENAME_PAIRS:
         _move_or_merge(workspace_path(vault, source), workspace_path(vault, target), moves, conflicts)
-    _remove_empty(workspace_path(vault, "00_人生路/06_目标与计划"))
+    _remove_empty(workspace_path(vault, "人生路/06_目标与计划"))
 
     try:
         vault_layout.ensure_layout(vault)

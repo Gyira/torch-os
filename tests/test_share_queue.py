@@ -35,13 +35,13 @@ def test_preview_does_not_archive_and_commit_uses_exact_snapshot_once(tmp_path):
     preview = request(layout, "share_preview", source_url="https://chatgpt.com/share/test-share")
     assert queue.run_once()["processed"] == 1
     data = receipt(layout, preview["request_id"])
-    assert data["status"] == "preview_ready" and not list(layout.notes.glob("03_*/*/*.md"))
+    assert data["status"] == "preview_ready" and not list(layout.notes.glob("知识库/*/*.md"))
     commit = request(layout, "share_commit", preview_request=preview["request_id"], content_hash=data["content_hash"], chapter="inbox")
     assert queue.run_once()["errors"] == 0
     assert receipt(layout, commit["request_id"])["status"] == "archived"
     queue.run_once()
     assert len(calls) == 1
-    assert len(list(layout.notes.glob("03_*/*/*.md"))) == 1
+    assert len(list(layout.notes.glob("知识库/*/*.md"))) == 1
 
 
 def test_out_of_order_confirmation_waits_and_cancellation_prevents_fetch(tmp_path):

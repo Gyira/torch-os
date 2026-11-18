@@ -5,17 +5,17 @@ const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&
 export const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ESCAPES[char]);
 
 export const BOOKS = [
-  { key: "self_facts", title: "基础事实", subtitle: "时间、钱、居住、身份、结构性处境", icon: "实", folder: "01_基础事实" },
-  { key: "self_body", title: "身体与能量", subtitle: "睡眠、运动、饮食、身体信号、能量账本", icon: "身", folder: "02_身体与能量" },
-  { key: "self_behavior", title: "行为与习惯", subtitle: "守时、回复、拖延、消费、压力动作", icon: "行", folder: "03_行为与习惯" },
-  { key: "self_emotion", title: "情绪与压力", subtitle: "底色、触发点、防御、冲突修复", icon: "情", folder: "04_情绪与压力" },
-  { key: "self_motivation", title: "动机与需求", subtitle: "驱动力、最怕什么、奖励与惩罚", icon: "动", folder: "05_动机与需求" },
-  { key: "self_values", title: "三观与决策", subtitle: "世界观、人生观、价值排序、红线", icon: "观", folder: "06_三观与决策" },
-  { key: "self_relationship", title: "关系与边界", subtitle: "信任、付出、边界、冲突修复", icon: "关", folder: "07_关系与边界" },
-  { key: "self_narrative", title: "自我叙事", subtitle: "标签、人生故事、自述与行为对照", icon: "叙", folder: "08_自我叙事" },
-  { key: "self_paradox", title: "矛盾与盲区", subtitle: "自述不一致、反复卡住、待验证假设", icon: "矛", folder: "09_矛盾与盲区" },
-  { key: "self_timeline", title: "人生时间线", subtitle: "阶段、关键选择、后悔与骄傲", icon: "时", folder: "10_人生时间线" },
-  { key: "self_experiments", title: "验证与更新", subtitle: "验证实验、更新记录、定期复盘", icon: "验", folder: "11_验证与更新" },
+  { key: "self_facts", title: "基础事实", subtitle: "时间、钱、居住、身份、结构性处境", icon: "实", folder: "基础事实" },
+  { key: "self_body", title: "身体与能量", subtitle: "睡眠、运动、饮食、身体信号、能量账本", icon: "身", folder: "身体与能量" },
+  { key: "self_behavior", title: "行为与习惯", subtitle: "守时、回复、拖延、消费、压力动作", icon: "行", folder: "行为与习惯" },
+  { key: "self_emotion", title: "情绪与压力", subtitle: "底色、触发点、防御、冲突修复", icon: "情", folder: "情绪与压力" },
+  { key: "self_motivation", title: "动机与需求", subtitle: "驱动力、最怕什么、奖励与惩罚", icon: "动", folder: "动机与需求" },
+  { key: "self_values", title: "三观与决策", subtitle: "世界观、人生观、价值排序、红线", icon: "观", folder: "三观与决策" },
+  { key: "self_relationship", title: "关系与边界", subtitle: "信任、付出、边界、冲突修复", icon: "关", folder: "关系与边界" },
+  { key: "self_narrative", title: "自我叙事", subtitle: "标签、人生故事、自述与行为对照", icon: "叙", folder: "自我叙事" },
+  { key: "self_paradox", title: "矛盾与盲区", subtitle: "自述不一致、反复卡住、待验证假设", icon: "矛", folder: "矛盾与盲区" },
+  { key: "self_timeline", title: "人生时间线", subtitle: "阶段、关键选择、后悔与骄傲", icon: "时", folder: "人生时间线" },
+  { key: "self_experiments", title: "验证与更新", subtitle: "验证实验、更新记录、定期复盘", icon: "验", folder: "验证与更新" },
 ];
 
 export const ENTRY_TYPE_LABELS = {

@@ -28,6 +28,10 @@ def restricted_path(relative: Path) -> bool:
 
 
 def safe_note_path(vault_dir: Path, relative: str) -> Path:
+    from .directory_names import canonical_path
+    # Saved links from before the explicit directory migration remain readable.
+    if not (vault_dir / relative).exists():
+        relative = canonical_path(relative)
     from .role_policy import guard_note_read
     guard_note_read(vault_dir, relative)
     root = vault_dir.resolve()

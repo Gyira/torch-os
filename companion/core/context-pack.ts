@@ -1,5 +1,5 @@
 import { hash } from "./protocol.ts";
-const roots = ["00_人生路", "01_自我档案", "02_生活运营", "03_知识库"];
+const roots = ["人生路", "自我档案", "生活运营", "知识库"];
 const excluded = /微信|回收|备份|backup|trash|credential|secret|apikey|api_key|冲突/i;
 const key = /(?:sk-[A-Za-z0-9_-]{16,}|-----BEGIN .*PRIVATE KEY|(?:api[_-]?key|access[_-]?token|password|密码)\s*[:=]\s*['"]?[A-Za-z0-9_+/=-]{12,})/i;
 export function contextSource(path: string) {

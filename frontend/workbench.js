@@ -1,6 +1,6 @@
 // 工作台 2.0（2026-10-05）：今日待办（左清单 / 右每日勾选）；与神对话由 dsh-pane.js 加载完整的 DeepSeek Harness。
 // Hero 挂三条座右铭与头图；右侧是时钟天气卡与黄历卡。数据本体都在 Markdown：
-// 待办在生活运营的 02_生活运营/00_待办事项/_系统/待办（todos）.md；日记仍在人生路，
+// 待办在生活运营的 生活运营/待办事项/_系统/待办（todos）.md；日记仍在人生路，
 // 每日必做的勾选状态只存本机 .torch-os，习惯在本地库。
 import { $, state, api, escapeHtml, jsonBody, setStatus, toast } from "./core.js";
 import { shouldShowWelcome } from "./welcome.js";
@@ -168,7 +168,7 @@ function renderDaily(payload) {
     $("#time-daily-count").textContent = rows.length ? `完成 ${done} / ${rows.length}` : "";
     if (hint) {
       hint.className = "habit-daily-hint";
-      hint.textContent = "每日必做在 02_生活运营/00_待办事项/_系统/待办（todos）.md 的「每日必做」区维护；勾选状态只记在本机，不改日记。";
+      hint.textContent = "每日必做在 生活运营/待办事项/_系统/待办（todos）.md 的「每日必做」区维护；勾选状态只记在本机，不改日记。";
     }
   }
   $("#habit-daily-info")?.setAttribute("aria-expanded", String(!hint?.hidden));

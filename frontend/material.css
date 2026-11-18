@@ -278,11 +278,40 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 .ai-model-form select { min-width: 0; width: 100%; min-height: 42px; }
 .ai-handoff-text { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 14px; border: 1px solid var(--p-line); border-radius: 12px; background: var(--p-surface); color: var(--p-ink); line-height: 1.6; font-size: 14px; }
 
-/* Direct routes, with the two everyday systems always within reach. */
+/* Direct routes; the two everyday systems live one hover away under 生活运营. */
 .top-nav-mode .panel-nav { gap: 10px; padding: 10px 14px; border-radius: 0 0 20px 20px; border-bottom: 1px solid var(--p-line); box-shadow: 0 8px 30px rgb(0 0 0 / 4%); }
 .panel-nav-scroll { align-items: center; gap: 5px; }
 .panel-nav-family { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
 .panel-nav-family > .panel-nav-item { flex: 0 0 auto; }
+/* 顶栏「生活运营」下拉（2026-11-18）：健康与恋爱收进悬停展开的菜单。
+   下拉层是顶栏的子节点，absolute 相对顶栏定位（由 app.js 计算），不会被横向滚动的标签条裁掉。 */
+.panel-nav-trigger { display: inline-flex; align-items: center; gap: 7px; }
+.panel-nav-caret {
+  width: 0; height: 0; flex: 0 0 auto; border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent; border-top: 4.5px solid currentColor;
+  opacity: .45; transition: transform .16s var(--m-ease), opacity .16s var(--m-ease);
+}
+.panel-nav-family.menu-open .panel-nav-caret { transform: translateY(1px) rotate(180deg); opacity: .8; }
+.panel-nav-family.has-current-system .panel-nav-caret { opacity: .9; }
+.panel-nav-menu { position: absolute; z-index: 30; padding-top: 6px; }
+.panel-nav-menu-card {
+  display: grid; gap: 2px; min-width: 164px; padding: 6px;
+  border: 1px solid var(--p-line); border-radius: 14px; background: var(--p-surface);
+  box-shadow: var(--m-shadow-raised), 0 24px 48px -32px var(--p-shadow);
+  animation: panel-nav-menu-in .16s var(--m-ease) both;
+}
+.top-nav-mode .panel-nav-menu .panel-nav-item {
+  display: flex; align-items: center; justify-content: flex-start; width: 100%;
+  min-height: 36px; padding: 7px 12px; border-radius: 10px; font-size: 13px;
+  text-align: left; color: var(--p-ink-2);
+}
+.top-nav-mode .panel-nav-menu .panel-nav-item:hover { background: var(--p-hover); color: var(--p-ink); }
+.top-nav-mode .panel-nav-menu .panel-nav-item.active { background: var(--p-fill); border-color: transparent; color: var(--p-ink-strong); font-weight: 600; }
+@keyframes panel-nav-menu-in { from { opacity: 0; transform: translateY(-5px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) {
+  .panel-nav-menu-card { animation: none; }
+  .panel-nav-caret { transition: none; }
+}
 .standalone-agent .dsh-frame-wrap { height: calc(100dvh - var(--panel-nav-h, 86px) - 160px); min-height: 420px; }
 .standalone-agent .dsh-frame { height: 100%; }
 #workbench-train-tracker[data-duty-hidden="true"] { display: none !important; }

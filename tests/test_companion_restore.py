@@ -24,7 +24,7 @@ const blob = {get:async key=>{if(!entries.has(key))throw new Error('Protocol obj
 const remote = await SecureTransport.open(blob,binding,'sync-password-1234'); await remote.initializeEmpty();
 const body = new TextEncoder().encode('中文原文\n\n```py\nprint(1)\n```');
 const digest = await hash(body); await remote.putObject(digest,body);
-const record = await commit({protocol:1,binding,file:'file',device:'device',operation:'operation',parents:[],kind:'put',content:digest,path:'03_知识库/中文.md'});
+const record = await commit({protocol:1,binding,file:'file',device:'device',operation:'operation',parents:[],kind:'put',content:digest,path:'知识库/中文.md'});
 await remote.putCommit(record);
 await writeFile(root+'/pair.txt',await exportPair({version:1,workspace:binding.workspace,account:binding.account,root:binding.remoteRoot,password:'sync-password-1234'},'pair-password-1234'));
 '''
@@ -38,7 +38,7 @@ def test_python_restores_real_typescript_encryption_without_obsidian(tmp_path):
     target = tmp_path / "restore"
     result = restore_companion(cloud, pair, "pair-password-1234", target)
     assert result["files"] == 1 and result["derivative_only"]
-    assert "中文原文" in (target / "03_知识库/中文.md").read_text(encoding="utf-8")
+    assert "中文原文" in (target / "知识库/中文.md").read_text(encoding="utf-8")
     assert not list(target.rglob("pair.txt"))
     with pytest.raises(ValueError, match="全新"):
         restore_companion(cloud, pair, "pair-password-1234", target)

@@ -4,7 +4,7 @@
 
 - **事实由程序写**：`build_digest` 只读任务笔记、待办、习惯、当日改动与 dsh 会话，不调模型；
 - **空段落不生成**：`compose` 从结构化字段拼 Markdown，没写的段落整段消失；
-- **只写当天**：`write_note` 只允许写 `00_人生路/01_日记/<今天>.md`，写前备份、带 sha 校验，
+- **只写当天**：`write_note` 只允许写 `人生路/日记/<今天>.md`，写前备份、带 sha 校验，
   只读库直接 409。
 
 模型不在这里。改写与对话走 dsh（`/api/journal/chat` 的前端面板），
@@ -324,7 +324,7 @@ def suggest_questions(digest: dict[str, Any], limit: int = DEFAULT_QUESTIONS) ->
                 "priority": 70,
                 "prompt": _quiet_prompt(streak),
                 "why": "日记目录里连续几天没有文件。",
-                "evidence": "00_人生路/01_日记/",
+                "evidence": "人生路/日记/",
             })
     if facts["tasks"]["due_today"]:
         item = facts["tasks"]["due_today"][0]

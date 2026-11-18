@@ -1,6 +1,6 @@
-"""今天的笔记：日记文件化（Vault 的 `00_人生路/01_日记/YYYY-MM-DD.md`，文件为准）。
+"""今天的笔记：日记文件化（Vault 的 `人生路/日记/YYYY-MM-DD.md`，文件为准）。
 
-- 目录按四库约定：日记在 `00_人生路/01_日记/`，模板在 `00_人生路/01_日记/_模板/`；
+- 目录按四库约定：日记在 `人生路/日记/`，模板在 `人生路/日记/_模板/`；
 - 2026-10-30 起，**今天**这一篇可以在应用内全屏编辑器里直接写（走 `/api/journal/write`）；
   过去的日记保持只读，回 Obsidian 改；
 - `read_note` 同时返回原始字节的 `sha256`，供编辑器保存前做冲突校验；
@@ -27,9 +27,9 @@ from .vault import managed_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-JOURNAL_DIR = Path("00_人生路", "01_日记")
-TEMPLATE_REL = Path("00_人生路", "01_日记", "_模板", "日记模板（journal-template）.md")
-TEMPLATE_LEGACY_REL = Path("00_人生路", "01_日记", "_模板", "日记模板.md")
+JOURNAL_DIR = Path("人生路", "日记")
+TEMPLATE_REL = Path("人生路", "日记", "_模板", "日记模板（journal-template）.md")
+TEMPLATE_LEGACY_REL = Path("人生路", "日记", "_模板", "日记模板.md")
 TEMPLATE_OLD_SYSTEM_REL = Path("00-System", "templates", "日记模板（journal-template）.md")
 TEMPLATE_OLD_SYSTEM_LEGACY_REL = Path("00-System", "templates", "日记模板.md")
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -194,7 +194,7 @@ def journal_heatmap(vault_dir: Path | str, today: date | str,
         if words <= 0:
             continue
         relpath = str(entry.get("relpath") or "")
-        standard = relpath.startswith("00_人生路/")
+        standard = relpath.startswith("人生路/")
         days[stamp] = {
             "entries": 1,
             "words": words,
@@ -219,7 +219,7 @@ def delete_note(database: Database, vault_dir: Path | str, *, path: str,
     `.torch-os/笔记回收站`，保留原相对路径，之后可在文件管理器里找回。
     """
     relative = vault_layout.normalize_relpath(path)
-    match = re.fullmatch(r"00_人生路/01_日记/(\d{4}-\d{2}-\d{2})\.md", relative)
+    match = re.fullmatch(r"人生路/日记/(\d{4}-\d{2}-\d{2})\.md", relative)
     if not match:
         raise HTTPException(422, "只能删除四库日记目录里的单篇日记")
     validate_day(match.group(1))

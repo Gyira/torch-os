@@ -788,19 +788,19 @@ module.exports = class TorchPlugin extends Plugin {
       return;
     }
     const normalized = normalizePath(pathValue);
-    const isTask = (normalized.startsWith('02_生活运营/00_待办事项/')
-      || normalized.startsWith('00_人生路/07_任务与待办/')
-      || normalized.startsWith('00_人生路/08_任务与待办/')
+    const isTask = (normalized.startsWith('生活运营/待办事项/')
+      || normalized.startsWith('人生路/07_任务与待办/')
+      || normalized.startsWith('人生路/08_任务与待办/')
       || normalized.startsWith('00-System/任务/')) && normalized.endsWith('.md');
-    const isConfig = normalized === '02_生活运营/00_待办事项/_系统/任务（tasks）.md'
-      || normalized === '02_生活运营/00_待办事项/_系统/待办（todos）.md'
-      || normalized === '00_人生路/07_任务与待办/_系统/任务（tasks）.md'
-      || normalized === '00_人生路/07_任务与待办/_系统/待办（todos）.md'
-      || normalized === '00_人生路/08_任务与待办/_系统/任务（tasks）.md'
-      || normalized === '00_人生路/08_任务与待办/_系统/待办（todos）.md'
+    const isConfig = normalized === '生活运营/待办事项/_系统/任务（tasks）.md'
+      || normalized === '生活运营/待办事项/_系统/待办（todos）.md'
+      || normalized === '人生路/07_任务与待办/_系统/任务（tasks）.md'
+      || normalized === '人生路/07_任务与待办/_系统/待办（todos）.md'
+      || normalized === '人生路/08_任务与待办/_系统/任务（tasks）.md'
+      || normalized === '人生路/08_任务与待办/_系统/待办（todos）.md'
       || normalized === '00-System/任务（tasks）.md'
       || normalized === '00-System/任务.md';
-    const isPillar = /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(normalized)
+    const isPillar = /^(人生路|自我档案|生活运营|知识库)\//.test(normalized)
       && normalized.endsWith('.md');
     if (!isTask && !isConfig && !isPillar) return;
     const file = this.app.vault.getAbstractFileByPath(normalized);
@@ -828,7 +828,7 @@ module.exports = class TorchPlugin extends Plugin {
       return;
     }
     const normalized = normalizePath(pathValue);
-    const isPillar = /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(normalized)
+    const isPillar = /^(人生路|自我档案|生活运营|知识库)\//.test(normalized)
       && normalized.endsWith('.md');
     if (!isPillar) return;
     const content = typeof contentValue === 'string' ? contentValue.slice(0, 20000) : '';

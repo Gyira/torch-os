@@ -1,5 +1,5 @@
 // 「恋爱系统」v2（2026-11-01）：七个页面。
-// 数据全部来自本机 API；聊天原文与照片只保存在 02_生活运营/01_恋爱系统/。
+// 数据全部来自本机 API；聊天原文与照片只保存在 生活运营/恋爱系统/。
 import { api, confirmAction, escapeHtml, openDialog, toast } from "./core.js";
 import { openRoleDrawer } from "./roles.js";
 import { COMPANIONS } from "./ai-companions.js";
@@ -228,7 +228,7 @@ export function initLovePane() {
   });
   document.addEventListener("torch:notes-changed", (event) => {
     if (love.page !== "memories") return;
-    if (event.detail?.pillar === "love" || String(event.detail?.path || "").includes("/01_恋爱系统/")) {
+    if (event.detail?.pillar === "love" || String(event.detail?.path || "").includes("/恋爱系统/")) {
       renderLovePage();
     }
   });
@@ -438,7 +438,7 @@ async function renderMemories(content) {
       </div>
       <div class="notebook-grid">
         ${notebooks.map(memoryNotebookCard).join("")}
-        <button class="notebook-card notebook-create-card" type="button" data-love-action="memory-create-notebook"><span class="notebook-create-plus">＋</span><span class="notebook-title">新建本子</span><span class="notebook-desc">在 01_恋爱记忆 下建一个文件夹</span></button>
+        <button class="notebook-card notebook-create-card" type="button" data-love-action="memory-create-notebook"><span class="notebook-create-plus">＋</span><span class="notebook-title">新建本子</span><span class="notebook-desc">在 恋爱记忆 下建一个文件夹</span></button>
       </div>
     </section>
     <section class="recent-section love-memory-notes">
@@ -448,7 +448,7 @@ async function renderMemories(content) {
       </div>
       ${notes.length ? `<div class="love-memory-note-list">${notes.map(memoryNoteCard).join("")}</div>` : emptyBox("还没有记忆", "点「写点什么」留下第一篇。", '<button class="button primary" type="button" data-love-action="memory-new">写点什么</button>')}
     </section>
-    <div class="love-tip-strip"><span>🔒</span><p>恋爱记忆存放在 <code>02_生活运营/01_恋爱系统/01_恋爱记忆/</code>；删除会进入应用回收站，不会直接消失。</p></div>`;
+    <div class="love-tip-strip"><span>🔒</span><p>恋爱记忆存放在 <code>生活运营/恋爱系统/恋爱记忆/</code>；删除会进入应用回收站，不会直接消失。</p></div>`;
 }
 
 async function openMemoryNote(path) {
@@ -464,7 +464,7 @@ function openNotebookDialog() {
   openDialog("新建本子", `
     <form id="love-notebook-form" class="love-dialog-form">
       <div class="field"><label for="love-notebook-name">本子名称</label><input id="love-notebook-name" name="name" maxlength="48" required placeholder="例如：第一次旅行、日常碎片" /></div>
-      <p class="field-help">会在 <code>01_恋爱记忆/</code> 下创建一个文件夹；之后可以在编辑器里把笔记移进去。</p>
+      <p class="field-help">会在 <code>恋爱记忆/</code> 下创建一个文件夹；之后可以在编辑器里把笔记移进去。</p>
       <div class="form-actions"><span id="love-notebook-feedback" class="status-message" role="status"></span><div class="love-inline-actions"><button class="button secondary" type="button" id="love-notebook-cancel">取消</button><button class="button primary" type="submit">创建</button></div></div>
     </form>`);
   $id("love-notebook-cancel")?.addEventListener("click", () => $id("detail-dialog")?.close());
@@ -625,7 +625,7 @@ function chatTokenForm(status) {
     </div>
     <div class="love-inline-actions"><button class="button primary" type="submit">保存并测试连接</button>${status.token_configured ? '<button class="button secondary" type="button" data-love-action="chat-clear-token">清除 Token</button>' : ""}<button class="text-button" type="button" data-love-action="settings-open">微信组件修复</button></div>
     <span id="love-chat-token-feedback" class="status-message" role="status"></span>
-    <p class="field-help">只访问 <code>127.0.0.1</code>，Token 加密保存在 <code>02_微信聊天/.credentials.json</code>，不会回显，也不写日志。微信组件过期时报错 101，可在设置抽屉里修复。</p>
+    <p class="field-help">只访问 <code>127.0.0.1</code>，Token 加密保存在 <code>微信聊天/.credentials.json</code>，不会回显，也不写日志。微信组件过期时报错 101，可在设置抽屉里修复。</p>
   </form>`;
 }
 
@@ -723,7 +723,7 @@ async function renderChat(content) {
       <button class="text-button" type="button" data-love-action="chat-unbind">解除绑定</button>
     </div>
     <div id="love-chat-sync-status" class="love-sync-result">${love.chatLog ? chatSyncLogMarkup(love.chatLog) : ""}</div>
-    <p class="field-help">WeFlow 只用于同步新消息；已同步的聊天不需要它也能查看、搜索和导出。同步只写入 <code>02_微信聊天/chat.db</code> 与 <code>media/</code>，不会写进四库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
+    <p class="field-help">WeFlow 只用于同步新消息；已同步的聊天不需要它也能查看、搜索和导出。同步只写入 <code>微信聊天/chat.db</code> 与 <code>media/</code>，不会写进四库；勾选「从最早消息重新扫描」可一次性补齐历史媒体，首次会比较久。</p>` , {
     eyebrow: "WECHAT",
     subtitle: "日历看板用三种状态标出哪天有聊天、哪天还没同步。",
   }) : "";
@@ -755,7 +755,7 @@ async function renderChat(content) {
     : "";
   const privacy = card("数据边界", `
     <ul class="love-advice">
-      <li>微信原文只进 <code>02_微信聊天/chat.db</code>；不会写进恋爱记忆 Markdown。</li>
+      <li>微信原文只进 <code>微信聊天/chat.db</code>；不会写进恋爱记忆 Markdown。</li>
       <li>WeFlow 组件过期会报 101；设置抽屉提供开源组件替换、备份与回滚。</li>
       <li>同步失败不会删除已有聊天；换绑会先备份再清空。</li>
     </ul>`, { eyebrow: "PRIVACY", subtitle: "只读你选中的一个单聊。" });
@@ -953,7 +953,7 @@ async function renderSchedule(content) {
         <div class="love-month-nav"><button class="small-button" type="button" data-love-action="schedule-month" data-value="-1">‹</button><strong>${monthLabel(month)}</strong><button class="small-button" type="button" data-love-action="schedule-month" data-value="1">›</button><button class="text-button" type="button" data-love-action="schedule-today">今天</button></div>
         <input id="love-schedule-file" type="file" accept=".xlsx,.xlsm" hidden /><button class="small-button" type="button" data-love-action="schedule-upload">导入排班表</button>
       </div>
-      <div class="state-message error-state"><strong>${escapeHtml(data.error || "还没有排班表")}</strong><p>把 .xlsx 排班表放进 <code>03_排班日历/xlsx/</code>，或点「导入排班表」。也可以直接点日期手动覆盖。</p></div>
+      <div class="state-message error-state"><strong>${escapeHtml(data.error || "还没有排班表")}</strong><p>把 .xlsx 排班表放进 <code>排班日历/xlsx/</code>，或点「导入排班表」。也可以直接点日期手动覆盖。</p></div>
     `, { eyebrow: "SCHEDULE", subtitle: "手动覆盖与 Excel 底表分开保存。" });
     bindScheduleFile();
     return;
@@ -1135,9 +1135,9 @@ async function renderGallery(content) {
     ${selection ? `<div class="love-gallery-bulk"><span>已选 ${formatInt(selection)} 项</span><select id="love-gallery-move-target" class="love-gallery-select">${albumOptions}</select><button class="small-button" type="button" data-love-action="gallery-bulk-move">移动</button><button class="small-button reject" type="button" data-love-action="gallery-bulk-delete">删除</button><button class="text-button" type="button" data-love-action="gallery-clear-selection">取消选择</button></div>` : ""}
     ${love.galleryView === "albums" ? `<div class="love-gallery-albums">${albums.map(galleryAlbumCard).join("")}</div>` : `
       <div class="love-gallery-meta"><span class="meta">${love.galleryAlbum ? `相簿：${escapeHtml(galleryAlbumName(love.galleryAlbum))}` : "全部媒体"} · ${formatInt(items.length)} 项</span>${love.galleryAlbum ? '<button class="text-button" type="button" data-love-action="gallery-all">看全部</button>' : ""}</div>
-      ${items.length ? `<div class="love-gallery-grid">${items.map(galleryMediaCard).join("")}</div>` : emptyBox("还没有照片或视频", "点右上角「上传照片/视频」；文件会复制进 05_恋爱相册，不引用外部路径。")}
+      ${items.length ? `<div class="love-gallery-grid">${items.map(galleryMediaCard).join("")}</div>` : emptyBox("还没有照片或视频", "点右上角「上传照片/视频」；文件会复制进 恋爱相册，不引用外部路径。")}
     `}
-    <p class="field-help">相册文件在 <code>02_生活运营/01_恋爱系统/05_恋爱相册/</code>；删除会同时删除文件和缩略图。</p>
+    <p class="field-help">相册文件在 <code>生活运营/恋爱系统/恋爱相册/</code>；删除会同时删除文件和缩略图。</p>
   `, { eyebrow: "ALBUM", subtitle: "照片和视频都复制进库；一个文件属于一个相簿。", actions: `<span class="meta">${formatInt(overview.total)} 个媒体</span>` });
   $id("love-gallery-files")?.addEventListener("change", () => {
     const files = $id("love-gallery-files")?.files;
@@ -1592,7 +1592,7 @@ async function renderMaster(content) {
       <p class="field-help">统计范围：${escapeHtml(formatDate(chat.first_day))} 至 ${escapeHtml(formatDate(chat.last_day))}；${formatInt(chat.active_days || 0)} 个活跃日。</p>
     `, { eyebrow: "STATS", subtitle: "原有的消息量、双方比例、媒体、活跃时段与高频词。" })}
     <section class="love-skill-section"><div class="notebook-section-head"><div><p class="eyebrow">SKILLS</p><h3>让恋爱大师做什么</h3></div><span class="meta">全部在恋爱大师页发起</span></div><div class="love-skill-grid">${skillCards}</div></section>
-    ${card("分析历史", history, { eyebrow: "HISTORY", subtitle: "结果保存在 07_恋爱大师/analysis.db。" })}
+    ${card("分析历史", history, { eyebrow: "HISTORY", subtitle: "结果保存在 恋爱大师/analysis.db。" })}
     <div id="love-master-detail" class="love-master-detail">${selected ? masterResultMarkup(selected) : ""}</div>
   `;
   if (selected && ["running", "queued"].includes(selected.status)) pollMasterRun(selected.id);
@@ -1722,7 +1722,7 @@ async function openLoveSettings() {
       <form id="love-settings-weflow" class="love-key-form">
         <div class="form-grid"><div class="field"><label for="love-settings-port">端口</label><input id="love-settings-port" name="port" type="number" min="1" max="65535" value="${escapeHtml(String(chat?.port || 5031))}" /></div><div class="field"><label for="love-settings-token">Access Token</label><input id="love-settings-token" name="token" type="password" autocomplete="off" maxlength="400" placeholder="${chat?.token_configured ? "已配置；留空只改端口" : "粘贴 WeFlow Token"}" /></div></div>
         <div class="love-inline-actions"><button class="button primary" type="submit">保存并测试</button>${chat?.token_configured ? '<button class="button secondary" type="button" data-love-action="settings-clear-token">清除 Token</button>' : ""}</div>
-        <p class="field-help">${chat?.token_configured ? "Token 已加密保存在 02_微信聊天/.credentials.json。" : "还没有配置 Token。"}${chat?.error ? ` <span class="inline-error">${escapeHtml(chat.error)}</span>` : ""}${chat?.weflow_ok === false ? ` <span class="inline-error">${escapeHtml(chat.weflow_error || "连接失败")}</span>` : ""}</p>
+        <p class="field-help">${chat?.token_configured ? "Token 已加密保存在 微信聊天/.credentials.json。" : "还没有配置 Token。"}${chat?.error ? ` <span class="inline-error">${escapeHtml(chat.error)}</span>` : ""}${chat?.weflow_ok === false ? ` <span class="inline-error">${escapeHtml(chat.weflow_error || "连接失败")}</span>` : ""}</p>
       </form>`, { eyebrow: "WEFLOW" })}
     ${card("微信组件修复", `
       <p class="field-help">WeFlow 自带的闭源 WCDB 组件有到期校验，过期后会报 101。torch 不会破解它；这里用开源项目 <a href="https://github.com/olansoft/weflow-wcdb-api-oss" target="_blank" rel="noopener">olansoft/weflow-wcdb-api-oss</a> 构建的不过期 DLL 替换，并在替换前备份、失败可回滚。</p>

@@ -22,7 +22,7 @@ CommonJS 单文件，Obsidian 直接加载。
     该值也只保存在本机；
   - 启动日志在 `当前库/.torch-os/logs/torch-backend-<port>.log`。
 - **打开任务文档**：iframe 发 `torch:open-note`（源 + 实例 origin 校验），插件只允许
-  `00_人生路/07_任务与待办/` 下的新任务笔记，或 `_系统/任务（tasks）.md` /
+  `人生路/07_任务与待办/` 下的新任务笔记，或 `_系统/任务（tasks）.md` /
   `_系统/待办（todos）.md`（旧 `00-System` 路径也兼容），
   在新标签页打开；文件不存在时给出提示。
 - **打开网页书签（2026-10-28）**：工作台问候语右侧的书签栏发 `torch:open-url`，

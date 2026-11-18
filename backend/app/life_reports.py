@@ -1,8 +1,8 @@
 """生活运营 AI（v1.0 P4）：健康/理财/恋爱/生活管家的只读上下文与报告。
 
-- 只读来源：`02_生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
+- 只读来源：`生活运营` 的月度表、恋爱系统自己的 SQLite（只读摘要，不发原始聊天）、
   工作台未完成任务/今日习惯；
-- 报告落盘：健康 → `02_健康系统/00_健康报告`，财务 → `03_财务系统/财务报告`，生活建议 → `04_家庭系统/生活建议`；恋爱建议 → 恋爱记忆/AI 草稿（旧 API 入口保留）；
+- 报告落盘：健康 → `健康系统/健康报告`，财务 → `财务系统/财务报告`，生活建议 → `家庭系统/生活建议`；恋爱建议 → 恋爱记忆/AI 草稿（旧 API 入口保留）；
 - AI 只提议：建议里的 new_task/new_habit 走 `ai_proposals`，用户采纳后才创建；
 - 不修改健康/财务月度表，不替恋爱系统发消息，不控制任何家庭设备。
 """
@@ -145,7 +145,7 @@ def finance_context(vault_dir: Path | str, months: int = 6) -> tuple[str, dict[s
 
 
 def love_context(love_settings: Any) -> tuple[str, dict[str, Any]]:
-    # v2：私人数据在 02_生活运营/01_恋爱系统；LovePaths 对象没有 db_path。
+    # v2：私人数据在 生活运营/恋爱系统；LovePaths 对象没有 db_path。
     if love_settings is not None and hasattr(love_settings, "chat_db"):
         try:
             from .love_master import overview_payload

@@ -118,8 +118,8 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
                 "exists": bool(entry.get("exists")),
                 "written": bool(entry.get("exists"))
                 and journal_note.journal_has_content(str(entry.get("content") or "")),
-                "path": relpath if relpath.startswith("00_人生路/") else "",
-                "legacy": bool(entry.get("exists")) and not relpath.startswith("00_人生路/"),
+                "path": relpath if relpath.startswith("人生路/") else "",
+                "legacy": bool(entry.get("exists")) and not relpath.startswith("人生路/"),
             })
         payload["today"] = {
             "date": today,

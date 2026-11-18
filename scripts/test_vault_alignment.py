@@ -28,15 +28,15 @@ class AlignmentTests(unittest.TestCase):
         return path
 
     def seed(self):
-        self.write("00_人生路/09_随笔/随笔.md", "[附件](../../03_知识库/备忘录/a.png)")
-        self.write("03_知识库/备忘录/a.png", "attachment")
-        self.write("03_知识库/备忘录/引用.md", "[[00_人生路/09_随笔/随笔]]")
-        self.write("00_人生路/06_工作复盘/02_会议收获/会议.md")
-        self.write("01_自我档案/99_重构备份-test/记忆.md", "历史，不能丢")
-        (self.root / "01_自我档案/06_沉淀与创作/02_职业原则_old").mkdir(parents=True)
-        (self.root / "02_生活运营/05_生活建议").mkdir(parents=True)
-        self.write("02_生活运营/00_待办事项/清单/任务.md")
-        self.write("02_生活运营/01_恋爱系统/01_恋爱记忆/恋爱日志/日记.md")
+        self.write("人生路/09_随笔/随笔.md", "[附件](../../知识库/备忘录/a.png)")
+        self.write("知识库/备忘录/a.png", "attachment")
+        self.write("知识库/备忘录/引用.md", "[[人生路/09_随笔/随笔]]")
+        self.write("人生路/06_工作复盘/02_会议收获/会议.md")
+        self.write("自我档案/99_重构备份-test/记忆.md", "历史，不能丢")
+        (self.root / "自我档案/沉淀与创作/02_职业原则_old").mkdir(parents=True)
+        (self.root / "生活运营/05_生活建议").mkdir(parents=True)
+        self.write("生活运营/待办事项/清单/任务.md")
+        self.write("生活运营/恋爱系统/恋爱记忆/恋爱日志/日记.md")
 
     def test_frontend_contract(self):
         repo = Path(__file__).resolve().parents[1]
@@ -48,17 +48,17 @@ class AlignmentTests(unittest.TestCase):
         front = json.loads(result.stdout)
         for i, book in enumerate(front["life"], 1):
             for chapter in book["chapters"]:
-                self.assertEqual(layout.chapter_dir(chapter).split("/")[1], f"{i:02}_{book['title']}")
+                self.assertEqual(layout.chapter_dir(chapter).split("/")[1], book['title'])
         self.assertEqual([Path(p).name for p in layout.OPS_SYSTEM_DIRS],
-                         ["00_待办事项"] + [f"{i:02}_{card['title']}" for i, card in enumerate(front["ops"], 1)])
+                         ["待办事项"] + [card['title'] for card in front['ops']])
 
     def test_new_layout_only_frontend_roots(self):
         layout.ensure_layout(self.root)
         self.assertEqual(sorted(p.name for p in (self.root / layout.SELF_ROOT).iterdir()),
-                         ["01_档案", "02_人生导师", "03_八字系统"])
+                         sorted(["档案", "人生导师", "八字系统"]))
         self.assertEqual(sorted(p.name for p in (self.root / layout.OPS_ROOT).iterdir()),
-                         [Path(p).name for p in layout.OPS_SYSTEM_DIRS])
-        self.assertEqual(len(list((self.root / "00_人生路").iterdir())), 7)
+                         sorted(Path(p).name for p in layout.OPS_SYSTEM_DIRS))
+        self.assertEqual(len(list((self.root / "人生路").iterdir())), 7)
         self.assertFalse((self.root / layout.chapter_dir("life_advice")).exists())
         self.assertFalse(any("工作复盘" in action for action in plan_task_layout(self.root)["actions"]))
 
@@ -68,10 +68,10 @@ class AlignmentTests(unittest.TestCase):
         dirs = {p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_dir()}
         manifest = migration.apply(self.root)
         self.assertIsNotNone(manifest)
-        self.assertEqual((self.root / "03_知识库/备忘录/引用.md").read_text(encoding="utf-8"), "[[00_人生路/06_随笔/随笔.md]]")
-        self.assertEqual((self.root / "00_人生路/06_随笔/随笔.md").read_bytes(), before["00_人生路/09_随笔/随笔.md"])
+        self.assertEqual((self.root / "知识库/备忘录/引用.md").read_text(encoding="utf-8"), "[[人生路/随笔/随笔.md]]")
+        self.assertEqual((self.root / "人生路/随笔/随笔.md").read_bytes(), before["人生路/09_随笔/随笔.md"])
         self.assertTrue((self.root / ".torch-os/backups/self-archive/99_重构备份-test/记忆.md").exists())
-        self.assertFalse((self.root / "01_自我档案/06_沉淀与创作").exists())
+        self.assertFalse((self.root / "自我档案/沉淀与创作").exists())
         self.assertFalse((self.root / layout.chapter_dir("life_advice")).exists())
         self.assertIsNone(migration.apply(self.root))
         migration.rollback(self.root, manifest)
@@ -86,46 +86,46 @@ class AlignmentTests(unittest.TestCase):
             conn.executescript("CREATE TABLE documents(id INTEGER PRIMARY KEY,path TEXT UNIQUE);"
                                "CREATE TABLE messages(id INTEGER PRIMARY KEY,citations_json TEXT);"
                                "CREATE TABLE memories(id INTEGER PRIMARY KEY,document_id INTEGER,status TEXT);")
-            conn.execute("INSERT INTO documents VALUES(42,?)", ("00_人生路/09_随笔/随笔.md",))
-            conn.execute("INSERT INTO messages VALUES(1,?)", (json.dumps([{"path":"00_人生路/09_随笔/随笔.md"}], ensure_ascii=False),))
+            conn.execute("INSERT INTO documents VALUES(42,?)", ("人生路/09_随笔/随笔.md",))
+            conn.execute("INSERT INTO messages VALUES(1,?)", (json.dumps([{"path":"人生路/09_随笔/随笔.md"}], ensure_ascii=False),))
             conn.execute("INSERT INTO memories VALUES(8,42,'confirmed')")
         manifest = migration.apply(self.root, db)
         with closing(sqlite3.connect(db)) as conn, conn:
-            self.assertEqual(conn.execute("SELECT * FROM documents").fetchone(), (42, "00_人生路/06_随笔/随笔.md"))
+            self.assertEqual(conn.execute("SELECT * FROM documents").fetchone(), (42, "人生路/随笔/随笔.md"))
             self.assertEqual(conn.execute("SELECT * FROM memories").fetchone(), (8, 42, 'confirmed'))
-            self.assertIn("06_随笔", conn.execute("SELECT citations_json FROM messages").fetchone()[0])
+            self.assertIn("随笔", conn.execute("SELECT citations_json FROM messages").fetchone()[0])
         migration.rollback(self.root, manifest)
         with closing(sqlite3.connect(db)) as conn, conn:
-            self.assertEqual(conn.execute("SELECT path FROM documents").fetchone()[0], "00_人生路/09_随笔/随笔.md")
+            self.assertEqual(conn.execute("SELECT path FROM documents").fetchone()[0], "人生路/09_随笔/随笔.md")
 
     def test_conflict_no_changes(self):
         self.seed()
-        self.write("00_人生路/06_随笔/随笔.md", "不允许覆盖")
+        self.write("人生路/随笔/随笔.md", "不允许覆盖")
         with self.assertRaises(ValueError):
             migration.apply(self.root)
-        self.assertTrue((self.root / "00_人生路/09_随笔/随笔.md").exists())
+        self.assertTrue((self.root / "人生路/09_随笔/随笔.md").exists())
 
     def test_backup_failure_no_moves(self):
         self.seed()
         with patch.object(migration.shutil, "copy2", side_effect=OSError("backup failure")):
             with self.assertRaises(OSError):
                 migration.apply(self.root)
-        self.assertTrue((self.root / "00_人生路/09_随笔/随笔.md").exists())
+        self.assertTrue((self.root / "人生路/09_随笔/随笔.md").exists())
 
     def test_rollback_refuses_new_edits(self):
         self.seed()
         manifest = migration.apply(self.root)
-        self.write("00_人生路/06_随笔/随笔.md", "后来新增的记忆")
+        self.write("人生路/随笔/随笔.md", "后来新增的记忆")
         with self.assertRaises(ValueError):
             migration.rollback(self.root, manifest)
-        self.assertFalse((self.root / "00_人生路/09_随笔").exists())
+        self.assertFalse((self.root / "人生路/09_随笔").exists())
 
     def test_nonempty_legacy_is_preserved(self):
-        self.write("01_自我档案/01_内核与三观/旧记忆.md")
+        self.write("自我档案/内核与三观/旧记忆.md")
         result = migration.plan(self.root)
         self.assertEqual(len(result["blocked"]), 1)
         migration.apply(self.root)
-        self.assertTrue((self.root / "01_自我档案/01_内核与三观/旧记忆.md").exists())
+        self.assertTrue((self.root / "自我档案/内核与三观/旧记忆.md").exists())
 
     def test_escape_rejected(self):
         with self.assertRaises(ValueError):
@@ -137,7 +137,7 @@ class AlignmentTests(unittest.TestCase):
         layout.ensure_layout(self.root)
         layout.ensure_ops_layout(self.root)
         self.assertEqual(sorted(p.name for p in (self.root / layout.OPS_ROOT).iterdir()),
-                         [Path(p).name for p in layout.OPS_SYSTEM_DIRS])
+                         sorted(Path(p).name for p in layout.OPS_SYSTEM_DIRS))
         self.assertFalse(any("工作复盘" in action for action in plan_task_layout(self.root)["actions"]))
         self.assertEqual(migration.plan(self.root)["remove_dirs"], [])
 
@@ -145,7 +145,7 @@ class AlignmentTests(unittest.TestCase):
         layout.ensure_layout(self.root)
         note = self.write(layout.chapter_dir("essay") + "/保留.md", "保留现有内容")
         missing = [layout.chapter_dir("work_review_meeting"), layout.chapter_dir("self_facts"),
-                   "02_生活运营/03_财务系统", "02_生活运营/01_恋爱系统/06_八字合婚"]
+                   "生活运营/财务系统", "生活运营/恋爱系统/八字合婚"]
         for relative in missing:
             (self.root / relative).rmdir()
         created = layout.ensure_layout(self.root)
@@ -156,7 +156,7 @@ class AlignmentTests(unittest.TestCase):
         self.assertEqual(layout.ensure_layout(self.root), [])
 
     def test_fixed_path_file_collision_does_not_delete_file(self):
-        path = self.write("02_生活运营/03_财务系统", "不能覆盖")
+        path = self.write("生活运营/财务系统", "不能覆盖")
         with self.assertRaises(FileExistsError):
             layout.ensure_layout(self.root)
         self.assertEqual(path.read_text(encoding="utf-8"), "不能覆盖")

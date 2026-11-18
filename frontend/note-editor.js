@@ -275,7 +275,7 @@ async function openJournalDraft(day) {
     const parts = splitFrontMatter(payload.content || "");
     const body = normalizeBody(parts.body);
     return {
-      mode: "edit", path: payload.relpath || `00_人生路/01_日记/${day}.md`,
+      mode: "edit", path: payload.relpath || `人生路/日记/${day}.md`,
       revision: String(payload.sha256 || ""),
       title: `日记 · ${day}`, body, savedBody: body,
       frontmatter: ensureJournalFrontMatter(day, parts.frontmatter),
@@ -283,7 +283,7 @@ async function openJournalDraft(day) {
   }
   const body = normalizeBody(`${journalHeading(day)}\n\n`);
   return {
-    mode: "new", path: `00_人生路/01_日记/${day}.md`, revision: "",
+    mode: "new", path: `人生路/日记/${day}.md`, revision: "",
     title: `日记 · ${day}`, body, savedBody: body,
     frontmatter: ensureJournalFrontMatter(day, ""),
   };
@@ -731,7 +731,7 @@ export async function openNoteEditor(options = {}) {
     } catch (error) {
       toast(`今天的日记读取失败：${error.message}`, "error");
       state.mode = "new";
-      state.path = `00_人生路/01_日记/${journalDay}.md`;
+      state.path = `人生路/日记/${journalDay}.md`;
       state.revision = "";
       state.title = `日记 · ${journalDay}`;
       state.body = normalizeBody(`${journalHeading(journalDay)}\n\n`);

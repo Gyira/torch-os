@@ -43,8 +43,8 @@ class RoleBoundaryTests(unittest.TestCase):
         return path
 
     def test_every_role_scope_and_sibling_denial(self):
-        domains = ["00_人生路", "01_自我档案", vault_layout.LOVE_ROOT, HEALTH,
-                   FINANCE, "02_生活运营/04_家庭系统", "03_知识库"]
+        domains = ["人生路", "自我档案", vault_layout.LOVE_ROOT, HEALTH,
+                   FINANCE, "生活运营/家庭系统", "知识库"]
         for role, roots in ROLE_ROOTS.items():
             for domain in domains:
                 relative = domain + "/测试.md"
@@ -120,7 +120,7 @@ class RoleBoundaryTests(unittest.TestCase):
         prompt = self.model.call_args.args[0]
         self.assertIn("allowed-content", prompt)
         self.assertIn("我主动告诉你其他话题", prompt)
-        self.assertNotIn("01_自我档案", prompt)
+        self.assertNotIn("自我档案", prompt)
 
     def test_default_life_assistant_excludes_identity(self):
         self.note(vault_layout.SELF_IDENTITY_RELATIVE, "private-identity-sentinel")
@@ -156,7 +156,7 @@ class RoleBoundaryTests(unittest.TestCase):
     def test_external_love_database_and_altered_paths_rejected(self):
         from dataclasses import replace
         paths = self.service.love_settings
-        for settings in [object(), replace(paths, chat=self.vault / "03_知识库")]:
+        for settings in [object(), replace(paths, chat=self.vault / "知识库")]:
             builder = Mock()
             with self.assertRaises(RoleScopeError):
                 self.service.prepare_context("love_master", "love", builder, love_settings=settings)

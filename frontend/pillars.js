@@ -621,7 +621,7 @@ function lifeHomeMarkup() {
             <button type="button" class="notebook-card notebook-create-card" data-notebook-create="life">
               <span class="notebook-create-plus" aria-hidden="true">＋</span>
               <span class="notebook-title">新建本子</span>
-              <span class="notebook-desc">在 00_人生路 下建一个文件夹</span>
+              <span class="notebook-desc">在 人生路 下建一个文件夹</span>
             </button>
           </div>
         </section>
@@ -689,7 +689,7 @@ function knowledgeHomeMarkup() {
             <button type="button" class="notebook-card notebook-create-card" data-notebook-create="knowledge">
               <span class="notebook-create-plus" aria-hidden="true">＋</span>
               <span class="notebook-title">新建本子</span>
-              <span class="notebook-desc">在 03_知识库 下建一个文件夹</span>
+              <span class="notebook-desc">在 知识库 下建一个文件夹</span>
             </button>
           </div>
         </section>
@@ -862,7 +862,7 @@ function notebookPageMarkup(view) {
           <button type="button" class="button primary" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "写今天的日记"}</button>
         </section>` : ""}
         ${isTask ? `<section class="notebook-task-banner">
-          <div><p class="eyebrow">TASKS</p><h3>任务文档在这里，看板在工作台。</h3><p class="field-help">数据层已迁到 02_生活运营/00_待办事项；点开任务可以应用内编辑正文，排期与完成仍在工作台。</p></div>
+          <div><p class="eyebrow">TASKS</p><h3>任务文档在这里，看板在工作台。</h3><p class="field-help">数据层已迁到 生活运营/待办事项；点开任务可以应用内编辑正文，排期与完成仍在工作台。</p></div>
           <button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>
         </section>` : ""}
         ${isHabit ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
@@ -1895,7 +1895,7 @@ function openNewNote(view, chapter = "", type = "") {
   if (!meta) return;
   const custom = customNotebookName(chapter);
   if (custom && customNotebookPillar(chapter) === view) {
-    const root = view === "knowledge" ? "03_知识库" : "00_人生路";
+    const root = view === "knowledge" ? "知识库" : "人生路";
     const target = `${root}/${custom}/未命名-${localStamp()}.md`;
     if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || "note"))) {
       toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
@@ -1958,7 +1958,7 @@ async function openReview(kind) {
 /** 身份卡：有就打开，没有就让 Obsidian 建一份空骨架。 */
 function openIdentityCard() {
   const identity = state.overviews.self?.identity || {};
-  const target = identity.path || "01_自我档案/01_内核与三观/身份（identity）.md";
+  const target = identity.path || "自我档案/内核与三观/身份（identity）.md";
   const content = identity.exists
     ? ""
     : "---\ntype: identity\n---\n\n# 我是谁\n\n## 三观\n\n## 我要去哪里\n";
@@ -1970,12 +1970,12 @@ function openIdentityCard() {
 /** 今日日记：存在就打开，不存在就让 Obsidian 新建，插件不写盘。 */
 async function openTodayJournal() {
   const day = shanghaiDay();
-  let target = `00_人生路/01_日记/${day}.md`;
+  let target = `人生路/日记/${day}.md`;
   try {
     const existing = await api(`/api/journal/note?day=${encodeURIComponent(day)}`);
     if (existing?.exists) target = existing.relpath || target;
   } catch { /* 查询失败时按默认路径打开 */ }
-  if (!String(target).startsWith("00_人生路/")) {
+  if (!String(target).startsWith("人生路/")) {
     toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
     return;
   }

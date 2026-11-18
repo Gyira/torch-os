@@ -203,9 +203,9 @@ export function customNotebookDefinition(key) {
   const name = customNotebookName(key);
   const pillar = customNotebookPillar(key);
   if (!name || !pillar) return null;
-  const root = pillar === "knowledge" ? "03_知识库"
-    : pillar === "love" ? "02_生活运营/01_恋爱系统/01_恋爱记忆"
-      : "00_人生路";
+  const root = pillar === "knowledge" ? "知识库"
+    : pillar === "love" ? "生活运营/恋爱系统/恋爱记忆"
+      : "人生路";
   return {
     key: String(key),
     title: name,
@@ -304,7 +304,7 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
         empty: mine.every((row) => (Number(row.count) || 0) === 0),
       };
     });
-  // 自定义本子：前端新建的本子 = 00_人生路 下的文件夹，由后端 overview.custom_notebooks 提供。
+  // 自定义本子：前端新建的本子 = 人生路 下的文件夹，由后端 overview.custom_notebooks 提供。
   const customCards = (Array.isArray(customRows) ? customRows : [])
     .map((row) => {
       const key = String(row?.key || "");

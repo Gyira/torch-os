@@ -1,6 +1,6 @@
 """恋爱系统本机凭据（WeFlow Token）。
 
-凭据保存在 ``02_微信聊天/.credentials.json``，Token 不落明文：
+凭据保存在 ``微信聊天/.credentials.json``，Token 不落明文：
 - Windows 用当前用户的 DPAPI 保存主副本（机器/用户绑定，本机最安全）；
 - 同时保存一份 AES-GCM 的可移植副本，密钥是同目录的 ``.credential.key``。
   个人数据库经常放在网盘同步目录、换机时整库拷贝，DPAPI 副本到了别的电脑就

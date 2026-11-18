@@ -1,13 +1,13 @@
 """自我档案 v1 → v2 迁移（2026-11-01）。
 
-旧的 01_自我档案 章节（内核与三观 / 记忆与自传 / 想法与灵感 / 情感与关系 /
+旧的 自我档案 章节（内核与三观 / 记忆与自传 / 想法与灵感 / 情感与关系 /
 意义与目标 / 沉淀与创作 / 我的八字参考 / 忆灵观察）在 v2 中不再写入。
 迁移是「预览 → 确认 → 备份 → 逐文件转换」：
 
-- 先备份整棵 01_自我档案 到 .torch-os/backups/self-archive/99_重构备份-YYYYMMDD-HHMMSS/；
-- 旧笔记转换成 01_档案 下的条目 Markdown；
-- 旧八字笔记转换成 03_八字系统/命盘.md + 解读/；
-- 旧忆灵观察与 .torch-os/忆灵 数据复制到 02_人生导师/历史/；
+- 先备份整棵 自我档案 到 .torch-os/backups/self-archive/99_重构备份-YYYYMMDD-HHMMSS/；
+- 旧笔记转换成 档案 下的条目 Markdown；
+- 旧八字笔记转换成 八字系统/命盘.md + 解读/；
+- 旧忆灵观察与 .torch-os/忆灵 数据复制到 人生导师/历史/；
 - 原始旧文件移到备份的 _迁移前原始文件/ 下，不删除备份；
 - 写入 .torch-os/self-archive-layout.json，幂等。
 """
@@ -44,9 +44,9 @@ OLD_CHAPTER_MAP: dict[str, tuple[str, str]] = {
 }
 OLD_DIRS = tuple(vault_layout.CHAPTER_BY_KEY[key][3]
                  for key in OLD_CHAPTER_MAP if key in vault_layout.CHAPTER_BY_KEY)
-BAZI_OLD_DIR = "01_自我档案/07_我的八字参考"
-YILING_OLD_DIR = "01_自我档案/08_忆灵观察"
-IDENTITY_OLD_DIR = "01_自我档案/01_内核与三观"
+BAZI_OLD_DIR = "自我档案/我的八字参考"
+YILING_OLD_DIR = "自我档案/忆灵观察"
+IDENTITY_OLD_DIR = "自我档案/内核与三观"
 
 
 def _now() -> str:

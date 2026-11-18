@@ -1,6 +1,6 @@
 // 时间管理模块外壳（2026-10-08，替换「今日待办」）：
 // 左侧按钮栏（任务 / 日历 / 习惯打卡 / 四象限）+ 任务页（二级侧边栏 + 添加栏 + 任务板）。
-// 数据来自 /api/time/*（Markdown 本体 `02_生活运营/00_待办事项/`）；写操作一律「POST → 重载 → 提示」，
+// 数据来自 /api/time/*（Markdown 本体 `生活运营/待办事项/`）；写操作一律「POST → 重载 → 提示」，
 // 与 workbench.js 里待办/习惯那套写法保持一致。日历页与四象限页在第 3 轮接上（照滴答实测规格），
 // 2026-10-11 第 4 轮把日历扩成七种视图（状态：视图/锚点/档位/显示设置，全存本机）。
 import { $, state, api, jsonBody, toast, setStatus, confirmAction, changed } from "./core.js";
@@ -225,7 +225,7 @@ export function initTimeModule() {
   $("#time-bulk-delete").addEventListener("click", () => {
     confirmDialog({
       title: `把选中的 ${picked.size} 项任务移到回收站？`,
-      message: "文件会先移到 02_生活运营/00_待办事项/回收站；如果开启了滴答回写，已同步任务会在下一次推送时从滴答删除。",
+      message: "文件会先移到 生活运营/待办事项/回收站；如果开启了滴答回写，已同步任务会在下一次推送时从滴答删除。",
       onConfirm: () => bulkAction("delete", {}, (count) => `已把 ${count} 项移到回收站。`),
     });
   });
@@ -380,10 +380,10 @@ function paintVaultNote() {
   const source = isObsidianHost() ? "Obsidian 当前库" : "工作区库";
   const bits = [
     `${source}：${board.vault_name || "当前库"}`,
-    `新任务：${board.inbox_dir || board.task_dir || "02_生活运营/00_待办事项/收集箱"}/<任务名>.md`,
+    `新任务：${board.inbox_dir || board.task_dir || "生活运营/待办事项/收集箱"}/<任务名>.md`,
   ];
   if (board.habit_board_revision) {
-    bits.push("习惯：00_人生路/04_目标/04_习惯追踪/习惯/<习惯名>.md");
+    bits.push("习惯：人生路/目标/习惯追踪/习惯/<习惯名>.md");
   }
   if (board.legacy_tasks) {
     bits.push(`旧任务 ${board.legacy_tasks} 条（仍在总文件中，只读）`);
@@ -706,7 +706,7 @@ function listAction(action, entry) {
   if (action === "delete") {
     confirmDialog({
       title: `删除清单「${entry.name}」？`,
-      message: "整个清单文件夹会移到 02_生活运营/00_待办事项/回收站，"
+      message: "整个清单文件夹会移到 生活运营/待办事项/回收站，"
         + "这个清单里的已完成任务也会一起移过去；配置同时备份。可以在待办事项回收站或「回收中心」恢复。",
       danger: true,
       onConfirm: async () => {
@@ -828,7 +828,7 @@ function taskOptions(selection, options = {}) {
         if (task.legacy || habitGuard(task)) return;
         const ok = await confirmAction({
           title: `把任务“${task.title}”移到回收站？`,
-          message: "只会移入 02_生活运营/00_待办事项/回收站，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
+          message: "只会移入 生活运营/待办事项/回收站，不会立刻删除 md 文件；如果开启了滴答回写，会在下一次推送时从滴答删除。",
           confirmLabel: "移到回收站",
         });
         if (!ok) return;

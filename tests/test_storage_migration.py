@@ -13,7 +13,7 @@ from backend.app.device_registry import DeviceRegistry
 
 def test_prepare_preserves_source_and_routes_unique_data_to_separate_roots(tmp_path):
     source = tmp_path / "source"; source.mkdir()
-    note = source / "03_知识库/00_收件箱/笔记.md"; note.parent.mkdir(parents=True); note.write_text("原文", encoding="utf-8")
+    note = source / "知识库/收件箱/笔记.md"; note.parent.mkdir(parents=True); note.write_text("原文", encoding="utf-8")
     media = source / CHAT_DIR / "media/image.jpg"; media.parent.mkdir(parents=True); media.write_bytes(b"image")
     db = source / ".torch-os/torch_os.sqlite3"; db.parent.mkdir()
     Database(db).initialize()

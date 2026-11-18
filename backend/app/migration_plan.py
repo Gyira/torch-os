@@ -101,20 +101,20 @@ def _plan_target(relative: str, metadata: dict[str, Any]) -> tuple[str, str] | N
         name = text.rsplit("/", 1)[-1]
         return (f"{vault_layout.chapter_dir('project_plan')}/{name}", "plan")
     if lowered.startswith("02-life/journal/"):
-        return (f"00_人生路/01_日记/{text.split('/', 2)[2]}", "journal")
+        return (f"人生路/日记/{text.split('/', 2)[2]}", "journal")
     if lowered.startswith("01-identity/"):
         rest = text.split("/", 1)[1]
         if rest.casefold() in {"identity.md"}:
             rest = "身份（identity）.md"
-        return (f"01_自我档案/01_内核与三观/{rest}", "identity")
+        return (f"自我档案/内核与三观/{rest}", "identity")
     if lowered.startswith("90-inbox/"):
-        return (f"03_知识库/00_收件箱/{text.split('/', 1)[1]}", "inbox")
+        return (f"知识库/收件箱/{text.split('/', 1)[1]}", "inbox")
     if lowered.startswith("80-wolai/"):
-        return (f"03_知识库/00_收件箱/_导入/80-Wolai/{text.split('/', 1)[1]}", "wolai-import")
+        return (f"知识库/收件箱/_导入/80-Wolai/{text.split('/', 1)[1]}", "wolai-import")
     if lowered.startswith("提示词/"):
-        return (f"03_知识库/00_收件箱/{text.split('/', 1)[1]}", "prompt")
+        return (f"知识库/收件箱/{text.split('/', 1)[1]}", "prompt")
     if lowered.startswith("03-learning/"):
-        return (f"03_知识库/00_收件箱/_导入/03-Learning/{text.split('/', 1)[1]}", "learning")
+        return (f"知识库/收件箱/_导入/03-Learning/{text.split('/', 1)[1]}", "learning")
     return None
 
 
@@ -187,9 +187,9 @@ def plan_migration(vault_dir: Path | str) -> MigrationPlan:
             planned = _plan_target(relative, metadata)
             if planned is None:
                 if "/" not in relative and kind == "markdown":
-                    target, reason = f"03_知识库/00_收件箱/{relative}", "root-note"
+                    target, reason = f"知识库/收件箱/{relative}", "root-note"
                 elif "/" not in relative:
-                    target, reason = f"03_知识库/00_收件箱/{relative}", "root-file"
+                    target, reason = f"知识库/收件箱/{relative}", "root-file"
                 else:
                     items.append(PlanItem(relative, relative, "keep_legacy",
                                           "未识别的旧目录，暂不移动",

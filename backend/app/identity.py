@@ -1,7 +1,7 @@
 """Identity: the user's own name, motto and three views, kept in the Vault.
 
 Markdown is the source of truth (四库设计把身份放在
-`01_自我档案/01_内核与三观/`)，so `身份（identity）.md` is a normal note the user
+`自我档案/内核与三观/`)，so `身份（identity）.md` is a normal note the user
 can edit in Obsidian and dsh can read through the vault tools. The app only
 offers a structured form on top of the same file: front matter carries the
 short fields, the body carries free notes. Writing is atomic, respects the
@@ -27,9 +27,9 @@ from .markdown_store import revision as _revision
 from .vault import note_relative, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-IDENTITY_RELATIVE = "01_自我档案/01_档案/身份（identity）.md"
+IDENTITY_RELATIVE = "自我档案/档案/身份（identity）.md"
 # 2026-11-01 自我档案重构：旧路径只读兜底，迁移后新库只写新路径。
-IDENTITY_LEGACY_RELATIVE = "01_自我档案/01_内核与三观/身份（identity）.md"
+IDENTITY_LEGACY_RELATIVE = "自我档案/内核与三观/身份（identity）.md"
 IDENTITY_LEGACY_ALT = "01-Identity/身份（identity）.md"
 IDENTITY_LEGACY_ALT2 = "01-Identity/identity.md"
 # 热力格独立颜色：默认用温和的绿色，避免跟随横幅强调色（例如深红）显得刺眼。
@@ -46,7 +46,7 @@ def _identity_path(vault_dir: Path | str) -> Path:
         return current
     for legacy in (IDENTITY_LEGACY_RELATIVE, IDENTITY_LEGACY_ALT,
                    IDENTITY_LEGACY_ALT2,
-                   "01_自我档案/01_内核与三观/identity.md"):
+                   "自我档案/内核与三观/identity.md"):
         candidate = safe_note_path(root, legacy)
         if candidate.exists():
             return candidate

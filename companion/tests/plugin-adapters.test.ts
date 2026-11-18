@@ -41,7 +41,7 @@ function setup() {
 }
 test("Obsidian process adapter refuses changed draft and applies unchanged baseline", async () => {
   const s = setup(), notes = new s.classes.VaultNotes(s.plugin);
-  const path = "03_知识库/笔记.md", enc = new TextEncoder(); s.notes.set(path, "old");
+  const path = "知识库/笔记.md", enc = new TextEncoder(); s.notes.set(path, "old");
   s.concurrent("user draft");
   assert.equal(await notes.compareAndWrite(path, enc.encode("old"), enc.encode("remote")), false);
   assert.equal(s.notes.get(path), "user draft");
@@ -54,15 +54,15 @@ test("plugin journal reopens checksummed snapshots and excludes private files", 
   await state.save({ version: 1, binding, device: "device", tracked: {}, pending: [] });
   const reopened = new s.classes.PluginState(new s.classes.PluginJournal(s.plugin));
   assert.equal((await reopened.load())!.device, "device");
-  s.notes.set(".obsidian/private.md", "secret"); s.notes.set("_Torch/工作区.md", "metadata"); s.notes.set("03_知识库/a.md", "text");
+  s.notes.set(".obsidian/private.md", "secret"); s.notes.set("_Torch/工作区.md", "metadata"); s.notes.set("知识库/a.md", "text");
   const selected = await new s.classes.VaultNotes(s.plugin).list();
-  assert.equal(selected.length, 1); assert.equal(selected[0], "03_知识库/a.md");
+  assert.equal(selected.length, 1); assert.equal(selected[0], "知识库/a.md");
   const snapshot = [...s.disk.keys()].find(p => p.includes("/states/"))!;
   s.disk.set(snapshot, new TextEncoder().encode("corrupted").buffer);
   await assert.rejects(reopened.load(), /损坏/);
 });
 test("only linked small attachments are selected and oversized attachments do not block text", async () => {
-  const s = setup(), path = "03_知识库/note.md";
+  const s = setup(), path = "知识库/note.md";
   s.notes.set(path, "![[assets/small.png]]"); s.notes.set("assets/small.png", "png"); s.notes.set("assets/huge.pdf", "x".repeat(1048577)); s.notes.set("assets/unrelated.jpg", "other");
   (s.plugin.app as unknown as { metadataCache: unknown }).metadataCache = {
     getFileCache: () => ({ embeds: [{ link: "assets/small.png" }, { link: "assets/huge.pdf" }] }),

@@ -158,8 +158,8 @@ test("导师档案更新卡片区分事实/推断、成功/失败并给历史链
       { ok: true, operation_id: "chat:ok", action: "supersede",
         entry_type_label: "推断", section_title: "基础事实", title: "新判断",
         text: "新的观察", evidence: "依据", sources: ["S1"],
-        path: "01_自我档案/01_档案/01_基础事实/new.md",
-        previous_path: "01_自我档案/01_档案/01_基础事实/old.md" },
+        path: "自我档案/档案/基础事实/new.md",
+        previous_path: "自我档案/档案/基础事实/old.md" },
       { ok: false, operation_id: "chat:bad", action: "create",
         entry_type_label: "事实", section_title: "基础事实", title: "无来源事实",
         error: "事实条目必须有明确来源" },
@@ -175,11 +175,11 @@ test("导师档案更新卡片区分事实/推断、成功/失败并给历史链
 });
 
 test("角色管理页只把后端固定策略翻译成人能读的范围与动作", () => {
-  assert.equal(roleAdminModel.scopeLabel("00_人生路"), "人生路");
-  assert.equal(roleAdminModel.scopeLabel("02_生活运营/02_健康系统"), "健康系统");
+  assert.equal(roleAdminModel.scopeLabel("人生路"), "人生路");
+  assert.equal(roleAdminModel.scopeLabel("生活运营/健康系统"), "健康系统");
   assert.equal(roleAdminModel.scopeLabel("future/unknown"), "future/unknown");
   assert.equal(
-    roleAdminModel.policyReadLabels({ read_roots: ["00_人生路", "01_自我档案"] }).join("|"),
+    roleAdminModel.policyReadLabels({ read_roots: ["人生路", "自我档案"] }).join("|"),
     "人生路|自我档案");
   assert.equal(
     roleAdminModel.policyActionLabels({ actions: ["new_note", "new_task"] }).join("|"),

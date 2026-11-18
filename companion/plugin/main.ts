@@ -361,7 +361,7 @@ class Home extends ItemView {
     const actions: [string, () => unknown][] = [["写今日日志", () => this.plugin.journalNote()], ["快速记录", () => this.plugin.quickNote()], ["取回对话", () => this.plugin.capture()], ["交给电脑处理", () => this.plugin.queueCapture()], ["导出 ChatGPT 资料包", () => this.plugin.contextExport()], ["立即同步", () => this.plugin.sync()]];
     for (const [label, action] of actions) host.createEl("button", { text: label }).onclick = () => { Promise.resolve(action()).catch(e => new Notice(message(e))); };
     host.createEl("h3", { text: "最近笔记" });
-    for (const file of this.app.vault.getMarkdownFiles().filter(f => /^(00_|01_|02_|03_)/.test(f.path)).sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 8)) host.createEl("p").createEl("a", { text: file.basename }).onclick = () => { void this.app.workspace.getLeaf(false).openFile(file); };
+    for (const file of this.app.vault.getMarkdownFiles().filter(f => /^(人生路\/|自我档案\/|生活运营\/|知识库\/)/.test(f.path)).sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 8)) host.createEl("p").createEl("a", { text: file.basename }).onclick = () => { void this.app.workspace.getLeaf(false).openFile(file); };
     if (this.plugin.issues.length) host.createEl("h3", { text: "需处理" });
     for (const issue of this.plugin.issues) host.createEl("button", { text: `${issue.path} · ${issue.status}` }).onclick = () => { void this.plugin.review(issue).catch(e => new Notice(message(e))); };
     const pending = host.createDiv();

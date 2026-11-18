@@ -272,6 +272,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     if mentor_autonomous_archive is None:
         from .config import MENTOR_AUTONOMOUS_ARCHIVE as default_autonomous
         mentor_autonomous_archive = default_autonomous
+    from .directory_names import OLD_ROOTS
+    if any((Path(vault_dir) / name).is_dir() for name in OLD_ROOTS):
+        raise ValueError("此库仍使用带编号的业务目录。请先停止后端，运行 scripts/unnumber_vault.py --vault <库路径> --apply；不会自动创建另一套空目录。")
     database.initialize()
     vault_dir.mkdir(parents=True, exist_ok=True)
     # 真实个人实例启动时幂等整理任务数据层；测试/显式注入库不自动搬文件。
@@ -897,7 +900,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # v1.0 写作：只开放人生路/知识库的允许清单章节；自我档案/生活运营仍由专用流程写。
     app.include_router(note_editor.create_writing_router(
         database, vault_dir, ai_service, read_only=vault_read_only))
-    # v1.0：人生路自定义本子 = 00_人生路 下的文件夹；创建只建空目录并记审计。
+    # v1.0：人生路自定义本子 = 人生路 下的文件夹；创建只建空目录并记审计。
     app.include_router(notebooks.create_notebook_router(
         database, vault_dir, read_only=vault_read_only))
     # 全局回收中心：聚合笔记回收站与待办事项回收站，统一恢复/彻底删除。
@@ -916,7 +919,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     app.include_router(create_self_router(
         vault_dir, read_only=vault_read_only, role_service=ai_service,
         autonomous_archive=bool(mentor_autonomous_archive)))
-    # 恋爱系统 v2：私人数据全部在 02_生活运营/01_恋爱系统/，按七个页面分目录；
+    # 恋爱系统 v2：私人数据全部在 生活运营/恋爱系统/，按七个页面分目录；
     # 旧 .torch-os/love/ 只作为迁移来源。AI 统一走 dsh 角色层，不再保存独立 DeepSeek Key。
     train_tracker_legacy: list[Path] = []
     love_settings: Any = None
@@ -968,7 +971,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             read_only=vault_read_only,
             overrides_path=love_settings.schedule_overrides,
         ), dependencies=[Depends(journal_data_guard)])
-        # 经期关怀：纯本地计算，数据在 04_经期关怀/cycle.db；首次保存时才创建文件。
+        # 经期关怀：纯本地计算，数据在 经期关怀/cycle.db；首次保存时才创建文件。
         app.include_router(create_cycle_router(
             love_settings.cycle_db,
             read_only=vault_read_only,
@@ -988,7 +991,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
         love_settings=love_settings, read_only=vault_read_only))
     # 健康系统（2026-10-31）：与恋爱系统平级的「生活运营」二级分区。
-    # 私人数据全部在 02_生活运营/02_健康系统；应用状态在 <数据目录>/health/。
+    # 私人数据全部在 生活运营/健康系统；应用状态在 <数据目录>/health/。
     app.include_router(create_health_router(
         database, vault_dir, role_service=ai_service, read_only=vault_read_only))
     # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。

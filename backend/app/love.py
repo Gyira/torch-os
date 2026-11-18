@@ -1901,7 +1901,7 @@ class MemoryWriteRequest(BaseModel):
 
 
 def _memory_target_path(day: str) -> str:
-    return f"02_生活运营/07_情感与记忆/{day} 恋爱记忆.md"
+    return f"生活运营/07_情感与记忆/{day} 恋爱记忆.md"
 
 
 def _memory_text(value: Any, limit: int) -> str:

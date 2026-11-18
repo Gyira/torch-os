@@ -2,16 +2,16 @@
 
 权威源
 ------
-所有私人健康数据都在当前个人数据库的 ``02_生活运营/02_健康系统/``：
+所有私人健康数据都在当前个人数据库的 ``生活运营/健康系统/``：
 
-- ``01_每日健康/YYYY-MM-DD.md``：一天一篇，frontmatter 存结构化数值
+- ``每日健康/YYYY-MM-DD.md``：一天一篇，frontmatter 存结构化数值
   （``sleep`` / ``body`` / ``vitals`` / ``nutrition`` / ``activity`` / ``mind``
   六个分区 + ``meals`` / ``training`` 列表 + ``custom``），正文由后端按数据重写，
   只做可读摘要，不承载第二份事实；
-- ``02_身体档案/身体档案（profile）.md``：身高/生日/性别、病史过敏用药、目标、
+- ``身体档案/身体档案（profile）.md``：身高/生日/性别、病史过敏用药、目标、
   自定义指标、评分权重；
-- ``03_体检与检验/检验记录（labs）.md``：一张 Markdown 表，带参考区间与异常标记；
-- ``00_健康报告/``：私人医生生成的报告（由 ``pillar_notes`` 写入）。
+- ``体检与检验/检验记录（labs）.md``：一张 Markdown 表，带参考区间与异常标记；
+- ``健康报告/``：私人医生生成的报告（由 ``pillar_notes`` 写入）。
 
 应用自己的状态（洞察已读）放 ``<个人数据库>/.torch-os/health/``，和恋爱系统
 ``.torch-os/love/`` 同一层：不进 Vault 扫描、不伪装成个人数据。
@@ -37,17 +37,17 @@ from . import health_catalog, vault_layout
 from .markdown_store import guarded_write, load_note, revision
 from .vault import parse_text, safe_note_path
 
-HEALTH_ROOT = "02_生活运营/02_健康系统"
-DAILY_DIR = f"{HEALTH_ROOT}/01_每日健康"
-PROFILE_DIR = f"{HEALTH_ROOT}/02_身体档案"
+HEALTH_ROOT = "生活运营/健康系统"
+DAILY_DIR = f"{HEALTH_ROOT}/每日健康"
+PROFILE_DIR = f"{HEALTH_ROOT}/身体档案"
 PROFILE_REL = f"{PROFILE_DIR}/身体档案（profile）.md"
 PROFILE_LEGACY = f"{PROFILE_DIR}/profile.md"
-LAB_DIR = f"{HEALTH_ROOT}/03_体检与检验"
+LAB_DIR = f"{HEALTH_ROOT}/体检与检验"
 LAB_REL = f"{LAB_DIR}/检验记录（labs）.md"
 LAB_LEGACY = f"{LAB_DIR}/labs.md"
-TRAIN_DIR = f"{HEALTH_ROOT}/04_训练记录"
-CONSULT_DIR = f"{HEALTH_ROOT}/05_问诊记录"
-REPORT_DIR = f"{HEALTH_ROOT}/00_健康报告"
+TRAIN_DIR = f"{HEALTH_ROOT}/训练记录"
+CONSULT_DIR = f"{HEALTH_ROOT}/问诊记录"
+REPORT_DIR = f"{HEALTH_ROOT}/健康报告"
 DAY_SCHEMA = "health-day-v1"
 PROFILE_SCHEMA = "health-profile-v1"
 LAB_SCHEMA = "health-labs-v1"

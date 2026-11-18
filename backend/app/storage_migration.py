@@ -60,7 +60,7 @@ def prepare_split(source, layout: StorageLayout, *, database_path: Path, writers
             elif rel.startswith(".torch-os/"):
                 remainder = rel[len(".torch-os/"):]
                 destinations.append(("state", "vault-state/" + remainder))
-            elif rel.endswith(".md") and (rel.startswith(("00_", "01_", "02_", "03_")) or rel.startswith(("_Torch/收件/", "_Torch/回执/"))):
+            elif rel.endswith(".md") and (rel.startswith(("人生路/", "自我档案/", "生活运营/", "知识库/", "00_", "01_", "02_", "03_")) or rel.startswith(("_Torch/收件/", "_Torch/回执/"))):
                 destinations.append(("notes", rel))
             else:
                 destinations.append(("archive", "legacy-vault/" + rel))

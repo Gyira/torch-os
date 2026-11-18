@@ -84,7 +84,7 @@ export class VaultNotes implements SyncNotes, LocalFiles {
     if (this.blocked.has(path)) return false;
     if (this.excludes.some(p => path === p || path.startsWith(p.replace(/\/$/, "") + "/"))) return false;
     if (/\.(png|jpe?g|webp|gif|avif|pdf)$/i.test(path)) return !path.split("/").some(p => p.startsWith(".") || p === "_Torch" || /微信|回收|备份|冲突/.test(p)) && (this.assets.has(path) || this.missingNames.has(path.split("/").at(-1)!));
-    return /^(00_人生路|01_自我档案|02_生活运营|03_知识库)\//.test(path) && path.endsWith(".md") &&
+    return /^(人生路|自我档案|生活运营|知识库)\//.test(path) && path.endsWith(".md") &&
       !path.split("/").some(p => p.startsWith(".") || /回收站|重构备份|冲突|^_系统$/.test(p));
   }
   accepts(path: string) { return this.allowed(path); }

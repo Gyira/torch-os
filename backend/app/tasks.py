@@ -2,7 +2,7 @@
 
 数据本体分两层：
 
-- **新任务** = `02_生活运营/00_待办事项/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
+- **新任务** = `生活运营/待办事项/…md`（见 `task_notes.py`）：标题来自文件名或 frontmatter，
   清单来自文件夹；勾选完成会移到 `已完成/`，改名/换清单就是改文件名/移动文件；正文原样保留。
 - **旧任务** = `_系统/任务（tasks）.md` 里的复选框行：继续解析、展示，但应用内只读
   （可在 Obsidian 里直接修改这份文件）。产品不自动迁移旧行。
@@ -45,10 +45,10 @@ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TASKS_REL = Path(vault_layout.TASK_ROOT, "_系统", "任务（tasks）.md")
 TASKS_CANONICAL_LEGACY_REL = Path(vault_layout.TASK_ROOT, "_系统", "任务.md")
-TASKS_07_REL = Path("00_人生路", "07_任务与待办", "_系统", "任务（tasks）.md")
-TASKS_07_LEGACY_REL = Path("00_人生路", "07_任务与待办", "_系统", "任务.md")
-TASKS_08_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务（tasks）.md")
-TASKS_08_LEGACY_REL = Path("00_人生路", "08_任务与待办", "_系统", "任务.md")
+TASKS_07_REL = Path("人生路", "07_任务与待办", "_系统", "任务（tasks）.md")
+TASKS_07_LEGACY_REL = Path("人生路", "07_任务与待办", "_系统", "任务.md")
+TASKS_08_REL = Path("人生路", "08_任务与待办", "_系统", "任务（tasks）.md")
+TASKS_08_LEGACY_REL = Path("人生路", "08_任务与待办", "_系统", "任务.md")
 TASKS_OLD_REL = Path("00-System", "任务（tasks）.md")
 TASKS_LEGACY_REL = Path("00-System", "任务.md")
 MAX_TITLE = 200

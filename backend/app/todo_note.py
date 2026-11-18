@@ -1,8 +1,8 @@
-"""Markdown-first todos: `02_生活运营/00_待办事项/_系统/待办（todos）.md` is the data, the workbench is the front.
+"""Markdown-first todos: `生活运营/待办事项/_系统/待办（todos）.md` is the data, the workbench is the front.
 
 用户定案（2026-10-05）：能用 Markdown 语法实现的功能尽量用 md，vault 文件是数据本体。
 
-- `02_生活运营/00_待办事项/_系统/待办（todos）.md`：`## 待办` 小节 = 待办清单
+- `生活运营/待办事项/_系统/待办（todos）.md`：`## 待办` 小节 = 待办清单
   （`- [ ]`，勾选时行尾追 ` ✅ YYYY-MM-DD`）；`## 每日必做` 小节 = 长期清单的**定义**。
 - 每日必做的勾选状态写进**当天的日记**（`02-Life/journal/YYYY-MM-DD.md` 的 `## 每日必做`
   小节）——历史天然按天留存；产品只做镜像与勾选，绝不改用户已写的行。
@@ -44,10 +44,10 @@ from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 TODO_REL = Path(vault_layout.TASK_ROOT, "_系统", "待办（todos）.md")
-TODO_07_REL = Path("00_人生路", "07_任务与待办", "_系统", "待办（todos）.md")
-TODO_07_LEGACY_REL = Path("00_人生路", "07_任务与待办", "_系统", "待办.md")
-TODO_08_REL = Path("00_人生路", "08_任务与待办", "_系统", "待办（todos）.md")
-TODO_08_LEGACY_REL = Path("00_人生路", "08_任务与待办", "_系统", "待办.md")
+TODO_07_REL = Path("人生路", "07_任务与待办", "_系统", "待办（todos）.md")
+TODO_07_LEGACY_REL = Path("人生路", "07_任务与待办", "_系统", "待办.md")
+TODO_08_REL = Path("人生路", "08_任务与待办", "_系统", "待办（todos）.md")
+TODO_08_LEGACY_REL = Path("人生路", "08_任务与待办", "_系统", "待办.md")
 TODO_OLD_REL = Path("00-System", "待办（todos）.md")
 TODO_LEGACY_REL = Path("00-System", "待办.md")
 TODOS_HEADING = "待办"

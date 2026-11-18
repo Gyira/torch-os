@@ -106,6 +106,181 @@ if (topNavMode) {
 // 主题：嵌在 dsh 面板里就跟随 dsh（宿主 token 由 theme-bridge 接收），
 // 独立打开时跟随系统明暗。首帧提示已由 embed-boot.js 同步应用。
 initThemeBridge();
+
+// 顶栏「生活运营」是一个悬停展开的分组（2026-11-18 用户反馈）：健康／恋爱不再各占一个
+// 顶栏按钮，而是收进「生活运营」的下拉层；鼠标停上去就展开，方向键也能打开。
+const OPS_MENU_ITEMS = [["health", "健康系统"], ["love", "恋爱系统"]];
+const OPS_MENU_CLOSE_DELAY = 180; // 穿过按钮与下拉层之间的空隙时不闪断。
+const OPS_MENU_ID = "panel-nav-ops-menu";
+let opsMenuCloseTimer = 0;
+
+function opsNavFamily() {
+  return document.querySelector('.panel-nav-family[data-nav-family="ops"]');
+}
+
+function opsNavMenu() {
+  return document.getElementById(OPS_MENU_ID);
+}
+
+/**
+ * 下拉层贴着「生活运营」按钮下沿打开；右侧放不下时向左收，窄屏也不会溢出。
+ * 绝对定位的包含块是顶栏（.panel-nav）的 padding box：先扣掉边框宽度再换算坐标。
+ */
+function positionOpsMenu() {
+  const family = opsNavFamily();
+  const menu = opsNavMenu();
+  const nav = family?.closest(".panel-nav");
+  const trigger = family?.querySelector(".panel-nav-trigger");
+  if (!nav || !menu || !trigger || menu.hidden) return;
+  const triggerBox = trigger.getBoundingClientRect();
+  const navBox = nav.getBoundingClientRect();
+  const originLeft = navBox.left + (nav.clientLeft || 0);
+  const originTop = navBox.top + (nav.clientTop || 0);
+  const width = menu.offsetWidth || 168;
+  const limit = Math.max(8, nav.clientWidth - width - 8);
+  menu.style.left = `${Math.round(Math.min(Math.max(8, triggerBox.left - originLeft), limit))}px`;
+  menu.style.top = `${Math.round(triggerBox.bottom - originTop)}px`;
+}
+
+function openOpsMenu() {
+  const family = opsNavFamily();
+  const menu = opsNavMenu();
+  const trigger = family?.querySelector(".panel-nav-trigger");
+  if (!family || !menu || !trigger) return;
+  window.clearTimeout(opsMenuCloseTimer);
+  opsMenuCloseTimer = 0;
+  if (menu.hidden) {
+    menu.hidden = false;
+    family.classList.add("menu-open");
+    trigger.setAttribute("aria-expanded", "true");
+  }
+  positionOpsMenu();
+}
+
+function closeOpsMenu({ restoreFocus = false } = {}) {
+  const family = opsNavFamily();
+  const menu = opsNavMenu();
+  const trigger = family?.querySelector(".panel-nav-trigger");
+  window.clearTimeout(opsMenuCloseTimer);
+  opsMenuCloseTimer = 0;
+  if (!menu || menu.hidden) return;
+  const hadFocus = menu.contains(document.activeElement);
+  menu.hidden = true;
+  family?.classList.remove("menu-open");
+  trigger?.setAttribute("aria-expanded", "false");
+  if (trigger && (restoreFocus || hadFocus)) trigger.focus({ preventScroll: true });
+}
+
+function scheduleOpsMenuClose() {
+  window.clearTimeout(opsMenuCloseTimer);
+  opsMenuCloseTimer = window.setTimeout(() => { opsMenuCloseTimer = 0; closeOpsMenu(); }, OPS_MENU_CLOSE_DELAY);
+}
+
+/**
+ * 「生活运营」按钮 + 下拉层。下拉层是顶栏的兄弟节点而不是标签条的子孙：标签条要横向
+ * 滚动，overflow 会把绝对定位的下拉层裁掉。
+ */
+function buildOpsFamily(trigger) {
+  const family = document.createElement("div");
+  family.className = "panel-nav-family";
+  family.dataset.navFamily = "ops";
+  family.setAttribute("role", "group");
+  family.setAttribute("aria-label", "生活运营及常用系统");
+  trigger.classList.add("panel-nav-trigger");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-controls", OPS_MENU_ID);
+  const caret = document.createElement("span");
+  caret.className = "panel-nav-caret";
+  caret.setAttribute("aria-hidden", "true");
+  trigger.append(caret);
+  family.append(trigger);
+
+  const menu = document.createElement("div");
+  menu.className = "panel-nav-menu";
+  menu.id = OPS_MENU_ID;
+  menu.hidden = true;
+  menu.setAttribute("role", "group");
+  menu.setAttribute("aria-label", "生活运营下的系统");
+  const card = document.createElement("div");
+  card.className = "panel-nav-menu-card";
+  for (const [target, label] of OPS_MENU_ITEMS) {
+    const shortcut = document.createElement("button");
+    shortcut.type = "button";
+    shortcut.className = "panel-nav-item panel-nav-system";
+    // 走 data-go-view 而不是 data-view：下拉项不是顶栏一级模块，不参与导航排序，
+    // 也不该被一级按钮的选中项循环当成模块。
+    shortcut.dataset.goView = target;
+    shortcut.dataset.system = target;
+    shortcut.textContent = label;
+    shortcut.setAttribute("aria-label", `打开${label}`);
+    card.append(shortcut);
+  }
+  menu.append(card);
+  return { node: family, menu };
+}
+
+/** 悬停、方向键、Esc、焦点移出：下拉层的全部打开／收起入口。 */
+function bindOpsMenu() {
+  const family = opsNavFamily();
+  const menu = opsNavMenu();
+  const trigger = family?.querySelector(".panel-nav-trigger");
+  if (!family || !menu || !trigger) return;
+  const items = () => Array.from(menu.querySelectorAll(".panel-nav-system"));
+  const cancelClose = () => { window.clearTimeout(opsMenuCloseTimer); opsMenuCloseTimer = 0; };
+  // 只有真悬停才自动展开：触摸设备上 pointerenter 会在点按瞬间闪现，随即又被收起。
+  family.addEventListener("pointerenter", (event) => { if (event.pointerType !== "touch") openOpsMenu(); });
+  family.addEventListener("pointerleave", scheduleOpsMenuClose);
+  menu.addEventListener("pointerenter", (event) => { if (event.pointerType !== "touch") cancelClose(); });
+  menu.addEventListener("pointerleave", scheduleOpsMenuClose);
+  const onKeydown = (event) => {
+    const open = !menu.hidden;
+    if (event.key === "Escape") {
+      if (!open) return;
+      event.preventDefault();
+      closeOpsMenu({ restoreFocus: true });
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      // 顶栏方向键的次序由 shortcuts.js 统一处理；这里把「生活运营」这一格变成展开／收起。
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const list = items();
+      if (!open) {
+        openOpsMenu();
+        list[step > 0 ? 0 : list.length - 1]?.focus?.({ preventScroll: true });
+        return;
+      }
+      const index = list.indexOf(document.activeElement);
+      const next = index < 0 ? (step > 0 ? 0 : list.length - 1) : (index + step + list.length) % list.length;
+      list[next]?.focus?.({ preventScroll: true });
+      return;
+    }
+    if (event.key === "Tab") {
+      window.setTimeout(() => {
+        if (!family.contains(document.activeElement) && !menu.contains(document.activeElement)) closeOpsMenu();
+      }, 0);
+    }
+  };
+  family.addEventListener("keydown", onKeydown);
+  menu.addEventListener("keydown", onKeydown);
+  // 点完系统入口就收起；焦点离开按钮与下拉层（Tab、点到别处）也收起。
+  menu.addEventListener("click", (event) => { if (event.target.closest("[data-go-view]")) closeOpsMenu(); });
+  const onFocusOut = (event) => {
+    if (event.relatedTarget && (family.contains(event.relatedTarget) || menu.contains(event.relatedTarget))) return;
+    window.setTimeout(() => {
+      if (!family.contains(document.activeElement) && !menu.contains(document.activeElement)) closeOpsMenu();
+    }, 0);
+  };
+  family.addEventListener("focusout", onFocusOut);
+  menu.addEventListener("focusout", onFocusOut);
+  // 键盘打开后没有"指针移开"这回事：点页面上别的地方也要收起。
+  document.addEventListener("pointerdown", (event) => {
+    if (menu.hidden) return;
+    if (family.contains(event.target) || menu.contains(event.target)) return;
+    closeOpsMenu();
+  });
+}
+
 /** 顶部模块导航：浏览器直开和 Obsidian/dsh 面板共用（复用同一套 hash 路由）。 */
 function renderPanelNav() {
   if (!topNavMode) return;
@@ -116,6 +291,7 @@ function renderPanelNav() {
   nav.setAttribute("aria-label", "工作台页面");
   const scroll = document.createElement("div");
   scroll.className = "panel-nav-scroll";
+  let opsMenu = null;
   for (const view of currentNavOrder()) {
     const button = document.createElement("button");
     button.type = "button";
@@ -124,25 +300,13 @@ function renderPanelNav() {
     button.textContent = titles[view] || view;
     // One delegated handler below owns navigation; a second handler doubles data loads.
     if (view === "ops") {
-      const group = document.createElement("div");
-      group.className = "panel-nav-family";
-      group.setAttribute("role", "group");
-      group.setAttribute("aria-label", "生活运营及常用系统");
-      group.append(button);
-      for (const [target, label] of [["health", "健康"], ["love", "恋爱"]]) {
-        const shortcut = document.createElement("button");
-        shortcut.type = "button";
-        shortcut.className = "panel-nav-item panel-nav-system";
-        shortcut.dataset.view = target;
-        shortcut.dataset.system = target;
-        shortcut.textContent = label;
-        shortcut.setAttribute("aria-label", `打开${label}系统`);
-        group.append(shortcut);
-      }
-      scroll.append(group);
+      const family = buildOpsFamily(button);
+      opsMenu = family.menu;
+      scroll.append(family.node);
     } else scroll.appendChild(button);
   }
   nav.appendChild(scroll);
+  if (opsMenu) nav.append(opsMenu);
   const help = document.createElement("button");
   help.type = "button";
   help.className = "panel-nav-help";
@@ -161,9 +325,17 @@ function renderPanelNav() {
   search.addEventListener("click", () => { openGlobalSearch(); });
   nav.appendChild(search);
   main.prepend(nav);
+  if (opsMenu) {
+    bindOpsMenu();
+    // 标签条横向滚动、窗口缩放时，展开中的下拉层要跟着按钮走。
+    scroll.addEventListener("scroll", () => { if (!opsMenu.hidden) positionOpsMenu(); }, { passive: true });
+  }
   // 顶部标签条吸顶（2026-10-05）：把它的实际高度写进 --panel-nav-h，
   // 模块内导航（.module-nav）据此下移，两条吸顶条不会互相盖住。
-  const syncHeight = () => document.documentElement.style.setProperty("--panel-nav-h", `${nav.offsetHeight}px`);
+  const syncHeight = () => {
+    document.documentElement.style.setProperty("--panel-nav-h", `${nav.offsetHeight}px`);
+    if (opsMenu && !opsMenu.hidden) positionOpsMenu();
+  };
   syncHeight();
   window.addEventListener("resize", syncHeight);
 }
@@ -237,6 +409,8 @@ export async function switchView(view, updateHash = true) {
     return false;
   }
   state.view = view;
+  // 离开生活运营（或它的下拉分区）时把下拉层收起来，别让它悬在别的页面上。
+  if (view !== "ops") closeOpsMenu();
   // 工作台不再摆顶部大标题（2026-10-05 用户反馈）：给 body 打一个 view-* 类，样式据此隐藏
   // 工作台的标题块。**不要用 data-view**——页面的点击委托按 `closest("[data-view]")` 找导航
   // 按钮，body 带上它会吞掉一切点击并触发一次“切到当前模块”（2026-10-05 实测踩到）。
@@ -351,11 +525,16 @@ function syncModuleNavActive(view) {
 function renderSidebarState(view) {
   const module = MODULES[view];
   const current = module?.stacked ? (paneChoice[view] || module.panes[0]?.[0]) : paneChoice[view];
-  const opsButton = document.querySelector('.panel-nav-item[data-view="ops"]');
+  const opsFamily = opsNavFamily();
+  const opsButton = opsFamily?.querySelector(".panel-nav-trigger");
   if (opsButton) {
-    const active = view === "ops" && current === "ops-view";
-    opsButton.classList.toggle("active", active);
-    if (active) opsButton.setAttribute("aria-current", "page"); else opsButton.removeAttribute("aria-current");
+    // 健康／恋爱现在收在「生活运营」下拉里：顶栏只高亮这个入口，具体系统
+    // 在下拉层里标 aria-current，展开时才看得到。
+    const inOps = view === "ops";
+    opsButton.classList.toggle("active", inOps);
+    if (inOps && current === "ops-view") opsButton.setAttribute("aria-current", "page");
+    else opsButton.removeAttribute("aria-current");
+    opsFamily.classList.toggle("has-current-system", inOps && current !== "ops-view");
   }
   document.querySelectorAll(".panel-nav-system").forEach((button) => {
     const active = view === "ops" && current === `${button.dataset.system}-view`;

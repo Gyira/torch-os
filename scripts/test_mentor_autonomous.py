@@ -248,14 +248,14 @@ class AutonomousArchiveTests(unittest.TestCase):
             "title": "外部说法", "text": "网上看到的", "sources": ["https://example.com/proof"],
         }]))
         self.assertFalse(url_result["archive_updates"][0]["ok"])
-        missing = "01_自我档案/01_档案/01_基础事实/不存在.md"
+        missing = "自我档案/档案/基础事实/不存在.md"
         path_result = self.chat(reply(archive_updates=[{
             "action": "create", "section": "self_facts", "entry_type": "fact",
             "title": "虚构引用", "text": "不存在的笔记", "sources": [missing],
         }]))
         self.assertFalse(path_result["archive_updates"][0]["ok"])
         self.assertIn("来源文件不存在", path_result["archive_updates"][0]["error"])
-        local = self.vault / "01_自我档案/01_档案/01_基础事实/已有记录.md"
+        local = self.vault / "自我档案/档案/基础事实/已有记录.md"
         local.parent.mkdir(parents=True)
         local.write_text("---\ntitle: 已有记录\n---\n\n用户原话", encoding="utf-8")
         ok_result = self.chat(reply(archive_updates=[{

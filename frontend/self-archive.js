@@ -60,7 +60,7 @@ function renderBook() {
     book: { key: state.bookKey, title: bookByKey(state.bookKey)?.title || "档案本子",
       subtitle: bookByKey(state.bookKey)?.subtitle || "",
       path: bookByKey(state.bookKey)?.folder
-        ? `01_自我档案/01_档案/${bookByKey(state.bookKey).folder}` : "" },
+        ? `自我档案/档案/${bookByKey(state.bookKey).folder}` : "" },
     entries: state.entries,
     history: state.history,
   });
@@ -228,7 +228,7 @@ async function previewMigration() {
 async function applyMigration(button) {
   const ok = await confirmAction({
     title: "确认迁移？",
-    message: "会先整棵备份 01_自我档案，再按预览把旧笔记转换到新本子。旧文件会移进备份，不删除备份。",
+    message: "会先整棵备份 自我档案，再按预览把旧笔记转换到新本子。旧文件会移进备份，不删除备份。",
     confirmLabel: "开始迁移",
   });
   if (!ok) return;

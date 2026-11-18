@@ -3,9 +3,9 @@
 The old SQLite ``body_entries`` backend is retired (2026-10-22). Two Markdown
 sources are read here, in order:
 
-1. `02_生活运营/02_健康系统/01_每日健康/YYYY-MM-DD.md` — the current authority:
+1. `生活运营/健康系统/每日健康/YYYY-MM-DD.md` — the current authority:
    sleep duration, weight and training minutes come from the daily record;
-2. `02_生活运营/02_健康系统/<YYYY-MM>.md`（旧 `01_健康与体重`）— only for vaults
+2. `生活运营/健康系统/<YYYY-MM>.md`（旧 `01_健康与体重`）— only for vaults
    that still have the retired monthly table and no daily records.
 
 Aggregation is deliberately mechanical: one day = one row, keep the last
@@ -146,7 +146,7 @@ def all_entries(vault_dir: Path | str) -> list[dict[str, Any]]:
     if daily:
         return daily
     roots = [Path(vault_dir) / vault_layout.chapter_dir(DATASET)]
-    legacy_root = Path(vault_dir) / "02_生活运营" / "01_健康与体重"
+    legacy_root = Path(vault_dir) / "生活运营" / "01_健康与体重"
     if legacy_root.is_dir():
         roots.append(legacy_root)
     months: list[str] = []

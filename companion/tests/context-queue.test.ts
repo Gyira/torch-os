@@ -7,7 +7,7 @@ import { RetryGate, bounded } from "../core/retry.ts";
 const enc = new TextEncoder();
 test("mobile context pack requires explicit sources, detects stale files and rejects secrets", async () => {
   let text = "原文";
-  const path = "00_人生路/日记.md", read = async () => enc.encode(text);
+  const path = "人生路/日记.md", read = async () => enc.encode(text);
   const pack = await contextPack([path], read);
   assert.ok(pack.files[0].markdown.includes("原文")); assert.equal(pack.uploaded, false);
   assert.deepEqual(await changedSources(pack, read), []);

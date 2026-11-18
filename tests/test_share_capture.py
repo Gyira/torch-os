@@ -111,7 +111,7 @@ def test_pack_readonly_exclusion_budget_and_secret(workspace):
     result = build(vault, PackRequest(paths=[note["path"]]))
     assert source.read_bytes() == before and not result["uploaded"]
     assert "原始内容" in result["files"][0]["markdown"]
-    for path in ["../x.md", ".torch-os/key.md", "03_知识库/备份/a.md", "02_生活运营/02_微信聊天/a.md"]:
+    for path in ["../x.md", ".torch-os/key.md", "知识库/备份/a.md", "生活运营/微信聊天/a.md"]:
         with pytest.raises(HTTPException):
             build(vault, PackRequest(paths=[path]))
     source.write_text("api_key: sk-" + "x" * 40, encoding="utf-8")
@@ -209,7 +209,7 @@ def test_readonly_archive_and_export_are_rejected(workspace):
         preview = client.post("/api/knowledge/share/preview", json={"pasted_text": "正文"}).json()
         assert client.post("/api/knowledge/share/archive", json={"preview_id": preview["preview_id"],
             "content_hash": preview["content_hash"], "confirm": True}).status_code == 409
-        assert client.post("/api/knowledge/context-pack/export", json={"paths": ["03_知识库/a.md"]}).status_code == 409
+        assert client.post("/api/knowledge/context-pack/export", json={"paths": ["知识库/a.md"]}).status_code == 409
 
 
 def test_portable_fingerprint_and_mobile_note_reconciliation(workspace):

@@ -250,7 +250,7 @@ def checkin_rows(db):
 
 
 def notes(vault):
-    return list((vault / "00_人生路" / "04_目标" / "04_习惯追踪" / "习惯").glob("*.md"))
+    return list((vault / "人生路" / "目标" / "习惯追踪" / "习惯").glob("*.md"))
 
 
 def test_settings_habits_default_on_and_can_disable(env):

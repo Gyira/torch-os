@@ -21,18 +21,18 @@ from backend.app import vault_layout as layout, vault_links
 
 
 MOVES = {
-    "00_人生路/09_随笔": layout.chapter_dir("essay"),
-    "00_人生路/06_工作复盘/01_项目复盘": layout.chapter_dir("work_review_project"),
-    "00_人生路/06_工作复盘/02_会议收获": layout.chapter_dir("work_review_meeting"),
-    "00_人生路/06_工作复盘/03_踩坑记录": layout.chapter_dir("work_review_pitfall"),
-    "00_人生路/06_工作复盘": "00_人生路/07_工作复盘",
-    "02_生活运营/03_证件与事务": layout.chapter_dir("affairs"),
-    "02_生活运营/04_财务报告": layout.chapter_dir("finance_report"),
-    "02_生活运营/05_生活建议": layout.chapter_dir("life_advice"),
-    "02_生活运营/06_家庭与智能家居": layout.chapter_dir("family"),
-    "02_生活运营/06_健康报告": layout.chapter_dir("health_report"),
-    "02_生活运营/07_情感与记忆": layout.chapter_dir("love_memory"),
-    "02_生活运营/08_财富与记账": layout.chapter_dir("finance"),
+    "人生路/09_随笔": layout.chapter_dir("essay"),
+    "人生路/06_工作复盘/01_项目复盘": layout.chapter_dir("work_review_project"),
+    "人生路/06_工作复盘/02_会议收获": layout.chapter_dir("work_review_meeting"),
+    "人生路/06_工作复盘/03_踩坑记录": layout.chapter_dir("work_review_pitfall"),
+    "人生路/06_工作复盘": "人生路/工作复盘",
+    "生活运营/03_证件与事务": layout.chapter_dir("affairs"),
+    "生活运营/04_财务报告": layout.chapter_dir("finance_report"),
+    "生活运营/05_生活建议": layout.chapter_dir("life_advice"),
+    "生活运营/06_家庭与智能家居": layout.chapter_dir("family"),
+    "生活运营/06_健康报告": layout.chapter_dir("health_report"),
+    "生活运营/07_情感与记忆": layout.chapter_dir("love_memory"),
+    "生活运营/08_财富与记账": layout.chapter_dir("finance"),
     **dict(layout.OPS_LAYOUT_MOVES),
 }
 EMPTY_LEGACY = tuple(sorted({
@@ -141,11 +141,14 @@ def json_paths(value, mapping):
 def db_changes(connection, mapping):
     """只更新路径及结构化引用；记忆正文、审核决定和审计历史不改。"""
     fields = {
-        "documents": ("path", "metadata_json"), "messages": ("citations_json",),
+        "documents": ("path", "last_known_path", "metadata_json"), "messages": ("citations_json",),
         "ai_turns": ("sources_json", "proposals_json", "structured_json"),
         "ai_proposals": ("payload_json", "sources_json", "result_json"),
         "journal_actions": ("source_path",), "dida_task_links": ("relpath",),
         "memory_hub_runs": ("snapshot_path",),
+        "habit_definitions": ("source_path",), "dida_habit_links": ("relpath",),
+        "inbox_items": ("body_json",), "goals": ("metadata_json",),
+        "suggestions": ("evidence_json",),
     }
     changes = []
     for table, columns in fields.items():

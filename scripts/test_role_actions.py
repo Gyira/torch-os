@@ -47,10 +47,10 @@ class RoleActionTests(unittest.TestCase):
 
     def test_mentor_global_read_does_not_grant_global_write(self):
         policy = RolePolicy.for_role("mentor", self.vault)
-        policy.check_path("03_知识库/01_主题笔记/内容.md", note=True)
+        policy.check_path("知识库/主题笔记/内容.md", note=True)
         policy.check_write_path(vault_layout.SELF_MENTOR_MEMORY_DIR)
         with self.assertRaises(RoleScopeError):
-            policy.check_write_path("03_知识库/01_主题笔记/内容.md")
+            policy.check_write_path("知识库/主题笔记/内容.md")
 
     def test_create_cross_domain_proposal_is_rejected_without_row_or_file(self):
         with self.assertRaises(ProposalError) as error:
@@ -92,7 +92,7 @@ class RoleActionTests(unittest.TestCase):
     def test_move_checks_source_and_edited_destination_before_read_or_write(self):
         source = note_editor.create_note(self.db, self.vault, chapter="topic", title="原文", body="keep")
         proposal = self.proposal(kind="archive_note", payload={"path": source["path"], "target_chapter": "reading"})
-        for edits in ({"path": "00_人生路/06_随笔/他人.md"}, {"chapter": "reflection"}):
+        for edits in ({"path": "人生路/随笔/他人.md"}, {"chapter": "reflection"}):
             with self.subTest(edits=edits), patch.object(note_editor, "move_note") as writer:
                 with self.assertRaises(ProposalError):
                     self.proposals.apply(proposal["id"], confirm=True, edits=edits)
@@ -117,7 +117,7 @@ class RoleActionTests(unittest.TestCase):
         self.assertEqual(result["status"], "applied")
         self.assertTrue(list((self.vault / HABITS).rglob("*.md")))
         with self.assertRaises(RoleScopeError):
-            RolePolicy.for_role("life_assistant", self.vault).check_path("00_人生路/06_随笔/记录.md", note=True)
+            RolePolicy.for_role("life_assistant", self.vault).check_path("人生路/随笔/记录.md", note=True)
 
     def test_task_and_habit_cannot_receive_paths_or_actor_overrides(self):
         for kind in ("new_task", "new_habit"):
@@ -198,7 +198,7 @@ class RoleActionTests(unittest.TestCase):
     def test_proposal_sources_resolve_then_revalidate(self):
         reply = Reply.model_validate({"proposals": [{"kind": "new_note", "title": "建议", "payload": {"chapter": "topic", "body": "text"}, "sources": ["S1"]}]})
         role = self.registry.get("academic_mentor")
-        source = "03_知识库/01_主题笔记/来源.md"
+        source = "知识库/主题笔记/来源.md"
         items = self.service._create_proposals(reply, role, "discuss", "", sources=[{"id": "S1", "path": source}])
         self.assertEqual(items[0]["sources"], [source])
         with self.db.connect() as con:

@@ -1,6 +1,6 @@
 """一任务一笔记的存储层（2026-10-31 任务根迁到生活运营）。
 
-任务数据层根目录是 `02_生活运营/00_待办事项`，直接包含：
+任务数据层根目录是 `生活运营/待办事项`，直接包含：
 
 - `收集箱/`：还没有放进清单的未完成任务；
 - `已完成/`：所有 done 任务（平铺，逻辑清单记在 frontmatter `清单`）；
@@ -14,7 +14,7 @@
 - 已完成任务：统一放在 `已完成/`，用 frontmatter `清单` 记住原清单；取消完成时移回。
 - 标签 / 今天 / 日历 / 四象限都只是前端筛选，没有对应文件夹。
 - 删除任务或清单走 `task_trash_store` 的批次 manifest，可恢复。
-- 旧 `00_人生路/07_任务与待办`、`08_任务与待办/任务`、`00-System/任务` 仍可读，
+- 旧 `人生路/07_任务与待办`、`08_任务与待办/任务`、`00-System/任务` 仍可读，
   启动迁移会把它们展开成新布局。
 """
 
@@ -50,10 +50,10 @@ TASK_DIR_REL = TASK_ROOT_REL
 TASK_DIR_POSIX = TASK_ROOT_POSIX
 
 # 上一版任务根（2026-10-30）；启动迁移会整体搬到 TASK_ROOT。
-PREVIOUS_TASK_ROOT_REL = Path("00_人生路", "07_任务与待办")
+PREVIOUS_TASK_ROOT_REL = Path("人生路", "07_任务与待办")
 PREVIOUS_TASK_ROOT_POSIX = PREVIOUS_TASK_ROOT_REL.as_posix()
 # 更旧的 08 布局：任务在内层 `任务/` 目录。
-LEGACY_TASK_ROOT_REL = Path("00_人生路", "08_任务与待办")
+LEGACY_TASK_ROOT_REL = Path("人生路", "08_任务与待办")
 LEGACY_TASK_DIR_REL = LEGACY_TASK_ROOT_REL / LEGACY_INNER_DIR_NAME
 LEGACY_TASK_DIR_POSIX = LEGACY_TASK_DIR_REL.as_posix()
 LEGACY_TASK_ROOT_POSIX = LEGACY_TASK_ROOT_REL.as_posix()

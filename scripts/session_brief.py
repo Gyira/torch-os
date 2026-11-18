@@ -18,7 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-PILLARS = ("00_人生路", "01_自我档案", "02_生活运营", "03_知识库")
+PILLARS = ("人生路", "自我档案", "生活运营", "知识库")
 SKIP_DIRS = {".obsidian", ".torch-os", ".git", ".trash", ".claudian", "_旧版", "_系统",
              "_模板", "_附件", "已完成", "回收站"}
 RECENT_LIMIT = 8
@@ -137,7 +137,7 @@ def _load_front_matter(path: Path) -> dict[str, Any]:
 
 def _open_tasks(vault: Path) -> list[tuple[str, str, str]]:
     tasks: list[tuple[str, str, str]] = []
-    for path in _markdown_files(vault / "02_生活运营/00_待办事项"):
+    for path in _markdown_files(vault / "生活运营/待办事项"):
         meta, body = _front_matter(path)
         if _truthy(meta.get("完成", "")) or _truthy(meta.get("done", "")):
             continue
@@ -148,7 +148,7 @@ def _open_tasks(vault: Path) -> list[tuple[str, str, str]]:
 
 
 IDENTITY_CANDIDATES = (
-    "01_自我档案/01_内核与三观/身份（identity）.md",
+    "自我档案/内核与三观/身份（identity）.md",
     "01-Identity/身份（identity）.md",
 )
 IDENTITY_FIELDS = (("name", "称呼"), ("motto", "座右铭"), ("worldview", "世界观"),
@@ -232,8 +232,8 @@ def build_memory_card(vault: Path) -> str:
     lines: list[str] = [f"# 记忆内核 · {today.isoformat()}（{['周一','周二','周三','周四','周五','周六','周日'][today.weekday()]}）",
                         "", "## 我是谁", *rows]
 
-    goals = sorted(_markdown_files(vault / "00_人生路/04_目标"))
-    projects = sorted(_markdown_files(vault / "00_人生路/05_项目/01_项目计划"))
+    goals = sorted(_markdown_files(vault / "人生路/目标"))
+    projects = sorted(_markdown_files(vault / "人生路/项目/项目计划"))
     tasks = _open_tasks(vault)[:3]
     busy: list[str] = []
     if goals:
@@ -248,7 +248,7 @@ def build_memory_card(vault: Path) -> str:
     week: list[tuple[str, str]] = []
     for offset in range(7):
         day = today - timedelta(days=offset)
-        excerpt = _diary_excerpt(vault / f"00_人生路/01_日记/{day.isoformat()}.md")
+        excerpt = _diary_excerpt(vault / f"人生路/日记/{day.isoformat()}.md")
         if excerpt:
             week.append((day.isoformat(), excerpt))
     if week:
@@ -288,7 +288,7 @@ def build_brief(vault: Path, *, include_identity: bool = True) -> str:
     if identity:
         lines.extend(["", "## 关于我", *[f"- {row}" for row in identity]])
 
-    diary = vault / f"00_人生路/01_日记/{day.isoformat()}.md"
+    diary = vault / f"人生路/日记/{day.isoformat()}.md"
     excerpt = _diary_excerpt(diary)
     if excerpt:
         lines.extend(["", f"## 今日日记  已写：{excerpt}"])
@@ -305,21 +305,21 @@ def build_brief(vault: Path, *, include_identity: bool = True) -> str:
         if len(tasks) > TASK_LIMIT:
             lines.append(f"- …另有 {len(tasks) - TASK_LIMIT} 条")
 
-    goals = _markdown_files(vault / "00_人生路/04_目标")
+    goals = _markdown_files(vault / "人生路/目标")
     if goals:
         lines.extend(["", f"## 目标笔记（{len(goals)}）"])
         for path in sorted(goals)[:6]:
             meta, body = _front_matter(path)
             lines.append(f"- {_title(path, body)}（{path.parent.name}）")
 
-    projects = _markdown_files(vault / "00_人生路/05_项目/01_项目计划")
+    projects = _markdown_files(vault / "人生路/项目/项目计划")
     if projects:
         lines.extend(["", f"## 项目计划（{len(projects)}）"])
         for path in sorted(projects)[:6]:
             meta, body = _front_matter(path)
             lines.append(f"- {_title(path, body)}")
 
-    inbox = _markdown_files(vault / "03_知识库/00_收件箱")
+    inbox = _markdown_files(vault / "知识库/收件箱")
     if inbox:
         lines.extend(["", f"## 收件箱（{len(inbox)} 条待分流）"])
         for path in sorted(inbox, key=lambda p: p.stat().st_mtime, reverse=True)[:INBOX_LIMIT]:
