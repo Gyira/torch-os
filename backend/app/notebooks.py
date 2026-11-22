@@ -1,9 +1,10 @@
-"""自定义本子（2026-10-30）。
+"""自定义本子（2026-10-30，2026-11-22 支持子本子）。
 
 本子 = 某个库根目录下的一个文件夹（人生路 `人生路/<名字>/`，知识库
-`知识库/<名字>/`）；不另存元数据，Obsidian 里看到的目录就是唯一事实。
-创建只建空文件夹并记一条 `notebook_created` 审计；笔记仍通过
-`/api/writing/notes` 写入（人生路 `custom:<名字>`，知识库 `custom:knowledge:<名字>`）。
+`知识库/<名字>/`）；子本子 = 本子文件夹下的子文件夹，路径用 `/` 分层
+（`人生路/<父>/<子>/`，key 为 `custom:<父>/<子>`）。不另存元数据，
+Obsidian 里看到的目录就是唯一事实。创建只建空文件夹并记一条
+`notebook_created` 审计；笔记仍通过 `/api/writing/notes` 写入。
 
 删除本子走软删除：自建本子整夹移进 `<库>/.torch-os/本子回收站/<批次>/`；内置本子
 按章节集合整体移走并记录隐藏标记。人生路只保留「随笔」、知识库只保留「收件箱」、
@@ -41,6 +42,8 @@ class NotebookCreateRequest(BaseModel):
 
     pillar: NotebookPillar = "life"
     name: str = Field(min_length=1, max_length=vault_layout.CUSTOM_NOTEBOOK_MAX_NAME)
+    # 子本子：父本子的相对路径（如 "读书/小说"）；留空表示在库根下新建顶层本子。
+    parent: str = Field(default="", max_length=240)
 
 
 class NotebookDeleteRequest(BaseModel):
@@ -65,12 +68,65 @@ def _require_pillar(pillar: str) -> str:
     return value
 
 
+def _assert_directory_chain(vault: Path, path: Path) -> None:
+    """本子目录及其上级都必须是库内普通目录，不跟随链接写出库外。"""
+    try:
+        relative = path.relative_to(vault)
+    except ValueError as error:
+        raise HTTPException(409, "库目录不可写") from error
+    current = vault
+    for part in relative.parts:
+        current = current / part
+        try:
+            info = current.lstat()
+        except OSError as error:
+            raise HTTPException(409, "库目录不可写") from error
+        if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
+            raise HTTPException(409, "库目录不可写")
+
+
+def _note_notebook_name(note: dict[str, Any]) -> str:
+    return vault_layout.custom_notebook_name_from_relpath(str(note.get("path") or ""))
+
+
+def _custom_notebook_item(vault_dir: Path | str, pillar: str, name: str,
+                          notes: list[dict[str, Any]]) -> dict[str, Any]:
+    """一个本子（含子本子）的列表项；计数包含它下面所有层级的笔记。"""
+    prefix = f"{name}/"
+    mine = [
+        note for note in notes
+        if (note_name := _note_notebook_name(note))
+        and (note_name == name or note_name.startswith(prefix))
+    ]
+    parent = vault_layout.notebook_parent_name(name)
+    key = vault_layout.custom_notebook_key(name, pillar)
+    return {
+        "key": key,
+        "title": vault_layout.notebook_leaf_name(name),
+        "name": name,
+        "path": vault_layout.custom_notebook_path(name, pillar),
+        "parent": (vault_layout.custom_notebook_key(parent, pillar)
+                   if parent else ""),
+        "depth": name.count("/"),
+        "pillar": pillar,
+        "count": len(mine),
+        "latest": mine[0] if mine else None,
+        "custom": True,
+        "protected": vault_layout.is_protected_notebook(pillar, key),
+    }
+
+
 def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
-                    pillar: str = "life", read_only: bool = False,
+                    pillar: str = "life", parent: str = "",
+                    read_only: bool = False,
                     audit: bool = True) -> dict[str, Any]:
     key_pillar = _require_pillar(pillar)
     try:
         clean = vault_layout.validate_notebook_name(name)
+        parent_name = (vault_layout.validate_notebook_path(parent)
+                       if str(parent or "").strip() else "")
+        full_name = f"{parent_name}/{clean}" if parent_name else clean
+        vault_layout.validate_notebook_path(full_name)
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     try:
@@ -78,21 +134,22 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
     except VaultReadOnlyError as error:
         raise HTTPException(409, str(error)) from error
 
-    relative = vault_layout.custom_notebook_path(clean, key_pillar)
     vault = Path(vault_dir).resolve()
+    if parent_name and not vault_layout.custom_notebook_exists(
+            vault, key_pillar, parent_name):
+        raise HTTPException(422, "父本子不存在，请先创建父本子")
+    root_relative = vault_layout.notebook_root(key_pillar)
+    parent_relative = f"{root_relative}/{parent_name}" if parent_name else root_relative
+    relative = vault_layout.custom_notebook_path(full_name, key_pillar)
     target = workspace_path(vault, relative)
     try:
         if target.exists() or target.is_symlink():
             raise HTTPException(409, "这个本子已经存在")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # 再确认一次父目录/目标是普通目录，不跟随符号链接写出库外。
-        info = target.parent.lstat()
-        if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
-            raise HTTPException(409, "库目录不可写")
+        parent_target = workspace_path(vault, parent_relative)
+        parent_target.mkdir(parents=True, exist_ok=True)
+        _assert_directory_chain(vault, parent_target)
         target.mkdir()
-        info = target.lstat()
-        if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
-            raise HTTPException(409, "无法创建本子文件夹")
+        _assert_directory_chain(vault, target)
     except FileExistsError as error:
         raise HTTPException(409, "这个本子已经存在") from error
     except HTTPException:
@@ -100,19 +157,25 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
     except OSError as error:
         raise HTTPException(500, f"创建本子失败：{error}") from error
 
+    key = vault_layout.custom_notebook_key(full_name, key_pillar)
     try:
         if key_pillar in {"life", "knowledge"}:
-            clear_notebook_title(vault, key_pillar, vault_layout.custom_notebook_key(clean, key_pillar))
+            clear_notebook_title(vault, key_pillar, key)
     except Exception:
         target.rmdir()  # Only the empty folder this request just created.
         raise
     if audit:
         database.audit("notebook_created", {
-            "pillar": key_pillar, "name": clean, "path": relative,
+            "pillar": key_pillar, "name": full_name, "parent": parent_name,
+            "path": relative,
         })
     return {
-        "key": vault_layout.custom_notebook_key(clean, key_pillar),
+        "key": key,
         "title": clean,
+        "name": full_name,
+        "parent": (vault_layout.custom_notebook_key(parent_name, key_pillar)
+                   if parent_name else ""),
+        "depth": full_name.count("/"),
         "path": relative,
         "pillar": key_pillar,
         "count": 0,
@@ -124,25 +187,10 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
 def list_notebooks(vault_dir: Path | str, pillar: str = "life") -> dict[str, Any]:
     key_pillar = _require_pillar(pillar)
     notes = pillar_notes.list_notes(vault_dir, pillar=key_pillar, limit=500)
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for note in notes:
-        name = vault_layout.custom_notebook_name_from_relpath(str(note.get("path") or ""))
-        if name:
-            grouped.setdefault(name, []).append(note)
-    items = []
-    for name in vault_layout.list_custom_notebooks(vault_dir, key_pillar):
-        mine = grouped.get(name, [])
-        items.append({
-            "key": vault_layout.custom_notebook_key(name, key_pillar),
-            "title": name,
-            "path": vault_layout.custom_notebook_path(name, key_pillar),
-            "pillar": key_pillar,
-            "count": len(mine),
-            "latest": mine[0] if mine else None,
-            "custom": True,
-            "protected": vault_layout.is_protected_notebook(
-                key_pillar, vault_layout.custom_notebook_key(name, key_pillar)),
-        })
+    items = [
+        _custom_notebook_item(vault_dir, key_pillar, name, notes)
+        for name in vault_layout.list_all_custom_notebooks(vault_dir, key_pillar)
+    ]
     return {"pillar": key_pillar, "items": items}
 
 
@@ -184,26 +232,23 @@ def _rollback_moves(moved: list[tuple[Path, Path]]) -> None:
 def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
                             key: str) -> dict[str, Any]:
     name = vault_layout.custom_notebook_name(key)
-    display_title = notebook_titles(vault, pillar).get(key, name)
-    if not name:
-        raise HTTPException(422, "只能删除当前库的本子")
+    try:
+        name = vault_layout.validate_notebook_path(name)
+    except ValueError as error:
+        raise HTTPException(422, "只能删除当前库的本子") from error
+    display_title = (notebook_titles(vault, pillar).get(key)
+                     or vault_layout.notebook_leaf_name(name))
     relative = vault_layout.custom_notebook_path(name, pillar)
     target = workspace_path(vault, relative)
     try:
-        info = target.lstat()
+        target.lstat()
     except FileNotFoundError as error:
         raise HTTPException(404, "这个本子已经不存在") from error
     except OSError as error:
         raise HTTPException(409, f"本子文件夹不可读：{error}") from error
-    if not stat.S_ISDIR(info.st_mode) or _is_reparse(info):
-        raise HTTPException(409, "本子文件夹不是普通目录，已停止删除")
+    _assert_directory_chain(vault, target)
     try:
-        parent = target.parent.resolve()
-        root = vault_layout.notebook_root(pillar)
-        if not root:
-            raise HTTPException(409, "这个库不支持本子目录")
-        expected_parent = (workspace_path(vault, root)).resolve()
-        if parent != expected_parent or not is_workspace_path(vault, target.resolve()):
+        if not is_workspace_path(vault, target.resolve()):
             raise HTTPException(409, "本子目录不在库内，已停止删除")
         note_count = _count_markdown(target)
     except HTTPException:
@@ -415,7 +460,8 @@ def create_notebook_router(database: Database, vault_dir: Path | str, *,
     @router.post("/notebooks")
     def create(payload: NotebookCreateRequest):
         return create_notebook(database, vault_dir, payload.name,
-                               pillar=payload.pillar, read_only=read_only)
+                               pillar=payload.pillar, parent=payload.parent,
+                               read_only=read_only)
 
     @router.post("/notebooks/delete")
     def delete(payload: NotebookDeleteRequest):

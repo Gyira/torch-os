@@ -186,6 +186,43 @@ export function customNotebookKey(name, pillar = "life") {
   return `${prefix}${String(name || "")}`;
 }
 
+// 子本子：key 里用 `/` 分层（`custom:父/子`）；folder 层就是磁盘上的子文件夹。
+export function customNotebookParts(key) {
+  return customNotebookName(key).split("/").filter(Boolean);
+}
+
+export function customNotebookLeafName(key) {
+  const parts = customNotebookParts(key);
+  return parts[parts.length - 1] || "";
+}
+
+/** 展示用路径：`父 / 子 / 孙`。 */
+export function customNotebookTrail(key) {
+  return customNotebookParts(key).join(" / ");
+}
+
+export function customNotebookParentKey(key) {
+  const parts = customNotebookParts(key);
+  const pillar = customNotebookPillar(key);
+  if (!pillar || parts.length < 2) return "";
+  return customNotebookKey(parts.slice(0, -1).join("/"), pillar);
+}
+
+export function customNotebookDepth(key) {
+  const parts = customNotebookParts(key);
+  return parts.length ? parts.length - 1 : 0;
+}
+
+/** 子本子相对当前本子的层级名：`子 / 孙`。 */
+export function customNotebookRelativeTrail(key, rootKey) {
+  const name = customNotebookName(key);
+  const rootName = customNotebookName(rootKey);
+  const relative = rootName && name.startsWith(`${rootName}/`)
+    ? name.slice(rootName.length + 1)
+    : name;
+  return relative.split("/").filter(Boolean).join(" / ");
+}
+
 function toneForName(name) {
   let total = 0;
   for (const character of String(name || "")) total += character.codePointAt(0) || 0;
@@ -198,7 +235,7 @@ function iconForName(name) {
   return /[0-9]/.test(first) ? "本" : first;
 }
 
-/** 自定义本子的最小定义；count/latest 由 overview 的 custom_notebooks 补齐。 */
+/** 自定义本子/子本子的最小定义；count/latest 由 overview 的 custom_notebooks 补齐。 */
 export function customNotebookDefinition(key) {
   const name = customNotebookName(key);
   const pillar = customNotebookPillar(key);
@@ -206,16 +243,20 @@ export function customNotebookDefinition(key) {
   const root = pillar === "knowledge" ? "知识库"
     : pillar === "love" ? "生活运营/恋爱系统/恋爱记忆"
       : "人生路";
+  const title = customNotebookLeafName(key);
+  const parent = customNotebookParentKey(key);
   return {
     key: String(key),
-    title: name,
-    eyebrow: "MY NOTEBOOK",
-    icon: iconForName(name),
+    title,
+    eyebrow: parent ? "SUB NOTEBOOK" : "MY NOTEBOOK",
+    icon: iconForName(title),
     tone: toneForName(name),
     description: `自建本子 · ${root}/${name}`,
     chapters: [String(key)],
     custom: true,
     pillar,
+    parent,
+    depth: customNotebookDepth(key),
   };
 }
 
@@ -251,8 +292,16 @@ export function buildMoveTargetGroups(pillar, chapters = [], currentChapter = ""
     const mine = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
     if (mine.length) groups.push({ key: notebook.key, title: notebook.title, chapters: mine });
   }
-  const custom = rows.filter((chapter) => chapter.custom === true
-    || customNotebookPillar(chapter.key) === pillar);
+  const custom = rows
+    .filter((chapter) => chapter.custom === true
+      || customNotebookPillar(chapter.key) === pillar)
+    .map((chapter) => {
+      const key = String(chapter.key || "");
+      // 子本子带父路径，移动时不会和同名子本子混淆。
+      return customNotebookParentKey(key)
+        ? { ...chapter, title: customNotebookTrail(key) }
+        : chapter;
+    });
   if (custom.length) groups.push({ key: "custom", title: "我的本子", chapters: custom });
   const covered = new Set(groups.flatMap((group) => group.chapters.map((chapter) => chapter.key)));
   const others = rows.filter((chapter) => !covered.has(chapter.key));
@@ -305,17 +354,31 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
       };
     });
   // 自定义本子：前端新建的本子 = 人生路 下的文件夹，由后端 overview.custom_notebooks 提供。
-  const customCards = (Array.isArray(customRows) ? customRows : [])
+  // 子本子只在父本子页面里出现，首页/导航只放顶层本子，避免同一份笔记被数两次。
+  const allCustom = Array.isArray(customRows) ? customRows : [];
+  const customCards = allCustom
+    .filter((row) => {
+      const key = String(row?.key || "");
+      return customNotebookPillar(key) && !(row?.parent || customNotebookParentKey(key));
+    })
     .map((row) => {
       const key = String(row?.key || "");
       const definition = customNotebookDefinition(key);
       if (!definition) return null;
       const count = Number(row.count) || 0;
+      const children = allCustom.filter((child) => {
+        const childKey = String(child?.key || "");
+        return (child?.parent || customNotebookParentKey(childKey)) === key;
+      }).length;
       return {
         ...definition,
         title: String(row.title || definition.title),
+        description: children
+          ? `${definition.description} · ${children} 个子本子`
+          : definition.description,
         path: String(row.path || ""),
         protected: Boolean(row.protected),
+        subCount: children,
         count,
         latest: row.latest || null,
         chapters: [{ key, title: String(row.title || definition.title), count }],
@@ -348,17 +411,29 @@ export function notebookTotal(cards = []) {
   return cards.reduce((total, card) => total + (Number(card.count) || 0), 0);
 }
 
-export function subchaptersFor(pillar, notebookKey, chapterRows = []) {
+export function subchaptersFor(pillar, notebookKey, chapterRows = [], customRows = []) {
   const notebook = notebookById(pillar, notebookKey);
   if (!notebook) return [];
   const byKey = new Map((Array.isArray(chapterRows) ? chapterRows : [])
     .filter(Boolean).map((row) => [row.key, row]));
   if (isCustomNotebookKey(notebookKey)) {
-    const row = byKey.get(String(notebookKey));
-    return [{
-      key: String(notebookKey), title: row?.title || notebook.title,
-      count: Number(row?.count) || 0,
-    }];
+    // 子本子：列出当前本子下面所有层级，标题显示相对层级（如「数学 / 代数」）。
+    const target = String(notebookKey);
+    const prefix = `${target}/`;
+    return (Array.isArray(customRows) ? customRows : [])
+      .filter((row) => {
+        const key = String(row?.key || "");
+        return key.startsWith(prefix) && customNotebookPillar(key) === String(pillar);
+      })
+      .map((row) => {
+        const key = String(row.key);
+        return {
+          key,
+          title: customNotebookRelativeTrail(key, target),
+          count: Number(row.count) || 0,
+          custom: true,
+        };
+      });
   }
   return notebook.chapters
     .map((key) => byKey.get(key))

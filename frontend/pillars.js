@@ -22,10 +22,11 @@ import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.
 import { openRoleDrawer } from "./roles.js";
 import {
   DEFAULT_LIFE_WRITE_CHAPTER, buildMoveTargetGroups, buildNotebookCards,
-  canDeleteNotebook, customNotebookName, customNotebookPillar, defaultWriteChapter,
-  greetingForHour, journalHeading, knowledgeHeroState, lifeHeroState,
-  mergeNotesByRecency, noteCard, noteCards, notebookById, notebookForChapter,
-  notebookTotal, notebooksFor, subchaptersFor,
+  canDeleteNotebook, customNotebookDefinition, customNotebookName,
+  customNotebookParentKey, customNotebookPillar, customNotebookTrail, defaultWriteChapter,
+  greetingForHour, isCustomNotebookKey, journalHeading, knowledgeHeroState,
+  lifeHeroState, mergeNotesByRecency, noteCard, noteCards, notebookById,
+  notebookForChapter, notebookTotal, notebooksFor, subchaptersFor,
 } from "./notebook-model.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
@@ -152,7 +153,10 @@ function chapterList(view) {
 function chapterTitle(view, key) {
   const value = String(key || "");
   const custom = customNotebookName(value);
-  if (custom) return custom;
+  if (custom) {
+    return state.overviews[view]?.notebook_titles?.[value]
+      || customNotebookTrail(value);
+  }
   const chapter = chapterList(view).find((item) => item.key === value);
   return chapter?.title || value;
 }
@@ -818,22 +822,39 @@ function notebookPageMarkup(view) {
     : null;
   const searching = Boolean(state.search[view]?.trim());
   const notes = state.notes[view] || [];
+  const customRows = overview.custom_notebooks || [];
+  const chapters = notebook
+    ? subchaptersFor(view, notebook.key, overview.chapters || [], customRows)
+    : [];
+  // 当前选中的子本子（只在本子页面里用 chip 切换，不改 state.notebook）。
+  const customChapter = notebook?.custom && chapter && isCustomNotebookKey(chapter)
+    && chapter.startsWith(`${notebook.key}/`)
+    && chapters.some((item) => item.key === chapter)
+    ? customNotebookDefinition(chapter)
+    : null;
   const title = searching
     ? `搜索「${state.search[view].trim()}」`
-    : (notebook?.title || (chapter ? chapterTitle(view, chapter) : "全部笔记"));
-  const eyebrow = searching ? "SEARCH" : (notebook?.eyebrow || "CHAPTER");
-  const icon = notebook?.icon || "·";
-  const tone = notebook?.tone || "slate";
+    : (customChapter ? customNotebookTrail(chapter)
+      : (notebook?.title || (chapter ? chapterTitle(view, chapter) : "全部笔记")));
+  const eyebrow = searching ? "SEARCH"
+    : (customChapter?.eyebrow || notebook?.eyebrow || "CHAPTER");
+  const icon = customChapter?.icon || notebook?.icon || "·";
+  const tone = customChapter?.tone || notebook?.tone || "slate";
   const description = searching
     ? "在本库所有本子里查找标题、正文和标签。"
-    : (notebook?.description || "这个章节里的全部记录。");
-  const chapters = notebook
-    ? subchaptersFor(view, notebook.key, [
-      ...(overview.chapters || []),
-      ...(overview.custom_notebooks || []),
-    ])
-    : [];
+    : (customChapter?.description || notebook?.description || "这个章节里的全部记录。");
+  const showChips = !searching && (notebook?.custom
+    ? chapters.length > 0 : chapters.length > 1);
+  const subParent = notebook?.custom
+    ? (customChapter ? chapter : notebook.key)
+    : "";
+  // 选中子本子时，「删除本子」删除的是当前子本子，不会误删父本子。
+  const deleteBook = customChapter || notebook;
   const total = notebookCard?.count ?? notes.length;
+  // 选中子本子时，标题旁显示的是当前子本子的篇数；「全部」chip 仍显示父本子总数。
+  const chapterRow = customChapter
+    ? chapters.find((item) => item.key === chapter) : null;
+  const displayTotal = chapterRow ? Number(chapterRow.count) || 0 : total;
   const newChapter = chapter || defaultChapterForNotebook(notebook)
     || defaultWriteChapter(view);
   const unit = view === "life" ? "人生路" : view === "ops" ? "生活运营" : "知识库";
@@ -858,7 +879,7 @@ function notebookPageMarkup(view) {
             <div class="notebook-page-heading">
               <p class="eyebrow">${escapeHtml(unit)} · ${escapeHtml(eyebrow)}</p>
               <h3 tabindex="-1">${escapeHtml(title)}</h3>
-              <p class="field-help">${escapeHtml(description)}${searching || isHabit ? "" : ` · ${total} 篇`}</p>
+              <p class="field-help">${escapeHtml(description)}${searching || isHabit ? "" : ` · ${displayTotal} 篇`}</p>
             </div>
           </div>
           <div class="notebook-page-actions">
@@ -866,12 +887,13 @@ function notebookPageMarkup(view) {
               ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>`
               : isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
             <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>
-            ${canDeleteNotebook(view, notebook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(notebook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除本子</button>` : ""}`}
+            ${notebook?.custom ? `<button type="button" class="text-button" data-notebook-create="${escapeHtml(view)}" data-notebook-parent="${escapeHtml(subParent)}">＋ 子本子</button>` : ""}
+            ${canDeleteNotebook(view, deleteBook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(deleteBook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除${customChapter ? "子本子" : "本子"}</button>` : ""}`}
           </div>
         </header>
-        ${chapters.length > 1 && !searching ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
+        ${showChips ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
           <button type="button" class="notebook-chip${chapter ? "" : " is-active"}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="">全部 <span>${Number(total) || 0}</span></button>
-          ${chapters.map((item) => `<button type="button" class="notebook-chip${item.key === chapter ? " is-active" : ""}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="${escapeHtml(item.key)}">${escapeHtml(item.title)} <span>${item.count}</span></button>`).join("")}
+          ${chapters.map((item) => `<button type="button" class="notebook-chip${item.key === chapter ? " is-active" : ""}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="${escapeHtml(item.key)}">${escapeHtml(state.overviews[view]?.notebook_titles?.[item.key] || item.title)} <span>${item.count}</span></button>`).join("")}
         </div>` : ""}
         ${isJournal && !searching ? `<section class="journal-notebook-banner">
           <div><p class="eyebrow">TODAY</p><h3>${escapeHtml(journalHeading(shanghaiDay()))}</h3><p class="field-help">${hero.written ? "今天已经写过一页，可以继续补充。" : "今天还没写。先写一句，今天就有了落点。"}</p></div>
@@ -895,7 +917,7 @@ function notebookPageMarkup(view) {
           <p class="eyebrow">本子</p>
           <p class="home-card-stat">${Number(total) || 0}<small> 篇</small></p>
           <p class="field-help">${notebook ? escapeHtml(notebook.description || "") : "当前章节的笔记。"}</p>
-          ${chapters.length > 1 ? `<div class="home-chip-list">${chapters.map((item) => `<span>${escapeHtml(item.title)} ${item.count}</span>`).join("")}</div>` : ""}
+          ${chapters.length > (notebook?.custom ? 0 : 1) ? `<div class="home-chip-list">${chapters.map((item) => `<span>${escapeHtml(item.title)} ${item.count}</span>`).join("")}</div>` : ""}
         </section>
         ${view === "life" && lifeJournalEnabled && (isJournal || notebook?.key === "reflection") ? `<section class="pillar-card home-week-card">
           <p class="eyebrow">最近 7 天</p>
@@ -1116,12 +1138,16 @@ async function loadPillar(view, { keepChapter = false, reuseOverview = false } =
   state.overviews[view] = overview;
   let notebook = displayNotebook(view, state.notebook[view] || "");
   if (!notebook) state.notebook[view] = "";
-  // 自定义本子可能在 Obsidian 里被删掉：回首页，不要让用户停在一个不存在的本子里。
+  // 自定义本子/子本子可能在 Obsidian 里被删掉：回首页/父本子，别停在不存在的位置。
   if (notebook?.custom
       && !(overview.custom_notebooks || []).some((row) => row.key === notebook.key)) {
     state.notebook[view] = "";
     state.chapter[view] = "";
     notebook = null;
+  }
+  if (state.chapter[view] && isCustomNotebookKey(state.chapter[view])
+      && !(overview.custom_notebooks || []).some((row) => row.key === state.chapter[view])) {
+    state.chapter[view] = "";
   }
   // 内置本子被删除后从首页隐藏；停在这个本子的阅读/列表状态一并退出。
   const deletedNotebooks = deletedNotebooksFor(view);
@@ -1183,6 +1209,8 @@ function noteChapterLocation(view, chapter) {
   const book = notebookForChapter(view, chapter);
   const chapterName = chapterTitle(view, chapter);
   if (!book) return chapterName || "未命名本子";
+  // 自定义本子的 chapterTitle 已经是完整层级（父 / 子），不要再拼一遍。
+  if (book.custom) return chapterName || book.title || "未命名本子";
   return book.title && book.title !== chapterName
     ? `${book.title} · ${chapterName}`
     : (book.title || chapterName);
@@ -1266,7 +1294,9 @@ async function submitNoteMove() {
     if (wasReading) {
       state.reading[view] = null;
       const targetBook = notebookForChapter(view, target);
-      state.notebook[view] = targetBook?.key || "";
+      // 子本子仍挂在父本子页面下，用 chip 选中它；顶层本子/章节照旧。
+      const parentKey = targetBook?.custom ? customNotebookParentKey(target) : "";
+      state.notebook[view] = parentKey || targetBook?.key || "";
       state.chapter[view] = target;
       state.search[view] = "";
     }
@@ -1478,17 +1508,12 @@ function bindPillarEvents() {
     const createNotebook = event.target.closest?.("[data-notebook-create]");
     if (createNotebook) {
       const view = createNotebook.dataset.notebookCreate || appState.view;
-      openNotebookCreateDialog((created) => {
+      const parent = createNotebook.dataset.notebookParent || "";
+      openNotebookCreateDialog(() => {
         invalidateChapterCache();
-        state.reading[view] = null;
-        state.notebook[view] = created.key;
-        state.chapter[view] = "";
-        state.search[view] = "";
-        state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
-        loadPillar(view)
-          .then(() => window.scrollTo({ top: 0, left: 0, behavior: "smooth" }))
-          .catch((error) => toast(error.message, "error"));
-      }, { pillar: view });
+        // 创建后留在当前页面，只刷新列表；新建本子不再自动跳进去。
+        loadPillar(view).catch((error) => toast(error.message, "error"));
+      }, { pillar: view, parent });
       return;
     }
     const deleteNotebook = event.target.closest?.("[data-notebook-delete]");
@@ -1496,13 +1521,16 @@ function bindPillarEvents() {
       const key = deleteNotebook.dataset.notebookDelete || "";
       const view = deleteNotebook.dataset.notebookDeletePillar || appState.view;
       const notebook = displayNotebook(view, key);
-      const card = notebookCardsFor(view).find((item) => item.key === key);
+      const customRow = (state.overviews[view]?.custom_notebooks || [])
+        .find((row) => row.key === key);
+      const card = notebookCardsFor(view).find((item) => item.key === key) || customRow;
       if (!notebook || !card || !canDeleteNotebook(view, notebook)) return;
       const count = Number(card.count) || 0;
+      const label = notebook.custom ? customNotebookTrail(key) : notebook.title;
       const builtinHint = notebook.custom ? "" : "这个内置本子会从首页隐藏，相关入口也会停用；";
       const ok = await confirmAction({
-        title: "删除这个本子？",
-        message: `${builtinHint}「${notebook.title}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后可在顶部「回收中心」整本恢复。`,
+        title: notebook.custom && customNotebookParentKey(key) ? "删除这个子本子？" : "删除这个本子？",
+        message: `${builtinHint}「${label}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后可在顶部「回收中心」整本恢复。`,
         confirmLabel: "删除本子", danger: true,
       });
       if (!ok) return;
@@ -1515,13 +1543,14 @@ function bindPillarEvents() {
         });
         invalidateChapterCache();
         state.reading[view] = null;
-        state.notebook[view] = "";
+        // 删子本子时留在父本子页面；删顶层/内置本子时回首页。
+        state.notebook[view] = notebook.custom ? customNotebookParentKey(key) : "";
         state.chapter[view] = "";
         state.search[view] = "";
         state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
         await loadPillar(view);
         toast(
-          `本子「${result.title || notebook.title}」已移入回收站（${Number(result.count) || 0} 篇文档）。`,
+          `本子「${result.title || label}」已移入回收站（${Number(result.count) || 0} 篇文档）。`,
           "success", { timeout: 8000 });
       } catch (error) {
         if (error.status === 409) {

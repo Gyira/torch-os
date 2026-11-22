@@ -117,11 +117,13 @@
   我的本子（日记/反思复盘/心得体会/目标/项目/随笔/工作复盘）；知识库首屏是
   「今天想弄明白什么？」+ 打开 DeepSeek + 粘贴分享链接，本子网格在下方。
 - **自定义本子 = 文件夹**：`GET /api/notebooks?pillar=life|knowledge` 列出对应库根目录
-  （`人生路/`、`知识库/`）下的自定义本子；`POST /api/notebooks {pillar,name}`
-  创建同名文件夹并写 `notebook_created` 审计。人生路 key 为 `custom:<名字>`，
-  知识库 key 为 `custom:knowledge:<名字>`；`/api/pillars/{pillar}/overview` 返回
-  `custom_notebooks`，`/api/writing/chapters` 也包含这些本子，笔记仍走
-  `/api/writing/notes`。名称不能和内置本子/章节/库名重名；
+  （`人生路/`、`知识库/`）下所有层级的自定义本子/子本子；`POST /api/notebooks {pillar,name}`
+  创建同名文件夹并写 `notebook_created` 审计（`parent` 传父本子相对路径时创建子本子，
+  如 `{pillar:"life",name:"数学",parent:"学习"}` → `人生路/学习/数学/`）。人生路 key 为
+  `custom:<名字>`，知识库 key 为 `custom:knowledge:<名字>`，子本子用 `/` 分层
+  （`custom:学习/数学`）；`/api/pillars/{pillar}/overview` 返回扁平化的
+  `custom_notebooks`（含 `parent`/`depth`，计数包含下级笔记），`/api/writing/chapters`
+  也包含这些本子，笔记仍走 `/api/writing/notes`。名称不能和内置本子/章节/库名重名；
   笔记可在同一库的本子之间移动（笔记卡片右上角或阅读器里的「移动」直接选目标，
   也可在编辑器「本子」选择器里保存时移动；后端会实际把 Markdown 文件移到目标文件夹、
   同步已扫描的 `documents` 索引路径并写 `note_moved` 审计），也可软删除到

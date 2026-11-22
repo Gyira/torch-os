@@ -83,8 +83,8 @@
 | PUT | `/api/writing/notes` | 编辑（path/expected_revision/body/title/tags） |
 | POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision），含自定义本子；实际移动 Markdown 文件 |
 | POST | `/api/writing/notes/delete` | 软删除到 `.torch-os/笔记回收站`（path/expected_revision） |
-| GET | `/api/notebooks?pillar=life` 或 `?pillar=knowledge` | 列出该库下的自定义本子（含计数/最近一篇） |
-| POST | `/api/notebooks` | 新建本子（`pillar`/`name`）；在对应库根目录创建同名文件夹 |
+| GET | `/api/notebooks?pillar=life` 或 `?pillar=knowledge` | 列出该库下所有层级的自定义本子/子本子（含计数/最近一篇/父本子） |
+| POST | `/api/notebooks` | 新建本子（`pillar`/`name`/可选 `parent`）；在对应库根目录或父本子下创建同名文件夹 |
 | POST | `/api/notebooks/delete` | 删除自定义本子（`pillar`/`key`/`confirm:true`）；整夹软删除 |
 | POST | `/api/writing/classify` | AI 判类，回退规则；只返回卡片 |
 | POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
@@ -99,15 +99,20 @@
 ## 4.1 自定义本子（人生路 / 知识库）
 
 - **本子 = 文件夹**：前端「新建本子」调用 `POST /api/notebooks`，在
-  `00_人生路/<名字>/` 或 `03_知识库/<名字>/` 创建空文件夹；不另存元数据，
+  `人生路/<名字>/` 或 `知识库/<名字>/` 创建空文件夹；不另存元数据，
   Obsidian 里看到的目录就是事实。
-- 固定一级目录（人生路 `01_日记`…`09_随笔`，知识库 `00_收件箱`…`06_输出与作品`）
-  仍是内置本子/章节；其它直属文件夹自动成为自定义本子。
+- **子本子 = 子文件夹**：本子页的「＋ 子本子」调用
+  `POST /api/notebooks {pillar,name,parent}`；`parent` 是父本子的相对路径
+  （如 `学习`），会在 `人生路/学习/<名字>/` 下建空文件夹，最多 4 层。
+  子本子按 chip 在父本子页切换，父本子的计数包含下面所有层级的笔记。
+- 固定一级目录（人生路日记、随笔等，知识库收件箱等）
+  仍是内置本子/章节；其它直属文件夹自动成为自定义本子，本子文件夹内的合法子文件夹
+  自动成为子本子。
   人生路 key 为 `custom:<文件夹名>`；知识库 key 为 `custom:knowledge:<文件夹名>`，
-  避免两个库同名本子冲突。
-- `overview.custom_notebooks`（两个库都会返回）和 `/api/writing/chapters` 会返回
-  自定义本子；本子内笔记仍走 `/api/writing/notes`，路径为
-  `<库根目录>/<本子名>/<标题>.md`。
+  子本子用 `/` 分层（如 `custom:学习/数学`），避免两个库同名本子冲突。
+- `overview.custom_notebooks`（两个库都会返回，扁平列出所有层级并带
+  `parent`/`depth`）和 `/api/writing/chapters` 会返回自定义本子；本子内笔记仍走
+  `/api/writing/notes`，路径为 `<库根目录>/<本子路径>/<标题>.md`。
 - **直接移动**：笔记卡片右上角和阅读器里的「移动」会打开目标本子选择框；
   提交时先读取笔记最新 revision，再调用 `POST /api/writing/notes/move`。后端用 `os.replace`
   把 Markdown 文件从原文件夹移到目标本子文件夹，并更新 frontmatter 的 `chapter`/`pillar`

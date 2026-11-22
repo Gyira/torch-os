@@ -220,6 +220,8 @@ CHAPTER_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
 CUSTOM_NOTEBOOK_PREFIX = "custom:"
 KNOWLEDGE_NOTEBOOK_PREFIX = f"{CUSTOM_NOTEBOOK_PREFIX}knowledge:"
 CUSTOM_NOTEBOOK_MAX_NAME = 48
+# 子本子 = 本子文件夹下的子文件夹；路径用 `/` 分段（名字里禁止 `/`，不会有歧义）。
+CUSTOM_NOTEBOOK_MAX_DEPTH = 4
 CUSTOM_NOTEBOOK_PILLARS = ("life", "knowledge", LOVE_PILLAR)
 CUSTOM_NOTEBOOK_ROOT = PILLAR_DIRS["life"]
 # 内置本子（首页卡片）→ 标题与该本子包含的章节 key。任务/习惯不是本子卡片。
@@ -466,9 +468,52 @@ def validate_notebook_name(value: Any) -> str:
     return text
 
 
+def validate_notebook_path(value: Any) -> str:
+    """校验带层级的本子路径：`父/子/孙`；每一层都按本子名规则校验。"""
+    text = unicodedata.normalize("NFC", str(value or "")).strip().strip("/")
+    if not text:
+        raise ValueError("本子路径不能为空")
+    parts = text.split("/")
+    if any(not part for part in parts):
+        raise ValueError("本子路径不能包含空层级")
+    if len(parts) > CUSTOM_NOTEBOOK_MAX_DEPTH:
+        raise ValueError(f"本子最多 {CUSTOM_NOTEBOOK_MAX_DEPTH} 层（父/子/孙）")
+    return "/".join(validate_notebook_name(part) for part in parts)
+
+
+def notebook_parent_name(name: Any) -> str:
+    """`父/子` → `父`；顶层本子返回空串。调用方传入已校验的路径。"""
+    parts = str(name or "").strip().strip("/").split("/")
+    return "/".join(parts[:-1])
+
+
+def notebook_leaf_name(name: Any) -> str:
+    parts = str(name or "").strip().strip("/").split("/")
+    return parts[-1] if parts and parts[-1] else ""
+
+
+def custom_notebook_exists(vault_dir: Path | str, pillar: str, name: Any) -> bool:
+    """本子文件夹是否真实存在（用于在父本子下建子本子/改标题）。"""
+    if pillar not in CUSTOM_NOTEBOOK_PILLARS:
+        return False
+    try:
+        clean = validate_notebook_path(name)
+    except ValueError:
+        return False
+    target = workspace_path(Path(vault_dir), custom_notebook_path(clean, pillar))
+    try:
+        info = target.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        return False
+    return not bool(getattr(info, "st_file_attributes", 0) & getattr(
+        stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 def custom_notebook_key(name: str, pillar: str = "life") -> str:
-    """人生路沿用 `custom:<名字>`；知识库/恋爱记忆带库前缀。"""
-    clean = validate_notebook_name(name)
+    """人生路沿用 `custom:<名字>`；知识库/恋爱记忆带库前缀。子本子带 `/` 层级。"""
+    clean = validate_notebook_path(name)
     if pillar == "knowledge":
         return f"{KNOWLEDGE_NOTEBOOK_PREFIX}{clean}"
     if pillar == LOVE_PILLAR:
@@ -481,19 +526,19 @@ def custom_notebook_pillar(chapter_key: str) -> str:
     value = str(chapter_key or "").strip()
     if value.startswith(KNOWLEDGE_NOTEBOOK_PREFIX):
         try:
-            validate_notebook_name(value[len(KNOWLEDGE_NOTEBOOK_PREFIX):])
+            validate_notebook_path(value[len(KNOWLEDGE_NOTEBOOK_PREFIX):])
             return "knowledge"
         except ValueError:
             return ""
     if value.startswith(LOVE_NOTEBOOK_PREFIX):
         try:
-            validate_notebook_name(value[len(LOVE_NOTEBOOK_PREFIX):])
+            validate_notebook_path(value[len(LOVE_NOTEBOOK_PREFIX):])
             return LOVE_PILLAR
         except ValueError:
             return ""
     if value.startswith(CUSTOM_NOTEBOOK_PREFIX):
         try:
-            validate_notebook_name(value[len(CUSTOM_NOTEBOOK_PREFIX):])
+            validate_notebook_path(value[len(CUSTOM_NOTEBOOK_PREFIX):])
             return "life"
         except ValueError:
             return ""
@@ -519,7 +564,7 @@ def custom_notebook_path(name: str, pillar: str = "life") -> str:
     root = notebook_root(pillar)
     if not root:
         raise ValueError("只有人生路、知识库和恋爱记忆支持自定义本子")
-    return f"{root}/{validate_notebook_name(name)}"
+    return f"{root}/{validate_notebook_path(name)}"
 
 
 def custom_notebook_pillar_of(relpath: str) -> str:
@@ -529,7 +574,12 @@ def custom_notebook_pillar_of(relpath: str) -> str:
 
 
 def custom_notebook_name_from_relpath(relpath: str) -> str:
-    """<库根>/<自定义文件夹>/<笔记>.md → 文件夹名；库根直属文件与固定目录返回空串。"""
+    """<库根>/<本子文件夹>/[<子文件夹>/…]/<笔记>.md → 本子相对路径。
+
+    本子=文件夹，所以每一层合法文件夹都是本子路径的一部分；遇到不适合做本子的
+    层级（以 . 或 _ 开头、系统目录、非法名字）就停在上一层，笔记仍归到最近的
+    合法本子里，后续子文件夹里的笔记也会出现在该本子的列表里。
+    """
     text = normalize_relpath(relpath)
     pillar = custom_notebook_pillar_of(text)
     if not pillar:
@@ -542,27 +592,42 @@ def custom_notebook_name_from_relpath(relpath: str) -> str:
         return ""
     if parts[:len(root_parts)] != root_parts:
         return ""
-    name = parts[len(root_parts)]
-    if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+    folder_parts = parts[len(root_parts):-1]
+    if not folder_parts:
         return ""
-    if pillar == LOVE_PILLAR and name.casefold() in LOVE_FIXED_NOTEBOOKS:
+    first = folder_parts[0]
+    if first.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
         return ""
-    if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
+    if pillar == LOVE_PILLAR and first.casefold() in LOVE_FIXED_NOTEBOOKS:
         return ""
-    try:
-        return validate_notebook_name(name)
-    except ValueError:
-        return ""
+    valid: list[str] = []
+    for part in folder_parts:
+        if len(valid) >= CUSTOM_NOTEBOOK_MAX_DEPTH:
+            break
+        if part.startswith((".", "_")) or part.casefold() in SKIP_DIRECTORIES:
+            break
+        try:
+            valid.append(validate_notebook_name(part))
+        except ValueError:
+            break
+    return "/".join(valid)
 
 
 def list_custom_notebooks(vault_dir: Path | str,
-                          pillar: str = "life") -> list[str]:
-    """列出某个库根目录下的自定义本子文件夹（不跟符号链接）。"""
+                          pillar: str = "life", parent: str = "") -> list[str]:
+    """列出某个本子文件夹下的直属子本子（不跟符号链接）；parent 为空时列顶层。"""
     if pillar not in CUSTOM_NOTEBOOK_PILLARS:
         return []
     root_relative = notebook_root(pillar)
     if not root_relative:
         return []
+    clean_parent = ""
+    if str(parent or "").strip():
+        try:
+            clean_parent = validate_notebook_path(parent)
+        except ValueError:
+            return []
+        root_relative = f"{root_relative}/{clean_parent}"
     root = workspace_path(Path(vault_dir), root_relative)
     try:
         entries = list(root.iterdir())
@@ -571,9 +636,9 @@ def list_custom_notebooks(vault_dir: Path | str,
     names: list[str] = []
     for entry in entries:
         name = entry.name
-        if name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
+        if not clean_parent and name.casefold() in _NOTEBOOK_FOLDED_TOP_DIRS:
             continue
-        if pillar == LOVE_PILLAR and name.casefold() in LOVE_FIXED_NOTEBOOKS:
+        if not clean_parent and pillar == LOVE_PILLAR and name.casefold() in LOVE_FIXED_NOTEBOOKS:
             continue
         if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
             continue
@@ -591,6 +656,23 @@ def list_custom_notebooks(vault_dir: Path | str,
         except ValueError:
             continue
     return sorted(names, key=str.casefold)
+
+
+def list_all_custom_notebooks(vault_dir: Path | str,
+                              pillar: str = "life") -> list[str]:
+    """列出某库里所有层级的自定义本子（父/子/孙…），按路径排序。"""
+    if pillar not in CUSTOM_NOTEBOOK_PILLARS:
+        return []
+    names: list[str] = []
+    queue = [""]
+    while queue:
+        parent = queue.pop(0)
+        for name in list_custom_notebooks(vault_dir, pillar, parent=parent):
+            full = f"{parent}/{name}" if parent else name
+            names.append(full)
+            if len(full.split("/")) < CUSTOM_NOTEBOOK_MAX_DEPTH:
+                queue.append(full)
+    return sorted(names, key=lambda value: (value.casefold(), value))
 
 
 def builtin_notebook_title(pillar: str, key: str) -> str:
@@ -1100,7 +1182,9 @@ __all__ = [
     "PILLAR_DIRS", "PILLAR_ORDER", "LOVE_PILLAR", "LOVE_ROOT", "LOVE_MEMORY_DIR",
     "LOVE_JOURNAL_DIR", "LOVE_DRAFT_DIR", "LOVE_JOURNAL_CHAPTER",
     "LOVE_DRAFT_CHAPTER", "LOVE_NOTEBOOK_PREFIX", "LOVE_FIXED_NOTEBOOKS",
-    "notebook_root", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
+    "notebook_root", "CUSTOM_NOTEBOOK_MAX_DEPTH", "validate_notebook_path",
+    "notebook_parent_name", "notebook_leaf_name", "custom_notebook_exists",
+    "list_all_custom_notebooks", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
     "LEGACY_CHAPTER_KEYS", "OPS_ROOT", "OPS_LAYOUT_SCHEMA", "OPS_LAYOUT_MARKER",
     "OPS_HEALTH_LAB", "OPS_LAYOUT_MOVES", "CHAPTER_GROUPS", "V1_CHAPTER_MOVES",
     "LEGACY_DIRS", "normalize_relpath",

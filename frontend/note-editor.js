@@ -9,8 +9,8 @@ import {
   wordCount,
 } from "./editor-model.js";
 import {
-  defaultWriteChapter, isCustomNotebookKey, journalHeading, notebookForChapter,
-  notebooksFor,
+  customNotebookParentKey, customNotebookTrail, defaultWriteChapter,
+  isCustomNotebookKey, journalHeading, notebookForChapter, notebooksFor,
 } from "./notebook-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
@@ -806,7 +806,13 @@ function fillChapters(chapters, context) {
     if (book && byNotebook.has(book.key)) byNotebook.get(book.key).push(chapter);
     else extras.push(chapter);
   }
-  const option = (chapter) => `<option value="${escapeAttr(chapter.key)}">${escapeAttr(chapter.title)}</option>`;
+  const option = (chapter) => {
+    const key = String(chapter.key || "");
+    const title = isCustomNotebookKey(key) && customNotebookParentKey(key)
+      ? customNotebookTrail(key)
+      : chapter.title;
+    return `<option value="${escapeAttr(chapter.key)}">${escapeAttr(title)}</option>`;
+  };
   const custom = extras.filter((chapter) => isCustomNotebookKey(chapter.key));
   const other = extras.filter((chapter) => !isCustomNotebookKey(chapter.key));
   select.innerHTML = [

@@ -1,0 +1,71 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  buildMoveTargetGroups,
+  buildNotebookCards,
+  customNotebookDefinition,
+  customNotebookKey,
+  customNotebookLeafName,
+  customNotebookParentKey,
+  customNotebookRelativeTrail,
+  customNotebookTrail,
+  subchaptersFor,
+} from "../notebook-model.js";
+
+test("sub-notebook keys keep parent/child hierarchy", () => {
+  const parent = customNotebookKey("学习", "life");
+  const child = customNotebookKey("学习/数学", "life");
+  const grandchild = customNotebookKey("学习/数学/代数", "life");
+  assert.equal(parent, "custom:学习");
+  assert.equal(child, "custom:学习/数学");
+  assert.equal(customNotebookParentKey(child), parent);
+  assert.equal(customNotebookParentKey(parent), "");
+  assert.equal(customNotebookLeafName(grandchild), "代数");
+  assert.equal(customNotebookTrail(grandchild), "学习 / 数学 / 代数");
+  assert.equal(customNotebookRelativeTrail(grandchild, parent), "数学 / 代数");
+  const definition = customNotebookDefinition(child);
+  assert.equal(definition.title, "数学");
+  assert.equal(definition.parent, parent);
+  assert.equal(definition.depth, 1);
+});
+
+test("home cards only show top-level books and count includes descendants", () => {
+  const parent = customNotebookKey("学习");
+  const child = customNotebookKey("学习/数学");
+  const cards = buildNotebookCards("life", [], [
+    { key: parent, title: "学习", path: "人生路/学习", count: 4, latest: null },
+    { key: child, title: "数学", path: "人生路/学习/数学", count: 1, latest: null, parent },
+  ]);
+  const learning = cards.find((card) => card.key === parent);
+  assert.ok(learning);
+  assert.equal(cards.some((card) => card.key === child), false);
+  assert.equal(learning.subCount, 1);
+  assert.match(learning.description, /1 个子本子/);
+});
+
+test("subchaptersFor lists all descendants with relative trails", () => {
+  const parent = customNotebookKey("学习");
+  const child = customNotebookKey("学习/数学");
+  const grandchild = customNotebookKey("学习/数学/代数");
+  const rows = subchaptersFor("life", parent, [], [
+    { key: parent, title: "学习", count: 3 },
+    { key: child, title: "数学", count: 2 },
+    { key: grandchild, title: "代数", count: 1 },
+  ]);
+  assert.deepEqual(rows.map((row) => row.key), [child, grandchild]);
+  assert.deepEqual(rows.map((row) => row.title), ["数学", "数学 / 代数"]);
+});
+
+test("move targets label sub-notebooks with their parent path", () => {
+  const parent = customNotebookKey("学习");
+  const child = customNotebookKey("学习/数学");
+  const groups = buildMoveTargetGroups("life", [
+    { key: "essay", title: "随笔" },
+    { key: parent, title: "学习", custom: true },
+    { key: child, title: "数学", custom: true },
+  ], "essay");
+  const custom = groups.find((group) => group.key === "custom");
+  assert.ok(custom);
+  assert.deepEqual(custom.chapters.map((chapter) => chapter.title), ["学习", "学习 / 数学"]);
+});

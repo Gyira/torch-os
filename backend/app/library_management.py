@@ -95,7 +95,7 @@ def set_notebook_title(database, vault_dir, payload, *, read_only=False):
         else:
             name = vault_layout.custom_notebook_name(key)
             exists = (vault_layout.custom_notebook_pillar(key) == pillar
-                      and name in vault_layout.list_custom_notebooks(vault_dir, pillar))
+                      and vault_layout.custom_notebook_exists(vault_dir, pillar, name))
         if not exists:
             raise HTTPException(404, "本子不存在")
         if any(ord(char) < 32 for char in payload.title):

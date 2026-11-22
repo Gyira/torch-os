@@ -53,19 +53,32 @@ def _pillar_or_404(pillar: str) -> str:
 
 def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
                           pillar: str) -> list[dict[str, Any]]:
-    """自定义本子 = 库根目录下的直属文件夹；返回前端本子卡片需要的计数/最新一篇。"""
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for note in notes:
-        name = vault_layout.custom_notebook_name_from_relpath(str(note.get("path") or ""))
-        if name:
-            grouped.setdefault(name, []).append(note)
+    """自定义本子/子本子 = 库里的文件夹层级；返回前端卡片需要的计数/最新一篇。
+
+    父本子的计数包含它下面所有层级的笔记；`parent` 是父本子的 key，顶层为空。
+    """
+    name_of = {
+        str(note.get("path") or ""): vault_layout.custom_notebook_name_from_relpath(
+            str(note.get("path") or ""))
+        for note in notes
+    }
     rows: list[dict[str, Any]] = []
-    for name in vault_layout.list_custom_notebooks(vault_dir, pillar):
-        mine = grouped.get(name, [])
+    for name in vault_layout.list_all_custom_notebooks(vault_dir, pillar):
+        prefix = f"{name}/"
+        mine = [
+            note for note in notes
+            if (note_name := name_of.get(str(note.get("path") or "")))
+            and (note_name == name or note_name.startswith(prefix))
+        ]
+        parent = vault_layout.notebook_parent_name(name)
         rows.append({
             "key": vault_layout.custom_notebook_key(name, pillar),
-            "title": name,
+            "title": vault_layout.notebook_leaf_name(name),
+            "name": name,
             "path": vault_layout.custom_notebook_path(name, pillar),
+            "parent": (vault_layout.custom_notebook_key(parent, pillar)
+                       if parent else ""),
+            "depth": name.count("/"),
             "count": len(mine),
             "latest": mine[0] if mine else None,
             "custom": True,

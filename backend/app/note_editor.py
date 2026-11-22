@@ -362,12 +362,17 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
             "knowledge": rows(KNOWLEDGE_CHAPTERS),
             "love": rows(LOVE_CHAPTERS),
         }
-        # 自定义本子 = 各库根目录下的文件夹；编辑器里和固定章节一样可作为移动目标。
+        # 自定义本子/子本子 = 各库里的文件夹层级；和固定章节一样可作为移动目标。
         for pillar in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
-            for name in vault_layout.list_custom_notebooks(vault_dir, pillar):
+            for name in vault_layout.list_all_custom_notebooks(vault_dir, pillar):
                 key = vault_layout.custom_notebook_key(name, pillar)
+                parent = vault_layout.notebook_parent_name(name)
                 result[pillar].append({
-                    "key": key, "title": name,
+                    "key": key, "title": vault_layout.notebook_leaf_name(name),
+                    "name": name,
+                    "parent": (vault_layout.custom_notebook_key(parent, pillar)
+                               if parent else ""),
+                    "depth": name.count("/"),
                     "path": vault_layout.chapter_dir(key), "custom": True,
                 })
         return result

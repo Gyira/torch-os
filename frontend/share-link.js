@@ -6,6 +6,7 @@ import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { proposalsMarkup } from "./proposals-model.js";
 import { isObsidianHost } from "./task-open.js";
 import { openContextPack } from "./context-pack.js";
+import { customNotebookParentKey, customNotebookTrail, isCustomNotebookKey } from "./notebook-model.js";
 
 const DEEPSEEK_URL = "https://chat.deepseek.com/";
 
@@ -174,9 +175,13 @@ async function previewShare() {
 async function renderPreview(result, requestSeq, revision) {
   const chapters = await loadChapters().catch(() => []);
   if (requestSeq !== state.requestSeq || revision !== state.inputRevision) return;
-  const options = chapters.map((chapter) =>
-    `<option value="${escapeHtml(chapter.key)}"${chapter.key === result.suggested_chapter ? " selected" : ""}>${escapeHtml(chapter.title)}</option>`
-  ).join("");
+  const options = chapters.map((chapter) => {
+    const key = String(chapter.key || "");
+    const title = isCustomNotebookKey(key) && customNotebookParentKey(key)
+      ? customNotebookTrail(key)
+      : chapter.title;
+    return `<option value="${escapeHtml(chapter.key)}"${chapter.key === result.suggested_chapter ? " selected" : ""}>${escapeHtml(title)}</option>`;
+  }).join("");
   const doc = renderMarkdownDocument(String(result.markdown || ""));
   const host = el("share-link-result");
   if (!host) return;

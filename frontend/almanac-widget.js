@@ -82,7 +82,8 @@ async function checkIn(button) {
     const checkedDay = String(result?.day || day);
     setCard(checkedDay, { checkedIn: true, checkedAt: result?.checked_at || null });
     toast("签到成功，今日运势已解锁。", "success");
-    $("#workbench-almanac [data-almanac-unlocked]")?.focus({ preventScroll: true });
+    // 签到后直接打开今日黄历详情，不用再点一次卡片。
+    openDetail();
   } catch (error) {
     button.disabled = false;
     button.textContent = "签到查看今日运势";
