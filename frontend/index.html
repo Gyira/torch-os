@@ -42,10 +42,6 @@
               <svg class="banner-tool-icon icon-mode-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 18 5.2-5.2a2 2 0 0 1 2.8 0L20 20"/></svg>
               <span class="banner-tool-text">统计</span>
             </button>
-            <button id="workbench-banner-review" class="banner-tool banner-tool-review" type="button" aria-label="回看数据看板" aria-haspopup="dialog" aria-controls="heatmap-dialog" title="回看数据看板">
-              <svg class="banner-tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>
-              <span class="banner-tool-text">回看</span>
-            </button>
             <button id="workbench-banner-edit" class="banner-tool banner-tool-icon-only" type="button" aria-label="编辑横幅" title="编辑横幅">
               <svg class="banner-tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L20 8l-4-4L4 16v4Z"/><path d="m14 6 4 4"/></svg>
             </button>
@@ -96,7 +92,7 @@
             </div>
           <div class="workbench-controls" role="group" aria-label="工作台偏好">
             <span class="workbench-controls-caption">留一点空间，专注今天</span>
-            <button type="button" class="context-setting-button" data-context-settings="schedule" aria-haspopup="dialog" aria-controls="context-settings-dialog">晨晚报与提醒</button>
+            <button type="button" class="context-setting-button" data-go-view="data">数据中心</button><button type="button" class="context-setting-button" data-go-view="recycle">回收中心</button>
             <button type="button" class="context-setting-button" data-context-settings="widgets" aria-haspopup="dialog" aria-controls="context-settings-dialog"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="12" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="12" width="6" height="6" rx="1.5"/><rect x="12" y="12" width="6" height="6" rx="1.5"/></svg>布置工作台</button>
           </div>
           <section class="panel time-module" id="workbench-time" aria-labelledby="time-module-heading">
@@ -106,13 +102,13 @@
               <button type="button" class="time-rail-item" id="time-tab-calendar" data-time-page="calendar" role="tab" aria-selected="false" aria-controls="time-calendar-page" tabindex="-1"><span aria-hidden="true">🗓</span>日历</button>
               <button type="button" class="time-rail-item" id="time-tab-habits" data-time-page="habits" role="tab" aria-selected="false" aria-controls="time-habits-page" tabindex="-1"><span aria-hidden="true">✅</span>习惯打卡</button>
               <button type="button" class="time-rail-item" id="time-tab-quadrant" data-time-page="quadrant" role="tab" aria-selected="false" aria-controls="time-quadrant-page" tabindex="-1"><span aria-hidden="true">▦</span>四象限</button>
-              <button type="button" class="time-rail-item" id="time-tab-trash" data-time-page="trash" role="tab" aria-selected="false" aria-controls="time-trash-page" tabindex="-1"><span aria-hidden="true">🗑</span>回收站</button>
+              <button type="button" class="time-rail-item" id="time-tab-trash" data-time-page="trash" role="tab" aria-selected="false" aria-controls="time-trash-page" tabindex="-1"><span aria-hidden="true">🗑</span>回收站</button><button type="button" class="time-rail-item" data-context-settings="dida" aria-haspopup="dialog"><span aria-hidden="true">⇄</span>滴答同步</button>
             </nav>
             <aside class="time-sidebar" id="time-sidebar" aria-label="任务侧边栏"><p class="field-help">正在读取任务…</p></aside>
             <div class="time-main" id="time-tasks-page" role="tabpanel" aria-labelledby="time-tab-tasks">
               <header class="time-head">
                 <h3 id="time-board-title">今天</h3>
-                <button type="button" class="context-setting-button" data-context-settings="dida" aria-haspopup="dialog" aria-controls="context-settings-dialog">同步设置</button>
+
                 <div class="time-progress" role="group" aria-label="今日闭环完成度（含日记）"><div class="time-progress-bar" id="time-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="time-progress-fill"></span></div><strong id="time-progress-value">—</strong></div>
                 <button type="button" id="time-ai-btn" class="text-button" title="让 AI 生活助理看看今天的任务">AI 助手</button><button type="button" id="time-sort-btn" class="text-button" aria-haspopup="true">分组 · 排序</button><button type="button" id="time-show-done" class="text-button" aria-pressed="false">显示已完成</button><button type="button" id="time-multi-btn" class="text-button" aria-pressed="false">多选</button><button type="button" id="time-dida-sync" class="text-button" title="从滴答清单拉取最新任务" hidden>立即同步</button>
               </header>
@@ -159,7 +155,7 @@
                   <span id="habit-page-count" class="habit-page-count" role="status"></span>
                 </div>
                 <div class="habit-page-actions">
-                  <button type="button" class="context-setting-button" data-context-settings="dida" aria-haspopup="dialog" aria-controls="context-settings-dialog">同步设置</button>
+
                   <button type="button" id="habit-dida-sync" class="text-button" hidden>滴答同步</button>
                   <span id="habit-dida-status" class="meta" role="status" hidden></span>
                   <button type="button" id="habit-archived-toggle" class="habit-toggle-button" aria-pressed="false">已归档</button>
@@ -467,12 +463,7 @@
               <div id="settings-panel"></div>
             </article>
           </section>
-          <section class="settings-section" data-settings-section="schedule" aria-labelledby="settings-schedule-heading" hidden>
-            <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">SCHEDULE</span><h2 id="settings-schedule-heading" tabindex="-1">定时提醒（本地草稿）</h2><p>到点在“今日”生成晨报/晚报/周报草稿；不调用模型，不自动创建任务或发送消息。</p></div><span id="schedule-status" class="status-message" role="status"></span></div>
-              <form id="schedule-form"><div class="form-grid schedule-grid"><div class="field"><label class="check-label" for="schedule-morning-enabled"><input id="schedule-morning-enabled" type="checkbox" />早报</label></div><div class="field"><label for="schedule-morning-time">早报时间</label><input id="schedule-morning-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-evening-enabled"><input id="schedule-evening-enabled" type="checkbox" />晚报</label></div><div class="field"><label for="schedule-evening-time">晚报时间</label><input id="schedule-evening-time" type="time" required /></div><div class="field"><label class="check-label" for="schedule-weekly-enabled"><input id="schedule-weekly-enabled" type="checkbox" />周报</label></div><div class="field"><label for="schedule-weekly-day">周报日期</label><select id="schedule-weekly-day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></div><div class="field"><label for="schedule-weekly-time">周报时间</label><input id="schedule-weekly-time" type="time" required /></div></div><p id="schedule-weekly-help" class="field-help">周报汇总截至触发日的最近 7 天（任务、习惯、日记与身体记录天数），只列事实，不做评分。</p><div class="form-actions"><span id="schedule-feedback" class="status-message" role="status"></span><button class="button primary" type="submit">保存时间</button><button id="schedule-run-morning" class="button secondary" type="button">立即生成晨报草稿</button><button id="schedule-run-evening" class="button secondary" type="button">立即生成晚报草稿</button><button id="schedule-run-weekly" class="button secondary" type="button">立即生成周报草稿</button></div></form>
-            </article>
-          </section>
+
           <section class="settings-section" data-settings-section="dida" aria-labelledby="settings-dida-heading" hidden>
             <article class="settings-card">
               <div class="settings-card-head"><div><span class="eyebrow">DIDA SYNC</span><h2 id="settings-dida-heading" tabindex="-1">滴答同步</h2><p>实验性功能：在滴答和工作台之间同步任务、习惯与打卡。</p></div><span id="dida-status-badge" class="badge" role="status"></span></div>
@@ -666,17 +657,8 @@
               <p id="widget-settings-feedback" class="status-message" role="status"></p>
             </article>
           </section>
-          <section class="settings-section" data-settings-section="about" aria-labelledby="settings-about-heading" hidden>
-            <article class="settings-card">
-              <div class="settings-card-head"><div><span class="eyebrow">ABOUT</span><h2 id="settings-about-heading" tabindex="-1">你的数据如何被使用</h2><p>四条边界说明；完整功能与数据去向见“帮助”页。</p></div><button class="text-button" type="button" data-go-view="help">打开帮助页</button></div>
-              <div class="panel info-panel"><ul><li>原始记录与索引保存在当前配置的本地目录。</li><li>人生导师会在服务端校验后更新档案与导师记忆，保留版本历史；旧待确认卡仍可逐条处理。领域角色的普通提案仍需你采纳。</li><li>「与神对话」由本地 DeepSeek Harness 提供，是项目开发与执行入口，不是人生导师；模型、密钥与权限都在 dsh 内配置。</li><li>dsh 直接读写当前库，写入不经过 torch 的确认或自动备份；重要改动请自行备份。</li></ul></div>
-            </article>
-          </section>
-          <section id="help-view" class="settings-section" data-settings-section="help" aria-labelledby="settings-help-heading" hidden>
-            <div class="section-head"><div><span class="eyebrow">GUIDE</span><h2 id="settings-help-heading" tabindex="-1">它现在有什么、边界在哪</h2><p class="section-description">应用内帮助：全部是本地静态内容，不联网、不读取你的记录。</p></div><div class="section-actions"><button id="open-shortcuts" class="text-button" type="button" aria-keyshortcuts="?">键盘快捷键</button><span id="help-status" class="status-message" role="status"></span></div></div>
-            <div class="field search-field"><label class="visually-hidden" for="help-search">搜索帮助</label><input id="help-search" type="search" placeholder="搜索功能、数据去向或边界（多个词用空格分隔）" /></div>
-            <div id="help-body" class="help-body"><div class="empty-state">正在准备帮助内容…</div></div>
-          </section>
+
+
         </div>
       </div>
     </section>

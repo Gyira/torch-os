@@ -173,11 +173,15 @@ function switchView(view) {
 export function initHeatmapBoard() {
   if (board.initialized) return;
   const dialog = $("#heatmap-dialog");
-  const trigger = $("#workbench-banner-review");
+  const trigger = $("#workbench-banner");
   if (!dialog || !trigger) return;
   board.initialized = true;
 
+  trigger.tabIndex = 0;
+  trigger.setAttribute("aria-label", "查看数据看板");
+  trigger.addEventListener("keydown", event => { if (event.target === trigger && ["Enter", " "].includes(event.key)) { event.preventDefault(); trigger.click(); } });
   trigger.addEventListener("click", (event) => {
+    if (event.target.closest("button, a, input, select, textarea")) return;
     event.stopPropagation();
     board.anchor = todayKey();
     board.view = "day";

@@ -101,7 +101,6 @@ from .memory_export import create_memory_export_router
 from .pending import create_pending_router
 from .planning_export import create_planning_export_router
 from .questions import create_questions_router
-from .scheduler import SchedulerService, create_scheduler_router
 from .self_api import create_self_router
 from .security import is_loopback_host, token_matches, validate_runtime_config
 from .vault import EXTRACTION_VERSION, _memory_from_document, create_note, scan_vault, safe_note_path
@@ -369,8 +368,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         read_only=vault_read_only,
         autonomous_archive=bool(mentor_autonomous_archive),
     )
-    scheduler_service = SchedulerService(database, vault_dir)
-    scheduler_state: dict[str, Any] = {"last_check_at": None, "consecutive_failures": 0, "last_error_at": None}
     cloud_backup_service = CloudBackupService(
         database, vault_dir, read_only=vault_read_only)
 
@@ -419,21 +416,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             pending.cancel()
         auto_push_state["task"] = loop.create_task(_dida_auto_push())
 
-    async def scheduler_loop() -> None:
-        # Local-only draft generator: checks every minute, writes at most one
-        # inbox row per kind and day, and never touches tasks or memories.
-        while True:
-            try:
-                await run_in_threadpool(scheduler_service.run_due)
-                scheduler_state["consecutive_failures"] = 0
-            except Exception:
-                scheduler_state["consecutive_failures"] += 1
-                scheduler_state["last_error_at"] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
-                if scheduler_state["consecutive_failures"] == 1:
-                    database.audit('scheduler_loop_error', {'detail': 'run_due failed'})
-            scheduler_state["last_check_at"] = datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
-            await asyncio.sleep(60)
-
     async def cloud_backup_loop() -> None:
         # 只读模式下不启动；没有配置/关闭自动备份时 maybe_run_due 会直接返回。
         while True:
@@ -457,7 +439,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        tasks_to_stop = [asyncio.create_task(scheduler_loop())]
+        tasks_to_stop = []  # 晨晚报与定时提醒已退役；保留历史草稿，不再调度生成。
         if layout_repair_enabled:
             tasks_to_stop.append(asyncio.create_task(layout_repair_loop()))
         if runtime_label == 'personal' and not vault_read_only:
@@ -646,8 +628,8 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'note_editor':True,
                     'personal_data':True,'planning_export':True,
                     'proposals':True,
-                    'restore_drill':True,'restored_copies':True,'scheduler':True,
-                    'scheduler_weekly':True,'schema_export':True,'share_link':runtime_label == 'personal',
+                    'restore_drill':True,'restored_copies':True,'scheduler':False,
+                    'scheduler_weekly':False,'schema_export':True,'share_link':runtime_label == 'personal',
                     'task_reorder':True,'tasks':True,'tools':True,'train_tracker':True,'vault_audit':True,
                     'vault_admin':runtime_label == 'personal',
                     'vault_connection':not vault_scoped,'weather':True,
@@ -1023,8 +1005,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         database=database, vault_dir=vault_dir, runtime_label=runtime_label,
         vault_scoped=bool(vault_scoped), registry_path=workspace_registry))
     # Preview locks internally around scan+retrieval; do not add the shared guard here.
-    app.include_router(create_scheduler_router(
-        database, status_provider=lambda: dict(scheduler_state), vault_dir=vault_dir))
+    # Retired report/reminder endpoints; historical inbox data remains available.
     # 待确认中枢：草稿 / 事实 / 分流 三处积压的只读汇总 + 三个动作转发。
     app.include_router(create_pending_router(database, vault_dir, read_only=vault_read_only))
     # 主动提问：一天一个「关于我」的问题，答了直接写进自我档案。

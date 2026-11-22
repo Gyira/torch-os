@@ -273,11 +273,18 @@ function initBannerCollapse() {
   const KEY = "torch-os:banner-collapsed";
   const banner = $("#workbench-banner");
   const button = $("#workbench-banner-collapse");
-  const apply = (value) => {
+  let collapseAnimation;
+  const apply = (value, animate = false) => {
+    const from = banner.getBoundingClientRect().height;
+    collapseAnimation?.cancel();
     banner.classList.toggle("banner-collapsed", value);
     button.setAttribute("aria-expanded", String(!value));
     button.setAttribute("aria-label", value ? "展开横幅" : "收起横幅");
     button.title = value ? "展开横幅" : "收起横幅";
+    if (animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const to = banner.getBoundingClientRect().height;
+      collapseAnimation = banner.animate([{height:`${from}px`,minHeight:0},{height:`${to}px`,minHeight:0}], {duration:320,easing:'cubic-bezier(.22,1,.36,1)'});
+    }
   };
   let collapsed = false;
   try {
@@ -289,7 +296,7 @@ function initBannerCollapse() {
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     collapsed = !collapsed;
-    apply(collapsed);
+    apply(collapsed, true);
     try {
       window.localStorage.setItem(KEY, collapsed ? "1" : "0");
     } catch { /* 存储不可用就算了 */ }

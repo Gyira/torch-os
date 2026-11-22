@@ -252,7 +252,7 @@ export function initBannerEditor(onSaved) {
   };
   $("#workbench-banner-edit").addEventListener("dblclick", (event) => event.stopPropagation());
   $("#workbench-banner-edit").addEventListener("click", (event) => { event.stopPropagation(); open(); });
-  $("#workbench-banner").addEventListener("dblclick", open);
+  // Banner surface opens the data board; editing has its own explicit button.
   $("#banner-cancel").addEventListener("click", () => dialog.close());
   ["#banner-overlay", "#banner-focal-x", "#banner-focal-y", "#banner-mottos",
    "#banner-accent", "#banner-blur", "#banner-darkness", "#banner-left-stat",

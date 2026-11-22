@@ -172,6 +172,8 @@ async function showSettingsSection(name, { focus = true } = {}) {
 // must not silently swap the result message back to the generic hint.
 let navOrderNotice = { message: "", tone: "" };
 
+export function refreshNavOrder() { renderNavOrder(); }
+
 function renderNavOrder(message, tone = "") {
   const list = $("#nav-order-list");
   if (!list) return;

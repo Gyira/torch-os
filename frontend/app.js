@@ -1,10 +1,8 @@
 import { $, state, api, escapeHtml } from "./core.js";
-import { initSettings, loadSettings, confirmSettingsLeave, openSettingsSection } from "./settings.js";
+import { initSettings, loadSettings } from "./settings.js";
 import { loadAgentPane, setAgentProvider } from "./agent-pane.js";
 import { initLovePane, loadLovePane } from "./love.js";
 import { initHealthPane, loadHealthPane } from "./health.js";
-import { initInbox, loadSchedulePanel } from "./inbox.js";
-import { initHelp } from "./help.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder, visiblePaneIds } from "./nav-order.js";
 import { initThemeBridge } from "./theme-bridge.js";
 import { initVaultConnection } from "./vault-connection.js";
@@ -23,10 +21,11 @@ import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
-import { initRoleAdmin, loadRoleAdmin } from "./role-admin.js";
+import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
 import { initSelectionAsk } from "./selection-ask.js";
 import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 import { initMaterialMotion } from "./material-motion.js";
+import { initDataCenter, loadDataCenter } from "./data-center.js";
 import { initContextSettings } from "./context-settings.js";
 
 const titles = NAV_LABELS;
@@ -43,13 +42,8 @@ for (const name of ["agent", "recycle"]) {
   }
 }
 const rolesPage = $("#roles-view");
-const settingsContent = $("#settings-view .settings-content");
-if (rolesPage && settingsContent) {
-  rolesPage.classList.remove("view");
-  rolesPage.dataset.settingsSection = "roles";
-  rolesPage.dataset.module = "settings";
-  settingsContent.append(rolesPage);
-}
+if (rolesPage) { rolesPage.classList.add("view"); rolesPage.dataset.module = "roles"; mainPages.append(rolesPage); }
+initDataCenter();
 
 // 顶层页面独立路由；生活运营保留系统分区，AI 角色管理归入设置中心。
 const MODULES = {
@@ -63,10 +57,12 @@ const MODULES = {
   ops: { stacked: false, panes: [["ops-view", "生活运营"], ["love-view", "恋爱系统"], ["health-view", "健康系统"]] },
   knowledge: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
+  data: { panes: [], ownNav: true },
+  roles: { panes: [], ownNav: true },
 };
 const paneChoice = {};
 const PANE_GUARDS = {};
-const MODULE_GUARDS = { settings: () => confirmSettingsLeave() };
+const MODULE_GUARDS = { roles: () => confirmRoleAdminLeave() };
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": loadAgentPane,
@@ -78,7 +74,8 @@ const PANE_LOADERS = {
   "ops-view": () => loadPillarModule("ops"),
   "knowledge-view": () => loadPillarModule("knowledge"),
   "roles-view": () => { initRoleAdmin(); loadRoleAdmin(); },
-  "settings-view": () => { loadSettings(); loadSchedulePanel(); },
+  "settings-view": loadDataCenter,
+  "data-view": loadDataCenter,
 };
 
 let navigationPending = false;
@@ -308,8 +305,12 @@ function renderPanelNav() {
       opsMenu = family.menu;
       scroll.append(family.node);
     } else if (view === "agent") {
-      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{ key: "chatgpt", title: "ChatGPT" }, { key: "dsh", title: "DSH" }]);
+      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{ key: "chatgpt", title: "ChatGPT" }, { key: "dsh", title: "DSH" }, { key: "roles", title: "AI 角色与模型" }]);
       family.menu.setAttribute("aria-label", "与神对话平台");
+      scroll.append(family.node); notebookMenus.push(family.menu);
+    } else if (view === "self") {
+      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{key:"mentor",title:"人生导师"},{key:"bazi",title:"八字系统"}]);
+      family.menu.setAttribute("aria-label", "自我档案系统");
       scroll.append(family.node); notebookMenus.push(family.menu);
     } else if (["life", "knowledge"].includes(view)) {
       const family = buildNotebookNav(button, view, async (target, key) => {
@@ -325,10 +326,12 @@ function renderPanelNav() {
   const help = document.createElement("button");
   help.type = "button";
   help.className = "panel-nav-help";
-  help.textContent = "?";
-  help.setAttribute("aria-label", "打开帮助");
-  help.title = "打开帮助：四库怎么用、数据边界与快捷键（按 ? 打开快捷键总览）";
-  help.addEventListener("click", () => { goTo("help"); });
+  help.textContent = "⚙";
+  help.dataset.contextSettings = "appearance";
+  help.setAttribute("aria-haspopup", "dialog");
+  help.setAttribute("aria-label", "调整导航顺序");
+  help.title = "调整导航顺序";
+
   nav.appendChild(help);
   const search = document.createElement("button");
   search.type = "button";
@@ -390,24 +393,12 @@ export async function showPane(view, paneId, updateHash = true) {
 
 async function goTo(target, updateHash = true) {
   if (["chatgpt", "dsh"].includes(target)) { setAgentProvider(target); return switchView("agent", updateHash); }
-  if (["roles", "role", "ai"].includes(target)) {
-    if (!(await switchView("settings", updateHash))) return false;
-    return openSettingsSection("roles");
-  }
-  if (target === "help") {
-    // 帮助已经并进设置：深链接 #help 仍然要把那个分区打开。
-    if (!(await switchView("settings", updateHash))) return false;
-    document.querySelector('[data-settings-nav="help"]')?.click();
-    return true;
-  }
-  if (target === "bazi") {
-    // 八字已并入自我档案的第三个页面；旧深链接仍能落到正确子页。
+  if (["roles", "role", "ai"].includes(target)) return switchView("roles", updateHash);
+  if (["settings", "data"].includes(target)) return switchView("data", updateHash);
+  if (target === "help") return switchView("workbench", updateHash);
+  if (["bazi", "mentor"].includes(target)) {
     if (!(await switchView("self", updateHash))) return false;
-    window.setTimeout(() => {
-      document.dispatchEvent(new CustomEvent("torch:self-page", {
-        detail: { page: "bazi", sub: "chart" },
-      }));
-    }, 0);
+    document.dispatchEvent(new CustomEvent("torch:self-page", {detail:{page:target, sub:target === "bazi" ? "chart" : "chat"}}));
     return true;
   }
   const mapped = GO_TARGETS[target];
@@ -417,7 +408,7 @@ async function goTo(target, updateHash = true) {
 }
 
 export async function switchView(view, updateHash = true) {
-  if (view === "roles") return goTo("roles", updateHash);
+  if (view === "settings") return switchView("data", updateHash);
   if (!Object.hasOwn(titles, view)) return false;
   if (navigationPending) return false;
   if (state.view !== view && !(await confirmLeaving(state.view))) {
@@ -435,7 +426,7 @@ export async function switchView(view, updateHash = true) {
     Object.keys(MODULES).forEach((name) => document.body.classList.remove(`view-${name}`));
     document.body.classList.add(`view-${view}`);
   }
-  document.querySelectorAll(".nav-item, .panel-nav-item").forEach((button) => { const active = button.dataset.view === view; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
+  document.querySelectorAll(".nav-item, .panel-nav-item").forEach((button) => { const active = button.dataset.view === (view === "roles" ? "agent" : view); button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
   // 两级导航：侧边栏选模块，模块内再用 #module-nav 选分区。
   const module = MODULES[view];
   const panes = module?.panes || [];
@@ -684,7 +675,7 @@ function scheduleWorkbenchAnchor() {
 // 顶层数据规则：小组件偏好等个性化数据以当前个人数据库的 .torch-os/personal-data.json 为准。
 // 先把库里的值灌回 localStorage，再初始化各小组件；后端不可用时用本机缓存继续启动。
 try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
-initSettings(); initInbox();
+initSettings();
 initWorkbench(); initPillars();
 initMentorStrip();
 initRoleDrawer();
@@ -692,7 +683,7 @@ initRoleAdmin();
 initSelectionAsk();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();
-initHelp();
+
 initVaultConnection();
 initVaultAdmin();
 initWorkspaces();
@@ -737,7 +728,7 @@ document.addEventListener("torch:tasks-changed", () => {
 });
 // 深链接与前进后退能去的地方：模块名、GO_TARGETS 里的旧名字，以及并进设置区的 help。
 // 0.96 把帮助移进设置后，门只认前两类，#help 会被静默忽略——探针因此在帮助步骤超时。
-const navigable = (view) => view === "help" || Object.hasOwn(titles, view) || Object.hasOwn(GO_TARGETS, view);
+const navigable = (view) => ["mentor", "chatgpt"].includes(view) || view === "help" || Object.hasOwn(titles, view) || Object.hasOwn(GO_TARGETS, view);
 window.addEventListener("hashchange", async () => { const view = location.hash.slice(1); if (navigable(view)) await goTo(view, false); });
 window.addEventListener("popstate", async () => { const view = location.hash.slice(1); if (!view || navigable(view)) await goTo(view || "workbench", false); });
 window.addEventListener("online", loadSettings);
@@ -746,4 +737,4 @@ window.addEventListener("scroll", scheduleWorkbenchAnchor, { passive: true });
 window.addEventListener("resize", scheduleWorkbenchAnchor);
 loadSettings();
 const bootView = location.hash.slice(1);
-goTo(Object.hasOwn(titles, bootView) || GO_TARGETS[bootView] ? bootView : "workbench");
+goTo(navigable(bootView) ? bootView : "workbench");

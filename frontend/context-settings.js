@@ -1,11 +1,17 @@
 // One real form, two entrances: move (never clone) the section so listeners, drafts and IDs survive.
 import { loadWidgetSettings } from './widget-settings.js';
-import { loadSchedulePanel } from './inbox.js';
+import { loadSettings, refreshNavOrder } from './settings.js';
+import { loadVaultMigration } from './vault-migration.js';
 import { loadDidaSync } from './dida-sync.js';
 
 const SECTIONS = {
   widgets: { title: '布置工作台', load: loadWidgetSettings, immediate: true },
-  schedule: { title: '晨晚报与提醒', load: loadSchedulePanel },
+  appearance: { title: '导航顺序', load: refreshNavOrder, immediate: true },
+  backup: { title: '备份与恢复', load: loadSettings },
+  data: { title: '数据与导出', load: loadSettings },
+  obsidian: { title: '库与工作区', load: loadSettings },
+  migration: { title: '库结构与迁移', load: loadVaultMigration },
+  audit: { title: '操作记录与自检', load: loadSettings },
   dida: { title: '任务与习惯同步', load: loadDidaSync },
 };
 
