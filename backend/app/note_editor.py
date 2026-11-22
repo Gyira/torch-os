@@ -68,20 +68,24 @@ def chapter_pillar(chapter: str) -> str:
 
 def is_writable_chapter(chapter: str) -> bool:
     value = str(chapter or "").strip()
-    return value in WRITABLE_CHAPTERS or vault_layout.is_custom_notebook_key(value)
+    return (value in WRITABLE_CHAPTERS
+            or vault_layout.is_custom_notebook_key(value)
+            or vault_layout.is_sub_notebook_key(value))
 
 
 def _require_writable_chapter(chapter: str, vault_dir: Path | str) -> str:
     value = str(chapter or "").strip()
     if vault_layout.is_chapter_hidden(vault_dir, value):
         raise HTTPException(422, "这个本子已被删除，不能写入")
-    if value not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(value):
+    if (value not in WRITABLE_CHAPTERS
+            and not vault_layout.is_custom_notebook_key(value)
+            and not vault_layout.is_sub_notebook_key(value)):
         raise HTTPException(422, "这个章节不在应用内写作范围里")
     return value
 
 
 def _require_writable_path(relative: str, vault_dir: Path | str) -> str:
-    chapter = vault_layout.chapter_key_of(relative)
+    chapter = vault_layout.base_chapter_key(vault_layout.chapter_key_of(relative))
     if vault_layout.is_chapter_hidden(vault_dir, chapter):
         raise HTTPException(422, "这个本子已被删除，不能写入")
     if chapter not in WRITABLE_CHAPTERS and not vault_layout.is_custom_notebook_key(chapter):
@@ -90,8 +94,13 @@ def _require_writable_path(relative: str, vault_dir: Path | str) -> str:
 
 
 def _ensure_custom_notebook_exists(vault_dir: Path | str, chapter: str) -> None:
-    if not vault_layout.is_custom_notebook_key(chapter):
+    """自定义本子/子本子的文件夹必须存在；子本子还必须是已登记的本子。"""
+    if not (vault_layout.is_custom_notebook_key(chapter)
+            or vault_layout.is_sub_notebook_key(chapter)):
         return
+    sub = vault_layout.sub_notebook_parts(chapter)
+    if sub and not vault_layout.sub_notebook_exists(vault_dir, sub[0], sub[1]):
+        raise HTTPException(422, "这个子本子不存在，请先在本子页面里新建")
     directory = vault_layout.chapter_dir(chapter)
     target = Path(vault_dir) / directory if directory else None
     if target is None or not target.is_dir():
@@ -375,6 +384,23 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
                     "depth": name.count("/"),
                     "path": vault_layout.chapter_dir(key), "custom": True,
                 })
+        # 内置本子里由应用创建的子本子；只列登记过的，避开文件夹笔记的附件目录。
+        for entry in vault_layout.list_registered_sub_notebooks(vault_dir):
+            pillar, chapter, name = entry["pillar"], entry["chapter"], entry["name"]
+            key = entry["key"]
+            parent_name = vault_layout.notebook_parent_name(name)
+            result[pillar].append({
+                "key": key, "title": vault_layout.notebook_leaf_name(name),
+                "name": name,
+                "chapter": chapter,
+                "chapter_title": vault_layout.CHAPTER_BY_KEY[chapter][2],
+                "parent": (vault_layout.sub_notebook_key(chapter, parent_name)
+                           if parent_name else ""),
+                "depth": name.count("/"),
+                "path": vault_layout.chapter_dir(key),
+                "custom": False,
+                "sub": True,
+            })
         return result
 
     @router.post("/writing/notes")

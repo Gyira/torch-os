@@ -84,7 +84,7 @@
 | POST | `/api/writing/notes/move` | 同库移动（path/target_chapter/expected_revision），含自定义本子；实际移动 Markdown 文件 |
 | POST | `/api/writing/notes/delete` | 软删除到 `.torch-os/笔记回收站`（path/expected_revision） |
 | GET | `/api/notebooks?pillar=life` 或 `?pillar=knowledge` | 列出该库下所有层级的自定义本子/子本子（含计数/最近一篇/父本子） |
-| POST | `/api/notebooks` | 新建本子（`pillar`/`name`/可选 `parent`）；在对应库根目录或父本子下创建同名文件夹 |
+| POST | `/api/notebooks` | 新建本子（`pillar`/`name`/可选 `parent`/`parent_chapter`）；在库根、父本子或内置章节下创建同名文件夹 |
 | POST | `/api/notebooks/delete` | 删除自定义本子（`pillar`/`key`/`confirm:true`）；整夹软删除 |
 | POST | `/api/writing/classify` | AI 判类，回退规则；只返回卡片 |
 | POST | `/api/writing/polish` | AI 润色，返回 polished/changes |
@@ -101,10 +101,14 @@
 - **本子 = 文件夹**：前端「新建本子」调用 `POST /api/notebooks`，在
   `人生路/<名字>/` 或 `知识库/<名字>/` 创建空文件夹；不另存元数据，
   Obsidian 里看到的目录就是事实。
-- **子本子 = 子文件夹**：本子页的「＋ 子本子」调用
-  `POST /api/notebooks {pillar,name,parent}`；`parent` 是父本子的相对路径
-  （如 `学习`），会在 `人生路/学习/<名字>/` 下建空文件夹，最多 4 层。
+- **子本子 = 子文件夹**：本子页的「＋ 子本子」或空白处右键 →「新建子本子」调用
+  `POST /api/notebooks`。自定义本子传 `parent`（父本子相对路径，如 `学习`），
+  在 `人生路/学习/<名字>/` 下建空文件夹；内置本子传 `parent_chapter`（固定章节 key，
+  如 `essay`），在当前章节文件夹下建子本子（`人生路/随笔/<名字>/`，key 为
+  `sub:essay:<名字>`），最多 4 层。内置子本子登记在 `.torch-os/sub-notebooks.json`，
+  只列应用创建的，不把 `image/`、`file/` 等附件目录当成本子。
   子本子按 chip 在父本子页切换，父本子的计数包含下面所有层级的笔记。
+  日记与习惯有各自的专用写入闭环，不开放子本子。
 - 固定一级目录（人生路日记、随笔等，知识库收件箱等）
   仍是内置本子/章节；其它直属文件夹自动成为自定义本子，本子文件夹内的合法子文件夹
   自动成为子本子。

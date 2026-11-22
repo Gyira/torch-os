@@ -21,17 +21,22 @@ const PILLAR_COPY = {
   },
 };
 
-const state = { onCreated: null, busy: false, pillar: "life", parent: "" };
+const state = {
+  onCreated: null, busy: false, pillar: "life",
+  parent: "", parentChapter: "", location: "",
+};
 let initialized = false;
 
 /** 子本子的文案带上父路径，免得用户不知道文件夹会建在哪。 */
-function dialogCopy(pillar, parentName) {
+function dialogCopy(pillar, parentName, parentChapter, location) {
   const copy = PILLAR_COPY[pillar] || PILLAR_COPY.life;
-  if (!parentName) return copy;
+  if (!parentName && !parentChapter) return copy;
+  const folder = location
+    || `${copy.unit}/${parentName}`;
   return {
     unit: copy.unit,
     eyebrow: `${copy.unit} · 新子本子`,
-    help: `会在 <code>${escapeHtml(copy.unit)}/${escapeHtml(parentName)}/</code> 下创建同名子文件夹。子本子就是文件夹，文档可以移动进去。`,
+    help: `会在 <code>${escapeHtml(folder)}/</code> 下创建同名子文件夹。子本子就是文件夹，文档可以移动进去。`,
     heading: "新建子本子",
     submit: "创建子本子",
   };
@@ -80,12 +85,14 @@ export function initNotebookCreate() {
       const created = await api("/api/notebooks", {
         method: "POST",
         body: JSON.stringify({
-          pillar: state.pillar, name, parent: state.parent,
+          pillar: state.pillar, name,
+          parent: state.parent, parent_chapter: state.parentChapter,
         }),
       });
       const callback = state.onCreated;
+      const wasSub = Boolean(state.parent || state.parentChapter);
       closeDialog();
-      toast(state.parent
+      toast(wasSub
         ? `子本子「${created.title}」已创建。`
         : `本子「${created.title}」已创建。`, "success");
       if (typeof callback === "function") callback(created);
@@ -98,13 +105,17 @@ export function initNotebookCreate() {
   });
 }
 
-export function openNotebookCreateDialog(onCreated = null, { pillar = "life", parent = "" } = {}) {
+export function openNotebookCreateDialog(onCreated = null, {
+  pillar = "life", parent = "", parentChapter = "", location = "",
+} = {}) {
   initNotebookCreate();
   state.onCreated = onCreated;
   state.busy = false;
   state.pillar = PILLAR_COPY[pillar] ? pillar : "life";
-  state.parent = customNotebookName(parent) || "";
-  const copy = dialogCopy(state.pillar, state.parent);
+  state.parent = customNotebookName(parent) || (parentChapter ? String(parent || "") : "");
+  state.parentChapter = String(parentChapter || "");
+  state.location = String(location || "");
+  const copy = dialogCopy(state.pillar, state.parent, state.parentChapter, state.location);
   const eyebrow = el("notebook-create-eyebrow");
   if (eyebrow) eyebrow.textContent = copy.eyebrow;
   const heading = el("notebook-create-title");

@@ -11,6 +11,7 @@ import {
 import {
   customNotebookParentKey, customNotebookTrail, defaultWriteChapter,
   isCustomNotebookKey, journalHeading, notebookForChapter, notebooksFor,
+  subNotebookParts, subNotebookTrail,
 } from "./notebook-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import {
@@ -802,15 +803,25 @@ function fillChapters(chapters, context) {
   const byNotebook = new Map(notebooksFor(context).map((book) => [book.key, []]));
   const extras = [];
   for (const chapter of list) {
+    // 子本子跟父本子放在同一个下拉分组里。
     const book = notebookForChapter(context, chapter.key);
     if (book && byNotebook.has(book.key)) byNotebook.get(book.key).push(chapter);
     else extras.push(chapter);
   }
   const option = (chapter) => {
     const key = String(chapter.key || "");
-    const title = isCustomNotebookKey(key) && customNotebookParentKey(key)
-      ? customNotebookTrail(key)
-      : chapter.title;
+    const sub = subNotebookParts(key);
+    let title = chapter.title;
+    if (sub) {
+      const book = notebooksFor(context)
+        .find((item) => item.chapters.includes(sub.chapter));
+      const trail = subNotebookTrail(key);
+      title = book && book.chapters.length > 1
+        ? `${chapter.chapter_title || sub.chapter} · ${trail}`
+        : trail;
+    } else if (isCustomNotebookKey(key) && customNotebookParentKey(key)) {
+      title = customNotebookTrail(key);
+    }
     return `<option value="${escapeAttr(chapter.key)}">${escapeAttr(title)}</option>`;
   };
   const custom = extras.filter((chapter) => isCustomNotebookKey(chapter.key));

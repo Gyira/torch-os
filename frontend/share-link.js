@@ -6,7 +6,10 @@ import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { proposalsMarkup } from "./proposals-model.js";
 import { isObsidianHost } from "./task-open.js";
 import { openContextPack } from "./context-pack.js";
-import { customNotebookParentKey, customNotebookTrail, isCustomNotebookKey } from "./notebook-model.js";
+import {
+  customNotebookParentKey, customNotebookTrail, isCustomNotebookKey,
+  subNotebookParts, subNotebookTrail,
+} from "./notebook-model.js";
 
 const DEEPSEEK_URL = "https://chat.deepseek.com/";
 
@@ -177,9 +180,14 @@ async function renderPreview(result, requestSeq, revision) {
   if (requestSeq !== state.requestSeq || revision !== state.inputRevision) return;
   const options = chapters.map((chapter) => {
     const key = String(chapter.key || "");
-    const title = isCustomNotebookKey(key) && customNotebookParentKey(key)
-      ? customNotebookTrail(key)
-      : chapter.title;
+    const sub = subNotebookParts(key);
+    let title = chapter.title;
+    if (sub) {
+      const trail = subNotebookTrail(key);
+      title = chapter.chapter_title ? `${chapter.chapter_title} · ${trail}` : trail;
+    } else if (isCustomNotebookKey(key) && customNotebookParentKey(key)) {
+      title = customNotebookTrail(key);
+    }
     return `<option value="${escapeHtml(chapter.key)}"${chapter.key === result.suggested_chapter ? " selected" : ""}>${escapeHtml(title)}</option>`;
   }).join("");
   const doc = renderMarkdownDocument(String(result.markdown || ""));

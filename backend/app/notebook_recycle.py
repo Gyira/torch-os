@@ -81,11 +81,24 @@ def _mappings(vault: Path, batch: Path, manifest: dict) -> list[tuple[Path, Path
             pairs.append((source, workspace_path(vault, original)))
         if manifest.get("inferred_manifest") and not pairs: raise ValueError("找不到本子的原始文件夹")
     else:
-        name = layout.custom_notebook_name(key)
-        if not name or layout.custom_notebook_pillar(key) != pillar: raise ValueError("自建本子恢复位置无效")
-        original = layout.custom_notebook_path(name, pillar)
-        if manifest.get("original_path", original) != original: raise ValueError("本子原路径校验失败")
-        pairs = [(batch / "notebooks" / pillar / name, workspace_path(vault, original))]
+        sub = layout.sub_notebook_parts(key)
+        if sub:
+            chapter, name = sub
+            if not manifest.get("sub") or layout.CHAPTER_BY_KEY[chapter][1] != pillar:
+                raise ValueError("子本子恢复位置无效")
+            original = layout.sub_notebook_path(name, chapter)
+            if manifest.get("original_path", original) != original:
+                raise ValueError("子本子原路径校验失败")
+            pairs = [(
+                batch / "notebooks" / pillar / f"sub-{chapter}" / name,
+                workspace_path(vault, original),
+            )]
+        else:
+            name = layout.custom_notebook_name(key)
+            if not name or layout.custom_notebook_pillar(key) != pillar: raise ValueError("自建本子恢复位置无效")
+            original = layout.custom_notebook_path(name, pillar)
+            if manifest.get("original_path", original) != original: raise ValueError("本子原路径校验失败")
+            pairs = [(batch / "notebooks" / pillar / name, workspace_path(vault, original))]
     for source, target in pairs:
         if not checked_path(source).is_relative_to(batch): raise ValueError("回收目录越界")
         if not checked_path(target).is_relative_to(vault): raise ValueError("恢复目录越界")
@@ -141,6 +154,8 @@ def restore_notebook(vault: Path, relative: str) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
                 moved.append((source, target))
+            if manifest.get("sub"):
+                layout.register_notebook(vault, str(manifest.get("key") or ""))
             restore_notebook_title(vault, manifest)
             if manifest.get("builtin"):
                 if not pairs:
@@ -176,9 +191,21 @@ def purge_notebook(vault: Path, relative: str) -> None:
             manifest, pairs = {}, []
         # Verified immediate child of the configured notebook trash root, without reparse points.
         shutil.rmtree(batch)
+        # 彻底删除后清掉本子登记（含整夹删除后残留的下层登记）。
+        try:
+            key = str(manifest.get("key") or "")
+            if key:
+                layout.unregister_notebook(vault, key, include_descendants=True)
+        except OSError:
+            pass
         # Old releases moved chapters but left empty notebook parent directories.
         # Remove only empty ancestors, never a live file or the pillar root.
-        pillar_root = vault / layout.PILLAR_DIRS.get(manifest.get("pillar"), "")
+        # 子本子最多清理到所属章节目录为止，不把固定章节本身删掉。
+        chapter = str(manifest.get("chapter") or "")
+        if manifest.get("sub") and chapter in layout.SUB_NOTEBOOK_CHAPTERS:
+            pillar_root = vault / layout.chapter_dir(chapter)
+        else:
+            pillar_root = vault / layout.PILLAR_DIRS.get(manifest.get("pillar"), "")
         for _source, target in pairs:
             parent = target.parent
             while parent != pillar_root and parent.is_relative_to(pillar_root):

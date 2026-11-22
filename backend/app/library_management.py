@@ -93,9 +93,14 @@ def set_notebook_title(database, vault_dir, payload, *, read_only=False):
         if exists:
             exists = key not in vault_layout.deleted_notebook_keys(vault_dir).get(pillar, set())
         else:
-            name = vault_layout.custom_notebook_name(key)
-            exists = (vault_layout.custom_notebook_pillar(key) == pillar
-                      and vault_layout.custom_notebook_exists(vault_dir, pillar, name))
+            sub = vault_layout.sub_notebook_parts(key)
+            if sub:
+                exists = (vault_layout.CHAPTER_BY_KEY[sub[0]][1] == pillar
+                          and vault_layout.sub_notebook_exists(vault_dir, sub[0], sub[1]))
+            else:
+                name = vault_layout.custom_notebook_name(key)
+                exists = (vault_layout.custom_notebook_pillar(key) == pillar
+                          and vault_layout.custom_notebook_exists(vault_dir, pillar, name))
         if not exists:
             raise HTTPException(404, "本子不存在")
         if any(ord(char) < 32 for char in payload.title):

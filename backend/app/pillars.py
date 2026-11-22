@@ -86,6 +86,36 @@ def _custom_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
     return rows
 
 
+def _sub_notebook_rows(vault_dir: Path | str, notes: list[dict[str, Any]],
+                       pillar: str) -> list[dict[str, Any]]:
+    """内置本子里的子本子（应用登记过）：按路径前缀统计，不改变基础章节。"""
+    rows: list[dict[str, Any]] = []
+    for entry in vault_layout.list_registered_sub_notebooks(vault_dir, pillar):
+        chapter, name = entry["chapter"], entry["name"]
+        path = vault_layout.sub_notebook_path(name, chapter)
+        prefix = f"{path}/"
+        mine = [
+            note for note in notes
+            if str(note.get("path") or "").startswith(prefix)
+        ]
+        parent_name = vault_layout.notebook_parent_name(name)
+        rows.append({
+            "key": entry["key"],
+            "title": vault_layout.notebook_leaf_name(name),
+            "name": name,
+            "chapter": chapter,
+            "chapter_title": vault_layout.CHAPTER_BY_KEY[chapter][2],
+            "parent": (vault_layout.sub_notebook_key(chapter, parent_name)
+                       if parent_name else ""),
+            "depth": name.count("/"),
+            "path": path,
+            "count": len(mine),
+            "latest": mine[0] if mine else None,
+            "sub": True,
+        })
+    return rows
+
+
 def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[str, Any]:
     from .library_management import notebook_titles
     key = _pillar_or_404(pillar)
@@ -117,6 +147,8 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
             vault_layout.deleted_notebook_keys(vault_dir).get(key, set()))
     if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
         payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
+    if key in {"life", "knowledge"}:
+        payload["sub_notebooks"] = _sub_notebook_rows(vault_dir, notes, key)
     if key == "life":
         today_date = shanghai_today()
         today = today_date.isoformat()

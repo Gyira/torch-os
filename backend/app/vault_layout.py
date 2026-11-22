@@ -203,6 +203,17 @@ CHAPTERS: tuple[tuple[str, str, str, str, str], ...] = (
     (LOVE_DRAFT_CHAPTER, LOVE_PILLAR, "AI 草稿", LOVE_DRAFT_DIR, "love_memory"),
 )
 
+# 内置本子里的子本子（2026-11-23）：人生路/知识库的固定章节目录下，
+# 通过应用内右键新建的子文件夹。与自定义本子不同，内置章节里本来就有大量
+# Obsidian 文件夹笔记/附件目录（image、file…），所以只认应用显式登记过的子本子，
+# 不自动把每个子目录都当成本子。日记/习惯有专用写入闭环，不开放子本子。
+SUB_NOTEBOOK_PREFIX = "sub:"
+NOTEBOOK_REGISTRY_REL = Path(".torch-os") / "sub-notebooks.json"
+SUB_NOTEBOOK_CHAPTERS = frozenset(
+    item[0] for item in CHAPTERS
+    if item[1] in {"life", "knowledge"} and item[0] not in {"habit", "journal"}
+)
+
 # 侧边栏分组：只影响展示，章节仍是清单里的唯一来源；没有分组的库给空列表。
 # key, 显示名, 章节 key（引用 CHAPTERS，不复制路径）。
 CHAPTER_GROUPS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
@@ -427,6 +438,10 @@ def chapter_key_of(relpath: str) -> str:
 
 def chapter_dir(chapter_key: str) -> str:
     value = str(chapter_key or "").strip()
+    sub = sub_notebook_parts(value)
+    if sub:
+        chapter, name = sub
+        return f"{CHAPTER_BY_KEY[chapter][3]}/{name}"
     pillar = custom_notebook_pillar(value)
     if pillar:
         name = custom_notebook_name(value)
@@ -439,7 +454,7 @@ def chapter_dir(chapter_key: str) -> str:
 
 
 def chapter_default_type(chapter_key: str) -> str:
-    if is_custom_notebook_key(chapter_key):
+    if is_custom_notebook_key(chapter_key) or is_sub_notebook_key(chapter_key):
         return "note"
     item = CHAPTER_BY_KEY.get(chapter_key)
     return item[4] if item else "note"
@@ -509,6 +524,75 @@ def custom_notebook_exists(vault_dir: Path | str, pillar: str, name: Any) -> boo
         return False
     return not bool(getattr(info, "st_file_attributes", 0) & getattr(
         stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def sub_notebook_key(chapter_key: str, name: str) -> str:
+    """内置章节下的子本子 key：`sub:<章节 key>:<相对路径>`。"""
+    chapter = str(chapter_key or "").strip()
+    if chapter not in SUB_NOTEBOOK_CHAPTERS:
+        raise ValueError("这个本子不支持子本子")
+    return f"{SUB_NOTEBOOK_PREFIX}{chapter}:{validate_notebook_path(name)}"
+
+
+def sub_notebook_parts(chapter_key: str) -> tuple[str, str] | None:
+    """子本子 key → (内置章节 key, 相对路径)；不是合法子本子返回 None。"""
+    value = str(chapter_key or "").strip()
+    if not value.startswith(SUB_NOTEBOOK_PREFIX):
+        return None
+    chapter, separator, name = value[len(SUB_NOTEBOOK_PREFIX):].partition(":")
+    if not separator or chapter not in SUB_NOTEBOOK_CHAPTERS:
+        return None
+    try:
+        clean = validate_notebook_path(name)
+    except ValueError:
+        return None
+    return chapter, clean
+
+
+def is_sub_notebook_key(chapter_key: str) -> bool:
+    return sub_notebook_parts(chapter_key) is not None
+
+
+def sub_notebook_chapter(chapter_key: str) -> str:
+    parts = sub_notebook_parts(chapter_key)
+    return parts[0] if parts else ""
+
+
+def sub_notebook_name(chapter_key: str) -> str:
+    parts = sub_notebook_parts(chapter_key)
+    return parts[1] if parts else ""
+
+
+def base_chapter_key(chapter_key: str) -> str:
+    """子本子 → 所属固定章节 key；其它原样返回。"""
+    parts = sub_notebook_parts(chapter_key)
+    return parts[0] if parts else str(chapter_key or "").strip()
+
+
+def sub_notebook_path(name: str, chapter_key: str) -> str:
+    chapter = str(chapter_key or "").strip()
+    if chapter not in SUB_NOTEBOOK_CHAPTERS:
+        raise ValueError("这个本子不支持子本子")
+    return f"{CHAPTER_BY_KEY[chapter][3]}/{validate_notebook_path(name)}"
+
+
+def _plain_folder(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        return False
+    return not bool(getattr(info, "st_file_attributes", 0) & getattr(
+        stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def sub_notebook_folder_exists(vault_dir: Path | str, chapter_key: str, name: Any) -> bool:
+    try:
+        relative = sub_notebook_path(str(name or ""), chapter_key)
+    except ValueError:
+        return False
+    return _plain_folder(workspace_path(Path(vault_dir), relative))
 
 
 def custom_notebook_key(name: str, pillar: str = "life") -> str:
@@ -658,9 +742,127 @@ def list_custom_notebooks(vault_dir: Path | str,
     return sorted(names, key=str.casefold)
 
 
+def _notebook_registry_file(vault_dir: Path | str) -> Path:
+    return workspace_path(Path(vault_dir).resolve(), NOTEBOOK_REGISTRY_REL)
+
+
+def _read_notebook_registry(vault_dir: Path | str) -> dict[str, dict[str, Any]]:
+    """读取应用登记过的子本子；损坏/缺失时按空处理，不影响本子浏览。"""
+    try:
+        payload = json.loads(_notebook_registry_file(vault_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, dict):
+        return {}
+    return {str(key): value for key, value in items.items() if isinstance(value, dict)}
+
+
+def _write_notebook_registry(vault_dir: Path | str,
+                             items: dict[str, dict[str, Any]]) -> None:
+    path = _notebook_registry_file(vault_dir)
+    if not items:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    payload = {"schema": 1, "items": {key: items[key] for key in sorted(items)}}
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+
+
+def register_notebook(vault_dir: Path | str, key: str) -> dict[str, Any]:
+    """登记一个应用内创建的子本子（自定义子本子或内置章节子本子）。"""
+    value = str(key or "").strip()
+    custom_pillar = custom_notebook_pillar(value)
+    if custom_pillar:
+        entry: dict[str, Any] = {
+            "kind": "custom", "pillar": custom_pillar,
+            "name": custom_notebook_name(value),
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    else:
+        parts = sub_notebook_parts(value)
+        if not parts:
+            raise ValueError("不是可登记的本子")
+        chapter, name = parts
+        entry = {
+            "kind": "sub", "pillar": CHAPTER_BY_KEY[chapter][1],
+            "chapter": chapter, "name": name,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    items = _read_notebook_registry(vault_dir)
+    items[value] = entry
+    _write_notebook_registry(vault_dir, items)
+    return entry
+
+
+def unregister_notebook(vault_dir: Path | str, key: str, *,
+                        include_descendants: bool = False) -> None:
+    value = str(key or "").strip()
+    items = _read_notebook_registry(vault_dir)
+    changed = False
+    if value in items:
+        items.pop(value)
+        changed = True
+    if include_descendants:
+        prefix = value + "/"
+        for candidate in list(items):
+            if candidate.startswith(prefix):
+                items.pop(candidate)
+                changed = True
+    if changed:
+        _write_notebook_registry(vault_dir, items)
+
+
+def registered_notebook_keys(vault_dir: Path | str) -> set[str]:
+    return set(_read_notebook_registry(vault_dir))
+
+
+def list_registered_sub_notebooks(vault_dir: Path | str,
+                                  pillar: str = "") -> list[dict[str, Any]]:
+    """列出应用登记且文件夹仍存在的内置章节子本子。"""
+    hidden = hidden_chapters(vault_dir)
+    result: list[dict[str, Any]] = []
+    for key, entry in _read_notebook_registry(vault_dir).items():
+        parts = sub_notebook_parts(key)
+        if not parts or entry.get("kind") != "sub":
+            continue
+        chapter, name = parts
+        if pillar and CHAPTER_BY_KEY[chapter][1] != pillar:
+            continue
+        if chapter in hidden:
+            continue
+        if not sub_notebook_folder_exists(vault_dir, chapter, name):
+            continue
+        result.append({
+            "key": key, "chapter": chapter, "name": name,
+            "pillar": CHAPTER_BY_KEY[chapter][1],
+        })
+    order = {item[0]: index for index, item in enumerate(CHAPTERS)}
+    return sorted(result, key=lambda row: (
+        order.get(row["chapter"], 999), row["name"].casefold(), row["name"]))
+
+
+def sub_notebook_exists(vault_dir: Path | str, chapter_key: str, name: Any) -> bool:
+    """子本子是否由应用创建并仍在原位（用于在父本子下再建一层）。"""
+    try:
+        key = sub_notebook_key(chapter_key, str(name or ""))
+    except ValueError:
+        return False
+    return key in _read_notebook_registry(vault_dir) and sub_notebook_folder_exists(
+        vault_dir, chapter_key, name)
+
+
 def list_all_custom_notebooks(vault_dir: Path | str,
                               pillar: str = "life") -> list[str]:
-    """列出某库里所有层级的自定义本子（父/子/孙…），按路径排序。"""
+    """列出某库里所有层级的自定义本子（父/子/孙…），按路径排序。
+
+    顶层本子始终可见；嵌套目录只有在应用里建过（已登记）或自己/后代含
+    Markdown 笔记时才当作子本子，避免把 image/file 之类的附件目录显示成本子。
+    """
     if pillar not in CUSTOM_NOTEBOOK_PILLARS:
         return []
     names: list[str] = []
@@ -672,7 +874,70 @@ def list_all_custom_notebooks(vault_dir: Path | str,
             names.append(full)
             if len(full.split("/")) < CUSTOM_NOTEBOOK_MAX_DEPTH:
                 queue.append(full)
-    return sorted(names, key=lambda value: (value.casefold(), value))
+    with_markdown = _custom_notebook_markdown_folders(vault_dir, pillar)
+    registered: set[str] = set()
+    for key in registered_notebook_keys(vault_dir):
+        if custom_notebook_pillar(key) != pillar:
+            continue
+        try:
+            registered.add(validate_notebook_path(custom_notebook_name(key)))
+        except ValueError:
+            continue
+    ancestors: set[str] = set()
+    for name in registered:
+        parts = name.split("/")
+        for index in range(1, len(parts)):
+            ancestors.add("/".join(parts[:index]))
+    keep = [
+        name for name in names
+        if "/" not in name
+        or name in with_markdown
+        or name in registered
+        or name in ancestors
+    ]
+    return sorted(keep, key=lambda value: (value.casefold(), value))
+
+
+def _custom_notebook_markdown_folders(vault_dir: Path | str,
+                                      pillar: str) -> set[str]:
+    """自定义本子根目录下、直接或间接含 Markdown 文件的文件夹（相对路径）。"""
+    root_relative = notebook_root(pillar)
+    if not root_relative:
+        return set()
+    root = workspace_path(Path(vault_dir), root_relative)
+    if not root.is_dir():
+        return set()
+    result: set[str] = set()
+    for current, dirs, files in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        kept: list[str] = []
+        for name in dirs:
+            if name.startswith((".", "_")) or name.casefold() in SKIP_DIRECTORIES:
+                continue
+            child = current_path / name
+            try:
+                info = child.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                continue
+            if getattr(info, "st_file_attributes", 0) & getattr(
+                    stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+                continue
+            kept.append(name)
+        dirs[:] = kept
+        if current_path == root:
+            continue
+        if not any(name.lower().endswith(".md") for name in files):
+            continue
+        parts = current_path.relative_to(root).parts
+        for index in range(1, len(parts) + 1):
+            folder = "/".join(parts[:index])
+            try:
+                result.add(validate_notebook_path(folder))
+            except ValueError:
+                break
+    return result
 
 
 def builtin_notebook_title(pillar: str, key: str) -> str:
@@ -793,7 +1058,8 @@ def is_notebook_deleted(vault_dir: Path | str, pillar: str, key: str) -> bool:
 
 
 def is_chapter_hidden(vault_dir: Path | str, chapter_key: str) -> bool:
-    value = str(chapter_key or "").strip()
+    # 子本子跟随所属内置本子：本子被删/隐藏后，子本子也不能再写入。
+    value = base_chapter_key(chapter_key)
     return bool(value) and value in hidden_chapters(vault_dir)
 
 
@@ -1184,7 +1450,13 @@ __all__ = [
     "LOVE_DRAFT_CHAPTER", "LOVE_NOTEBOOK_PREFIX", "LOVE_FIXED_NOTEBOOKS",
     "notebook_root", "CUSTOM_NOTEBOOK_MAX_DEPTH", "validate_notebook_path",
     "notebook_parent_name", "notebook_leaf_name", "custom_notebook_exists",
-    "list_all_custom_notebooks", "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
+    "list_all_custom_notebooks", "SUB_NOTEBOOK_PREFIX", "SUB_NOTEBOOK_CHAPTERS",
+    "NOTEBOOK_REGISTRY_REL", "sub_notebook_key", "sub_notebook_parts",
+    "is_sub_notebook_key", "sub_notebook_chapter", "sub_notebook_name",
+    "base_chapter_key", "sub_notebook_path", "sub_notebook_exists",
+    "sub_notebook_folder_exists", "list_registered_sub_notebooks",
+    "register_notebook", "unregister_notebook", "registered_notebook_keys",
+    "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
     "LEGACY_CHAPTER_KEYS", "OPS_ROOT", "OPS_LAYOUT_SCHEMA", "OPS_LAYOUT_MARKER",
     "OPS_HEALTH_LAB", "OPS_LAYOUT_MOVES", "CHAPTER_GROUPS", "V1_CHAPTER_MOVES",
     "LEGACY_DIRS", "normalize_relpath",

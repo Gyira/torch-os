@@ -24,9 +24,11 @@ import {
   DEFAULT_LIFE_WRITE_CHAPTER, buildMoveTargetGroups, buildNotebookCards,
   canDeleteNotebook, customNotebookDefinition, customNotebookName,
   customNotebookParentKey, customNotebookPillar, customNotebookTrail, defaultWriteChapter,
-  greetingForHour, isCustomNotebookKey, journalHeading, knowledgeHeroState,
-  lifeHeroState, mergeNotesByRecency, noteCard, noteCards, notebookById,
-  notebookForChapter, notebookTotal, notebooksFor, subchaptersFor,
+  greetingForHour, isCustomNotebookKey, isSubNotebookKey, journalHeading,
+  knowledgeHeroState, lifeHeroState, mergeNotesByRecency, noteCard, noteCards,
+  notebookById, notebookForChapter, notebookTotal, notebooksFor,
+  subNotebookChapter, subNotebookName, subNotebookParts, subNotebookTrail,
+  subchaptersFor,
 } from "./notebook-model.js";
 import {
   createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
@@ -48,7 +50,8 @@ const WRITABLE_KNOWLEDGE_CHAPTERS = new Set([
 ]);
 
 function canWriteChapter(view, chapter) {
-  // 自定义本子 = 库根目录下的文件夹；笔记和固定章节一样可应用内编辑。
+  // 自定义本子 / 内置本子的子本子都是文件夹；笔记和固定章节一样可应用内编辑。
+  if (isSubNotebookKey(chapter)) return view === "life" || view === "knowledge";
   if (view === "life") {
     return WRITABLE_LIFE_CHAPTERS.has(chapter)
       || customNotebookPillar(chapter) === "life";
@@ -152,6 +155,11 @@ function chapterList(view) {
 
 function chapterTitle(view, key) {
   const value = String(key || "");
+  if (isSubNotebookKey(value)) {
+    const row = subRowFor(view, value);
+    return state.overviews[view]?.notebook_titles?.[value]
+      || (row ? subDisplayTitle(view, row) : subNotebookTrail(value));
+  }
   const custom = customNotebookName(value);
   if (custom) {
     return state.overviews[view]?.notebook_titles?.[value]
@@ -159,6 +167,36 @@ function chapterTitle(view, key) {
   }
   const chapter = chapterList(view).find((item) => item.key === value);
   return chapter?.title || value;
+}
+
+function subRowFor(view, key) {
+  const target = String(key || "");
+  return (state.overviews[view]?.sub_notebooks || [])
+    .find((row) => row.key === target) || null;
+}
+
+/** 子本子在标题/卡片里的展示名：多章节本子带上基础章节名。 */
+function subDisplayTitle(view, row) {
+  if (!row?.key) return "";
+  const trail = String(row.name || subNotebookName(row.key))
+    .split("/").filter(Boolean).join(" / ");
+  const notebook = notebookForChapter(view, row.chapter);
+  return notebook && notebook.chapters.length > 1
+    ? `${chapterTitle(view, row.chapter)} · ${trail}`
+    : trail;
+}
+
+/** 按笔记路径找它所在的子本子（取最深的路径前缀）。 */
+function subNotebookForPath(view, path) {
+  const target = String(path || "");
+  if (!target) return null;
+  let best = null;
+  for (const row of state.overviews[view]?.sub_notebooks || []) {
+    const prefix = String(row.path || "");
+    if (!prefix || !(target === prefix || target.startsWith(`${prefix}/`))) continue;
+    if (!best || prefix.length > String(best.path || "").length) best = row;
+  }
+  return best;
 }
 
 function notebookCardsFor(view) {
@@ -360,6 +398,8 @@ function readerMarkup(view, reading, railItems) {
   const { note } = reading;
   const meta = PILLAR_META[view];
   const displayTitle = readerNoteTitle(note);
+  const sub = subNotebookForPath(view, note.path);
+  const locationTitle = sub ? subDisplayTitle(view, sub) : chapterTitle(view, note.chapter);
   const journalLabel = note.chapter === "journal" ? journalDayLabel(note) : "";
   if (!reading.doc) {
     reading.doc = renderMarkdownDocument(note.body || "", { notePath: note.path });
@@ -420,7 +460,7 @@ function readerMarkup(view, reading, railItems) {
       <section class="pillar-reader" aria-label="${escapeHtml(displayTitle)}">
         <div class="pillar-reader-bar">
           <button type="button" class="pillar-reader-back" data-reader-back="${view}"><span aria-hidden="true">←</span> 返回列表</button>
-          <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(chapterTitle(view, note.chapter))}</p>
+          <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(locationTitle)}</p>
           <div class="pillar-reader-actions">
             ${askAiButton}
             ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">编辑</button>` : ""}
@@ -434,7 +474,7 @@ function readerMarkup(view, reading, railItems) {
         <div class="pillar-reader-grid">
           <article class="pillar-reader-article" data-reader-view="${escapeHtml(view)}" data-reader-chapter="${escapeHtml(note.chapter || "")}" data-reader-path="${escapeHtml(note.path || "")}">
             <header class="pillar-reader-head">
-              <p class="eyebrow">${escapeHtml(chapterTitle(view, note.chapter))}</p>
+              <p class="eyebrow">${escapeHtml(locationTitle)}</p>
               <h1 tabindex="-1">${escapeHtml(displayTitle)}</h1>
               <p class="pillar-reader-meta">${escapeHtml(note.path)}${date}</p>
               ${tagsMarkup}
@@ -467,9 +507,11 @@ function weekMarkup(week, today) {
 }
 
 function noteCardMarkup(view, note) {
+  // 内置本子的子本子靠路径前缀识别（笔记的 chapter 仍是基础章节）。
+  const sub = subNotebookForPath(view, note.path);
   const card = noteCard(note, {
     pillar: view,
-    chapterTitle: chapterTitle(view, note.chapter),
+    chapterTitle: sub ? subDisplayTitle(view, sub) : chapterTitle(view, note.chapter),
   });
   const tags = card.tags.map((tag) => `<span class="note-card-tag">#${escapeHtml(tag)}</span>`).join("");
   // 只有应用内可写章节（含自定义本子）能移动；日记/任务/习惯没有“本子移动”语义。
@@ -813,6 +855,154 @@ function opsHomeMarkup() {
   </div>`;
 }
 
+/**
+ * 当前本子页“新建子本子”应该建在哪：自建本子用当前所在层；
+ * 内置本子用当前选中的章节（没选中章节时用本子的第一个章节）。
+ */
+function notebookCreateTarget(view) {
+  const notebook = displayNotebook(view, state.notebook[view] || "");
+  if (!notebook) return null;
+  const chapter = state.chapter[view] || "";
+  const unit = view === "knowledge" ? "知识库" : "人生路";
+  if (notebook.custom) {
+    const active = chapter && isCustomNotebookKey(chapter)
+      && chapter.startsWith(`${notebook.key}/`) ? chapter : notebook.key;
+    return {
+      // 自定义本子传 key，对话框会解析成磁盘相对路径；内置本子才传相对名。
+      pillar: view, parent: active, parentChapter: "",
+      location: `${unit}/${customNotebookName(active)}`,
+      menuLabel: "新建子本子",
+    };
+  }
+  const sub = subNotebookParts(chapter);
+  const baseChapter = sub
+    ? sub.chapter
+    : (notebook.chapters.includes(chapter) ? chapter : notebook.chapters[0]);
+  if (!baseChapter || baseChapter === "habit" || baseChapter === "journal") return null;
+  const parent = sub ? subNotebookName(chapter) : "";
+  const basePath = chapterList(view).find((item) => item.key === baseChapter)?.path || "";
+  const row = sub ? subRowFor(view, chapter) : null;
+  return {
+    pillar: view,
+    parent,
+    parentChapter: baseChapter,
+    location: row?.path || (parent ? `${basePath}/${parent}` : basePath),
+    menuLabel: notebook.chapters.length > 1
+      ? `新建子本子（${chapterTitle(view, baseChapter)}）`
+      : "新建子本子",
+  };
+}
+
+function openSubNotebookDialog(view) {
+  const target = notebookCreateTarget(view);
+  if (!target) {
+    toast("这个本子暂不支持子本子。", "warning");
+    return;
+  }
+  openNotebookCreateDialog(() => {
+    invalidateChapterCache();
+    loadPillar(view).catch((error) => toast(error.message, "error"));
+  }, {
+    pillar: view,
+    parent: target.parent,
+    parentChapter: target.parentChapter,
+    location: target.location,
+  });
+}
+
+// ===== 本子页右键菜单（2026-11-23）：在空白处右键，像文件管理器一样新建子本子 =====
+let pageMenuState = null;
+
+function closePageMenu() {
+  if (!pageMenuState) return;
+  const { layer, cleanup } = pageMenuState;
+  pageMenuState = null;
+  cleanup();
+  layer.remove();
+}
+
+function openPageMenu(event, items) {
+  closePageMenu();
+  const layer = document.createElement("div");
+  layer.className = "time-popover page-context-menu";
+  layer.setAttribute("role", "menu");
+  layer.tabIndex = -1;
+  for (const item of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "time-popover-row";
+    button.setAttribute("role", "menuitem");
+    button.textContent = item.label;
+    if (item.disabled) button.disabled = true;
+    button.addEventListener("click", () => {
+      closePageMenu();
+      item.run?.();
+    });
+    layer.append(button);
+  }
+  document.body.append(layer);
+  const rect = layer.getBoundingClientRect();
+  layer.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - rect.width - 8))}px`;
+  layer.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - rect.height - 8))}px`;
+  const onOutside = (e) => { if (!layer.contains(e.target)) closePageMenu(); };
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closePageMenu();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp"].includes(e.key)) return;
+    const rows = [...layer.querySelectorAll("button:not(:disabled)")];
+    if (!rows.length) return;
+    e.preventDefault();
+    const index = rows.indexOf(document.activeElement);
+    rows[(index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]
+      ?.focus({ preventScroll: true });
+  };
+  const onScroll = () => closePageMenu();
+  document.addEventListener("mousedown", onOutside, true);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("resize", onScroll);
+  document.addEventListener("scroll", onScroll, true);
+  pageMenuState = {
+    layer,
+    cleanup: () => {
+      document.removeEventListener("mousedown", onOutside, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onScroll);
+      document.removeEventListener("scroll", onScroll, true);
+    },
+  };
+  layer.querySelector("button:not(:disabled)")?.focus({ preventScroll: true });
+}
+
+function handleNotebookContextMenu(event) {
+  if (event.defaultPrevented) return;
+  const page = event.target.closest?.("#life-view .notebook-page, #knowledge-view .notebook-page");
+  if (!page) return;
+  // 卡片、按钮、输入框保留自己的右键菜单或默认行为。
+  if (event.target.closest?.("button, a, input, select, textarea, [contenteditable='true']")) return;
+  const view = page.closest("#knowledge-view") ? "knowledge" : "life";
+  const target = notebookCreateTarget(view);
+  event.preventDefault();
+  const notebook = displayNotebook(view, state.notebook[view] || "");
+  const chapter = state.chapter[view] || "";
+  const systemNotebook = notebook?.key === "journal" || chapter === "habit";
+  const items = target
+    ? [{ label: target.menuLabel, run: () => openSubNotebookDialog(view) }]
+    : [{
+      label: systemNotebook ? "日记 / 习惯是系统本子，不支持子本子"
+        : "这个本子暂不支持子本子",
+      disabled: true,
+    }];
+  items.push({
+    label: "刷新本子",
+    run: () => loadPillar(view).catch((error) => toast(error.message, "error")),
+  });
+  openPageMenu(event, items);
+}
+
 function notebookPageMarkup(view) {
   const overview = state.overviews[view] || {};
   const chapter = state.chapter[view] || "";
@@ -823,8 +1013,9 @@ function notebookPageMarkup(view) {
   const searching = Boolean(state.search[view]?.trim());
   const notes = state.notes[view] || [];
   const customRows = overview.custom_notebooks || [];
+  const subRows = overview.sub_notebooks || [];
   const chapters = notebook
-    ? subchaptersFor(view, notebook.key, overview.chapters || [], customRows)
+    ? subchaptersFor(view, notebook.key, overview.chapters || [], customRows, subRows)
     : [];
   // 当前选中的子本子（只在本子页面里用 chip 切换，不改 state.notebook）。
   const customChapter = notebook?.custom && chapter && isCustomNotebookKey(chapter)
@@ -832,27 +1023,37 @@ function notebookPageMarkup(view) {
     && chapters.some((item) => item.key === chapter)
     ? customNotebookDefinition(chapter)
     : null;
+  const subChapter = chapter && isSubNotebookKey(chapter)
+    && chapters.some((item) => item.key === chapter)
+    ? chapters.find((item) => item.key === chapter) : null;
+  const subRow = subChapter ? subRowFor(view, chapter) : null;
   const title = searching
     ? `搜索「${state.search[view].trim()}」`
     : (customChapter ? customNotebookTrail(chapter)
-      : (notebook?.title || (chapter ? chapterTitle(view, chapter) : "全部笔记")));
+      : (subChapter ? subDisplayTitle(view, subRow || subChapter)
+        : (notebook?.title || (chapter ? chapterTitle(view, chapter) : "全部笔记"))));
   const eyebrow = searching ? "SEARCH"
-    : (customChapter?.eyebrow || notebook?.eyebrow || "CHAPTER");
-  const icon = customChapter?.icon || notebook?.icon || "·";
-  const tone = customChapter?.tone || notebook?.tone || "slate";
+    : (customChapter ? customChapter.eyebrow
+      : subChapter ? "SUB NOTEBOOK"
+        : (notebook?.eyebrow || "CHAPTER"));
+  const icon = customChapter?.icon
+    || (subChapter ? Array.from(String(subChapter.title))[0] || "本" : notebook?.icon || "·");
+  const tone = customChapter?.tone || (subChapter ? "slate" : notebook?.tone || "slate");
   const description = searching
     ? "在本库所有本子里查找标题、正文和标签。"
-    : (customChapter?.description || notebook?.description || "这个章节里的全部记录。");
+    : (customChapter?.description
+      || (subRow ? `子本子 · ${subRow.path}` : notebook?.description || "这个章节里的全部记录。"));
   const showChips = !searching && (notebook?.custom
     ? chapters.length > 0 : chapters.length > 1);
-  const subParent = notebook?.custom
-    ? (customChapter ? chapter : notebook.key)
-    : "";
+  const createTarget = notebookCreateTarget(view);
   // 选中子本子时，「删除本子」删除的是当前子本子，不会误删父本子。
-  const deleteBook = customChapter || notebook;
+  const deleteBook = customChapter || (subChapter
+    ? { key: chapter, title: subDisplayTitle(view, subRow || subChapter),
+      custom: true, sub: true, chapter: subChapter.chapter }
+    : notebook);
   const total = notebookCard?.count ?? notes.length;
   // 选中子本子时，标题旁显示的是当前子本子的篇数；「全部」chip 仍显示父本子总数。
-  const chapterRow = customChapter
+  const chapterRow = customChapter || subChapter
     ? chapters.find((item) => item.key === chapter) : null;
   const displayTotal = chapterRow ? Number(chapterRow.count) || 0 : total;
   const newChapter = chapter || defaultChapterForNotebook(notebook)
@@ -865,7 +1066,8 @@ function notebookPageMarkup(view) {
   const opsLegacyReadOnly = view === "ops" && !isTask;
   const isUtility = isHabit || isTask || opsLegacyReadOnly;
   const isInbox = view === "knowledge" && (chapter === "inbox" || notebook?.key === "inbox");
-  const isJournal = notebook?.key === "journal";
+  // 选中子本子时不再显示“今日日记”横幅；写入口走子本子。
+  const isJournal = notebook?.key === "journal" && (!chapter || chapter === "journal");
   const hero = view === "life" ? lifeHeroState(overview, shanghaiDay()) : null;
   const lifeDeleted = deletedNotebooksFor("life");
   const lifeJournalEnabled = !lifeDeleted.has("journal");
@@ -887,8 +1089,8 @@ function notebookPageMarkup(view) {
               ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>`
               : isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
             <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>
-            ${notebook?.custom ? `<button type="button" class="text-button" data-notebook-create="${escapeHtml(view)}" data-notebook-parent="${escapeHtml(subParent)}">＋ 子本子</button>` : ""}
-            ${canDeleteNotebook(view, deleteBook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(deleteBook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除${customChapter ? "子本子" : "本子"}</button>` : ""}`}
+            ${createTarget ? `<button type="button" class="text-button" title="${escapeHtml(createTarget.menuLabel)}" aria-label="${escapeHtml(createTarget.menuLabel)}" data-notebook-create="${escapeHtml(view)}" data-notebook-parent="${escapeHtml(createTarget.parent)}" data-notebook-parent-chapter="${escapeHtml(createTarget.parentChapter)}" data-notebook-location="${escapeHtml(createTarget.location)}">＋ 子本子</button>` : ""}
+            ${canDeleteNotebook(view, deleteBook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(deleteBook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除${(customChapter || subChapter) ? "子本子" : "本子"}</button>` : ""}`}
           </div>
         </header>
         ${showChips ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
@@ -1149,6 +1351,10 @@ async function loadPillar(view, { keepChapter = false, reuseOverview = false } =
       && !(overview.custom_notebooks || []).some((row) => row.key === state.chapter[view])) {
     state.chapter[view] = "";
   }
+  if (state.chapter[view] && isSubNotebookKey(state.chapter[view])
+      && !(overview.sub_notebooks || []).some((row) => row.key === state.chapter[view])) {
+    state.chapter[view] = "";
+  }
   // 内置本子被删除后从首页隐藏；停在这个本子的阅读/列表状态一并退出。
   const deletedNotebooks = deletedNotebooksFor(view);
   if (notebook && deletedNotebooks.has(notebook.key)) {
@@ -1314,13 +1520,11 @@ export async function openNoteMoveDialog(note, { view = appState.view } = {}) {
     initNoteMoveDialog();
     const payload = await api("/api/writing/chapters");
     const chapters = Array.isArray(payload?.[view]) ? payload[view] : [];
-    // 这是“换本子”：当前本子整体不列出；日记/任务/习惯等不在可写清单里，本来就不会出现。
-    const currentBookKey = notebookForChapter(view, note.chapter)?.key || "";
-    const targets = chapters.filter((chapter) => {
-      if (chapter.key === note.chapter || !canWriteChapter(view, chapter.key)) return false;
-      if (!currentBookKey) return true;
-      return notebookForChapter(view, chapter.key)?.key !== currentBookKey;
-    });
+    // 换本子：只排除当前所在位置（子本子按路径判断），父本子/兄弟子本子都可选。
+    const currentRow = subNotebookForPath(view, note.path);
+    const currentKey = currentRow?.key || note.chapter;
+    const targets = chapters.filter((chapter) =>
+      chapter.key !== currentKey && canWriteChapter(view, chapter.key));
     if (!targets.length) {
       toast("没有其他可移动的本子；可以先新建一个本子。", "warning");
       return;
@@ -1333,7 +1537,11 @@ export async function openNoteMoveDialog(note, { view = appState.view } = {}) {
     const noteTitle = noteMoveEl("note-move-note");
     if (noteTitle) noteTitle.textContent = `《${note.title || "未命名"}》`;
     const from = noteMoveEl("note-move-from");
-    if (from) from.textContent = `现在在：${noteChapterLocation(view, note.chapter)}`;
+    if (from) {
+      from.textContent = `现在在：${currentRow
+        ? subDisplayTitle(view, currentRow)
+        : noteChapterLocation(view, note.chapter)}`;
+    }
     const select = noteMoveEl("note-move-target");
     if (select) {
       select.innerHTML = `<option value="" disabled selected>选择目标本子 / 章节</option>${moveTargetMarkup(view, targets)}`;
@@ -1509,27 +1717,39 @@ function bindPillarEvents() {
     if (createNotebook) {
       const view = createNotebook.dataset.notebookCreate || appState.view;
       const parent = createNotebook.dataset.notebookParent || "";
+      const parentChapter = createNotebook.dataset.notebookParentChapter || "";
+      const location = createNotebook.dataset.notebookLocation || "";
       openNotebookCreateDialog(() => {
         invalidateChapterCache();
         // 创建后留在当前页面，只刷新列表；新建本子不再自动跳进去。
         loadPillar(view).catch((error) => toast(error.message, "error"));
-      }, { pillar: view, parent });
+      }, { pillar: view, parent, parentChapter, location });
       return;
     }
     const deleteNotebook = event.target.closest?.("[data-notebook-delete]");
     if (deleteNotebook) {
       const key = deleteNotebook.dataset.notebookDelete || "";
       const view = deleteNotebook.dataset.notebookDeletePillar || appState.view;
-      const notebook = displayNotebook(view, key);
+      const subRow = isSubNotebookKey(key) ? subRowFor(view, key) : null;
+      const notebook = subRow
+        ? notebookForChapter(view, subRow.chapter)
+        : displayNotebook(view, key);
       const customRow = (state.overviews[view]?.custom_notebooks || [])
         .find((row) => row.key === key);
-      const card = notebookCardsFor(view).find((item) => item.key === key) || customRow;
-      if (!notebook || !card || !canDeleteNotebook(view, notebook)) return;
+      const card = notebookCardsFor(view).find((item) => item.key === key)
+        || customRow || subRow;
+      const permissionBook = subRow
+        ? { key, custom: true, sub: true, title: subDisplayTitle(view, subRow) }
+        : notebook;
+      if (!notebook || !card || !canDeleteNotebook(view, permissionBook)) return;
       const count = Number(card.count) || 0;
-      const label = notebook.custom ? customNotebookTrail(key) : notebook.title;
+      const label = subRow ? subDisplayTitle(view, subRow)
+        : notebook.custom ? customNotebookTrail(key) : notebook.title;
+      const deletingSub = Boolean(subRow)
+        || (notebook.custom && customNotebookParentKey(key));
       const builtinHint = notebook.custom ? "" : "这个内置本子会从首页隐藏，相关入口也会停用；";
       const ok = await confirmAction({
-        title: notebook.custom && customNotebookParentKey(key) ? "删除这个子本子？" : "删除这个本子？",
+        title: deletingSub ? "删除这个子本子？" : "删除这个本子？",
         message: `${builtinHint}「${label}」和里面的 ${count} 篇文档会一起移入应用回收站（.torch-os/本子回收站），之后可在顶部「回收中心」整本恢复。`,
         confirmLabel: "删除本子", danger: true,
       });
@@ -1544,7 +1764,9 @@ function bindPillarEvents() {
         invalidateChapterCache();
         state.reading[view] = null;
         // 删子本子时留在父本子页面；删顶层/内置本子时回首页。
-        state.notebook[view] = notebook.custom ? customNotebookParentKey(key) : "";
+        state.notebook[view] = subRow
+          ? notebookForChapter(view, subRow.chapter)?.key || ""
+          : notebook.custom ? customNotebookParentKey(key) : "";
         state.chapter[view] = "";
         state.search[view] = "";
         state.searchSeq[view] = (state.searchSeq[view] || 0) + 1;
@@ -1794,6 +2016,8 @@ function bindPillarEvents() {
       closeReader(view);
     }
   });
+  // 本子详情页右键：像文件管理器一样新建子本子。
+  document.addEventListener("contextmenu", handleNotebookContextMenu);
 }
 
 async function copyText(text) {
@@ -1939,6 +2163,21 @@ function noteTemplate(type) {
 function openNewNote(view, chapter = "", type = "") {
   const meta = PILLAR_META[view];
   if (!meta) return;
+  const sub = subNotebookParts(chapter);
+  if (sub) {
+    const row = subRowFor(view, chapter);
+    const base = chapterEntry(view, sub.chapter);
+    const directory = row?.path || (base?.path ? `${base.path}/${sub.name}` : "");
+    if (!directory) {
+      toast("找不到子本子文件夹，请刷新后重试。", "warning");
+      return;
+    }
+    const target = `${directory}/未命名-${localStamp()}.md`;
+    if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || "note"))) {
+      toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
+    }
+    return;
+  }
   const custom = customNotebookName(chapter);
   if (custom && customNotebookPillar(chapter) === view) {
     const root = view === "knowledge" ? "知识库" : "人生路";
@@ -2046,6 +2285,7 @@ export function initPillars() {
   document.addEventListener("data-changed", () => {
     state.manifest = null;
     invalidateChapterCache();
+    closePageMenu();
   });
   // 编辑器保存/移动/删除后刷新列表；正在阅读同一篇时保持阅读位置但重读最新内容。
   document.addEventListener("torch:notes-changed", (event) => {

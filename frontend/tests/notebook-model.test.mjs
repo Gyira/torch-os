@@ -10,7 +10,12 @@ import {
   customNotebookParentKey,
   customNotebookRelativeTrail,
   customNotebookTrail,
+  isSubNotebookKey,
   subchaptersFor,
+  subNotebookChapter,
+  subNotebookKey,
+  subNotebookName,
+  subNotebookTrail,
 } from "../notebook-model.js";
 
 test("sub-notebook keys keep parent/child hierarchy", () => {
@@ -68,4 +73,44 @@ test("move targets label sub-notebooks with their parent path", () => {
   const custom = groups.find((group) => group.key === "custom");
   assert.ok(custom);
   assert.deepEqual(custom.chapters.map((chapter) => chapter.title), ["学习", "学习 / 数学"]);
+});
+
+test("built-in chapter sub-notebooks parse and group into their notebook", () => {
+  const key = subNotebookKey("essay", "灵感");
+  assert.equal(key, "sub:essay:灵感");
+  assert.equal(isSubNotebookKey(key), true);
+  assert.equal(subNotebookChapter(key), "essay");
+  assert.equal(subNotebookName(key), "灵感");
+  assert.equal(subNotebookTrail(subNotebookKey("reflection", "专题/复盘")), "专题 / 复盘");
+  assert.equal(isSubNotebookKey("essay"), false);
+
+  // 单章节本子：子本子直接显示名字。
+  const single = subchaptersFor("life", "essay", [
+    { key: "essay", title: "随笔", count: 2 },
+  ], [], [
+    { key, chapter: "essay", name: "灵感", chapter_title: "随笔", count: 1 },
+  ]);
+  assert.deepEqual(single.map((row) => row.title), ["随笔", "灵感"]);
+
+  // 多章节本子：子本子带上基础章节名，避免不同章节下同名混淆。
+  const multi = subchaptersFor("life", "reflection", [
+    { key: "reflection", title: "反思", count: 1 },
+    { key: "review_week", title: "周复盘", count: 0 },
+    { key: "review_month", title: "月复盘", count: 0 },
+  ], [], [
+    {
+      key: subNotebookKey("reflection", "专题"), chapter: "reflection",
+      name: "专题", chapter_title: "反思", count: 1,
+    },
+  ]);
+  assert.equal(multi.length, 4);
+  assert.equal(multi[3].title, "反思 · 专题");
+
+  const groups = buildMoveTargetGroups("life", [
+    { key: "essay", title: "随笔" },
+    { key, title: "灵感", chapter: "essay", chapter_title: "随笔", sub: true },
+  ], "journal");
+  const essay = groups.find((group) => group.key === "essay");
+  assert.ok(essay);
+  assert.deepEqual(essay.chapters.map((chapter) => chapter.key), ["essay", key]);
 });

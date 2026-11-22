@@ -174,6 +174,9 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
     stem = vault_layout.safe_note_stem(clean_title)
     path = _unique_path(target_dir, stem)
     timestamp = utc_now()
+    # 子本子的路径在固定章节下面，frontmatter 仍记所属章节，避免同一份笔记
+    # 因为所在子文件夹不同而呈现成不同“章节”；过滤/移动靠路径和子本子 key。
+    stored_chapter = vault_layout.base_chapter_key(chapter)
     metadata: dict[str, Any] = {
         "id": uuid4().hex,
         "type": note_type or vault_layout.chapter_default_type(chapter),
@@ -181,8 +184,8 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
         "created": timestamp,
         "updated": timestamp,
         "pillar": pillar,
-        "chapter": chapter,
-        "status": "inbox" if chapter == "inbox" else "active",
+        "chapter": stored_chapter,
+        "status": "inbox" if stored_chapter == "inbox" else "active",
     }
     if date:
         metadata["date"] = date
@@ -268,13 +271,16 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
             raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再移动")
     target_dir = workspace_path(vault, directory)
     target_dir.mkdir(parents=True, exist_ok=True)
+    # 目标就是当前文件夹：不改名、不复制，避免出现同名 -2 文件。
+    if source.parent.resolve() == target_dir.resolve():
+        return read_note(vault, relative)
     target = _unique_path(target_dir, source.stem)
     os.replace(source, target)
     new_relative = _relative(vault, target)
     loaded = load_note(target)
     metadata, body = parse_text(loaded["raw"].decode("utf-8-sig"))
     metadata["pillar"] = vault_layout.pillar_of(new_relative)
-    metadata["chapter"] = target_chapter
+    metadata["chapter"] = vault_layout.base_chapter_key(target_chapter)
     metadata["updated"] = utc_now()
     lines = ["---", *yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n"),
              "---", "", *body.split("\n")]

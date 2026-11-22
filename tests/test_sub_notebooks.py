@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from backend.app import notebooks, note_editor, pillars, recycle, vault_layout as layout
+from backend.app import notebooks, note_editor, pillar_notes, pillars, recycle, vault_layout as layout
 from backend.app.db import Database
 
 
@@ -119,3 +119,80 @@ def test_sub_notebook_cannot_escape_root_via_parent(setup):
             notebooks.create_notebook(db, vault, "子", parent=parent)
         assert error.value.status_code == 422
     assert not (vault.parent / "外面").exists()
+
+
+def test_builtin_chapter_sub_notebook_is_registered_and_counted(setup):
+    vault, db = setup
+    write(vault / layout.chapter_dir("essay") / "已有随笔.md")
+    sub = notebooks.create_notebook(
+        db, vault, "灵感", pillar="life", parent_chapter="essay")
+    assert sub["key"] == "sub:essay:灵感"
+    assert sub["path"] == "人生路/随笔/灵感"
+    assert layout.sub_notebook_exists(vault, "essay", "灵感")
+    assert not layout.is_sub_notebook_key("essay")
+
+    note = note_editor.create_note(db, vault, chapter=sub["key"],
+                                   title="小点子", body="正文")
+    assert note["path"] == "人生路/随笔/灵感/小点子.md"
+    # 内置子本子不改变基础章节：随笔的浏览/计数仍然完整。
+    assert note["chapter"] == "essay"
+    overview = pillars._overview(vault, db, "life")
+    row = next(item for item in overview["sub_notebooks"] if item["key"] == sub["key"])
+    assert row["chapter"] == "essay" and row["count"] == 1
+    essay_row = next(item for item in overview["chapters"] if item["key"] == "essay")
+    assert essay_row["count"] == 2
+    assert len(pillar_notes.list_notes(vault, chapter=sub["key"])) == 1
+
+
+def test_unregistered_subfolder_is_not_a_builtin_sub_notebook(setup):
+    vault, db = setup
+    folder = vault / layout.chapter_dir("essay") / "普通文件夹"
+    folder.mkdir(parents=True)
+    (folder / "笔记.md").write_text("正文", encoding="utf-8")
+    overview = pillars._overview(vault, db, "life")
+    assert all(item["key"] != "sub:essay:普通文件夹"
+               for item in overview.get("sub_notebooks", []))
+
+
+def test_builtin_sub_notebook_delete_and_restore_keeps_registration(setup):
+    vault, db = setup
+    write(vault / layout.chapter_dir("essay") / "保留在父本子.md")
+    parent = notebooks.create_notebook(
+        db, vault, "专题", pillar="life", parent_chapter="essay")
+    child = notebooks.create_notebook(
+        db, vault, "子层", pillar="life", parent_chapter="essay", parent="专题")
+    note = note_editor.create_note(db, vault, chapter=child["key"],
+                                   title="子层笔记", body="正文")
+    assert child["key"] == "sub:essay:专题/子层"
+
+    notebooks.delete_notebook(db, vault, pillar="life", key=parent["key"], confirm=True)
+    assert not (vault / parent["path"]).exists()
+    assert (vault / layout.chapter_dir("essay") / "保留在父本子.md").is_file()
+    assert not layout.sub_notebook_exists(vault, "essay", "专题")
+    assert not layout.sub_notebook_exists(vault, "essay", "专题/子层")
+
+    row = next(item for group in recycle.list_recycle(vault)["groups"]
+               for item in group["items"] if item["kind"] == "notebook")
+    assert row["title"] == "专题"
+    restored = recycle.restore_recycle(db, vault, paths=[row["trash_path"]])
+    assert restored["restored"] == 1, restored
+    assert (vault / note["path"]).is_file()
+    assert layout.sub_notebook_exists(vault, "essay", "专题")
+    assert layout.sub_notebook_exists(vault, "essay", "专题/子层")
+
+
+def test_journal_and_habit_do_not_support_sub_notebooks(setup):
+    vault, db = setup
+    for chapter in ["journal", "habit"]:
+        with pytest.raises(HTTPException) as error:
+            notebooks.create_notebook(
+                db, vault, "子本", pillar="life", parent_chapter=chapter)
+        assert error.value.status_code == 422
+
+
+def test_builtin_sub_notebook_rejects_hidden_base_chapter(setup):
+    vault, db = setup
+    layout.mark_notebook_deleted(vault, "life", "reflection")
+    with pytest.raises(HTTPException) as error:
+        notebooks.create_notebook(db, vault, "专题", pillar="life", parent_chapter="reflection")
+    assert error.value.status_code == 422

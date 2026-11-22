@@ -186,7 +186,47 @@ export function customNotebookKey(name, pillar = "life") {
   return `${prefix}${String(name || "")}`;
 }
 
-// 子本子：key 里用 `/` 分层（`custom:父/子`）；folder 层就是磁盘上的子文件夹。
+// 内置本子里的子本子：`sub:<章节 key>:<相对路径>`，目录在固定章节下面。
+export const SUB_NOTEBOOK_PREFIX = "sub:";
+
+export function subNotebookKey(chapter, name) {
+  return `${SUB_NOTEBOOK_PREFIX}${String(chapter || "")}:${String(name || "")}`;
+}
+
+export function subNotebookParts(key) {
+  const value = String(key || "");
+  if (!value.startsWith(SUB_NOTEBOOK_PREFIX)) return null;
+  const rest = value.slice(SUB_NOTEBOOK_PREFIX.length);
+  const index = rest.indexOf(":");
+  if (index <= 0 || index === rest.length - 1) return null;
+  const chapter = rest.slice(0, index);
+  const name = rest.slice(index + 1).replace(/^\/+|\/+$/g, "");
+  return chapter && name ? { chapter, name } : null;
+}
+
+export function isSubNotebookKey(key) {
+  return Boolean(subNotebookParts(key));
+}
+
+export function subNotebookChapter(key) {
+  return subNotebookParts(key)?.chapter || "";
+}
+
+export function subNotebookName(key) {
+  return subNotebookParts(key)?.name || "";
+}
+
+export function subNotebookLeafName(key) {
+  const parts = subNotebookName(key).split("/").filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
+/** 展示用层级：`子 / 孙`。 */
+export function subNotebookTrail(key) {
+  return subNotebookName(key).split("/").filter(Boolean).join(" / ");
+}
+
+// 自定义子本子：key 里用 `/` 分层（`custom:父/子`）；folder 层就是磁盘上的子文件夹。
 export function customNotebookParts(key) {
   return customNotebookName(key).split("/").filter(Boolean);
 }
@@ -275,6 +315,10 @@ export function notebookForChapter(pillar, chapter) {
   const target = String(chapter || "");
   if (!target) return null;
   if (isCustomNotebookKey(target)) return customNotebookDefinition(target);
+  const sub = subNotebookParts(target);
+  if (sub) {
+    return notebooksFor(pillar).find((item) => item.chapters.includes(sub.chapter)) || null;
+  }
   return notebooksFor(pillar).find((item) => item.chapters.includes(target)) || null;
 }
 
@@ -288,13 +332,23 @@ export function buildMoveTargetGroups(pillar, chapters = [], currentChapter = ""
     .filter((chapter) => chapter && chapter.key && chapter.key !== currentChapter);
   const byKey = new Map(rows.map((chapter) => [chapter.key, chapter]));
   const groups = [];
+  const covered = new Set();
   for (const notebook of notebooksFor(pillar)) {
-    const mine = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
+    const fixed = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
+    const subs = rows
+      .filter((row) => {
+        const sub = subNotebookParts(row.key);
+        return sub && notebook.chapters.includes(sub.chapter);
+      })
+      .map((row) => ({ ...row, title: subTargetTitle(row, notebook, byKey) }));
+    for (const key of notebook.chapters) covered.add(key);
+    for (const row of subs) covered.add(row.key);
+    const mine = [...fixed, ...subs];
     if (mine.length) groups.push({ key: notebook.key, title: notebook.title, chapters: mine });
   }
   const custom = rows
-    .filter((chapter) => chapter.custom === true
-      || customNotebookPillar(chapter.key) === pillar)
+    .filter((chapter) => !isSubNotebookKey(chapter.key)
+      && (chapter.custom === true || customNotebookPillar(chapter.key) === pillar))
     .map((chapter) => {
       const key = String(chapter.key || "");
       // 子本子带父路径，移动时不会和同名子本子混淆。
@@ -302,11 +356,21 @@ export function buildMoveTargetGroups(pillar, chapters = [], currentChapter = ""
         ? { ...chapter, title: customNotebookTrail(key) }
         : chapter;
     });
+  for (const chapter of custom) covered.add(chapter.key);
   if (custom.length) groups.push({ key: "custom", title: "我的本子", chapters: custom });
-  const covered = new Set(groups.flatMap((group) => group.chapters.map((chapter) => chapter.key)));
   const others = rows.filter((chapter) => !covered.has(chapter.key));
   if (others.length) groups.push({ key: "other", title: "其他", chapters: others });
   return groups;
+}
+
+/** 子本子在移动/编辑器下拉里的标题：多章节本子带上基础章节名。 */
+function subTargetTitle(row, notebook, byKey) {
+  const key = String(row.key || "");
+  const trail = subNotebookTrail(key);
+  if (!notebook || notebook.chapters.length <= 1) return trail;
+  const chapter = subNotebookChapter(key);
+  const chapterTitle = row.chapter_title || byKey.get(chapter)?.title || chapter;
+  return chapterTitle ? `${chapterTitle} · ${trail}` : trail;
 }
 
 function latestByDate(rows) {
@@ -411,7 +475,8 @@ export function notebookTotal(cards = []) {
   return cards.reduce((total, card) => total + (Number(card.count) || 0), 0);
 }
 
-export function subchaptersFor(pillar, notebookKey, chapterRows = [], customRows = []) {
+export function subchaptersFor(pillar, notebookKey, chapterRows = [],
+                               customRows = [], subRows = []) {
   const notebook = notebookById(pillar, notebookKey);
   if (!notebook) return [];
   const byKey = new Map((Array.isArray(chapterRows) ? chapterRows : [])
@@ -435,10 +500,29 @@ export function subchaptersFor(pillar, notebookKey, chapterRows = [], customRows
         };
       });
   }
-  return notebook.chapters
+  const fixed = notebook.chapters
     .map((key) => byKey.get(key))
     .filter(Boolean)
     .map((row) => ({ key: row.key, title: row.title || row.key, count: Number(row.count) || 0 }));
+  const subs = (Array.isArray(subRows) ? subRows : [])
+    .filter((row) => {
+      const sub = subNotebookParts(row?.key);
+      return sub && notebook.chapters.includes(sub.chapter);
+    })
+    .map((row) => {
+      const key = String(row.key);
+      const trail = subNotebookTrail(key);
+      const chapter = subNotebookChapter(key);
+      const title = notebook.chapters.length > 1
+        ? `${row.chapter_title || byKey.get(chapter)?.title || chapter} · ${trail}`
+        : trail;
+      return {
+        key, title, chapter,
+        count: Number(row.count) || 0,
+        sub: true,
+      };
+    });
+  return [...fixed, ...subs];
 }
 
 export function dayLabel(value) {

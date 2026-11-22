@@ -44,6 +44,8 @@ class NotebookCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=vault_layout.CUSTOM_NOTEBOOK_MAX_NAME)
     # 子本子：父本子的相对路径（如 "读书/小说"）；留空表示在库根下新建顶层本子。
     parent: str = Field(default="", max_length=240)
+    # 内置本子（日记/随笔/收件箱…）的子本子：所属固定章节 key；为空表示自建本子。
+    parent_chapter: str = Field(default="", max_length=80)
 
 
 class NotebookDeleteRequest(BaseModel):
@@ -116,9 +118,89 @@ def _custom_notebook_item(vault_dir: Path | str, pillar: str, name: str,
     }
 
 
+def _create_sub_notebook(database: Database, vault: Path, pillar: str,
+                         clean: str, parent_name: str, chapter: str, *,
+                         read_only: bool, audit: bool) -> dict[str, Any]:
+    """在内置本子的章节目录下创建已登记的子本子。"""
+    if chapter not in vault_layout.SUB_NOTEBOOK_CHAPTERS:
+        raise HTTPException(422, "这个本子不支持子本子")
+    if vault_layout.CHAPTER_BY_KEY[chapter][1] != pillar:
+        raise HTTPException(422, "子本子必须和本子在同一个库里")
+    if vault_layout.is_chapter_hidden(vault, chapter):
+        raise HTTPException(422, "这个本子已被删除，不能建子本子")
+    full_name = f"{parent_name}/{clean}" if parent_name else clean
+    try:
+        vault_layout.validate_notebook_path(full_name)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    if parent_name and not vault_layout.sub_notebook_exists(vault, chapter, parent_name):
+        raise HTTPException(422, "父本子不存在，请先创建父本子")
+    chapter_relative = vault_layout.chapter_dir(chapter)
+    chapter_path = workspace_path(vault, chapter_relative)
+    try:
+        chapter_path.mkdir(parents=True, exist_ok=True)
+        _assert_directory_chain(vault, chapter_path)
+    except FileExistsError as error:
+        raise HTTPException(409, "这个本子的文件夹被同名文件占用") from error
+    except HTTPException:
+        raise
+    except OSError as error:
+        raise HTTPException(500, f"无法准备本子文件夹：{error}") from error
+    parent_relative = (f"{chapter_relative}/{parent_name}"
+                       if parent_name else chapter_relative)
+    relative = vault_layout.sub_notebook_path(full_name, chapter)
+    target = workspace_path(vault, relative)
+    try:
+        if target.exists() or target.is_symlink():
+            raise HTTPException(409, "这个子本子已经存在")
+        parent_target = workspace_path(vault, parent_relative)
+        parent_target.mkdir(parents=True, exist_ok=True)
+        _assert_directory_chain(vault, parent_target)
+        target.mkdir()
+        _assert_directory_chain(vault, target)
+    except FileExistsError as error:
+        raise HTTPException(409, "这个子本子已经存在") from error
+    except HTTPException:
+        raise
+    except OSError as error:
+        raise HTTPException(500, f"创建子本子失败：{error}") from error
+
+    key = vault_layout.sub_notebook_key(chapter, full_name)
+    try:
+        vault_layout.register_notebook(vault, key)
+        clear_notebook_title(vault, pillar, key)
+    except Exception as error:
+        try:
+            vault_layout.unregister_notebook(vault, key, include_descendants=True)
+        except Exception:
+            pass
+        target.rmdir()
+        raise HTTPException(500, f"创建子本子失败：{error}") from error
+    if audit:
+        database.audit("notebook_created", {
+            "pillar": pillar, "name": full_name, "parent": parent_name,
+            "parent_chapter": chapter, "path": relative, "sub": True,
+        })
+    return {
+        "key": key,
+        "title": clean,
+        "name": full_name,
+        "parent": (vault_layout.sub_notebook_key(chapter, parent_name)
+                   if parent_name else ""),
+        "parent_chapter": chapter,
+        "depth": full_name.count("/"),
+        "path": relative,
+        "pillar": pillar,
+        "count": 0,
+        "latest": None,
+        "custom": False,
+        "sub": True,
+    }
+
+
 def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
                     pillar: str = "life", parent: str = "",
-                    read_only: bool = False,
+                    parent_chapter: str = "", read_only: bool = False,
                     audit: bool = True) -> dict[str, Any]:
     key_pillar = _require_pillar(pillar)
     try:
@@ -135,6 +217,11 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
         raise HTTPException(409, str(error)) from error
 
     vault = Path(vault_dir).resolve()
+    chapter = str(parent_chapter or "").strip()
+    if chapter:
+        return _create_sub_notebook(
+            database, vault, key_pillar, clean, parent_name, chapter,
+            read_only=read_only, audit=audit)
     if parent_name and not vault_layout.custom_notebook_exists(
             vault, key_pillar, parent_name):
         raise HTTPException(422, "父本子不存在，请先创建父本子")
@@ -159,11 +246,16 @@ def create_notebook(database: Database, vault_dir: Path | str, name: str, *,
 
     key = vault_layout.custom_notebook_key(full_name, key_pillar)
     try:
+        vault_layout.register_notebook(vault, key)
         if key_pillar in {"life", "knowledge"}:
             clear_notebook_title(vault, key_pillar, key)
-    except Exception:
+    except Exception as error:
+        try:
+            vault_layout.unregister_notebook(vault, key, include_descendants=True)
+        except Exception:
+            pass
         target.rmdir()  # Only the empty folder this request just created.
-        raise
+        raise HTTPException(500, f"创建本子失败：{error}") from error
     if audit:
         database.audit("notebook_created", {
             "pillar": key_pillar, "name": full_name, "parent": parent_name,
@@ -304,6 +396,93 @@ def _delete_custom_notebook(database: Database, vault: Path, pillar: str,
     }
 
 
+def _delete_sub_notebook(database: Database, vault: Path, pillar: str,
+                         key: str) -> dict[str, Any]:
+    """删除内置本子里的子本子：只移动这个子文件夹，并撤下登记。"""
+    parts = vault_layout.sub_notebook_parts(key)
+    if not parts:
+        raise HTTPException(422, "只能删除当前库的子本子")
+    chapter, name = parts
+    if vault_layout.CHAPTER_BY_KEY[chapter][1] != pillar:
+        raise HTTPException(422, "子本子和本子不在同一个库里")
+    display_title = (notebook_titles(vault, pillar).get(key)
+                     or vault_layout.notebook_leaf_name(name))
+    relative = vault_layout.sub_notebook_path(name, chapter)
+    target = workspace_path(vault, relative)
+    try:
+        target.lstat()
+    except FileNotFoundError as error:
+        raise HTTPException(404, "这个子本子已经不存在") from error
+    except OSError as error:
+        raise HTTPException(409, f"子本子文件夹不可读：{error}") from error
+    _assert_directory_chain(vault, target)
+    try:
+        if not is_workspace_path(vault, target.resolve()):
+            raise HTTPException(409, "子本子目录不在库内，已停止删除")
+        note_count = _count_markdown(target)
+    except HTTPException:
+        raise
+    except OSError as error:
+        raise HTTPException(409, f"子本子文件夹不可读：{error}") from error
+
+    # 回收目录用 sub-<章节> 隔离，恢复时按清单写回原路径并重新登记。
+    try:
+        batch = _new_notebook_batch(vault)
+        trash_target = batch / "notebooks" / pillar / f"sub-{chapter}" / name
+        trash_target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(target, trash_target)
+    except HTTPException:
+        raise
+    except OSError as error:
+        raise HTTPException(409, f"移入本子回收站失败：{error}") from error
+
+    trash_path = workspace_relative(vault, trash_target).as_posix()
+    batch_path = workspace_relative(vault, batch).as_posix()
+    manifest = {
+        "schema": 1,
+        "deleted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "pillar": pillar,
+        "name": name,
+        "key": key,
+        "builtin": False,
+        "sub": True,
+        "chapter": chapter,
+        "original_path": relative,
+        "display_title": display_title,
+        "trash_path": trash_path,
+        "note_count": note_count,
+    }
+    try:
+        (batch / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8", newline="\n")
+    except OSError as error:
+        _rollback_moves([(target, trash_target)])
+        raise HTTPException(409, "回收清单保存失败，已尝试将子本子恢复原位") from error
+    try:
+        # 只撤下当前这一层：下层登记保留，整夹恢复后子本子还能回来。
+        vault_layout.unregister_notebook(vault, key)
+    except OSError:
+        # 登记文件写不进去时，列表会因文件夹已不存在而自动隐藏；恢复时再写回。
+        pass
+    database.audit("notebook_deleted", {
+        "pillar": pillar, "name": name, "path": relative,
+        "trash": trash_path, "count": note_count, "builtin": False, "sub": True,
+    })
+    return {
+        "deleted": True,
+        "key": key,
+        "title": display_title,
+        "builtin": False,
+        "sub": True,
+        "path": relative,
+        "paths": [relative],
+        "trash_path": trash_path,
+        "trash_batch": batch_path,
+        "count": note_count,
+    }
+
+
 def _delete_builtin_notebook(database: Database, vault: Path, pillar: str,
                              key: str) -> dict[str, Any]:
     title = vault_layout.builtin_notebook_title(pillar, key)
@@ -418,6 +597,8 @@ def _delete_notebook(database: Database, vault_dir: Path | str, *, pillar: str,
 
     notebook_key = str(key or "").strip()
     vault = Path(vault_dir).resolve()
+    if vault_layout.is_sub_notebook_key(notebook_key):
+        return _delete_sub_notebook(database, vault, key_pillar, notebook_key)
     if notebook_key in vault_layout.BUILTIN_NOTEBOOKS.get(key_pillar, {}):
         if vault_layout.is_protected_notebook(key_pillar, notebook_key):
             title = vault_layout.builtin_notebook_title(key_pillar, notebook_key)
@@ -459,9 +640,10 @@ def create_notebook_router(database: Database, vault_dir: Path | str, *,
 
     @router.post("/notebooks")
     def create(payload: NotebookCreateRequest):
-        return create_notebook(database, vault_dir, payload.name,
-                               pillar=payload.pillar, parent=payload.parent,
-                               read_only=read_only)
+        return create_notebook(
+            database, vault_dir, payload.name,
+            pillar=payload.pillar, parent=payload.parent,
+            parent_chapter=payload.parent_chapter, read_only=read_only)
 
     @router.post("/notebooks/delete")
     def delete(payload: NotebookDeleteRequest):
