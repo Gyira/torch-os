@@ -163,7 +163,7 @@ test("机器相关设置只写本机文件，共享设置不包含 repoRoot", ()
     const python = makeRepo(repo);
     assert.match(helpers.localConfigDir(), /torch-os[\\/]obsidian-plugin$/);
     const written = helpers.writeDeviceSettings("vault-id-123", {
-      repoRoot: repo, pythonPath: python, instancePort: 9168,
+      repoRoot: repo, pythonPath: python, instancePort: 9168, uiPort: 9421,
       baseUrl: "http://127.0.0.1:8765",
     });
     assert.ok(written);
@@ -171,6 +171,7 @@ test("机器相关设置只写本机文件，共享设置不包含 repoRoot", ()
     assert.equal(loaded.repoRoot, repo);
     assert.equal(loaded.pythonPath, python);
     assert.equal(loaded.instancePort, 9168);
+    assert.equal(loaded.uiPort, 9421);
     assert.equal("baseUrl" in loaded, false);
     assert.equal(helpers.deviceConfigPath("a/b:c"), path.join(
       helpers.localConfigDir(), "a-b-c.json"));

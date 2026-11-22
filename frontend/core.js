@@ -1,5 +1,8 @@
 import { formatRelativeDate } from "./date-format.js";
 import { toast } from "./toast.js";
+import {
+  isPluginMode, noteServiceUnavailable, reportStaleRead, waitForService,
+} from "./service-gate.js";
 export { toast };
 export { formatRelativeDate };
 
@@ -9,9 +12,7 @@ export const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (ch
 export const jsonBody = (method, data) => ({ method, body: JSON.stringify(data) });
 export const changed = () => document.dispatchEvent(new CustomEvent("data-changed"));
 
-/** Central API boundary: JSON errors are shown without rendering server HTML. */
-export async function api(path, options = {}) {
-  const { timeoutMs = 30000, signal, ...requestOptions } = options;
+async function performFetch(path, requestOptions, timeoutMs, signal) {
   const controller = new AbortController();
   let timedOut = false;
   const cancel = () => controller.abort(signal.reason);
@@ -36,10 +37,21 @@ export async function api(path, options = {}) {
     }
     if (!response.ok) {
       const detail = payload?.detail || payload?.message;
-      const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join("；") : "";
-      const error = new Error(response.status === 401 ? "本地会话已失效，请刷新页面后再试。" : message || `请求失败（${response.status}），请稍后重试。`);
+      const detailMessage = typeof detail === "string" ? detail
+        : detail && typeof detail === "object" && !Array.isArray(detail) ? String(detail.message || "")
+          : Array.isArray(detail) ? detail.map((item) => item.msg).filter(Boolean).join("；") : "";
+      const message = response.status === 401
+        ? "本地会话已失效，请刷新页面后再试。"
+        : detailMessage || `请求失败（${response.status}），请稍后重试。`;
+      const error = new Error(message);
       error.status = response.status;
+      error.code = payload?.code || (detail && typeof detail === "object" ? detail.code : "") || "";
+      error.hint = detail && typeof detail === "object" ? detail.hint || "" : "";
+      error.servicePhase = response.headers.get("x-torch-service") || "";
       throw error;
+    }
+    if (response.headers.get("x-torch-cache") === "stale") {
+      reportStaleRead(response.headers.get("x-torch-cache-at") || "");
     }
     return payload;
   } catch (error) {
@@ -50,6 +62,37 @@ export async function api(path, options = {}) {
   } finally {
     window.clearTimeout(timer);
     signal?.removeEventListener("abort", cancel);
+  }
+}
+
+/** Central API boundary: JSON errors are shown without rendering server HTML. */
+export async function api(path, options = {}) {
+  const {
+    timeoutMs = 30000, signal, waitForService: waitForReady = true, ...requestOptions
+  } = options;
+  let retried = false;
+  while (true) {
+    try {
+      return await performFetch(path, requestOptions, timeoutMs, signal);
+    } catch (error) {
+      if (!retried && isPluginMode() && error.status === 503 && error.servicePhase) {
+        noteServiceUnavailable();
+        if (error.servicePhase === "starting" && waitForReady) {
+          retried = true;
+          try {
+            await waitForService({ timeoutMs: 20000, signal });
+          } catch (waitError) {
+            if (waitError?.name === "AbortError") throw waitError;
+            const wrapped = new Error(waitError?.message || "本地服务启动超时。");
+            wrapped.code = waitError?.code || "service_timeout";
+            wrapped.status = 503;
+            throw wrapped;
+          }
+          continue;
+        }
+      }
+      throw error;
+    }
   }
 }
 

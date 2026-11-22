@@ -59,7 +59,10 @@ SQLite（`ai_threads`/`ai_turns`/`ai_proposals`/`memory_hub_*` 等表随库一�
 （含 `.obsidian/plugins/torch/data.json` 的共享设置）；DSH 的模型与凭据在它自己的 `DSH_HOME`。
 Obsidian 插件的**本机**仓库路径、Python 路径和实例端口是对应设备的工具链信息，不是用户数据，
 单独放在 `%LOCALAPPDATA%\torch-os\obsidian-plugin\<vault_id>.json`（macOS/Linux 对应配置目录），
-不随库同步。torch 自己的业务数据与小组件个性化数据仍以 `.torch-os` 为准，**新增**数据不要再放进
+不随库同步。2.3.0 起同一配置目录下还有 `ui-cache/<vault_id>/`：只读页面接口的摘要缓存
+（工作台/任务/习惯/自我档案概览等），用于服务未就绪时先显示上次数据。它只含页面摘要，
+不含个人设置、正文、AI 对话或媒体；不随库同步，可在插件设置里查看占用并一键清除。
+torch 自己的业务数据与小组件个性化数据仍以 `.torch-os` 为准，**新增**数据不要再放进
 这些位置。
 
 ## 表清单

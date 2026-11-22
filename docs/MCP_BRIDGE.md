@@ -37,8 +37,9 @@
         failOnStartupError: false
 ```
 
-- `--base-url` 指向当前工作台实例：Obsidian 插件模式用插件挑的端口（默认从 `9168` 起），
-  浏览器模式用 `.env` 的 `8765`；端口变了要同步改这里。
+- `--base-url` 指向当前工作台的 **Python 后端**：Obsidian 插件模式用插件挑的后端端口
+  （默认从 `9168` 起），浏览器模式用 `.env` 的 `8765`；端口变了要同步改这里。
+  2.3.0 起 iframe 还有自己的界面端口（`uiPort`，9400 起），MCP/脚本不要指向它。
 - 改完先 `dsh --profile web --dump-config` 确认能看到 `mcp-torch` 且没有 not-found 警告。
   `web` profile 默认开着 HMR，正在运行的 dsh 会自动重载 patch，不需要重启。
 - 工具名是 `mcp__torch__<tool>`（例如 `mcp__torch__today`），契约仍是只读；

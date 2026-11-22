@@ -17,7 +17,7 @@
 ## 2. 60 秒自检
 
 1. 打开 `http://127.0.0.1:8765/api/health`，应看到 `status: ok` 和版本号。
-2. 打开 `http://127.0.0.1:8765/api/config/status`，确认 `version` 是 `2.1.0`，
+2. 打开 `http://127.0.0.1:8765/api/config/status`，确认 `version` 是 `2.3.0`，
    `capabilities` 里包含 `workbench`、`tasks`、`habits`、`schema_export`、`tools`。
 3. 打开设置 →「数据与恢复自检」，确认数据库完整性、Vault 文件数与最近备份。
 4. 点一次「一键恢复演练」：只生成备份与独立恢复副本，不覆盖当前库，不切换数据。

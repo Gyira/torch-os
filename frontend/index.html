@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /><link rel="stylesheet" href="/assets/material.css" /><link rel="modulepreload" href="/assets/app.js" /><link rel="modulepreload" href="/assets/core.js" /><link rel="modulepreload" href="/assets/workbench.js" /><link rel="modulepreload" href="/assets/time-module.js" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /><link rel="stylesheet" href="/assets/material.css" /><link rel="modulepreload" href="/assets/app.js" /><link rel="modulepreload" href="/assets/core.js" /><link rel="modulepreload" href="/assets/service-gate.js" /><link rel="modulepreload" href="/assets/workbench.js" /><link rel="modulepreload" href="/assets/time-module.js" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -24,6 +24,11 @@
     <div class="sidebar-footer"><span id="service-dot" class="status-dot" aria-hidden="true"></span><span class="sidebar-service"><span id="service-label">正在检查本地服务…</span><span id="service-version">版本读取中…</span></span></div>
   </aside>
   <main class="main" id="main-content" tabindex="-1">
+    <div id="service-banner" class="service-banner" role="status" aria-live="polite" hidden>
+      <span class="service-banner-dot" aria-hidden="true"></span>
+      <span id="service-banner-text" class="service-banner-text"></span>
+      <span id="service-banner-actions" class="service-banner-actions"></span>
+    </div>
     <div id="module-nav" class="module-nav" hidden aria-label="模块内部导航" role="navigation"></div>
     <p id="environment-banner" class="environment-banner" role="status" hidden></p>
     <header class="topbar"><div><span class="eyebrow">PERSONAL MENTOR</span><h1 id="page-title" tabindex="-1">今日</h1></div><div class="topbar-actions"><span id="scan-status" class="status-message" role="status">尚未扫描</span><button id="scan-btn" class="button secondary">扫描 Vault</button></div></header>

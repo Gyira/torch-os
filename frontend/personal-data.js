@@ -160,14 +160,14 @@ function installMirror() {
  * 启动时同步一次：后端有值的键覆盖本机缓存；本机多出来的键（升级前的老数据）推回后端。
  * 确认读到后端后才开启镜像；读不到就用本机缓存启动，本次会话不补写，下次启动再同步。
  */
-export async function initPersonalData() {
+export async function initPersonalData({ waitForService = true, timeoutMs = 3000 } = {}) {
   const store = localStorageRef();
   let remote = {};
   let loaded = false;
   let vaultId = "";
   try {
-    // 只等 3 秒：后端慢/不在时先用本机缓存把页面开起来，下次启动再同步。
-    const payload = await api(PERSONAL_DATA_URL, { timeoutMs: 3000 });
+    // 首屏不等服务：后端慢/不在时先用本机缓存把页面开起来，下次启动再同步。
+    const payload = await api(PERSONAL_DATA_URL, { timeoutMs, waitForService });
     if (payload?.values && typeof payload.values === "object") remote = payload.values;
     vaultId = typeof payload?.vault_id === "string" ? payload.vault_id : "";
     loaded = true;

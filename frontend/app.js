@@ -27,6 +27,7 @@ import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 import { initMaterialMotion } from "./material-motion.js";
 import { initDataCenter, loadDataCenter } from "./data-center.js";
 import { initContextSettings } from "./context-settings.js";
+import { initServiceGate } from "./service-gate.js";
 
 const titles = NAV_LABELS;
 
@@ -673,8 +674,27 @@ function scheduleWorkbenchAnchor() {
 }
 
 // 顶层数据规则：小组件偏好等个性化数据以当前个人数据库的 .torch-os/personal-data.json 为准。
-// 先把库里的值灌回 localStorage，再初始化各小组件；后端不可用时用本机缓存继续启动。
-try { await initPersonalData(); } catch { /* 离线启动：localStorage 仍是可用的本机缓存 */ }
+// 首屏不等待它：先用 localStorage 里的本机缓存把界面画出来，后台读完再补一次。
+initServiceGate();
+let personalDataSynced = false;
+const refreshAfterPersonal = (result) => {
+  if (!result?.synced) return;
+  personalDataSynced = true;
+  applyNavOrder();
+  if (state.view === "workbench") loadWorkbench();
+};
+initPersonalData({ waitForService: false, timeoutMs: 1500 })
+  .then(refreshAfterPersonal)
+  .catch(() => null);
+document.addEventListener("torch:service-ready", () => {
+  loadSettings();
+  if (!personalDataSynced) {
+    initPersonalData({ waitForService: false, timeoutMs: 3000 })
+      .then(refreshAfterPersonal)
+      .catch(() => {});
+  }
+  if (state.view === "workbench") loadWorkbench();
+});
 initSettings();
 initWorkbench(); initPillars();
 initMentorStrip();

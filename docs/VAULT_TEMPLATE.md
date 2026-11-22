@@ -241,7 +241,7 @@
   "layout_version": "pillars-v2",
   "created_at": "2026-10-26T01:23:45+08:00",
   "source": "backend/app/vault_layout.py",
-  "plugin_version": "2.2.0",
+  "plugin_version": "2.3.0",
   "pillars": [
     {
       "key": "life",

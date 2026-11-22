@@ -1,4 +1,4 @@
-# 薪火OS（Torch OS）· 2.2
+# 薪火OS（Torch OS）· 2.3
 
 > 一个**本地优先**的个人 AI 工作台：记录、记忆、目标与时间管理都住在你自己的电脑上。
 > 数据是本体，对话由本地 DeepSeek Harness 提供；它直接读写当前库，重要改动请自行备份。
@@ -10,6 +10,21 @@
 torch 的普通资料与任务功能不联网、不保存 dsh 密钥；自由对话、页面角色与专家报告都由本地
 DeepSeek Harness（dsh）提供，角色只拿后端拼好的只读上下文；记忆中枢（忆灵）与 AI 提案
 也只在你点击时运行。恋爱系统的所有 AI 同样走 dsh，不再单独配置 DeepSeek Key。
+
+## 2.3 更新摘要（2026-11-22）
+
+- **工作台秒开**：Obsidian 插件现在自带一个只监听 `127.0.0.1` 的界面服务，直接从
+  仓库的 `frontend/` 提供 HTML/CSS/JS；打开面板时不再等 Python 健康检查。Python 在
+  后台启动，需要数据时再经同一来源代理 `/api/*` 与 `/harness/*`（含 WebSocket）。
+- **服务未就绪先看上次数据**：工作台、任务、习惯、自我档案概览等只读接口会缓存在
+  本机配置目录（不进库、不进网盘）；服务启动中先显示缓存并标注，就绪后自动换新。
+- **失败快速且具体**：监听了进程退出并读取本次启动的日志尾部；旧编号目录、依赖缺失、
+  端口占用、数据库锁等会直接显示原因和处理入口，不再等 30 秒后只给一句路径提示。
+- **旧编号目录一键整理**：失败提示里提供只读预览 + 显式确认的迁移入口，调用
+  `scripts/unnumber_vault.py`（自带备份、校验和回滚清单）。
+- **浏览器直开不变**：直接访问 Python 服务的 8765 端口仍按原方式工作，服务门控自动
+  no-op。
+- 插件版本 `2.3.0`，后端 `APP_VERSION 2.3.0`。
 
 ## 2.2 更新摘要（2026-11-01）
 
@@ -377,13 +392,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
 （`PORT` 从 9168 起挑空闲端口，`VAULT_DIR` = 当前库，数据放在当前库的 `.torch-os/`），
 所以在库 A 看到的是 A 的任务/日记/记忆，在库 B 就是 B 的一套；不同库不会混。
 8765 留给浏览器/手动模式，两边可以同时运行。
+**界面先出、服务后台启动（2.3.0 起）**：插件自己的 Node 界面服务（只监听 `127.0.0.1`，
+`uiPort` 从 9400 起）先把 `frontend/` 的界面画出来，Python 随后在后台启动；`/api/*` 与
+`/harness/*` 由同一个来源代理。服务未就绪时常用只读页面先显示本机缓存（在
+`%LOCALAPPDATA%\torch-os\obsidian-plugin\ui-cache\<vault_id>`，不进库/网盘）。启动失败会在
+工作台顶部显示具体原因，并提供重试、查看日志、整理旧目录入口，不再等 30 秒或只给一句路径提示。
 启动后端用的是「仓库路径/.venv/Scripts/python.exe」，所以**第 1 步必须先做完**。
-仓库路径、Python 路径和实例端口只保存在本机
+仓库路径、Python 路径、实例端口与界面端口只保存在本机
 `%LOCALAPPDATA%\torch-os\obsidian-plugin\<vault_id>.json`，不会写进随库同步的 `data.json`；
 同一库在两台设备上打开时，各自自动查找本机仓库（也会优先选带 `.venv` 的那个），不需要手动切换。
 插件设置页仍可手动填写仓库路径/Python 路径（仅本机）、是否自动拉起与候选服务地址；
-启动日志在 `当前库/.torch-os/`。浏览器直开 `http://127.0.0.1:8765` 时仍按 `.env` 的工作区运行，
-两者互不影响。
+启动日志在 `当前库/.torch-os/logs/torch-backend-<port>.log`。浏览器直开 `http://127.0.0.1:8765`
+时仍按 `.env` 的工作区运行，两者互不影响。
 
 > 注意：**不同库的数据不自动拷贝**。原来的 `data/vault`（或另一个工作区）里的任务、日记、记忆
 > 只属于那个工作区；想在新 Obsidian 库里看到，需要手动复制对应的 Markdown/`.torch-os`，或在浏览器模式里继续用原工作区。
@@ -398,7 +418,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1
 | 想确认依赖装没装齐 | `.\.venv\Scripts\python.exe scripts\check_deps.py` —— 不联网，逐条比对 `requirements.lock.txt` 并点名缺哪条 |
 | `No module named venv` | 用的是嵌入式/精简版 Python → 换 python.org 或 winget 的完整版 |
 | Obsidian 左侧没有图标 | 没完全重启；或选库时选错了一层（要选有 `.obsidian` 的根目录）；或处于限制模式 |
-| 打开视图提示连不上服务 | 第 1 步没做完（缺 `.venv`）；或查看 `当前库/.torch-os/logs/torch-backend-*.log` 里的启动报错；端口由插件自动挑，不再固定 8765 |
+| 工作台界面能开，但顶部提示服务未启动 | 看提示里的原因和“查看日志”：缺 `.venv`、旧编号目录、端口占用、数据库锁都会直接说明；旧编号目录可直接点“整理旧目录”。界面本身不再被服务挡住 |
 
 - 浏览器模式的数据落在 `.env` 的工作区（默认 `data\`，整个目录都被 Git 忽略）；
   在 Obsidian 插件里，每个库的数据落在该库自己的 `.torch-os\`，见下方「工作区」。
@@ -489,9 +509,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check_all.ps1
 `.torch-os\`（隐藏目录，Obsidian 不显示，扫描也按点目录跳过）。拷贝整个文件夹 = 拷贝这个人的
 全部数据。
 
-- **Obsidian 插件模式（0.99 起）**：在哪个库打开，哪个库就是工作区。插件按库自动启动/复用一个
-  独立后端实例（端口、`VAULT_DIR`、`.torch-os` 都是该库的），设置页里的工作区切换在插件里被禁用；
-  想换库就在 Obsidian 里打开另一个库，不需要手动登记或重启。
+- **Obsidian 插件模式（0.99 起）**：在哪个库打开，哪个库就是工作区。插件按库先提供本地界面，
+  再自动启动/复用一个独立后端实例（端口、`VAULT_DIR`、`.torch-os` 都是该库的），设置页里的
+  工作区切换在插件里被禁用；想换库就在 Obsidian 里打开另一个库，不需要手动登记或重启。
 - **从零开始一个库**：设置 →「Obsidian 库连接」→「个人数据库」，选父文件夹 + 名字，点
   「创建新的个人数据库」；它只写新文件夹（四库 + `_系统`/`任务` + `.torch-os/vault-layout.json`
   + `.obsidian` 预设 + 插件 + 种子身份），完成后按返回的 `obsidian://open?vault=<名字>`

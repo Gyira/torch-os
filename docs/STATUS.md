@@ -1,7 +1,29 @@
-# 当前状态与交接（2026-11-01；2026-11-05 更新）
+# 当前状态与交接（2026-11-01；2026-11-22 更新）
 
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
+
+## 2026-11-22 工作台秒开（2.3.0）
+
+- 插件在 `main.js` 内新增 `LocalUiServer`：只监听 `127.0.0.1`，直接提供
+  `frontend/` 静态界面，并把 `/api/*`、`/harness/*`（HTTP + WebSocket）代理到当前库
+  的 Python 后端；iframe origin 固定为 `http://127.0.0.1:<uiPort>`（9400–9431）。
+- `BackendController` 把启动改为 `idle → starting → ready | failed` 状态机：打开工作台
+  后后台启动，监听子进程 `exit` 并读取本次启动新增的日志尾部，快速给出具体失败；
+  不再等待 30 秒或显示泛泛的路径提示。日志增加 UTF-8 环境变量。
+- 前端新增 `frontend/service-gate.js`：`/__torch/service` 轮询、503 启动中等待并只
+  重试一次、失败/未启动状态条、重试/日志/整理旧目录入口；就绪后重跑当前数据加载器。
+- `UiCache`：只读 GET + JSON + ≤1MiB 的接口缓存到
+  `%LOCALAPPDATA%\torch-os\obsidian-plugin\ui-cache\<vault_id>`，服务未就绪时回放并
+  标注“显示上次缓存”；不缓存个人设置、正文、AI、媒体。
+- `VaultMigrator`：`numbered_vault` 失败可一键预览（只读）并显式确认后运行
+  `scripts/unnumber_vault.py`；当前个人库已于 2026-11-22 完成迁移
+  （67 目录 / 17,547 文件，清单在 `.torch-os/backups/directory-names/20261122T153352101901Z/`）。
+- 验证：`scripts/test_local_ui_server.mjs` 12 项、`scripts/test_service_gate_api.mjs` 4 项、
+  既有 JS 回归 58 项、全量 pytest 177 passed；Edge 无头实测：健康库工作台、服务失败、
+  服务启动中、缓存回放四种状态均正常。
+- 版本：`APP_VERSION 2.3.0`、插件 manifest/main/README、README、WAKE_UP_START、
+  VAULT_TEMPLATE 已对齐。
 
 ## 2026-11-05 导师档案：`identity` 被当成未知本子（修复）
 
@@ -134,7 +156,7 @@
 
 - 分支：`main`
 - 代码基线：`b2421ff`（`feat(banner): 优化横幅统计模式为 GitHub 风格正方形热力图`，以 `git log -1` 为准）
-- 版本：**2.2.0**（AI 角色管理页，2026-11-01）。
+- 版本：**2.3.0**（工作台秒开，2026-11-22；上一版 2.2.0 为 AI 角色管理页）。
 - 工作树：**健康系统 v3 + 恋爱系统 v2 + AI 角色管理页未提交**（健康七页前端、
   沿用/四维评分、AI 估算、健康档案、私人医生报告；恋爱七页前端、新后端模块、迁移、
   组件修复；AI 角色管理页、角色档案 API、前端测试与文档）；另有本次之前就存在的

@@ -112,7 +112,7 @@ from .wolai_import import WolaiImportError, preview_wolai_archive, import_select
 from .wolai_import import preview_import_states
 from .workbench import create_workbench_router
 
-APP_VERSION = '2.2.0'
+APP_VERSION = '2.3.0'
 
 # Page manifest consumed by the local dsh sidebar plugin (0.88.0). The labels
 # mirror frontend/nav-order.js; tests keep the two in sync.
