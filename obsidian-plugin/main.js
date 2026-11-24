@@ -2005,7 +2005,7 @@ class WorkbenchView extends ItemView {
     this.frame.addEventListener('load', () => {
       this.plugin.pushTheme(this.frame);
     });
-    this.registerDomEvent(window, 'message', (event) => {
+    this.registerDomEvent(window, 'message', async (event) => {
       if (!event || event.source !== this.frame?.contentWindow) return;
       const data = event.data;
       if (data?.type === 'torch:dida') {
@@ -2018,13 +2018,23 @@ class WorkbenchView extends ItemView {
         return;
       }
       if (data?.type === 'torch:theme-request') { this.plugin.pushTheme(this.frame); return; }
-      if (data?.type === 'torch:open-note') { this.plugin.openNote(data.path, event.origin); }
-      if (data?.type === 'torch:new-note') { this.plugin.createNote(data.path, data.content, event.origin); }
+      if (data?.type === 'torch:open-note' || data?.type === 'torch:new-note') {
+        const creating = data.type === 'torch:new-note';
+        const file = creating ? await this.plugin.createNote(data.path, data.content, event.origin)
+          : await this.plugin.openNote(data.path, event.origin, data.edit === true);
+        if (file && (creating || data.edit)) this.editedNote = { file, previousPath: data.path };
+      }
       if (data?.type === 'torch:open-url') { this.plugin.openExternalUrl(data.url, event.origin); }
       if (data?.type === 'torch:open-plugin-settings') { this.plugin.openPluginSettings(); }
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
-    this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
+    this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+      if (leaf === this.leaf && this.editedNote) {
+        const { file, previousPath } = this.editedNote;
+        this.editedNote = null;
+        this.frame?.contentWindow?.postMessage({ type: 'torch:note-returned', path: file.path, previousPath,
+          deleted: !this.app.vault.getAbstractFileByPath(file.path) }, this.uiOrigin());
+      }
       if (this.didaGuest) this.positionDida();
       this.positionChatgpt();
     }));
@@ -2737,8 +2747,8 @@ module.exports = class TorchPlugin extends Plugin {
     } catch { /* ignore */ }
   }
 
-  /** 打开任务文档：只接受当前库里的任务笔记或旧的 任务（tasks）.md。 */
-  async openNote(pathValue, origin) {
+  /** 在新标签打开当前库的 Markdown，编辑请求使用 Obsidian 的编辑模式。 */
+  async openNote(pathValue, origin, edit = false) {
     if (!this.uiUrl || !this.frameOriginMatches(origin)) return;
     if (typeof pathValue !== 'string' || !pathValue || pathValue.length > 1024) return;
     if (pathValue.includes('\\') || pathValue.startsWith('/') || pathValue.split('/').includes('..')) {
@@ -2767,10 +2777,11 @@ module.exports = class TorchPlugin extends Plugin {
     }
     try {
       const leaf = this.app.workspace.getLeaf('tab');
-      await leaf.openFile(file);
+      await leaf.openFile(file, edit ? { state: { mode: 'source' } } : undefined);
       try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
+      return file;
     } catch (error) {
-      new Notice(`打开任务文档失败：${String(error?.message || error)}`);
+      new Notice(`打开文档失败：${String(error?.message || error)}`);
     }
   }
 
@@ -2793,8 +2804,9 @@ module.exports = class TorchPlugin extends Plugin {
     if (existing instanceof TFile) {
       try {
         const leaf = this.app.workspace.getLeaf('tab');
-        await leaf.openFile(existing);
+        await leaf.openFile(existing, { state: { mode: 'source' } });
         try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
+        return existing;
       } catch (error) {
         new Notice(`打开笔记失败：${String(error?.message || error)}`);
       }
@@ -2807,8 +2819,9 @@ module.exports = class TorchPlugin extends Plugin {
       }
       const file = await this.app.vault.create(normalized, content);
       const leaf = this.app.workspace.getLeaf('tab');
-      await leaf.openFile(file);
+      await leaf.openFile(file, { state: { mode: 'source' } });
       try { this.app.workspace.setActiveLeaf(leaf, { focus: true }); } catch { /* 旧版本没有 options */ }
+      return file;
     } catch (error) {
       new Notice(`新建笔记失败：${String(error?.message || error)}`);
     }

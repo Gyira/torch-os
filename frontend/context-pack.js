@@ -15,7 +15,7 @@ export async function openContextPack() {
     dialog.setAttribute("aria-labelledby", "context-pack-heading");
     document.body.append(dialog);
   }
-  dialog.innerHTML = `<header class="note-editor-head"><div><h2 id="context-pack-heading">ChatGPT 资料包</h2><p>挑选笔记，预览正文，再导出到本机。</p></div><button type="button" class="button secondary" data-pack-close>关闭</button></header>
+  dialog.innerHTML = `<header class="document-dialog-head"><div><h2 id="context-pack-heading">ChatGPT 资料包</h2><p>挑选笔记，预览正文，再导出到本机。</p></div><button type="button" class="button secondary" data-pack-close>关闭</button></header>
     <div class="context-pack-body">
       <p class="field-help">默认不选中任何内容；附件不包含。导出后需自行上传或替换 ChatGPT 项目文件。</p>
       <div class="context-pack-filters"><label>目录 / 主题 <input data-pack-filter type="search" placeholder="搜索路径，如日记、自我档案" /></label>

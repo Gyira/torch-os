@@ -2,8 +2,8 @@ import { openDshDrawer } from "./dsh-drawer.js";
 import { editArchiveEntry } from "./self-entry-editor.js";
 // 自我档案三部分外壳（2026-11-01）：自我档案 / 人生导师 / 八字系统。
 // 左栏两级展开；档案模块在 self-archive.js，导师在 mentor.js，八字在 self-bazi.js。
-import { $, api, escapeHtml, openDialog, toast } from "./core.js";
-import { renderMarkdownDocument } from "./pillar-markdown.js";
+import { $, api, escapeHtml, toast } from "./core.js";
+import { showMarkdownNote } from "./markdown-dialog.js";
 import { BOOKS } from "./self-archive-model.js";
 import {
   initSelfArchive, loadArchiveOverview, openBook, currentBookKey,
@@ -286,8 +286,7 @@ async function runSearch(query) {
 async function openSearchResult(path) {
   try {
     const note = await api(`/api/notes?path=${encodeURIComponent(path)}`);
-    const html = renderMarkdownDocument(String(note.body || "")).html;
-    openDialog(String(note.title || "档案条目"), `<p class="field-help">${escapeHtml(path)}</p><div class="md-body">${html}</div>`);
+    showMarkdownNote(note, state.overview?.vault_name);
   } catch (error) {
     toast(`打不开：${error.message}`, "error");
   }

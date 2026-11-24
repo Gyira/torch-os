@@ -14,7 +14,7 @@ export async function openAIHandoff(payload) {
     document.body.append(dialog);
   }
   const controller = new AbortController();
-  dialog.innerHTML = `<header class="note-editor-head"><div><h2 id="ai-handoff-heading">到 ChatGPT 继续聊</h2><p>先核对背景，再复制到你习惯的对话工具。</p></div><button type="button" data-handoff-close class="button secondary">关闭</button></header>
+  dialog.innerHTML = `<header class="document-dialog-head"><div><h2 id="ai-handoff-heading">到 ChatGPT 继续聊</h2><p>先核对背景，再复制到你习惯的对话工具。</p></div><button type="button" data-handoff-close class="button secondary">关闭</button></header>
     <div class="context-pack-body"><p class="field-help">这里只在本机准备内容，不调用模型、不自动上传、不写入记忆。图片附件未包含。</p>
     <label><input type="checkbox" data-handoff-history ${payload.thread_id ? "" : "disabled"} /> 附带本角色的近期对话节选</label>
     <p data-handoff-status role="status">正在准备背景…</p>

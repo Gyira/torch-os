@@ -139,7 +139,7 @@ function renderTemplate(template) {
   const flatCount = Array.isArray(template?.chapters) ? template.chapters.length : 0;
   const chapterCount = flatCount || tree.reduce((total, pillar) => total + pillar.chapters.length, 0);
   const summary = $("#vault-template-summary");
-  if (summary) summary.textContent = `${chapterCount} 个章节 / layout ${layoutLabel(template?.layout_version)}`;
+  if (summary) summary.textContent = `${chapterCount} 个文档目录 / layout ${layoutLabel(template?.layout_version)}`;
   const extras = Array.isArray(template?.extra_directories) ? template.extra_directories : [];
   const seeds = Array.isArray(template?.seed_files) ? template.seed_files : [];
   const obsidian = template?.obsidian || {};
@@ -167,7 +167,7 @@ function renderTemplate(template) {
     <p class="field-help"><strong>额外目录</strong>：${extras.length ? extras.map((item) => `<code>${escapeHtml(item)}</code>`).join("、") : "无"}</p>
     <p class="field-help"><strong>种子文件</strong>：${seeds.length ? seeds.map((item) => `<code>${escapeHtml(item)}</code>`).join("、") : "无"}</p>
     <p class="field-help"><strong>.obsidian 预设</strong>：app.json、appearance.json、core-plugins.json（${escapeHtml(corePluginText)}）与 community-plugins.json（${communityPlugins.length ? escapeHtml(communityPlugins.join("、")) : "无"}）；插件 ${escapeHtml(plugin.id || "torch")} ${escapeHtml(plugin.version || "版本未知")}（${pluginFiles.length ? escapeHtml(pluginFiles.join("、")) : "文件未知"}）。</p>
-    <p class="field-help">模板来自 <code>${escapeHtml(template?.template_source || "backend/app/vault_layout.py")}</code>；改这里的章节表，创建新库与读取映射会一起变化，本页不复制路径表。</p>
+    <p class="field-help">模板来自 <code>${escapeHtml(template?.template_source || "backend/app/vault_layout.py")}</code>；改这里的目录映射表，创建新库与读取映射会一起变化，本页不复制路径表。</p>
     ${template?.note ? `<p class="field-help">${escapeHtml(template.note)}</p>` : ""}
     <div class="section-actions"><button class="text-button" type="button" data-vault-template-retry>重新读取模板</button></div>`;
   applyDefaultParent(template);

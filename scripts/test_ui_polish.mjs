@@ -4,7 +4,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
-import * as editorModel from "../frontend/editor-model.js";
 import * as taskModel from "../frontend/tasks-model.js";
 import * as roleModel from "../frontend/roles-model.js";
 import * as mentorModel from "../frontend/mentor-model.js";
@@ -496,53 +495,6 @@ test("任务失败保留草稿并允许用户重试；成功清除原草稿", as
   'loadTimeTasks = async () => {};');
   await context.createTask(); assert.equal(input.value, "草稿");
   fail = false; await context.createTask(); assert.equal(input.value, "");
-});
-
-async function editorEnvironment(api) {
-  const env = environment();
-  for (const [id, value] of [["title", "提交的标题"], ["tags", "旧标签"], ["chapter", "life_notes"], ["text", "提交的正文"]]) env.add(`note-editor-${id}`, "input", value);
-  env.add("note-editor-save", "button"); env.add("note-editor-status", "p");
-  const context = await load("note-editor.js", { ...env, ...editorModel, api, toast() {} }, `
-    Object.assign(state, {open:true, mode:"edit", title:"旧标题", tags:[], chapter:"life_notes", path:"note.md", revision:"r1"});
-    dispatchNotesChanged = () => {}; updatePreview = () => {}; refreshTemplateStrip = () => {}; hideTemplateUndo = () => {};
-    globalThis.editorState = state;
-  `);
-  return { ...env, context };
-}
-
-test("编辑器回包保留保存期间修改的标题、标签、本子、正文及脏状态", async () => {
-  const request = deferred(); const { document, context } = await editorEnvironment(() => request.promise);
-  const saving = context.saveNote();
-  document.getElementById("note-editor-title").value = "新的标题";
-  document.getElementById("note-editor-tags").value = "新标签";
-  document.getElementById("note-editor-chapter").value = "other_book";
-  document.getElementById("note-editor-text").value = "继续写的正文";
-  request.resolve({ title: "提交的标题", tags: ["旧标签"], chapter: "life_notes", body: "提交的正文", path: "note.md", revision: "r2" });
-  await saving;
-  for (const [id, expected] of [["title", "新的标题"], ["tags", "新标签"], ["chapter", "other_book"], ["text", "继续写的正文"]]) assert.equal(document.getElementById(`note-editor-${id}`).value, expected);
-  assert.equal(context.editorState.revision, "r2"); assert.equal(context.dirty(), true);
-  assert.match(document.getElementById("note-editor-status").textContent, /仍有未保存/);
-});
-
-test("编辑器冲突不改草稿；保存中不能关闭或重载", async () => {
-  const request = deferred(); const { context, document } = await editorEnvironment(() => request.promise);
-  const saving = context.saveNote(); await context.closeEditor(); await context.reloadNote();
-  assert.equal(context.editorState.open, true);
-  request.reject(Object.assign(Error("conflict"), { status: 409 })); await saving;
-  assert.equal(document.getElementById("note-editor-title").value, "提交的标题");
-  assert.equal(context.editorState.revision, "r1"); assert.equal(context.editorState.busy, false);
-});
-
-test("移动失败保留目标本子以便重试，并保持未保存状态", async () => {
-  let calls = 0;
-  const { context, document } = await editorEnvironment(async () => {
-    if (++calls === 2) throw Error("move failed");
-    return { title:"提交的标题", tags:["旧标签"], chapter:"life_notes", body:"提交的正文", path:"note.md", revision:"r2" };
-  });
-  document.getElementById("note-editor-chapter").value = "target_book";
-  await context.saveNote();
-  assert.equal(calls, 2); assert.equal(document.getElementById("note-editor-chapter").value, "target_book");
-  assert.equal(context.editorState.chapter, "life_notes"); assert.equal(context.dirty(), true);
 });
 
 test("搜索清空/更改查询立即失效旧响应，关闭后不更新且无定时器残留", async () => {

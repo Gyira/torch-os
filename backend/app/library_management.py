@@ -28,7 +28,7 @@ class LibraryNoteRequest(BaseModel):
     path: str = Field(min_length=1, max_length=2048)
     expected_revision: str = Field(min_length=1, max_length=64)
     title: str = Field(default="", max_length=200)
-    target_chapter: str = Field(default="", max_length=120)
+    target_chapter: str = Field(default="", max_length=256)
 
 
 def notebook_titles(vault_dir, pillar):
@@ -132,8 +132,8 @@ def manage_note(database, vault_dir, payload, *, read_only=False):
         else:
             target = note_editor._require_writable_chapter(payload.target_chapter, vault_dir)
             note_editor._ensure_custom_notebook_exists(vault_dir, target)
-            if note_editor.chapter_pillar(target) != vault_layout.pillar_of(note["path"]):
-                raise HTTPException(422, "只能在同一个库内移动文档")
+            if note_editor.chapter_pillar(target) not in {"life", "knowledge"}:
+                raise HTTPException(422, "请选择人生路或知识库中的本子")
             if chapter != "journal":
                 return note_editor.move_note(database, vault_dir, path=note["path"],
                                              target_chapter=target, **kwargs)

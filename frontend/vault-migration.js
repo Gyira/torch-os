@@ -23,7 +23,7 @@ function renderLayout(status) {
   };
   node.innerHTML = `<div class="panel form-panel">
     <p class="meta">当前状态：<strong>${escapeHtml(stateLabels[layout.state] || layout.state || "未知")}</strong>（${escapeHtml(status?.layout_version || "")}）</p>
-    <p class="field-help">四库：人生路 / 自我档案 / 生活运营 / 知识库。待办事项在生活运营的「待办事项」章节；滴答同步不参与迁移。</p>
+    <p class="field-help">四库：人生路 / 自我档案 / 生活运营 / 知识库。待办事项在生活运营的「待办事项」本子；滴答同步不参与迁移。</p>
   </div>`;
 }
 

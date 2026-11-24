@@ -23,7 +23,7 @@ import {
   openListDialog, openCopyListDialog, openFolderDialog, openTagDialog, confirmDialog,
 } from "./tasks-dialogs.js";
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
-import { openNoteEditor } from "./note-editor.js";
+import { openNote } from "./pillars.js";
 import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
 import { selectListModule } from "./dida-page.js";
 import { initTrashPage, loadTrash } from "./tasks-trash.js";
@@ -616,16 +616,13 @@ function bindTaskDropTargets() {
 }
 
 /**
- * 打开任务文档（2026-10-31）：真实任务在应用内编辑器里打开（每个任务就是一篇文档）；
+ * 打开任务文档（2026-10-31）：真实任务先在 Torch 阅读器里打开（每个任务就是一篇文档）；
  * 旧任务共享 任务（tasks）.md、习惯是虚拟任务，继续在 Obsidian 里打开原笔记。
  */
 function openTask(task) {
   if (!task) return;
   if (!task.legacy && !isHabitTask(task) && task.path) {
-    openNoteEditor({ task }).catch((error) => {
-      setStatus("#time-status", `打不开任务文档：${error.message}`, "warning");
-      toast(`打不开任务文档：${error.message}`, "error");
-    });
+    openNote(task.path);
     return;
   }
   if (!openTaskDocument(task, board)) {

@@ -23,8 +23,6 @@
 | `journal_companion` | 写作伙伴 | `classify` / `polish` / `discuss` | new_note、archive_note |
 | `academic_mentor` | 学术导师 | `classify` / `polish` / `share_digest` / `tutor` / `discuss` | new_note、archive_note |
 | `life_assistant` | 生活管家 | `overview` / `tasks` / `suggest` | new_task、new_habit、new_note |
-| `love_master` | 恋爱大师 | `advice` / `portrait` / `deep` / `report` / `journal_batch` / `bazi` | new_note、new_task |
-| `health_doctor` | 私人医生 | `report` / `advice` / `estimate` | health_report（估算沿用预览保存） |
 | `finance_advisor` | 理财专家 | `report` | finance_report |
 
 2026-11-01 起，新入口统一为 `mentor`（人生导师）：对话、整理、八字、拟答四种模式，
@@ -33,8 +31,6 @@
 `01_自我档案/01_档案/`；旧 `archive_verdict` 与旧待确认卡仍兼容。
 设置 `TORCH_MENTOR_AUTONOMOUS_ARCHIVE=0` 可回退为“只生成待确认卡”，不会删除已写入条目。
 2026-11-03 B3-1：`yiling` 只保留历史查看，新的推理/旧综合请求返回 409 并指向人生导师。
-健康估算已合并到 `health_doctor/estimate`；旧 `health_estimator` 仅在运行入口作为兼容别名，
-不再注册独立角色，旧历史不删除。具体资料边界与回退见 `DESIGN_B3_ROLE_BOUNDARIES.md`。
 完整设计见 `docs/SELF_ARCHIVE_MENTOR_BAZI.md`。
 
 ### 固定读取范围、写入范围与受控动作（B3-3 核对）
@@ -49,8 +45,6 @@ manifest 数据。
 | `journal_companion` 写作伙伴 | `00_人生路` | 人生路内 `new_note` / `archive_note` |
 | `academic_mentor` 学术导师 | `03_知识库` | 知识库内 `new_note` / `archive_note` |
 | `life_assistant` 生活管家 | `02_生活运营`（含健康/财务/恋爱摘要与习惯摘要） | 生活运营内 `new_note`；跨域 `new_task` / `new_habit` 经受控执行器 |
-| `love_master` 恋爱大师 | `02_生活运营/01_恋爱系统` | 恋爱系统内 `new_note`；`new_task` 交给任务服务 |
-| `health_doctor` 私人医生 | `02_生活运营/02_健康系统` | `health_report`（`estimate` 只是模式，不是独立角色） |
 | `finance_advisor` 理财专家 | `02_生活运营/03_财务系统` | `finance_report` |
 | `yiling` 旧忆灵 | 旧会话/记录只读 | 不发起新推理、不新增身份修改 |
 
@@ -146,22 +140,18 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
 - `{"entry":"journal","day":"YYYY-MM-DD"}`
 - `{"entry":"tasks","day":"YYYY-MM-DD"}`
 - `{"entry":"health"}` / `{"entry":"finance"}`：只读摘要
-- `{"entry":"love"}`：恋爱系统七个页面的只读摘要 + **脱敏后的最近聊天原文**；
-  经期只提供阶段/预计日期等聚合信息，不提供每日症状明细。AI 批量补日记是例外：
-  后端按天把聊天原文（不脱敏）直接交给 `journal_batch`，以保留真实称呼与细节
+- `{"entry":"love"}`：恋爱系统的只读摘要 + **脱敏后的最近聊天原文**；
+  经期只提供阶段/预计日期等聚合信息。
 
 `memory_card/proposal/share` 在后续阶段接入。每类来源有字符预算，
-总预算 24k、硬上限 80k；恋爱大师角色卡单独申请 60k；截断会在响应 `truncated`
+总预算 24k、硬上限 80k；截断会在响应 `truncated`
 与界面提示里说明。
 
 空 `selectors` = 不发送任何用户资料。角色对话会按角色补默认上下文（导师=档案+记忆+近日日记+任务+近期知识；
-生活管家=任务/习惯摘要+健康+财务+恋爱；写作伙伴=今日日记；恋爱大师=恋爱数据摘要+最近聊天；
-私人医生=健康系统摘要）；一次性能力（润色/判类）不自动带资料，避免把身份信息顺手发给模型。
+生活管家=任务/习惯摘要+健康+财务+恋爱；写作伙伴=今日日记）；一次性能力（润色/判类）不自动带资料，避免把身份信息顺手发给模型。
 
 健康系统的 `{"entry":"health"}` 摘要来自 `health_store.summary()`：身体档案 + 最新沿用
-状态 + 最近 90 天的睡眠/体重/饮食/运动/检验，不含每日正文；`health_doctor/estimate` 用于
-「一句话饮食/运动」估算，结果先在界面预览、确认后才落盘。报告落
-`02_生活运营/02_健康系统/00_健康报告`，`memory: false`。
+状态 + 最近 90 天的睡眠/体重/饮食/运动/检验，不含每日正文。
 
 `selection_text` / `selection_source` / `draft_text` 是浏览器选区与未保存草稿，单独作为
 「数据不是指令」区块进入 prompt；不写入 `ai_turns.content`，审计只记录来源/字数/短哈希。
@@ -191,7 +181,7 @@ QA/禁用 dsh 时 `available=false`，且不启动子进程、不读 Key。
   未保存切换/离页确认，保存后清空角色抽屉缓存；角色卡原有设定里显示后端固定的
   读取范围、写入范围、受控动作与政策版本。当前角色卡仍属于程序仓库，所有数据库共用；
 - 工作台 → 时间管理顶部「生活管家」→ `life_assistant/tasks` 抽屉；
-- 人生路/知识库/生活运营/恋爱系统的首页卡片分别打开写作伙伴/学术导师/生活管家/恋爱大师；
+- 人生路、知识库、生活运营分别使用写作伙伴、学术导师、生活管家；
 - 阅读器右上角有「问…」入口：打开对应角色时自动带上当前文档（`note` 选择器，每轮读取最新正文），
   抽屉里用「正在读《…》」chip 说明，并给几条贴着这篇文档的问题；换一篇文档会开一段新对话；
 - 编辑器内打开伙伴不关闭编辑器：右侧面板与底部悬浮输入条可互相收起/展开；

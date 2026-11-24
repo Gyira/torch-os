@@ -1,16 +1,15 @@
 """恋爱系统 v2 数据布局（2026-11-01）。
 
-所有私人数据都在当前个人数据库（Obsidian 库）的
-``生活运营/恋爱系统/`` 下，并按前端七个页面各建一个子目录：
+默认布局位于当前个人数据库（Obsidian 库）的
+``生活运营/恋爱系统/`` 下，并按前端五个页面各建一个子目录：
 
 - ``恋爱记忆``：Markdown 记忆与“本子”文件夹；没有数据库。
 - ``微信聊天``：``chat.db``、加密凭据、媒体与导出。
 - ``排班日历``：排班表 Excel、值班备注与手动覆盖。
 - ``经期关怀``：``cycle.db``。
 - ``恋爱相册``：``albums.db``、照片、视频与缩略图。
-- ``八字合婚``：``bazi.db``。
-- ``恋爱大师``：``analysis.db`` 与生成的报告。
 
+旧八字合婚与恋爱大师目录供历史数据迁移使用。
 旧 ``<个人数据库>/.torch-os/love/`` 只作为迁移来源，迁移后保留原文件。
 本模块只负责路径与目录，不读写业务数据；各页面模块自己管理数据库。
 """
@@ -22,10 +21,11 @@ from pathlib import Path
 from typing import Any
 
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
-from .vault_layout import LOVE_ROOT, LOVE_PAGE_DIRS
+from .vault_layout import LOVE_ROOT, LOVE_PAGE_DIRS, LEGACY_LOVE_DIRS
 from .storage_layout import active_layout, StorageLayout
 
-MEMORY_DIR, CHAT_DIR, SCHEDULE_DIR, CYCLE_DIR, GALLERY_DIR, BAZI_DIR, MASTER_DIR = LOVE_PAGE_DIRS
+MEMORY_DIR, CHAT_DIR, SCHEDULE_DIR, CYCLE_DIR, GALLERY_DIR = LOVE_PAGE_DIRS
+BAZI_DIR, MASTER_DIR = LEGACY_LOVE_DIRS
 ARCHIVE_DIR = f"{LOVE_ROOT}/_归档"
 
 # 本子：固定章节 + 自定义文件夹。
@@ -51,7 +51,6 @@ GALLERY_VIDEOS = "视频"
 GALLERY_THUMBS = "thumbnails"
 BAZI_DB = "bazi.db"
 MASTER_DB = "analysis.db"
-MASTER_REPORTS = "reports"
 
 # 旧版数据目录（相对于个人数据库的 .torch-os）。
 LEGACY_LOVE_DIR = "love"
@@ -142,11 +141,6 @@ class LovePaths:
     def master_db(self) -> Path:
         return self.master / MASTER_DB
 
-    @property
-    def master_reports(self) -> Path:
-        if self.storage:
-            return self.storage.notes / MASTER_DIR / MASTER_REPORTS
-        return self.master / MASTER_REPORTS
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -156,8 +150,6 @@ class LovePaths:
             "schedule": str(self.schedule),
             "cycle": str(self.cycle),
             "gallery": str(self.gallery),
-            "bazi": str(self.bazi),
-            "master": str(self.master),
             "archive": str(self.archive),
         }
 
@@ -208,8 +200,7 @@ def ensure_love_layout(vault_dir: Path | str, *, read_only: bool = False,
         paths.memory / AI_DRAFT_NOTEBOOK, paths.chat, paths.chat_media,
         paths.chat_exports, paths.schedule, paths.schedule_excel,
         paths.cycle, paths.gallery, paths.gallery_photos,
-        paths.gallery_videos, paths.gallery_thumbs, paths.bazi,
-        paths.master, paths.master_reports, paths.archive,
+        paths.gallery_videos, paths.gallery_thumbs, paths.archive,
     ):
         directory.mkdir(parents=True, exist_ok=True)
     return paths

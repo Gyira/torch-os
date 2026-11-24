@@ -46,9 +46,7 @@ ROLE_ROOTS = {
     "mentor": tuple(layout.PILLAR_DIRS.values()),
     "journal_companion": (layout.PILLAR_DIRS["life"],),
     "academic_mentor": (layout.PILLAR_DIRS["knowledge"],),
-    "health_doctor": (HEALTH,),
     "finance_advisor": (FINANCE,),
-    "love_master": (layout.LOVE_ROOT,),
     "life_assistant": (layout.PILLAR_DIRS["ops"],),
 }
 WRITE_ROOTS = {**ROLE_ROOTS, "mentor": (layout.PILLAR_DIRS["self"],)}
@@ -57,8 +55,6 @@ ROLE_ACTIONS = {
     "journal_companion": frozenset({"new_note", "archive_note"}),
     "academic_mentor": frozenset({"new_note", "archive_note"}),
     "life_assistant": frozenset({"new_task", "new_habit", "new_note"}),
-    "love_master": frozenset({"new_task", "new_note"}),
-    "health_doctor": frozenset({"health_report"}),
     "finance_advisor": frozenset({"finance_report"}),
 }
 ACTION_FIELDS = {
@@ -108,9 +104,6 @@ class RoleScopeError(HTTPException):
 def active_role(role_id: str) -> str:
     if role_id == "yiling":
         raise HTTPException(409, "role_retired: 旧忆灵仅保留历史，请前往自我档案 → 人生导师继续。")
-    # Compatibility name only: never a separately registered identity/session.
-    if role_id == "health_estimator":
-        return "health_doctor"
     if role_id not in ROLE_ROOTS:
         raise RoleScopeError("角色没有已登记的资料范围")
     return role_id

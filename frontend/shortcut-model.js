@@ -37,7 +37,7 @@ export const SHORTCUT_GROUPS = [
     id: "lists",
     title: "列表与表单",
     items: [
-      { keys: ["←", "→", "↑", "↓"], label: "在顶部标签、设置侧栏、章节轨与时间页之间移动" },
+      { keys: ["←", "→", "↑", "↓"], label: "在顶部标签、设置侧栏、本子导航与时间页之间移动" },
       { keys: ["Home", "End"], label: "跳到列表第一项或最后一项" },
       { keys: ["Enter"], label: "打开选中项或激活焦点按钮" },
       { keys: ["Tab"], label: "按顺序移动到下一个控件" },

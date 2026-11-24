@@ -7,11 +7,10 @@ function options(items, selected) {
 }
 
 export function editArchiveEntry(entry = {}) {
-  const editing = Boolean(entry.entry_id);
   const dialog = document.createElement("dialog");
   dialog.className = "self-entry-dialog";
-  dialog.innerHTML = `<h2>${editing ? "修正档案条目" : "记一条"}</h2><form id="self-entry-form" class="settings-form">
-    <label>本子<select name="book_key" ${editing ? "disabled" : ""}>${options(Object.fromEntries(BOOKS.map(b => [b.key, b.title])), entry.section)}</select></label>
+  dialog.innerHTML = `<h2>记一条</h2><form id="self-entry-form" class="settings-form">
+    <label>本子<select name="book_key">${options(Object.fromEntries(BOOKS.map(b => [b.key, b.title])), entry.section)}</select></label>
     <label>标题<input name="title" maxlength="120" required value="${escape(entry.title || "")}"></label>
     <label>内容<textarea name="text" rows="5" maxlength="8000" required>${escape(entry.text || "")}</textarea></label>
     <label>类型<select name="entry_type">${options(ENTRY_TYPE_LABELS, entry.entry_type || "narrative")}</select></label>
@@ -36,11 +35,11 @@ export function editArchiveEntry(entry = {}) {
     if (button.disabled) return;
     button.disabled = true;
     const values = Object.fromEntries(new FormData(form));
-    const payload = { ...values, book_key: form.elements.book_key.value, base_revision: entry.revision || "",
+    const payload = { ...values, book_key: form.elements.book_key.value,
       operation_id: op, sources: values.sources.split("\n").map(s => s.trim()).filter(Boolean) };
     try {
-      await api("/api/self/entries" + (editing ? "/" + encodeURIComponent(entry.entry_id) : ""), {
-        method: editing ? "PUT" : "POST", body: JSON.stringify(payload),
+      await api("/api/self/entries", {
+        method: "POST", body: JSON.stringify(payload),
       });
       if (dialog.open) dialog.close();
       document.dispatchEvent(new CustomEvent("torch:self-refresh"));

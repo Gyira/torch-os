@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from . import love_bazi, love_chat, love_gallery, love_master, love_schedule, love_memory, pillar_notes, vault_layout
+from . import love_chat, love_gallery, love_schedule, love_memory, pillar_notes, vault_layout
 from .db import Database
 from .love_credentials import CredentialError, save_credentials
 from .love_layout import (
@@ -357,7 +357,7 @@ def _migrate_profiles(legacy: Path, paths: LovePaths, connection: sqlite3.Connec
         "summary": f"从旧版迁移的{row['partner_name']}画像。",
         "traits": traits if isinstance(traits, list) else [],
     }
-    with love_master._connect(paths.master_db) as master:
+    with _connect(paths.master_db) as master:
         exists = master.execute(
             "SELECT 1 FROM runs WHERE skill='portrait' AND result_json LIKE ? LIMIT 1",
             ("%旧版迁移%",)).fetchone()
@@ -383,7 +383,7 @@ def _migrate_analyses(legacy: Path, paths: LovePaths, connection: sqlite3.Connec
         "SELECT * FROM analysis_logs WHERE status='completed' AND result_json != '' "
         "ORDER BY created_at DESC LIMIT 50").fetchall()
     count = 0
-    with love_master._connect(paths.master_db) as master:
+    with _connect(paths.master_db) as master:
         for row in rows:
             try:
                 result = json.loads(row["result_json"] or "{}")
@@ -439,6 +439,39 @@ def _migrate_cycle(legacy: Path, paths: LovePaths, report: dict[str, Any]) -> No
         report["cycle"] = "kept"
 
 
+LEGACY_MASTER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill TEXT NOT NULL,
+    status TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    context_meta TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    progress TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_love_master_skill ON runs(skill, id);
+"""
+
+
+LEGACY_BAZI_SCHEMA = """
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    chart_json TEXT NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'completed',
+    engine TEXT NOT NULL DEFAULT 'lunar_python+dsh',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL DEFAULT ''
+);
+"""
+
+
 def _migrate_bazi(legacy: Path, paths: LovePaths, report: dict[str, Any]) -> None:
     source = legacy / "bazi.json"
     if not source.is_file():
@@ -450,7 +483,9 @@ def _migrate_bazi(legacy: Path, paths: LovePaths, report: dict[str, Any]) -> Non
         return
     if not isinstance(payload, dict):
         return
-    with love_bazi._connect(paths.bazi_db) as con:
+    paths.bazi.mkdir(parents=True, exist_ok=True)
+    with _connect(paths.bazi_db) as con:
+        con.executescript(LEGACY_BAZI_SCHEMA)
         exists = con.execute(
             "SELECT 1 FROM reports WHERE input_json LIKE '%bazi.json%' LIMIT 1").fetchone()
         if exists is not None:
@@ -533,8 +568,9 @@ def migrate_love_v2(vault_dir: Path | str, database: Database, *,
     # 新库表先建好，迁移写入不会因为缺表失败。
     love_chat.ensure_chat_schema(paths.chat_db)
     love_gallery.ensure_gallery_schema(paths)
-    love_bazi.ensure_bazi_schema(paths)
-    love_master.ensure_master_schema(paths)
+    paths.master.mkdir(parents=True, exist_ok=True)
+    with _connect(paths.master_db) as archive:
+        archive.executescript(LEGACY_MASTER_SCHEMA)
     try:
         backup = _backup_legacy(legacy, paths)
         if backup is not None:

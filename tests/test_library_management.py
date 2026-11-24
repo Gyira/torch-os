@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 
@@ -82,16 +84,61 @@ def test_file_title_conflict_move_and_recycle(setup):
     assert (vault / deleted["trash_path"]).is_file()
 
 
-def test_journal_title_and_delete_and_cross_library_guard(setup):
+def test_journal_title_and_cross_library_move_and_delete(setup):
     vault, db = setup
     path = vault / vault_layout.chapter_dir("journal") / "2026-11-01.md"
     path.parent.mkdir(parents=True)
     path.write_text("---\ndate: 2026-11-01\n---\n\n旧日记", encoding="utf-8")
     note = pillar_notes.read_note(vault, path.relative_to(vault).as_posix())
     with pytest.raises(HTTPException):
-        library.manage_note(db, vault, library.LibraryNoteRequest(action="move", path=note["path"], expected_revision=note["revision"], target_chapter="inbox"))
+        library.manage_note(db, vault, library.LibraryNoteRequest(action="move", path=note["path"], expected_revision=note["revision"], target_chapter="love_drafts"))
     assert path.exists()
     updated = library.manage_note(db, vault, library.LibraryNoteRequest(action="title", path=note["path"], expected_revision=note["revision"], title="有意义的一天"))
     assert updated["title"] == "有意义的一天"
-    result = library.manage_note(db, vault, library.LibraryNoteRequest(action="delete", path=updated["path"], expected_revision=updated["revision"]))
+    moved = library.manage_note(db, vault, library.LibraryNoteRequest(action="move", path=updated["path"], expected_revision=updated["revision"], target_chapter="inbox"))
+    assert moved["pillar"] == "knowledge" and moved["body"] == updated["body"]
+    result = library.manage_note(db, vault, library.LibraryNoteRequest(action="delete", path=moved["path"], expected_revision=moved["revision"]))
     assert not path.exists() and (vault / result["trash_path"]).is_file()
+
+
+def test_cross_library_nested_move_and_collision(setup):
+    vault, db = setup
+    book = notebooks.create_notebook(db, vault, "课程资料", pillar="knowledge")
+    child = notebooks.create_notebook(db, vault, "笔记", pillar="knowledge", parent=book["title"])
+    original = note_editor.create_note(db, vault, chapter=child["key"], title="课后", body="原作")
+    note = note_editor.create_note(db, vault, chapter="essay", title="课后", body="想法", tags=["学习"])
+    moved = library.manage_note(db, vault, library.LibraryNoteRequest(
+        action="move", path=note["path"], expected_revision=note["revision"], target_chapter=child["key"]))
+    assert moved["path"] == child["path"] + "/课后-2.md"
+    assert moved["pillar"] == "knowledge" and moved["tags"] == ["学习"]
+    assert not (vault / note["path"]).exists()
+    assert pillar_notes.read_note(vault, original["path"])["body"] == original["body"]
+    returned = note_editor.move_note(db, vault, path=moved["path"], target_chapter="essay",
+                                     expected_revision=moved["revision"])
+    assert returned["pillar"] == "life" and returned["body"] == note["body"]
+    assert not (vault / moved["path"]).exists()
+
+def test_failed_move_preserves_source_and_raw_markdown(setup, monkeypatch):
+    vault, db = setup
+    note = note_editor.create_note(db, vault, chapter="essay", title="格式")
+    source = vault / note["path"]
+    body = b"    indented code  \r\n\r\n"
+    source.write_bytes(body)
+    snapshot = pillar_notes.read_note(vault, note["path"])
+    action = library.LibraryNoteRequest(action="move", path=note["path"],
+                                        expected_revision=snapshot["revision"], target_chapter="inbox")
+    unlink = Path.unlink
+
+    def deny_source(path, *args, **kwargs):
+        if path == source:
+            raise PermissionError("book is locked")
+        return unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", deny_source)
+        with pytest.raises(PermissionError):
+            library.manage_note(db, vault, action)
+    assert source.read_bytes() == body
+    assert not list((vault / vault_layout.chapter_dir("inbox")).glob("*.md"))
+    moved = library.manage_note(db, vault, action)
+    assert (vault / moved["path"]).read_bytes().endswith(b"---\r\n" + body)

@@ -11,7 +11,7 @@ from .storage_layout import StorageLayout, checked_path, initialize_empty_worksp
 from .storage_audit import audit_references
 from .storage_bundle import digest
 from .cloud_backup import _is_sqlite, _snapshot_sqlite
-from .vault_layout import LOVE_PAGE_DIRS
+from .vault_layout import LEGACY_LOVE_DIRS, LOVE_PAGE_DIRS
 
 MEDIA = {
     LOVE_PAGE_DIRS[1] + "/media": "archive", LOVE_PAGE_DIRS[1] + "/exports": "archive",
@@ -54,8 +54,8 @@ def prepare_split(source, layout: StorageLayout, *, database_path: Path, writers
                 page = Path(media).parent.name
                 suffix = rel[len(media) + 1:]
                 destinations.append((MEDIA[media], f"love/{page}/{Path(media).name}/{suffix}" if MEDIA[media] != "cache" else f"love/thumbnails/{suffix}"))
-            elif any(rel.startswith(p + "/") for p in LOVE_PAGE_DIRS[1:]) and not rel.endswith(".md"):
-                page = next(p for p in LOVE_PAGE_DIRS[1:] if rel.startswith(p + "/"))
+            elif any(rel.startswith(p + "/") for p in (*LOVE_PAGE_DIRS[1:], *LEGACY_LOVE_DIRS)) and not rel.endswith(".md"):
+                page = next(p for p in (*LOVE_PAGE_DIRS[1:], *LEGACY_LOVE_DIRS) if rel.startswith(p + "/"))
                 destinations.append(("state", f"love/{Path(page).name}/{rel[len(page) + 1:]}"))
             elif rel.startswith(".torch-os/"):
                 remainder = rel[len(".torch-os/"):]

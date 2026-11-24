@@ -173,7 +173,7 @@ export function taskRow(task, options) {
     openButton.className = "task-open";
     openButton.textContent = "📄 文档";
     openButton.title = legacy ? "打开总任务文件（旧任务在 Obsidian 里编辑）"
-      : habit ? "打开习惯笔记" : "打开任务文档（应用内编辑）";
+      : habit ? "打开习惯笔记" : "查看任务文档";
     openButton.setAttribute("aria-label", `${legacy ? "打开总任务文件" : habit ? "打开习惯笔记" : "打开文档"}：${task.title}`);
     openButton.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -344,7 +344,7 @@ export function openTaskMenu(anchor, task, options) {
   const { lists = [], tags = [], today, actions = {} } = options;
   openPopover(anchor, (layer, close) => {
     if (task.path && actions.openDocument) {
-      menuRow(layer, task.legacy ? "📄 打开总任务文件" : isHabitTask(task) ? "📄 打开习惯笔记" : "📄 打开文档（编辑器）", () => {
+      menuRow(layer, task.legacy ? "📄 打开总任务文件" : isHabitTask(task) ? "📄 打开习惯笔记" : "📄 查看文档", () => {
         close();
         actions.openDocument(task);
       });

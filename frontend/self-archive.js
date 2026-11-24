@@ -1,9 +1,8 @@
-import { editArchiveEntry } from "./self-entry-editor.js";
 // 自我档案页：总览（本子 + 画像）、本子条目、迁移与更新（2026-11-01）。
 // 展示画像与本子，并提供手动记录、修正和 DSH 对话入口。
 import { api, confirmAction, escapeHtml, openDialog, toast } from "./core.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
-import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
+import { openObsidianNote } from "./task-open.js";
 import {
   bookPageMarkup, bookByKey, migrationPreviewMarkup, overviewMarkup,
 } from "./self-archive-model.js";
@@ -30,18 +29,8 @@ function vaultName() {
   return String(state.overview?.vault_name || "").trim();
 }
 
-function openVaultPath(path) {
-  const relative = String(path || "").trim();
-  if (!relative) return;
-  if (isObsidianHost() && globalThis.parent && globalThis.parent !== globalThis) {
-    try { globalThis.parent.postMessage(openNoteMessage(relative), "*"); return; } catch { /* fall through */ }
-  }
-  const uri = obsidianOpenUri(vaultName(), relative);
-  if (!uri) {
-    toast("没有可用的 Obsidian 库名；可以在 Obsidian 里直接打开这个路径。", "warning");
-    return;
-  }
-  try { globalThis.open?.(uri, "_blank", "noopener"); } catch { /* ignore */ }
+function openVaultPath(path, edit = false) {
+  if (!openObsidianNote(path, vaultName(), { edit })) toast("无法打开文档，请检查 Obsidian 库连接。", "warning");
 }
 
 function renderOverview() {
@@ -105,7 +94,7 @@ async function handleClick(event) {
   const edit = event.target.closest?.("[data-self-edit]");
   if (edit) {
     const entry = state.entries.find(row => row.entry_id === edit.dataset.selfEdit);
-    if (entry) editArchiveEntry(entry);
+    if (entry) openVaultPath(entry.path, true);
     return;
   }
   const debate = event.target.closest?.("[data-self-debate]");
@@ -138,7 +127,7 @@ async function handleClick(event) {
   const portrait = event.target.closest?.("[data-self-open-portrait]");
   if (portrait) {
     const path = state.overview?.paths?.portrait || "";
-    if (path) openVaultPath(path);
+    if (path) openVaultPath(path, true);
     else toast("还没有画像文件。", "info");
   }
 }

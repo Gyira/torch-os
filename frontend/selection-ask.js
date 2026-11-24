@@ -1,6 +1,5 @@
 import { openDshDrawer } from "./dsh-drawer.js";
 // 选中文字 → 向对应 AI 提问（2026-10-31）。
-// 编辑器按钮只负责把选区快照交给 note-editor；阅读器和恋爱页直接打开全局角色抽屉。
 const MAX_SELECTION_CHARS = 4000;
 let initialized = false;
 let pending = null;
@@ -10,7 +9,6 @@ let hideTimer = 0;
 
 function el(id) { return document.getElementById(id); }
 function button() { return el("selection-ask"); }
-function editorDialog() { return el("note-editor-dialog"); }
 
 function visible(node) {
   return Boolean(node && !node.hidden && node.offsetParent !== null);
@@ -23,46 +21,6 @@ function selectionText() {
 
 function inRoleDrawer(node) {
   return Boolean(node?.closest?.("#role-drawer, #role-drawer-backdrop"));
-}
-
-function editorSelection() {
-  const dialog = editorDialog();
-  if (!dialog?.open) return null;
-  const textarea = el("note-editor-text");
-  if (textarea && !textarea.hidden) {
-    const start = Number(textarea.selectionStart);
-    const end = Number(textarea.selectionEnd);
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      const raw = String(textarea.value || "").slice(start, end).trim();
-      if (raw.length >= 2) {
-        return {
-          surface: "editor",
-          text: raw.slice(0, MAX_SELECTION_CHARS),
-          source: `${dialog.dataset.editorContext || "life"}.editor`,
-          anchor: textarea,
-        };
-      }
-    }
-  }
-  const preview = el("note-editor-preview");
-  if (preview && !preview.hidden) {
-    const selection = window.getSelection?.();
-    if (selection && !selection.isCollapsed && selection.rangeCount) {
-      const range = selection.getRangeAt(0);
-      if (preview.contains(range.commonAncestorContainer)) {
-        const raw = selection.toString().trim();
-        if (raw.length >= 2) {
-          return {
-            surface: "editor",
-            text: raw.slice(0, MAX_SELECTION_CHARS),
-            source: `${dialog.dataset.editorContext || "life"}.editor.preview`,
-            rect: range.getBoundingClientRect(),
-          };
-        }
-      }
-    }
-  }
-  return null;
 }
 
 function readerSelection() {
@@ -107,15 +65,7 @@ function loveSelection() {
 }
 
 function currentSelection() {
-  return editorSelection() || readerSelection() || loveSelection();
-}
-
-function hostButton() {
-  const node = button();
-  if (!node) return;
-  const dialog = editorDialog();
-  const target = dialog?.open ? dialog : document.body;
-  if (node.parentElement !== target) target.append(node);
+  return readerSelection() || loveSelection();
 }
 
 function hideAsk() {
@@ -129,7 +79,6 @@ function hideAsk() {
 function placeAsk(selection) {
   const node = button();
   if (!node) return;
-  hostButton();
   const rect = selection?.rect;
   let x = lastPointer.x;
   let y = lastPointer.y;
@@ -199,7 +148,7 @@ export function initSelectionAsk() {
   document.addEventListener("selectionchange", schedule);
   document.addEventListener("pointerdown", (event) => {
     if (event.target?.closest?.("#selection-ask")) return;
-    if (event.target?.closest?.("#role-drawer, #note-editor-dialog, .pillar-reader-article, #love-view")) {
+    if (event.target?.closest?.("#role-drawer, .pillar-reader-article, #love-view")) {
       return;
     }
     hideAsk();
@@ -212,8 +161,6 @@ export function initSelectionAsk() {
     ask();
   });
   document.addEventListener("torch:notes-changed", hideAsk);
-  document.addEventListener("torch:editor-closed", hideAsk);
-  document.addEventListener("torch:editor-opened", hideAsk);
 }
 
 export function hideSelectionAsk() {

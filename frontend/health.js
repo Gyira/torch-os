@@ -2,7 +2,7 @@
 // 私人数据全部由后端读写 生活运营/健康系统 里的 Markdown；这里只做界面与交互，
 // 不在浏览器里保存任何健康记录。评分、BMI、沿用状态都由后端算好，前端只负责展示与录入。
 //
-// 新版结构：今日记录 / 身体情况 / 睡眠情况 / 饮食情况 / 运动记录 / 健康档案 / 私人医生。
+// 新版结构：今日记录 / 身体情况 / 睡眠情况 / 饮食情况 / 运动记录 / 健康档案。
 // 当天没记录时，后端返回每项「最近一次非空记录」；前端显示「沿用 X 月 X 日」，
 // 但不会把旧数据复制成今天的新记录。
 import { api, escapeHtml, jsonBody, openDialog, confirmAction, toast } from "./core.js";
@@ -18,10 +18,9 @@ const PAGES = {
   today: { title: "今日记录", subtitle: "今天想记录什么？" },
   body: { title: "身体情况", subtitle: "体重和身体成分，记一次就会沿用。" },
   sleep: { title: "睡眠情况", subtitle: "睡了多久最重要，入睡和起床时间可选。" },
-  diet: { title: "饮食情况", subtitle: "大概写一写吃了什么，AI 帮你估算。" },
+  diet: { title: "饮食情况", subtitle: "记录每天的饮食和饮水。" },
   exercise: { title: "运动记录", subtitle: "散步、跑步、力量都算，写一句也行。" },
   archive: { title: "健康档案", subtitle: "全部健康数据，一眼看完。" },
-  doctor: { title: "私人医生", subtitle: "有哪里不舒服，可以直接问。" },
 };
 const PAGE_KEYS = Object.keys(PAGES);
 
@@ -37,7 +36,6 @@ const CURRENT_KEYS = Object.keys(CURRENT);
 const MEAL_TYPES = ["早餐", "午餐", "晚餐", "加餐"];
 const TRAINING_KINDS = ["力量", "跑步", "快走", "骑行", "游泳", "球类", "瑜伽", "柔韧", "有氧", "其他"];
 const QUALITY_LABELS = ["很差", "较差", "一般", "不错", "很好"];
-const CHAT_IDLE_STATUS = "不会诊断、不开药 · 自动记入问诊记录";
 
 const HEALTH = {
   inited: false,
@@ -48,9 +46,6 @@ const HEALTH = {
   history: [],
   historyEnd: "",
   archive: null,
-  doctor: null,
-  reports: [],
-  consults: [],
   foods: null,
   error: "",
   trendDays: 30,
@@ -59,7 +54,6 @@ const HEALTH = {
   trainingDraft: { exercises: [] },
   exerciseResults: [],
   exerciseFacets: null,
-  doctorChat: { messages: [], threadId: "", busy: false },
   activeDialogAction: null,
 };
 
@@ -218,7 +212,7 @@ function readMealRows(root, selector = "[data-meal-row]") {
   return meals;
 }
 
-function mealRowMarkup(meal, index, { estimate = false } = {}) {
+function mealRowMarkup(meal, index) {
   const typeOptions = MEAL_TYPES.map((type) =>
     `<option value="${type}"${meal.meal_type === type ? " selected" : ""}>${type}</option>`).join("");
   return `<div class="health-meal-row" data-meal-row data-source="${esc(meal.source || "")}" data-index="${index}">
@@ -374,7 +368,6 @@ async function refresh({ quiet = false } = {}) {
     const data = await healthApi(`/api/health/overview?day=${encodeURIComponent(HEALTH.day)}`);
     HEALTH.overview = data;
     HEALTH.day = data.day || HEALTH.day;
-    HEALTH.reports = Array.isArray(data.reports) ? data.reports : [];
     if (node("health-day")) node("health-day").value = HEALTH.day;
     await ensurePageData();
     renderPage();
@@ -399,11 +392,6 @@ async function ensurePageData() {
   }
   if (HEALTH.page === "archive") {
     HEALTH.archive = await healthApi(`/api/health/archive?day=${encodeURIComponent(HEALTH.day)}`);
-  }
-  if (HEALTH.page === "doctor") {
-    HEALTH.doctor = await healthApi("/api/health/doctor");
-    HEALTH.reports = Array.isArray(HEALTH.doctor.reports) ? HEALTH.doctor.reports : HEALTH.reports;
-    HEALTH.consults = Array.isArray(HEALTH.doctor.consults) ? HEALTH.doctor.consults : HEALTH.consults;
   }
 }
 
@@ -432,22 +420,17 @@ function renderPage() {
   if (!content || !HEALTH.overview) return;
   const renderers = {
     today: renderToday, body: renderBody, sleep: renderSleep, diet: renderDiet,
-    exercise: renderExercise, archive: renderArchive, doctor: renderDoctor,
+    exercise: renderExercise, archive: renderArchive,
   };
   updateHeader();
   content.innerHTML = (renderers[HEALTH.page] || renderToday)();
-  if (HEALTH.page === "doctor") {
-    paintChat();
-    const input = node("health-chat-input");
-    if (input) input.focus({ preventScroll: true });
-  }
 }
 
 function updateHeader() {
   const page = PAGES[HEALTH.page] || PAGES.today;
   if (node("health-title")) node("health-title").textContent = page.title;
   if (node("health-subtitle")) {
-    const suffix = HEALTH.page === "today" || HEALTH.page === "archive" || HEALTH.page === "doctor"
+    const suffix = HEALTH.page === "today" || HEALTH.page === "archive"
       ? ""
       : ` · ${monthDayLabel(HEALTH.day)} ${weekdayFull(HEALTH.day)}${isToday() ? "（今天）" : ""}`;
     node("health-subtitle").textContent = `${page.subtitle}${suffix}`;
@@ -511,8 +494,7 @@ function renderToday() {
     </div>
     <section class="health-foot-note">
       <span class="health-foot-icon" aria-hidden="true">医</span>
-      <div><strong>记录只在本机。</strong> 健康指数是趋势参考，不是医学诊断；不舒服时请直接问私人医生或线下就医。</div>
-      <button class="health-btn ghost" type="button" data-health-action="go-page" data-page="doctor">问问私人医生</button>
+      <div><strong>记录只在本机。</strong> 健康指数是趋势参考，不是医学诊断；不舒服时请线下就医。</div>
     </section>
   </div>`;
 }
@@ -623,7 +605,7 @@ function dietCard() {
   return cardShell({
     key: "diet", icon: "食", title: "饮食记录",
     headline,
-    sub: detail.length ? esc(detail.join(" · ")) : "大概写一写吃了什么，AI 会帮你估算。",
+    sub: detail.length ? esc(detail.join(" · ")) : "记录今天吃了什么。",
     meta, windowDays: 7, actionLabel: "记录",
   });
 }
@@ -825,7 +807,7 @@ function renderDiet() {
         if (!group.length) return "";
         return `<div class="health-meal-group"><h4>${type}</h4>${group.map((meal) =>
           `<div class="health-meal-line"><span>${esc(meal.name)}</span><small>${esc(meal.portion || "")}${meal.calories ? ` · ${formatNumber(meal.calories, 0, "kcal")}` : ""}</small></div>`).join("")}</div>`;
-      }).join("")}</div>` : `<p class="health-muted">还没有餐次。记录时写一句「米饭、青菜和鸡胸肉」，AI 会帮你拆。</p>`}
+      }).join("")}</div>` : `<p class="health-muted">还没有餐次。可以添加食物和份量。</p>`}
       ${foodText ? `<p class="health-quote">“${esc(foodText)}”</p>` : ""}
     </section>
     <section class="health-card wide">
@@ -1052,15 +1034,15 @@ function renderArchive() {
       </article>
 
       <article class="health-dossier wide">
-        <header><h3>问诊记录</h3><button class="health-btn ghost small" type="button" data-health-action="go-page" data-page="doctor">去私人医生</button></header>
+        <header><h3>问诊记录</h3></header>
         ${consults.length ? `<ul class="health-mini-list">${consults.slice(0, 5).map((consult) => `<li><button class="health-link" type="button" data-health-action="open-consult" data-path="${esc(consult.path)}">${esc(consult.title)}</button><small>${esc(consult.date)}</small></li>`).join("")}</ul>`
-          : `<p class="health-muted">还没有问诊记录；在私人医生页问一句，回复会自动记到当天文档。</p>`}
+          : `<p class="health-muted">还没有问诊记录。</p>`}
       </article>
 
       <article class="health-dossier wide">
-        <header><h3>健康报告</h3><button class="health-btn ghost small" type="button" data-health-action="go-page" data-page="doctor">去私人医生</button></header>
+        <header><h3>健康报告</h3></header>
         ${reports.length ? `<ul class="health-mini-list">${reports.slice(0, 5).map((report) => `<li><button class="health-link" type="button" data-health-action="open-report" data-path="${esc(report.path)}">${esc(report.title)}</button><small>${esc(report.date)}</small></li>`).join("")}</ul>`
-          : `<p class="health-muted">还没有报告；在私人医生页可以按最新数据生成一份。</p>`}
+          : `<p class="health-muted">还没有健康报告。</p>`}
       </article>
     </section>
   </div>`;
@@ -1108,169 +1090,6 @@ function goalValue(key, value) {
   if (key === "weight_kg") return `${value} kg`;
   if (key === "body_fat_pct") return `${value}%`;
   return String(value);
-}
-
-// ── 私人医生 ─────────────────────────────────────────────────────────
-
-function renderDoctor() {
-  const data = HEALTH.doctor;
-  if (!data) return `<div class="health-loading">正在读取私人医生…</div>`;
-  const caps = data.capabilities || {};
-  const scope = data.scope || {};
-  const reports = Array.isArray(data.reports) ? data.reports : HEALTH.reports;
-  const consults = Array.isArray(data.consults) ? data.consults : HEALTH.consults;
-  return `<div class="health-doctor">
-    <section class="health-doctor-hero">
-      <div class="health-doctor-avatar" aria-hidden="true">医</div>
-      <div class="health-doctor-copy">
-        <span class="health-kicker">PRIVATE DOCTOR · 私人医生</span>
-        <h2>有哪里不舒服，直接说。</h2>
-        <p>已读取 ${Number(scope.days) || 0} 天记录 · ${Number(scope.labs) || 0} 项检验 · ${Number(scope.reports) || 0} 份报告 · <span id="health-consult-scope">${Number(scope.consults) || 0}</span> 份问诊记录；回答只基于这些数据和你的描述。</p>
-      </div>
-      <span class="health-doctor-badge ${caps.ai ? "is-on" : "is-off"}">${caps.ai ? "AI 可用" : "AI 未配置"}</span>
-    </section>
-    <section class="health-chat-card">
-      <header class="health-chat-head"><div><span class="health-kicker">问诊</span><h3>和私人医生聊聊</h3></div><span class="health-chat-status" id="health-chat-status">${caps.ai ? CHAT_IDLE_STATUS : "AI 未配置，暂时不能问诊"}</span></header>
-      <div class="health-chat-messages" id="health-chat-messages"></div>
-      <div class="health-chat-quick">${[
-        "我最近睡不好", "帮我看看体重趋势", "今天吃得怎么样", "我有点不舒服",
-      ].map((text) => `<button type="button" class="health-chip" data-health-action="chat-prompt" data-text="${esc(text)}">${esc(text)}</button>`).join("")}</div>
-      <form class="health-chat-form" data-health-form="doctor-chat">
-        <textarea id="health-chat-input" name="message" rows="2" maxlength="2000" placeholder="${caps.ai ? "例如：这两天头有点晕，睡眠也不太好……" : "AI 未配置"}" ${caps.ai ? "" : "disabled"}></textarea>
-        <button class="health-btn primary" type="submit" ${caps.ai ? "" : "disabled"}>发送</button>
-      </form>
-      <p class="health-disclaimer">每次问诊会自动追加到当天「问诊记录」；私人医生只做健康建议，不诊断疾病、不开药。持续异常或危险信号请尽快线下就医。</p>
-    </section>
-    <section class="health-notebook">
-      <header class="health-notebook-head">
-        <div class="health-notebook-cover" aria-hidden="true">诊</div>
-        <div><span class="health-kicker">固定本子 · 自动记录</span><h3>问诊记录</h3><p id="health-consult-count">${consults.length} 天 · 每次问诊自动追加</p></div>
-      </header>
-      <div id="health-consult-list">${consultListMarkup(consults)}</div>
-    </section>
-    <section class="health-notebook">
-      <header class="health-notebook-head">
-        <div class="health-notebook-cover" aria-hidden="true">报告</div>
-        <div><span class="health-kicker">固定本子 · 不可删除</span><h3>健康报告</h3><p>${reports.length} 份 · 按日期归档，最新数据生成</p></div>
-        <button class="health-btn primary" type="button" data-health-action="generate-report" ${caps.ai ? "" : "disabled"}>生成健康报告</button>
-      </header>
-      ${reports.length ? `<div class="health-report-list">${reports.map((report) => `<article class="health-report-item">
-        <button class="health-report-open" type="button" data-health-action="open-report" data-path="${esc(report.path)}">
-          <span class="health-report-date">${esc(monthDayLabel(report.date || ""))}</span>
-          <strong>${esc(report.title || "健康报告")}</strong>
-          <small>${esc(report.excerpt || "点击打开")}</small>
-        </button>
-        <button class="health-row-remove" type="button" data-health-action="delete-report" data-path="${esc(report.path)}" aria-label="删除这份报告">×</button>
-      </article>`).join("")}</div>`
-        : `<div class="health-empty"><strong>还没有健康报告</strong><p>点上面的「生成健康报告」，私人医生会基于最近 30 天记录和最新档案写一份。</p></div>`}
-    </section>
-  </div>`;
-}
-
-function consultListMarkup(consults) {
-  if (!consults.length) {
-    return `<div class="health-empty"><strong>还没有问诊记录</strong><p>在上面问一句，回复会自动追加到当天文档；同一天多次问诊会写在同一篇里。</p></div>`;
-  }
-  return `<div class="health-report-list">${consults.map((consult) => `<article class="health-report-item">
-    <button class="health-report-open" type="button" data-health-action="open-consult" data-path="${esc(consult.path)}">
-      <span class="health-report-date">${esc(monthDayLabel(consult.date || ""))}</span>
-      <strong>${esc(consult.title || "问诊记录")}</strong>
-      <small>${esc(consult.excerpt || "点击打开")}</small>
-    </button>
-    <button class="health-row-remove" type="button" data-health-action="delete-consult" data-path="${esc(consult.path)}" aria-label="删除这份问诊记录">×</button>
-  </article>`).join("")}</div>`;
-}
-
-function paintConsults() {
-  const container = node("health-consult-list");
-  if (container) container.innerHTML = consultListMarkup(HEALTH.consults);
-  const count = node("health-consult-count");
-  if (count) count.textContent = `${HEALTH.consults.length} 天 · 每次问诊自动追加`;
-  const scope = node("health-consult-scope");
-  if (scope) scope.textContent = String(HEALTH.consults.length);
-}
-
-function paintChat() {
-  const container = node("health-chat-messages");
-  if (!container) return;
-  const messages = HEALTH.doctorChat.messages;
-  if (!messages.length) {
-    container.innerHTML = `<div class="health-chat-empty"><strong>你可以这样问</strong><p>“我最近睡不好” · “帮我看看体重” · “今天吃得怎么样” · “我有点不舒服”</p></div>`;
-  } else {
-    container.innerHTML = messages.map((message) => {
-      if (message.role === "user") {
-        return `<div class="health-chat-bubble is-user"><p>${esc(message.content)}</p></div>`;
-      }
-      return `<div class="health-chat-bubble is-doctor"><span class="health-chat-mark" aria-hidden="true">医</span><div class="md-body">${message.html || esc(message.content)}</div></div>`;
-    }).join("");
-  }
-  container.scrollTop = container.scrollHeight;
-  const send = document.querySelector(".health-chat-form button[type=submit]");
-  if (send) {
-    send.disabled = HEALTH.doctorChat.busy || !HEALTH.doctor?.capabilities?.ai;
-    send.textContent = HEALTH.doctorChat.busy ? "医生正在看…" : "发送";
-  }
-  const status = node("health-chat-status");
-  if (status) status.textContent = HEALTH.doctorChat.busy ? "正在读取你的记录…"
-    : (HEALTH.doctorChat.contextNotice || CHAT_IDLE_STATUS);
-}
-
-async function sendDoctorMessage(text) {
-  const message = String(text || "").trim();
-  if (!message || HEALTH.doctorChat.busy) return;
-  if (!HEALTH.doctor?.capabilities?.ai) { toast("AI 未配置，暂时不能问诊", "error"); return; }
-  HEALTH.doctorChat.busy = true;
-  HEALTH.doctorChat.contextNotice = "";
-  HEALTH.doctorChat.messages.push({ role: "user", content: message });
-  paintChat();
-  const form = document.querySelector(".health-chat-form");
-  if (form) form.reset();
-  try {
-    const payload = await healthApi("/api/ai/chat", {
-      method: "POST", timeoutMs: 180000,
-      body: JSON.stringify({
-        role_id: "health_doctor", mode: "advice", entry: "health.report",
-        thread_id: HEALTH.doctorChat.threadId || "", message,
-      }),
-    });
-    HEALTH.doctorChat.threadId = payload.thread_id || HEALTH.doctorChat.threadId;
-    HEALTH.doctorChat.contextNotice = [payload.context_reset
-      ? "历史对话保留，从这一轮起按新的资料范围继续。" : "", ...(payload.action_errors || [])].filter(Boolean).join(" ");
-    const reply = String(payload.reply || "");
-    HEALTH.doctorChat.messages.push({
-      role: "assistant", content: reply,
-      html: renderMarkdownDocument(reply).html,
-    });
-    if (reply) await saveConsult(message, reply);
-  } catch (error) {
-    const input = node("health-chat-input");
-    if (input && !input.value) input.value = message;
-    HEALTH.doctorChat.messages.push({
-      role: "assistant", content: `这一轮没有成功：${error.message}`,
-      html: `<p class="health-inline-error">这一轮没有成功：${esc(error.message)}</p>`,
-    });
-  } finally {
-    HEALTH.doctorChat.busy = false;
-    paintChat();
-    const input = node("health-chat-input");
-    if (input) input.focus({ preventScroll: true });
-  }
-}
-
-async function saveConsult(question, answer) {
-  try {
-    const result = await healthApi("/api/health/consult", {
-      method: "POST", body: JSON.stringify({ question, answer }),
-    });
-    HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
-    if (HEALTH.doctor) {
-      HEALTH.doctor.consults = HEALTH.consults;
-      if (HEALTH.doctor.scope) HEALTH.doctor.scope.consults = HEALTH.consults.length;
-    }
-    paintConsults();
-  } catch (error) {
-    toast(`这轮问诊没写进本子：${error.message}`, "error");
-  }
 }
 
 // ── 动作分发 ─────────────────────────────────────────────────────────
@@ -1324,21 +1143,6 @@ async function handleAction(button) {
     return;
   }
   if (action === "open-consult") { await openConsult(button.dataset.path); return; }
-  if (action === "delete-consult") {
-    const ok = await confirmAction({ title: "删除这份问诊记录？", message: "问诊记录会移进笔记回收站，可以从回收站恢复。", confirmLabel: "删除", danger: true });
-    if (!ok) return;
-    const result = await healthApi(`/api/health/consults?path=${encodeURIComponent(button.dataset.path)}`, { method: "DELETE" });
-    HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
-    if (HEALTH.doctor) {
-      HEALTH.doctor.consults = HEALTH.consults;
-      if (HEALTH.doctor.scope) HEALTH.doctor.scope.consults = HEALTH.consults.length;
-    }
-    paintConsults();
-    toast("问诊记录已移进回收站", "success");
-    return;
-  }
-  if (action === "generate-report") { await generateReport(button); return; }
-  if (action === "chat-prompt") { await sendDoctorMessage(button.dataset.text); return; }
   if (action === "edit-profile") { openProfileDialog(); return; }
   if (action === "edit-goals") { openGoalsDialog(); return; }
   if (action === "add-custom-metric") { openCustomMetricDialog(); return; }
@@ -1351,17 +1155,10 @@ async function handleAction(button) {
 
 async function handleForm(form) {
   const kind = form.dataset.healthForm;
-  if (kind === "doctor-chat") {
-    const message = String(form.querySelector("[name=message]")?.value || "").trim();
-    if (!message) return;
-    form.reset();
-    await sendDoctorMessage(message);
-    return;
-  }
   if (kind === "sleep") { await saveSleep(form); return; }
   if (kind === "body") { await saveBody(form); return; }
-  if (kind === "diet") { await submitDiet(form); return; }
-  if (kind === "exercise") { await submitExercise(form); return; }
+  if (kind === "diet") { await saveDiet(form); return; }
+  if (kind === "exercise") { await saveExercise(form); return; }
   if (kind === "training") { await saveTraining(form); return; }
   if (kind === "profile") { await saveProfile(form); return; }
   if (kind === "goals") { await saveGoals(form); return; }
@@ -1566,10 +1363,6 @@ function openDietDialog() {
     food_text: String(nutrition.food_text || ""),
     water_ml: nutrition.water_ml ?? 0,
     meals: (actual().meals || []).map((meal) => ({ ...meal })),
-    view: "input",
-    error: "",
-    note: "",
-    estimate: null,
     pickerOpen: false,
     pickerQuery: "",
   };
@@ -1588,20 +1381,19 @@ function syncDietDraftFromDom() {
   if (text) draft.food_text = text.value;
   const water = form.querySelector("[name=water_ml]");
   if (water) draft.water_ml = water.value;
-  if (draft.view === "input") draft.meals = readMealRows(form);
+  draft.meals = readMealRows(form);
 }
 
 function renderDietDialog() {
   const draft = HEALTH.dietDraft;
   if (!draft) return;
-  if (draft.view === "preview") { renderDietPreview(); return; }
   const last = effective("nutrition");
   const lastHint = last && !sectionValues("nutrition").food_text && !(actual().meals || []).length
     ? `<p class="health-auto-note">上次记录：${esc(monthDayLabel(last.date))} · ${formatNumber(last.totals?.calories, 0, "kcal")}。今天可以重新记，也可以沿用上一次。</p>`
     : "";
   const meals = draft.meals.length
     ? draft.meals.map((meal, index) => mealRowMarkup(meal, index)).join("")
-    : `<p class="health-muted">还没有餐次；写一句描述，AI 会帮你拆成食物和热量。</p>`;
+    : `<p class="health-muted">还没有餐次；可以手动添加或从常吃食物中选择。</p>`;
   const body = `
     <div class="health-modal-primary">
       <label class="health-big-field"><span>今天吃了什么？ <em>必填</em></span>
@@ -1611,9 +1403,7 @@ function renderDietDialog() {
       <div class="health-dialog-tools">
         <button type="button" class="health-btn ghost small" data-dialog-action="diet-picker">从常吃食物选</button>
         <button type="button" class="health-btn ghost small" data-dialog-action="diet-add-meal">加一条精确记录</button>
-        <span class="health-tool-hint">保存时会先让 AI 估算，结果可以改。</span>
       </div>
-      ${draft.error ? `<p class="health-inline-error">${esc(draft.error)}</p>` : ""}
       <div class="${draft.pickerOpen ? "" : "health-hidden"}" data-diet-picker>
         <div class="health-food-search"><input type="search" data-food-search placeholder="搜米饭、鸡蛋、牛奶、面条……" value="${esc(draft.pickerQuery || "")}" /></div>
         <div class="health-food-list" data-food-list></div>
@@ -1632,7 +1422,7 @@ function renderDietDialog() {
     </div>
     <p class="health-modal-date">记录到：${esc(monthDayLabel(HEALTH.day))} ${esc(weekdayFull(HEALTH.day))}${isToday() ? "（今天）" : ""}</p>`;
   openHealthDialog(modalForm("diet", {
-    icon: "食", title: "今天吃了什么？", lead: "写大概就行，AI 会按常见份量估算。", body, submitLabel: "保存并估算",
+    icon: "食", title: "今天吃了什么？", lead: "可以只写描述，也可以添加餐次。", body, submitLabel: "保存记录",
   }));
   const form = document.querySelector('#dialog-content form[data-health-form="diet"]');
   if (!form) return;
@@ -1682,19 +1472,6 @@ function renderDietDialog() {
       HEALTH.dietDraft.water_ml = value;
       return;
     }
-    if (action === "diet-back") {
-      syncDietEstimateFromDom();
-      HEALTH.dietDraft.view = "input";
-      renderDietDialog();
-      return;
-    }
-    if (action === "diet-skip-estimate") {
-      syncDietDraftFromDom();
-      HEALTH.dietDraft.estimate = null;
-      HEALTH.dietDraft.view = "input";
-      await saveDiet();
-      return;
-    }
   });
   if (draft.pickerOpen) paintFoodList(draft.pickerQuery || "");
   form.addEventListener("input", (event) => {
@@ -1722,105 +1499,11 @@ function paintFoodList(query = "") {
   }
 }
 
-async function submitDiet(form) {
+async function saveDiet(form) {
   syncDietDraftFromDom();
   const draft = HEALTH.dietDraft;
   if (!draft) return;
-  if (draft.view === "preview") {
-    await saveDiet(form);
-    return;
-  }
-  if (!draft.food_text.trim() && !draft.meals.length) {
-    setStatus(form, "写一句吃了什么，或者加一条精确记录。", "error");
-    return;
-  }
-  if (!draft.food_text.trim() || draft.meals.length) {
-    await saveDiet(form);
-    return;
-  }
-  setBusy(form, true, "AI 估算中…");
-  setStatus(form, "正在按常见份量估算，最多等一会儿…");
-  try {
-    const result = await healthApi("/api/health/estimate", {
-      method: "POST", timeoutMs: 120000,
-      body: JSON.stringify({ kind: "food", text: draft.food_text }),
-    });
-    draft.estimate = (result.items || []).map((item) => ({ ...item }));
-    draft.note = result.note || "";
-    draft.view = "preview";
-    setBusy(form, false);
-    renderDietDialog();
-  } catch (error) {
-    setBusy(form, false);
-    draft.error = `AI 暂时估不出来：${error.message}`;
-    setStatus(form, "可以先保存文字，之后再补热量。", "error");
-    renderDietDialog();
-  }
-}
-
-function renderDietPreview() {
-  const draft = HEALTH.dietDraft;
-  const items = draft.estimate || [];
-  const totals = estimateFoodTotals(items);
-  const body = `
-    <p class="health-auto-note">${esc(draft.note || "按常见份量估算。数字都可以改；确认后才会写进今天的记录。")}</p>
-    <div class="health-estimate-list">${items.map((item, index) => mealRowMarkup(item, index)).join("")}</div>
-    <div class="health-estimate-total"><span>合计</span><strong>${formatNumber(totals.calories, 0, "kcal")}</strong><small>蛋白 ${formatNumber(totals.protein_g, 0, "g")} · 碳水 ${formatNumber(totals.carbs_g, 0, "g")} · 脂肪 ${formatNumber(totals.fat_g, 0, "g")}</small></div>
-    <div class="health-dialog-tools"><button type="button" class="health-btn ghost small" data-dialog-action="diet-add-meal">加一条</button><span class="health-tool-hint">不对就返回修改，或者直接改上面的数字。</span></div>`;
-  openHealthDialog(modalForm("diet", {
-    icon: "食", title: "AI 估算结果", lead: "确认前可以改数字。", body, submitLabel: "确认保存",
-  }));
-  const form = document.querySelector('#dialog-content form[data-health-form="diet"]');
-  if (!form) return;
-  bindDialogAction((action, button) => {
-    if (action === "diet-back") {
-      syncDietEstimateFromDom();
-      HEALTH.dietDraft.view = "input";
-      renderDietDialog();
-      return;
-    }
-    if (action === "remove-meal") {
-      syncDietEstimateFromDom();
-      HEALTH.dietDraft.estimate.splice(Number(button.dataset.index), 1);
-      renderDietDialog();
-      return;
-    }
-    if (action === "diet-add-meal") {
-      syncDietEstimateFromDom();
-      HEALTH.dietDraft.estimate.push({ meal_type: guessMealType(), name: "", portion: "", calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, source: "manual" });
-      renderDietDialog();
-    }
-  });
-  form.addEventListener("input", () => {
-    const current = document.querySelector("#dialog-content form[data-health-form='diet']");
-    if (!current) return;
-    const rows = readMealRows(current);
-    const total = estimateFoodTotals(rows);
-    const host = current.querySelector(".health-estimate-total");
-    if (host) host.innerHTML = `<span>合计</span><strong>${formatNumber(total.calories, 0, "kcal")}</strong><small>蛋白 ${formatNumber(total.protein_g, 0, "g")} · 碳水 ${formatNumber(total.carbs_g, 0, "g")} · 脂肪 ${formatNumber(total.fat_g, 0, "g")}</small>`;
-  });
-}
-
-function syncDietEstimateFromDom() {
-  const form = document.querySelector('#dialog-content form[data-health-form="diet"]');
-  if (!form || !HEALTH.dietDraft?.estimate) return;
-  HEALTH.dietDraft.estimate = readMealRows(form);
-}
-
-function estimateFoodTotals(items) {
-  return (items || []).reduce((total, item) => ({
-    calories: total.calories + (Number(item.calories) || 0),
-    protein_g: total.protein_g + (Number(item.protein_g) || 0),
-    carbs_g: total.carbs_g + (Number(item.carbs_g) || 0),
-    fat_g: total.fat_g + (Number(item.fat_g) || 0),
-  }), { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
-}
-
-async function saveDiet(form) {
-  const draft = HEALTH.dietDraft;
-  if (!draft) return;
-  if (draft.view === "preview") syncDietEstimateFromDom();
-  const meals = (draft.view === "preview" ? draft.estimate : draft.meals) || [];
+  const meals = draft.meals;
   if (!draft.food_text.trim() && !meals.length) {
     if (form) setStatus(form, "写一句吃了什么，或者加一条精确记录。", "error");
     return;
@@ -1864,10 +1547,6 @@ function openExerciseDialog() {
     calories: "",
     steps: activity.steps ?? "",
     sessions: (actual().training || []).map((session) => ({ ...session })),
-    view: "input",
-    estimate: null,
-    note: "",
-    error: "",
   };
   renderExerciseDialog();
 }
@@ -1875,7 +1554,6 @@ function openExerciseDialog() {
 function renderExerciseDialog() {
   const draft = HEALTH.exerciseDraft;
   if (!draft) return;
-  if (draft.view === "preview") { renderExercisePreview(); return; }
   const last = effective("activity");
   const lastHint = last && !sectionValues("activity").exercise_text && !(actual().training || []).length
     ? `<p class="health-auto-note">上次记录：${esc(monthDayLabel(last.date))} · ${formatNumber(last.totals?.minutes, 0, "分钟")}。今天可以重新记。</p>`
@@ -1893,14 +1571,12 @@ function renderExerciseDialog() {
       </div>
       <div class="health-dialog-tools">
         <button type="button" class="health-btn ghost small" data-dialog-action="exercise-precise">精细记录训练</button>
-        <span class="health-tool-hint">只写一句也行；保存时会先让 AI 估算，结果可以改。</span>
       </div>
-      ${draft.error ? `<p class="health-inline-error">${esc(draft.error)}</p>` : ""}
     </div>
     <div class="health-session-editor">${draft.sessions.length ? draft.sessions.map((session, index) => sessionRowMarkup(session, index)).join("") : `<p class="health-muted">还没有运动明细。</p>`}</div>
     <p class="health-modal-date">记录到：${esc(monthDayLabel(HEALTH.day))} ${esc(weekdayFull(HEALTH.day))}${isToday() ? "（今天）" : ""}</p>`;
   openHealthDialog(modalForm("exercise", {
-    icon: "动", title: "今天动了什么？", lead: "散步、跑步、力量都算；写一句就行。", body, submitLabel: "保存并估算",
+    icon: "动", title: "今天动了什么？", lead: "散步、跑步、力量都算；写一句就行。", body, submitLabel: "保存记录",
   }));
   const form = document.querySelector('#dialog-content form[data-health-form="exercise"]');
   if (!form) return;
@@ -1913,12 +1589,6 @@ function renderExerciseDialog() {
     if (action === "remove-session") {
       syncExerciseDraftFromDom();
       HEALTH.exerciseDraft.sessions.splice(Number(button.dataset.index), 1);
-      renderExerciseDialog();
-      return;
-    }
-    if (action === "exercise-back") {
-      syncExerciseEstimateFromDom();
-      HEALTH.exerciseDraft.view = "input";
       renderExerciseDialog();
       return;
     }
@@ -1940,98 +1610,15 @@ function syncExerciseDraftFromDom() {
   if (form.querySelector("[data-session-row]")) draft.sessions = readSessionRows(form);
 }
 
-function syncExerciseEstimateFromDom() {
-  const form = document.querySelector('#dialog-content form[data-health-form="exercise"]');
-  if (!form || !HEALTH.exerciseDraft?.estimate) return;
-  HEALTH.exerciseDraft.estimate = readSessionRows(form);
-}
-
-async function submitExercise(form) {
+async function saveExercise(form) {
   syncExerciseDraftFromDom();
   const draft = HEALTH.exerciseDraft;
   if (!draft) return;
-  if (draft.view === "preview") {
-    syncExerciseEstimateFromDom();
-    await saveExercise(form);
+  const sessions = draft.sessions;
+  if (!draft.exercise_text.trim() && !sessions.length && !readNumber(draft.minutes) && !readNumber(draft.calories) && !readNumber(draft.steps)) {
+    setStatus(form, "写一句运动，或者填时长、消耗或步数。", "error");
     return;
   }
-  if (!draft.exercise_text.trim() && !draft.sessions.length && !readNumber(draft.minutes) && !readNumber(draft.calories) && !readNumber(draft.steps)) {
-    setStatus(form, "写一句运动，或者填时长/消耗。", "error");
-    return;
-  }
-  const hasNumbers = Boolean(readNumber(draft.minutes) || readNumber(draft.calories));
-  if (hasNumbers || draft.sessions.length) {
-    await saveExercise(form);
-    return;
-  }
-  setBusy(form, true, "AI 估算中…");
-  setStatus(form, "正在按常见运动强度估算…");
-  try {
-    const result = await healthApi("/api/health/estimate", {
-      method: "POST", timeoutMs: 120000,
-      body: JSON.stringify({ kind: "exercise", text: draft.exercise_text }),
-    });
-    draft.estimate = (result.items || []).map((item) => ({ ...item }));
-    draft.note = result.note || "";
-    draft.view = "preview";
-    setBusy(form, false);
-    renderExerciseDialog();
-  } catch (error) {
-    setBusy(form, false);
-    draft.error = `AI 暂时估不出来：${error.message}`;
-    setStatus(form, "可以直接保存文字，或者填一个大概时长。", "error");
-    renderExerciseDialog();
-  }
-}
-
-function renderExercisePreview() {
-  const draft = HEALTH.exerciseDraft;
-  const items = draft.estimate || [];
-  const totals = estimateExerciseTotals(items);
-  const body = `
-    <p class="health-auto-note">${esc(draft.note || "按常见运动强度估算。数字都可以改；确认后才会写进今天的记录。")}</p>
-    <div class="health-estimate-list">${items.map((session, index) => sessionRowMarkup(session, index)).join("")}</div>
-    <div class="health-estimate-total"><span>合计</span><strong>${formatNumber(totals.minutes, 0, "分钟")}</strong><small>${formatNumber(totals.calories, 0, "kcal")} · ${formatNumber(totals.distance_km, 1, "km")} · ${formatNumber(totals.steps, 0, "步")}</small></div>`;
-  openHealthDialog(modalForm("exercise", {
-    icon: "动", title: "AI 估算结果", lead: "确认前可以改数字。", body, submitLabel: "确认保存",
-  }));
-  const form = document.querySelector('#dialog-content form[data-health-form="exercise"]');
-  if (!form) return;
-  bindDialogAction((action, button) => {
-    if (action === "exercise-back") {
-      syncExerciseEstimateFromDom();
-      HEALTH.exerciseDraft.view = "input";
-      renderExerciseDialog();
-      return;
-    }
-    if (action === "remove-session") {
-      syncExerciseEstimateFromDom();
-      HEALTH.exerciseDraft.estimate.splice(Number(button.dataset.index), 1);
-      renderExerciseDialog();
-    }
-  });
-  form.addEventListener("input", () => {
-    const current = document.querySelector("#dialog-content form[data-health-form='exercise']");
-    if (!current) return;
-    const total = estimateExerciseTotals(readSessionRows(current));
-    const host = current.querySelector(".health-estimate-total");
-    if (host) host.innerHTML = `<span>合计</span><strong>${formatNumber(total.minutes, 0, "分钟")}</strong><small>${formatNumber(total.calories, 0, "kcal")} · ${formatNumber(total.distance_km, 1, "km")} · ${formatNumber(total.steps, 0, "步")}</small>`;
-  });
-}
-
-function estimateExerciseTotals(items) {
-  return (items || []).reduce((total, item) => ({
-    minutes: total.minutes + (Number(item.minutes) || 0),
-    calories: total.calories + (Number(item.calories) || 0),
-    distance_km: total.distance_km + (Number(item.distance_km) || 0),
-    steps: total.steps + (Number(item.steps) || 0),
-  }), { minutes: 0, calories: 0, distance_km: 0, steps: 0 });
-}
-
-async function saveExercise(form) {
-  const draft = HEALTH.exerciseDraft;
-  if (!draft) return;
-  const sessions = draft.view === "preview" ? draft.estimate : draft.sessions;
   const manualMinutes = readNumber(draft.minutes);
   const manualCalories = readNumber(draft.calories);
   const list = (sessions || []).filter((session) => String(session.kind || "").trim());
@@ -2450,34 +2037,6 @@ async function deleteMedication(name) {
 
 // ── 报告 ────────────────────────────────────────────────────────────
 
-async function generateReport(button) {
-  if (!HEALTH.doctor?.capabilities?.ai) { toast("AI 未配置，暂时不能生成报告", "error"); return; }
-  const ok = await confirmAction({
-    title: "生成一份健康报告？",
-    message: "私人医生会读取最近 30 天记录、最新身体档案与检验记录，生成后保存到「健康报告」本子。",
-    confirmLabel: "生成报告",
-  });
-  if (!ok) return;
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = "正在写报告…";
-  try {
-    const result = await healthApi("/api/health/report", {
-      method: "POST", timeoutMs: 180000,
-      body: JSON.stringify({ confirm: true, days: 30 }),
-    });
-    toast("健康报告已生成", "success");
-    HEALTH.reports = Array.isArray(result.reports) ? result.reports : HEALTH.reports;
-    await refresh({ quiet: true });
-    if (result.note?.path) await openReport(result.note.path);
-  } catch (error) {
-    toast(`报告没有生成：${error.message}`, "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
-}
-
 async function openReport(path) {
   return openHealthNote(path, "report");
 }
@@ -2490,7 +2049,6 @@ async function openHealthNote(path, kind = "report") {
   if (!path) return;
   const isConsult = kind === "consult";
   const label = isConsult ? "问诊记录" : "健康报告";
-  const endpoint = isConsult ? "/api/health/consults" : "/api/health/reports";
   openHealthDialog(`<div class="health-loading">正在读取${label}…</div>`);
   try {
     const note = await healthApi(`/api/notes?path=${encodeURIComponent(path)}`);
@@ -2507,12 +2065,7 @@ async function openHealthNote(path, kind = "report") {
       const ok = await confirmAction({ title: `删除这份${noteLabel}？`, message: `${noteLabel}会移进笔记回收站，可以从回收站恢复。`, confirmLabel: "删除", danger: true });
       if (!ok) return;
       const target = noteKind === "consult" ? "/api/health/consults" : "/api/health/reports";
-      const result = await healthApi(`${target}?path=${encodeURIComponent(button.dataset.path)}&revision=${encodeURIComponent(button.dataset.revision || "")}`, { method: "DELETE" });
-      if (noteKind === "consult") {
-        HEALTH.consults = Array.isArray(result.consults) ? result.consults : HEALTH.consults;
-        if (HEALTH.doctor) HEALTH.doctor.consults = HEALTH.consults;
-        paintConsults();
-      }
+      await healthApi(`${target}?path=${encodeURIComponent(button.dataset.path)}&revision=${encodeURIComponent(button.dataset.revision || "")}`, { method: "DELETE" });
       toast(`${noteLabel}已移进回收站`, "success");
       closeHealthDialog();
       await refresh({ quiet: true });

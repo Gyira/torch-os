@@ -1,9 +1,9 @@
+import { buildMoveFolders } from "../move-folders.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
   applyNotebookOrder,
-  buildMoveTargetGroups,
   buildNotebookCards,
   customNotebookDefinition,
   customNotebookKey,
@@ -84,17 +84,28 @@ test("subchaptersFor lists all descendants with relative trails", () => {
   assert.deepEqual(rows.map((row) => row.title), ["数学", "数学 / 代数"]);
 });
 
-test("move targets label sub-notebooks with their parent path", () => {
+test("move picker nests real destinations under areas, renamed books and sub-books", () => {
   const parent = customNotebookKey("学习");
   const child = customNotebookKey("学习/数学");
-  const groups = buildMoveTargetGroups("life", [
-    { key: "essay", title: "随笔" },
-    { key: parent, title: "学习", custom: true },
-    { key: child, title: "数学", custom: true },
-  ], "essay");
-  const custom = groups.find((group) => group.key === "custom");
-  assert.ok(custom);
-  assert.deepEqual(custom.chapters.map((chapter) => chapter.title), ["学习", "学习 / 数学"]);
+  const roots = buildMoveFolders({
+    life: [
+      { key: child, parent, title: "数学", path: "人生路/学习/数学" },
+      { key: parent, title: "学习", path: "人生路/学习" },
+      { key: "essay", title: "随笔", path: "人生路/随笔" },
+      { key: "sub:essay:草稿", chapter: "essay", title: "草稿", path: "人生路/随笔/草稿" },
+      { key: "reflection", title: "反思", path: "人生路/反思复盘/反思" },
+    ],
+    knowledge: [{ key: "inbox", title: "收件箱", path: "知识库/收件箱" }],
+    titles: { life: { [parent]: "课程", reflection: "复盘本" } },
+    order: { life: [parent, "essay", "reflection"] },
+  });
+  const [life, knowledge] = roots;
+  assert.deepEqual(life.children.map((n) => n.title), ["课程", "随笔", "复盘本"]);
+  assert.equal(life.children[0].children[0].key, child);
+  assert.equal(life.children[1].children[0].key, "sub:essay:草稿");
+  assert.equal(life.children[2].path, undefined);
+  assert.equal(life.children[2].children[0].title, "反思");
+  assert.equal(knowledge.children[0].area, "knowledge");
 });
 
 test("built-in chapter sub-notebooks parse and group into their notebook", () => {
@@ -127,12 +138,4 @@ test("built-in chapter sub-notebooks parse and group into their notebook", () =>
   ]);
   assert.equal(multi.length, 4);
   assert.equal(multi[3].title, "反思 · 专题");
-
-  const groups = buildMoveTargetGroups("life", [
-    { key: "essay", title: "随笔" },
-    { key, title: "灵感", chapter: "essay", chapter_title: "随笔", sub: true },
-  ], "journal");
-  const essay = groups.find((group) => group.key === "essay");
-  assert.ok(essay);
-  assert.deepEqual(essay.chapters.map((chapter) => chapter.key), ["essay", key]);
 });

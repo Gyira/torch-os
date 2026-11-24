@@ -58,7 +58,8 @@ LOVE_PILLAR = "love"
 LOVE_ROOT = "生活运营/恋爱系统"
 LOVE_PAGE_DIRS = tuple(f"{LOVE_ROOT}/{name}" for name in (
     "恋爱记忆", "微信聊天", "排班日历", "经期关怀",
-    "恋爱相册", "八字合婚", "恋爱大师"))
+    "恋爱相册"))
+LEGACY_LOVE_DIRS = (f"{LOVE_ROOT}/八字合婚", f"{LOVE_ROOT}/恋爱大师")
 LOVE_MEMORY_DIR = f"{LOVE_ROOT}/恋爱记忆"
 LOVE_JOURNAL_DIR = f"{LOVE_MEMORY_DIR}/恋爱日志"
 LOVE_DRAFT_DIR = f"{LOVE_MEMORY_DIR}/AI 草稿"
@@ -1476,8 +1477,7 @@ def ensure_layout(vault_dir: Path | str) -> list[str]:
     for relative in ensure_self_layout(root):
         if relative not in created:
             created.append(relative)
-    for relative in (*OPS_SYSTEM_DIRS, *LOVE_PAGE_DIRS, *TASK_SPECIAL_DIRS,
-                     *(f"{LOVE_MEMORY_DIR}/{name}" for name in sorted(PROTECTED_LOVE_NOTEBOOKS))):
+    for relative in (*OPS_SYSTEM_DIRS, *LOVE_PAGE_DIRS, *TASK_SPECIAL_DIRS):
         if _ensure_managed_directory(root, relative):
             created.append(relative)
     return created

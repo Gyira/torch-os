@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -188,7 +189,8 @@ def test_body_change_same_source_creates_new_version(workspace):
 
 def test_atomic_note_creation_failure_publishes_no_partial_note(workspace):
     vault, _ = workspace
-    with patch("backend.app.pillar_notes.os.link", side_effect=OSError("disk failure")), pytest.raises(OSError):
+    publish = "rename" if os.name == "nt" else "link"
+    with patch.object(os, publish, side_effect=OSError("disk failure")), pytest.raises(OSError):
         pillar_notes.create_note(vault, chapter="inbox", title="未完成", body="完整正文")
     assert not list(vault.rglob("*.md"))
     assert not list(vault.rglob("*.tmp"))

@@ -188,3 +188,17 @@ test("机器相关设置只写本机文件，共享设置不包含 repoRoot", ()
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("阅读器的编辑请求在新的 Obsidian 标签里以编辑模式打开原文件", async () => {
+  const plugin = new TorchPlugin();
+  const file = Object.assign(new stub.TFile(), { path: "人生路/随笔/原文.md" });
+  let opened;
+  const leaf = { openFile: async (...args) => { opened = args; } };
+  plugin.uiUrl = "http://127.0.0.1:9400";
+  plugin.app = {
+    vault: { getAbstractFileByPath: target => target === file.path ? file : null },
+    workspace: { getLeaf: kind => { assert.equal(kind, "tab"); return leaf; }, setActiveLeaf() {} },
+  };
+  assert.equal(await plugin.openNote(file.path, plugin.uiUrl, true), file);
+  assert.deepEqual(opened, [file, { state: { mode: "source" } }]);
+});

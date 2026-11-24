@@ -105,9 +105,6 @@ export function quickChips(roleId, mode) {
   if (roleId === "life_assistant" && mode === "overview") {
     return ["这周最值得做的一件事", "任务和身体状态怎么平衡？", "我现在最该停掉什么？"];
   }
-  if (roleId === "love_master" && mode === "advice") {
-    return ["给我三条今天能做的建议", "我是不是在回避沟通？", "怎么设边界？"];
-  }
   if (roleId === "yiling" && mode === "converse") {
     return ["我最近在纠结什么？", "我为什么总是这样？", "我想改变自己的……"];
   }

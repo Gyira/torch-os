@@ -1008,35 +1008,36 @@ button.life-heatmap-cell { cursor: pointer; }
 
 .notebook-create-body .status-message { text-align: left; }
 
-/* 移动文档对话框（2026-10-31）：复用新建本子的外壳，只补下拉框与标题。 */
-.note-move-dialog { width: min(520px, 94vw); }
-
-.note-move-note-title {
-  margin: 0 0 6px;
-  color: var(--p-ink-strong);
-  font-size: 15px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
+/* 文件位置选择器 */
+.note-move-dialog { width: min(640px, calc(100vw - 24px)); }
+.note-move-dialog form { max-height: min(78vh, 680px); }
+.note-move-dialog .notebook-create-head { align-items: center; padding-bottom: 16px; }
+#note-move-source { margin: 5px 0 0; overflow-wrap: anywhere; }
+#note-move-trail {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  padding: 12px 20px; border-bottom: 1px solid var(--p-line);
+  background: var(--p-surface-2); color: var(--p-ink-3);
 }
-
-#note-move-target {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--p-line-input);
-  border-radius: 10px;
-  background: var(--p-surface);
-  color: var(--p-ink);
-  font: inherit;
-  font-size: 14px;
+#note-move-trail button { background: transparent; border: 0; color: inherit; padding: 3px 5px; font: inherit; font-size: 13px; overflow-wrap: anywhere; }
+#note-move-trail button:hover { color: var(--p-accent); }
+#note-move-trail [aria-current] { font-weight: 650; color: var(--p-ink-strong); }
+.move-folders { overflow-y: auto; min-height: 0; padding: 18px 22px; }
+#note-move-level { font-size: 13px; margin: 0 0 12px; color: var(--p-ink-3); }
+#note-move-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr)); gap: 8px; }
+.move-folder {
+  display: flex; align-items: center; gap: 10px; text-align: left; min-height: 62px;
+  padding: 12px; border-radius: 12px; border: 1px solid var(--p-line-2);
+  background: var(--p-surface); color: var(--p-ink-strong); font: inherit; cursor: pointer;
 }
-
-#note-move-target:focus {
-  border-color: var(--p-accent);
-  outline: 2px solid var(--p-focus-ring);
-  outline-offset: 1px;
-}
-
-.note-move-dialog .notebook-create-body .field-help { margin: 0 0 10px; }
+.move-folder:hover, .move-folder.is-selected { border-color: var(--p-accent); background: var(--p-surface-2); }
+.move-folder.is-selected { box-shadow: inset 0 0 0 1px var(--p-accent); }
+.move-folder-name { font-weight: 600; overflow-wrap: anywhere; }
+.move-folder small, .move-forward { margin-inline-start: auto; flex-shrink: 0; color: var(--p-ink-3); }
+.move-folder-icon { width: 23px; height: 16px; flex: none; position: relative; border-radius: 3px; background: #e5b65c; }
+.move-folder-icon::before { content: ""; position: absolute; top: -3px; left: 0; width: 11px; height: 5px; background: inherit; border-radius: 3px 3px 0 0; }
+#note-move-status { margin: 10px 0 0; }
+#note-move-status:empty { display: none; }
+.note-move-dialog .notebook-create-foot { border-top: 1px solid var(--p-line); padding-block: 12px; }
 
 /* 卡片右上角的「移动」入口：卡片本身仍是按钮，移动按钮是它的兄弟节点。 */
 .note-card-wrap { position: relative; display: flex; min-width: 0; }

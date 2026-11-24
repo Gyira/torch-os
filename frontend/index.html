@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/editor.css" /><link rel="stylesheet" href="/assets/editor-room.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /><link rel="stylesheet" href="/assets/material.css" /><link rel="modulepreload" href="/assets/app.js" /><link rel="modulepreload" href="/assets/core.js" /><link rel="modulepreload" href="/assets/service-gate.js" /><link rel="modulepreload" href="/assets/workbench.js" /><link rel="modulepreload" href="/assets/time-module.js" /></head>
+<head><meta charset="UTF-8" /><script src="/assets/embed-boot.js"></script><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light dark" /><title>薪火OS · 今日</title><link rel="stylesheet" href="/assets/styles.css" /><link rel="stylesheet" href="/assets/roles.css" /><link rel="stylesheet" href="/assets/share-link.css" /><link rel="stylesheet" href="/assets/workspace.css" /><link rel="stylesheet" href="/assets/health.css" /><link rel="stylesheet" href="/assets/love-cycle.css" /><link rel="stylesheet" href="/assets/self.css" /><link rel="stylesheet" href="/assets/mentor.css" /><link rel="stylesheet" href="/assets/bazi.css" /><link rel="stylesheet" href="/assets/role-admin.css" /><link rel="stylesheet" href="/assets/material.css" /><link rel="modulepreload" href="/assets/app.js" /><link rel="modulepreload" href="/assets/core.js" /><link rel="modulepreload" href="/assets/service-gate.js" /><link rel="modulepreload" href="/assets/workbench.js" /><link rel="modulepreload" href="/assets/time-module.js" /></head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要内容</a>
 <div class="app-shell">
@@ -37,7 +37,7 @@
       <div id="workbench-mentor" class="mentor-strip" data-mentor-strip aria-busy="true"><div class="mentor-strip-inner"><span class="mentor-strip-mark" aria-hidden="true">导</span><div class="mentor-strip-copy"><p class="eyebrow">LIFE MENTOR · 人生导师</p><p>正在整理今日提醒…</p></div></div></div>
       <div class="workbench-head">
         <section class="banner" id="workbench-banner" aria-label="工作台横幅">
-          <div id="workbench-hero" class="banner-bg" aria-hidden="true"></div>
+          <img id="workbench-hero" class="banner-bg" alt="" hidden />
           <div class="banner-overlay" aria-hidden="true"></div>
           <div id="workbench-mottos" class="banner-quote"></div>
           <div id="workbench-banner-stats" class="banner-stats" hidden></div>
@@ -284,8 +284,6 @@
             <button type="button" class="love-nav-item" data-love-page="schedule"><span>03</span>排班日历</button>
             <button type="button" class="love-nav-item" data-love-page="cycle"><span>04</span>经期关怀</button>
             <button type="button" class="love-nav-item" data-love-page="gallery"><span>05</span>恋爱相册</button>
-            <button type="button" class="love-nav-item" data-love-page="bazi"><span>06</span>八字合婚</button>
-            <button type="button" class="love-nav-item" data-love-page="master"><span>07</span>恋爱大师</button>
           </nav>
           <p class="love-menu-foot" id="love-menu-status">正在读取本机数据…</p>
         </aside>
@@ -313,12 +311,9 @@
               <h3>先把数据边界说清楚</h3>
               <p>聊天记录、恋爱记忆、相册和经期记录只保存在当前个人数据库的 <code>02_生活运营/01_恋爱系统/</code> 里；拷贝整个个人数据库可一起带走，也不会自动上传到任何服务器。</p>
               <ul>
-                <li>经期记录只在本机计算和保存；恋爱大师只会收到阶段、预计日期等聚合信息，不发送每日症状明细。周期预测只是估算，不是诊断，也不能作为避孕依据。</li>
-                <li>只有点击「AI 分析」「AI 批量补日记」或在大师角色层发消息时，聊天内容才会通过 dsh 发送给你配置的模型。</li>
-                <li>画像、深度分析、报告和角色层使用脱敏后的聊天摘要：姓名、电话、证件号、邮箱、链接和银行卡号会隐藏。</li>
-                <li>「AI 批量补日记」是例外：为了写成你自己的语气、保留真实称呼，会把当天聊天原文（不脱敏）逐日发送；草稿仍只保存在本机「AI 草稿」。</li>
+                <li>经期记录只在本机计算和保存。周期预测只是估算，不是诊断，也不能作为避孕依据。</li>
                 <li>照片与完整经期明细不会自动发送。</li>
-                <li>AI 结论只是参考，不替代真实沟通，也不构成任何关系决策建议。</li>
+                <li>使用生活管家的恋爱资料时，提供给模型的内容可包含脱敏聊天和经期阶段摘要。</li>
               </ul>
               <button id="love-consent-accept" class="button primary" type="button">我已了解，进入恋爱系统</button>
             </div>
@@ -340,7 +335,6 @@
             <button type="button" class="health-nav-item" data-health-page="diet"><span class="health-nav-icon">食</span><span class="health-nav-text">饮食情况</span></button>
             <button type="button" class="health-nav-item" data-health-page="exercise"><span class="health-nav-icon">动</span><span class="health-nav-text">运动记录</span></button>
             <button type="button" class="health-nav-item" data-health-page="archive"><span class="health-nav-icon">档</span><span class="health-nav-text">健康档案</span></button>
-            <button type="button" class="health-nav-item" data-health-page="doctor"><span class="health-nav-icon">医</span><span class="health-nav-text">私人医生</span></button>
           </nav>
           <div class="health-menu-foot">
             <span class="health-menu-status" id="health-menu-status">正在读取本机数据…</span>
@@ -602,25 +596,38 @@
 <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message"><div class="confirm-content"><h2 id="confirm-title">请确认</h2><p id="confirm-message"></p><div class="confirm-actions"><button id="confirm-cancel" class="button secondary" type="button" autofocus>取消</button><button id="confirm-accept" class="button primary" type="button">继续</button></div></div></dialog>
 <dialog id="banner-dialog" class="banner-dialog" aria-labelledby="banner-dialog-title">
   <form id="banner-form">
-    <h2 id="banner-dialog-title">编辑横幅</h2>
-    <div id="banner-preview" class="banner-preview" aria-hidden="true"><div id="banner-preview-photo" class="banner-preview-photo"><div class="banner-overlay"></div></div><p class="banner-preview-label">预览</p></div>
+    <header class="banner-editor-head"><h2 id="banner-dialog-title">编辑横幅</h2></header>
+    <div class="banner-editor-body">
+      <div id="banner-stage" class="banner-stage" tabindex="0" aria-label="横幅取景，可拖动图片，方向键微调，加减键缩放">
+        <div id="banner-preview" class="banner">
+          <img class="banner-bg" alt="" draggable="false" hidden />
+          <div class="banner-overlay"></div><div class="banner-quote"></div>
+          <div class="banner-stats" hidden></div>
+        </div>
+        <span id="banner-image-status" class="banner-image-status" hidden></span>
+        <button id="banner-resize" type="button" aria-label="拖动调整图片大小" title="向外拖动放大">⤢</button>
+      </div>
+      <div class="banner-crop-tools"><span>拖动图片调整位置，滚轮缩放</span><div>
+        <button type="button" id="banner-minus" class="small-button" aria-label="缩小图片">−</button>
+        <output id="banner-zoom">100%</output>
+        <button type="button" id="banner-plus" class="small-button" aria-label="放大图片">＋</button>
+        <button type="button" id="banner-reset" class="text-button">复位</button>
+      </div></div>
+      <section class="banner-library"><header><h3>轮换图片</h3><button id="banner-hero-choose" type="button" class="small-button">＋ 导入图片</button></header>
+        <input id="banner-hero-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+        <div id="banner-hero-list" class="banner-gallery"></div>
+        <p class="field-help">导入的原图保存在个人数据库中。多张图片每半小时轮换。</p>
+        <details><summary>历史图片</summary><div id="banner-history" class="banner-gallery"></div></details>
+        <details><summary>使用网络图片</summary><div class="banner-hero-actions">
+          <input id="banner-hero-url" type="url" maxlength="500" placeholder="https://…" aria-label="网络横幅图片链接" />
+          <button id="banner-hero-add-url" type="button" class="small-button">添加外链</button>
+        </div><p class="field-help">外链图片需要联网显示。</p></details>
+      </section>
+      <details class="banner-options"><summary>座右铭、模式与外观</summary>
     <div class="field"><label for="banner-mottos">座右铭（空行分隔多句；同一句内换行会保留，第一句最大）</label><textarea id="banner-mottos" rows="4" maxlength="2400"></textarea></div>
     <div class="field"><label for="banner-font">横幅字体（座右铭与统计文字共用）</label><select id="banner-font"></select></div>
-    <div class="field">
-      <span class="field-label">横幅图片（多张每半小时轮换）</span>
-      <div id="banner-hero-list" class="banner-hero-list" aria-live="polite"></div>
-      <div class="banner-hero-actions">
-        <input id="banner-hero-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择横幅图片文件" />
-        <button id="banner-hero-choose" type="button" class="small-button">选择本机图片</button>
-        <input id="banner-hero-url" type="url" maxlength="500" placeholder="或粘贴 https 图片链接" aria-label="网络横幅图片链接" />
-        <button id="banner-hero-add-url" type="button" class="small-button">添加链接</button>
-      </div>
-      <span class="field-help">本机图片会复制到当前个人数据库的 <code>.torch-os/横幅背景</code>，不留在浏览器缓存里。</span>
-    </div>
     <div class="form-grid">
       <div class="field"><label for="banner-overlay">遮罩深浅</label><input id="banner-overlay" type="range" min="0" max="0.9" step="0.05" value="0.45" /></div>
-      <div class="field"><label for="banner-focal-x">焦点横向 %</label><input id="banner-focal-x" type="range" min="0" max="100" step="1" value="50" /></div>
-      <div class="field"><label for="banner-focal-y">焦点纵向 %</label><input id="banner-focal-y" type="range" min="0" max="100" step="1" value="50" /></div>
       <div class="field"><label for="banner-accent">强调色（默认荧光绿）</label><input id="banner-accent" type="color" value="#bff038" /></div>
     </div>
     <fieldset class="banner-mode-field"><legend>横幅模式</legend><label class="check-label"><input type="radio" name="banner-mode" value="quote" checked />引言（座右铭）</label><label class="check-label"><input type="radio" name="banner-mode" value="stats" />统计（七行热力图 / 习惯 / 总热度）</label></fieldset>
@@ -651,6 +658,8 @@
       </div>
       <label class="check-label" for="banner-details"><input id="banner-details" type="checkbox" checked />显示细节（底部小条 / 热力图 / 进度条）</label>
     </fieldset>
+      </details>
+    </div>
     <div class="form-actions"><span id="banner-feedback" class="status-message" role="status" aria-live="polite"></span><button id="banner-cancel" class="button secondary" type="button">取消</button><button id="banner-save" class="button primary" type="submit">保存</button></div>
   </form>
 </dialog>
@@ -705,112 +714,6 @@
   </form>
 </aside>
 </dialog>
-<dialog id="note-editor-dialog" class="note-editor-dialog" aria-labelledby="note-editor-heading">
-  <div class="editor-shell">
-    <header class="editor-topbar">
-      <div class="editor-topbar-main">
-        <button id="note-editor-close" class="editor-back" type="button">← 返回</button>
-        <div class="editor-heading">
-          <p class="eyebrow" id="note-editor-eyebrow">写作</p>
-          <h2 id="note-editor-heading">写一条</h2>
-        </div>
-      </div>
-      <div class="editor-topbar-actions">
-        <p id="note-editor-status" class="status-message" role="status"></p>
-        <button id="note-editor-cancel" class="text-button" type="button">取消</button>
-        <button id="note-editor-save" type="button" class="button primary">保存</button>
-      </div>
-    </header>
-    <div class="editor-room-body">
-    <div class="editor-stage">
-      <div class="editor-paper" id="note-editor-paper">
-        <div class="editor-paper-head">
-          <input id="note-editor-title" class="editor-title-input" type="text" maxlength="200" autocomplete="off" placeholder="标题" aria-label="笔记标题" />
-          <section id="note-editor-template-strip" class="template-strip" aria-label="从模板开始" hidden>
-            <div class="template-strip-head">
-              <span class="template-strip-wand" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m3 21 9-9"/><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m12.2 6.2-1.2-1.2"/></svg></span>
-              <p class="template-strip-title">从模板开始</p>
-              <button id="template-open-all" class="template-strip-all" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="note-editor-template-sheet">全部</button>
-              <button id="template-strip-dismiss" class="template-strip-dismiss" type="button" aria-label="收起模板建议" title="收起模板建议">×</button>
-            </div>
-            <div id="template-strip-chips" class="template-strip-chips"></div>
-          </section>
-          <div class="editor-meta-row">
-            <label class="editor-meta-field">本子<select id="note-editor-chapter"></select></label>
-            <label class="editor-meta-field">标签<input id="note-editor-tags" type="text" maxlength="200" placeholder="用、或逗号分隔" /></label>
-          </div>
-        </div>
-        <div class="editor-commandbar">
-          <div id="note-editor-toolbar" class="note-editor-toolbar" role="toolbar" aria-label="Markdown 工具栏"></div>
-          <div class="editor-view-actions">
-            <button id="note-editor-preview-toggle" type="button" class="small-button" aria-pressed="false">预览</button>
-            <button id="note-editor-focus-toggle" type="button" class="small-button" aria-pressed="false">专注</button>
-          </div>
-        </div>
-        <div class="editor-writing" id="note-editor-writing">
-          <label class="visually-hidden" for="note-editor-text">正文 Markdown</label>
-          <textarea id="note-editor-text" spellcheck="false" placeholder="写点什么……"></textarea>
-          <div id="note-editor-preview" class="md-body note-editor-preview" aria-live="polite" hidden></div>
-        </div>
-        <section id="note-editor-polish" class="note-editor-polish" hidden aria-label="AI 润色预览">
-          <div class="note-editor-polish-head"><p class="eyebrow">AI 润色预览</p><p id="note-editor-polish-changes" class="field-help"></p></div>
-          <div id="note-editor-polish-text" class="md-body note-editor-polish-text"></div>
-          <div class="form-actions"><button id="note-editor-polish-apply" type="button" class="button primary">应用到正文</button><button id="note-editor-polish-cancel" type="button" class="text-button">取消</button></div>
-        </section>
-        <footer class="editor-footer">
-          <span id="note-editor-count" class="meta"></span>
-          <span id="note-editor-template-undo" class="editor-template-undo" hidden>
-            <span id="note-editor-template-undo-text" role="status" aria-live="polite"></span>
-            <button id="note-editor-template-undo-btn" type="button" class="text-button">撤销</button>
-          </span>
-          <div class="editor-ai-actions">
-            <button id="note-editor-classify" type="button" class="text-button">AI 建议章节</button>
-            <button id="note-editor-polish-btn" type="button" class="button secondary">AI 润色</button>
-            <button id="note-editor-role" type="button" class="text-button">和写作伙伴聊聊</button>
-          </div>
-          <div class="editor-file-actions">
-            <button id="note-editor-delete" type="button" class="text-button editor-delete" hidden>删除</button>
-            <button id="note-editor-obsidian" type="button" class="text-button">在 Obsidian 打开</button>
-            <button id="note-editor-reload" type="button" class="text-button">重新载入</button>
-          </div>
-        </footer>
-      </div>
-    </div>
-    <aside id="note-editor-companion-slot" class="editor-companion-slot" hidden aria-label="AI 伙伴"></aside>
-    </div>
-  </div>
-  <div id="note-editor-template-sheet" class="template-sheet" hidden>
-    <div class="template-sheet-backdrop" data-template-close="true"></div>
-    <section class="template-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="template-sheet-title" tabindex="-1">
-      <span class="template-sheet-handle" aria-hidden="true"></span>
-      <div id="template-list-step" class="template-step">
-        <h3 id="template-sheet-title" class="template-sheet-title">选择模板</h3>
-        <label class="template-search" for="template-search">
-          <span class="template-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
-          <input id="template-search" type="search" placeholder="搜索模板" aria-label="搜索模板" autocomplete="off" spellcheck="false" />
-        </label>
-        <div id="template-filters" class="template-filters" role="group" aria-label="模板分类"></div>
-        <p id="template-list-status" class="visually-hidden" role="status" aria-live="polite"></p>
-        <div id="template-results" class="template-results"></div>
-      </div>
-      <div id="template-preview-step" class="template-step" hidden>
-        <div class="template-preview-head">
-          <button id="template-preview-back" class="template-preview-back" type="button" aria-label="返回模板列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m15 18-6-6 6-6"/></svg></button>
-          <h3 id="template-preview-name" class="template-sheet-title" tabindex="-1">模板</h3>
-        </div>
-        <p id="template-preview-hint" class="template-preview-hint">日期与问题已按这篇日记填好。</p>
-        <div class="template-preview-card">
-          <p id="template-preview-title" class="template-preview-title"></p>
-          <div id="template-preview-body" class="md-body template-preview-body"></div>
-        </div>
-        <div class="template-preview-actions">
-          <button id="template-preview-shuffle" class="button secondary" type="button" hidden>换一题</button>
-          <button id="template-preview-use" class="button primary" type="button">使用这个模板</button>
-        </div>
-      </div>
-    </section>
-  </div>
-</dialog>
 <dialog id="notebook-create-dialog" class="notebook-create-dialog" aria-labelledby="notebook-create-title">
   <form id="notebook-create-form" class="notebook-create-form">
     <header class="notebook-create-head">
@@ -832,25 +735,23 @@
 <dialog id="note-move-dialog" class="notebook-create-dialog note-move-dialog" aria-labelledby="note-move-title">
   <form id="note-move-form" class="notebook-create-form">
     <header class="notebook-create-head">
-      <div><p class="eyebrow" id="note-move-eyebrow">人生路 · 移动文档</p><h2 id="note-move-title">移动到本子</h2></div>
-      <button type="button" id="note-move-close" class="small-button">关闭</button>
+      <div><h2 id="note-move-title">移动文档</h2><p id="note-move-source" class="field-help"></p></div>
+      <button type="button" id="note-move-close" class="small-button" aria-label="关闭">×</button>
     </header>
-    <div class="notebook-create-body">
-      <p class="note-move-note-title" id="note-move-note"></p>
-      <p class="field-help" id="note-move-from"></p>
-      <label for="note-move-target">目标本子 / 章节</label>
-      <select id="note-move-target"></select>
-      <p class="field-help">会把 Markdown 文件从原文件夹移动到目标本子文件夹；正文、标签和 frontmatter 原样保留。同名文件会自动编号，不覆盖。</p>
-      <p id="note-move-status" class="status-message" role="status"></p>
-    </div>
+    <nav id="note-move-trail" aria-label="目标位置"></nav>
+    <section class="move-folders" aria-labelledby="note-move-level">
+      <h3 id="note-move-level" tabindex="-1"></h3>
+      <div id="note-move-grid"></div>
+      <p class="field-help" id="note-move-status" role="status"></p>
+    </section>
     <footer class="notebook-create-foot">
       <button type="button" id="note-move-cancel" class="text-button">取消</button>
-      <button type="submit" id="note-move-submit" class="button primary">移动</button>
+      <button type="submit" id="note-move-submit" class="button primary" disabled>移动到这里</button>
     </footer>
   </form>
 </dialog>
 <dialog id="share-link-dialog" class="share-link-dialog" aria-labelledby="share-link-heading">
-  <div class="note-editor-head">
+  <div class="document-dialog-head">
     <div><p class="eyebrow">KNOWLEDGE · Q&amp;A</p><h2 id="share-link-heading">AI 对话归档</h2><p class="field-help">支持 ChatGPT / DeepSeek 公开分享；也可直接粘贴正文。分享链接可能被任何持链接者访问。</p></div>
     <button id="share-link-close" class="small-button" type="button">关闭</button>
   </div>

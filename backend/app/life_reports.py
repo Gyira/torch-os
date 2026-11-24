@@ -25,23 +25,17 @@ from .proposals import ProposalError
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-DOMAINS = {"health", "finance", "love", "life"}
+DOMAINS = {"finance", "life"}
 REPORT_CHAPTER = {
-    "health": "health_report",
     "finance": "finance_report",
-    "love": vault_layout.LOVE_DRAFT_CHAPTER,
     "life": "life_advice",
 }
 REPORT_TITLE = {
-    "health": "健康报告",
     "finance": "财务报告",
-    "love": "恋爱大师建议",
     "life": "生活管家建议",
 }
 ROLE = {
-    "health": ("health_doctor", "report"),
     "finance": ("finance_advisor", "report"),
-    "love": ("love_master", "advice"),
     "life": ("life_assistant", "suggest"),
 }
 MAX_CONTEXT = 14_000
@@ -148,7 +142,7 @@ def love_context(love_settings: Any) -> tuple[str, dict[str, Any]]:
     # v2：私人数据在 生活运营/恋爱系统；LovePaths 对象没有 db_path。
     if love_settings is not None and hasattr(love_settings, "chat_db"):
         try:
-            from .love_master import overview_payload
+            from .love_summary import overview_payload
             data = overview_payload(love_settings)
         except Exception as error:  # noqa: BLE001 - 汇总失败不能阻断生活运营总览
             return f"恋爱数据暂时读不到：{error}", {"projects": 0, "analyses": 0}
@@ -156,32 +150,22 @@ def love_context(love_settings: Any) -> tuple[str, dict[str, Any]]:
         chat = data.get("chat") or {}
         cycle = data.get("cycle") or {}
         gallery = data.get("gallery") or {}
-        bazi = data.get("bazi") or {}
-        runs = data.get("runs") or []
         contact = chat.get("contact") or {}
         lines = [
             f"- 对象：{contact.get('display_name') or '未绑定'}；消息 {chat.get('total', 0)} 条，"
             f"活跃 {chat.get('active_days', 0)} 天",
             f"- 恋爱记忆：{memory.get('total', 0)} 篇（恋爱日志 {memory.get('journal_count', 0)}，"
             f"AI 草稿 {memory.get('draft_count', 0)}）",
-            f"- 相册：{gallery.get('total', 0)} 个媒体；八字合婚历史：{bazi.get('count', 0)} 份",
+            f"- 相册：{gallery.get('total', 0)} 个媒体",
         ]
         if cycle.get("has_data"):
             lines.append(f"- 经期阶段：{cycle.get('phase_label') or '未知'}；"
                          f"预计下次 {cycle.get('next_expected') or '—'}")
-        if runs:
-            lines.append("- 最近 AI 结论：" + "、".join(
-                f"{item.get('skill')}（{item.get('status')}）" for item in runs[:3]))
-        if bazi.get("latest"):
-            lines.append(f"- 最近八字合婚：{bazi['latest'].get('title')} / "
-                         f"{bazi['latest'].get('verdict')}")
         stats = {
             "projects": 1 if contact else 0,
-            "analyses": len(runs),
             "messages": chat.get("total", 0),
             "memory": memory.get("total", 0),
             "galleries": gallery.get("total", 0),
-            "bazi": bazi.get("count", 0),
         }
         return "\n".join(lines), stats
     db_path = Path(getattr(love_settings, "db_path", "") or "")
@@ -297,17 +281,13 @@ def generate_report(database: Database, vault_dir: Path | str, role_service: Any
     role_id, mode = ROLE[domain]
     builders = {
         "life": lambda: life_context(database, vault_dir, love_settings),
-        "health": lambda: health_context(vault_dir),
         "finance": lambda: finance_context(vault_dir),
-        "love": lambda: love_context(love_settings),
     }
     context = role_service.prepare_context(role_id, "life_report" if domain == "life" else domain,
                                            builders[domain], love_settings=love_settings)
     _, stats = context.value
     user_text = {
-        "health": "请按私人医生模式评估最近 6 个月的健康数据，输出约定的报告 JSON。",
         "finance": "请按理财专家模式评估最近 6 个月的收支数据，输出约定的报告 JSON。",
-        "love": "请按恋爱大师模式给出关系建议；只基于摘要，不要假装读过原始聊天。",
         "life": "请按生活管家模式汇总健康/财务/恋爱与任务，给最多三条可执行建议，并输出约定 JSON。",
     }[domain]
     try:

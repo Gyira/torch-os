@@ -81,8 +81,6 @@ from .love_memory import create_memory_router
 from .love_schedule import create_schedule_router
 from .love_cycle import create_cycle_router
 from .love_gallery import create_gallery_router
-from .love_bazi import create_bazi_router
-from .love_master import create_master_router
 from .love_system import create_system_router
 from .love_weflow_component import create_component_router
 from .train_tracker import create_train_tracker_router
@@ -535,15 +533,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
             request.url.path.startswith('/api/love/projects/')
             and request.url.path.endswith('/report/preview')
         )
-        love_bazi_html = (
-            request.url.path.startswith('/api/love/bazi/reports/')
-            and request.url.path.endswith('/html')
-        )
-        love_master_html = (
-            request.url.path.startswith('/api/love/master/runs/')
-            and request.url.path.endswith('/html')
-        )
-        if love_report_preview or love_bazi_html or love_master_html:
+        if love_report_preview:
             response.headers['Cache-Control'] = 'no-store'
             response.headers['Content-Security-Policy'] = (
                 "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
@@ -616,11 +606,9 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
                     'import_history':True,'journal_export':True,'link_audit':True,
                     'life_assistant':ai_enabled,'life_reports':True,
                     'love': runtime_label == 'personal',
-                    'love_bazi': runtime_label == 'personal',
                     'love_chat': runtime_label == 'personal',
                     'love_cycle': runtime_label == 'personal',
                     'love_gallery': runtime_label == 'personal',
-                    'love_master': runtime_label == 'personal' and ai_enabled,
                     'love_memory': runtime_label == 'personal',
                     'love_schedule': runtime_label == 'personal',
                     'mcp_bridge':True,'memory_batch':True,'memory_delete':True,
@@ -935,7 +923,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         # 角色层按需读取恋爱系统的只读摘要；在路径建好后回填。
         ai_service.love_settings = love_settings
         app.include_router(create_system_router(
-            love_settings, migration=love_migration, role_service=ai_service,
+            love_settings, migration=love_migration,
         ))
         app.include_router(create_component_router(
             love_settings, read_only=vault_read_only,
@@ -961,13 +949,6 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
         app.include_router(create_gallery_router(
             love_settings, read_only=vault_read_only,
         ), dependencies=[Depends(journal_data_guard)])
-        app.include_router(create_bazi_router(
-            love_settings, role_service=ai_service, read_only=vault_read_only,
-        ), dependencies=[Depends(journal_data_guard)])
-        app.include_router(create_master_router(
-            love_settings, database, role_service=ai_service,
-            target_name=LOVE_TARGET_NAME, read_only=vault_read_only,
-        ))
     # v1.0 生活运营 AI：健康/财务/恋爱/生活管家；报告落 06–08 章，建议只生成提案。
     app.include_router(life_reports.create_life_ai_router(
         database, vault_dir, role_service=ai_service, proposals=proposal_service,
@@ -975,7 +956,7 @@ def create_app(database: Database | None = None, vault_dir: Path | None = None, 
     # 健康系统（2026-10-31）：与恋爱系统平级的「生活运营」二级分区。
     # 私人数据全部在 生活运营/健康系统；应用状态在 <数据目录>/health/。
     app.include_router(create_health_router(
-        database, vault_dir, role_service=ai_service, read_only=vault_read_only))
+        database, vault_dir, read_only=vault_read_only))
     # 列车运行追踪：独立于恋爱系统，数据在 <Vault>/.torch-os/train-tracker/。
     # 当天值乘车次可自动刷新 12306 时刻表；QA 模式禁用外部同步，仍可导入本地数据。
     app.include_router(create_train_tracker_router(

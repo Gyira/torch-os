@@ -8,8 +8,8 @@ import { shanghaiDay } from "./journal-model.js";
 import { initAlmanacWidget, renderAlmanac } from "./almanac-widget.js";
 import { initWeatherWidget, loadWeatherWidget } from "./weather-widget.js";
 import { initAnniversaryWidget } from "./anniversary-widget.js";
-import { applyBanner, startRotation, imageSrc } from "./banner.js";
-import { setBannerSource, initBannerEditor } from "./banner-editor.js";
+import { applyBanner, startRotation, setBannerImage } from "./banner.js";
+import { initBannerEditor } from "./banner-editor.js";
 import { initTimeModule, loadTimeTasks, renderTimeProgress } from "./time-module.js";
 import { initCountdownWidget } from "./countdown.js";
 import { initDeepSeekBalance, loadDeepSeekBalance } from "./deepseek-balance.js";
@@ -48,9 +48,8 @@ export function renderWorkbench(payload) {
 
   // 横幅（引言/统计双模式、多图轮换、焦点、遮罩；数据在 01-Identity/身份（identity）.md）。
   const banner = applyBanner($("#workbench-banner"), payload, bannerStats);
-  setBannerSource(payload);
   if (banner) {
-    const signature = `${banner.heroes.join("|")}:${banner.mode}:${banner.focal}`;
+    const signature = `${banner.heroes.join("|")}:${banner.mode}:${banner.focal}:${JSON.stringify(banner.crops)}`;
     if (signature !== rotationSignature) {
       rotationSignature = signature;
       rotationGeneration += 1;
@@ -59,8 +58,7 @@ export function renderWorkbench(payload) {
         if (generation !== rotationGeneration) return;
         const background = $("#workbench-hero");
         if (!background) return;
-        const safe = index % banner.heroes.length;
-        background.style.backgroundImage = `url("${imageSrc(banner.heroes[safe], safe).replace(/"/g, "%22")}")`;
+        setBannerImage(background, banner, index);
       }, (fn, ms) => window.setTimeout(fn, ms));
     }
     // 每次工作台重画都重取一次统计：习惯打卡/待办勾选后横幅数字要跟着变，
@@ -120,7 +118,7 @@ function renderWelcome(payload) {
     location.hash = "#life";
     let attempts = 0;
     const timer = window.setInterval(() => {
-      const button = document.querySelector('#life-view [data-editor-new="life"]');
+      const button = document.querySelector('#life-view [data-pillar-new="life"][data-new-chapter="essay"]');
       if (button) {
         window.clearInterval(timer);
         button.click();

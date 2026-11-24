@@ -174,7 +174,7 @@ function cellMarkup(cell) {
     return `<button type="button" ${common} data-journal-day="${esc(cell.key)}" data-journal-path="${esc(cell.path)}" data-journal-legacy="${cell.legacy ? "1" : "0"}" aria-label="${esc(cell.caption)}"></button>`;
   }
   if (cell.today && !cell.entry) {
-    return `<button type="button" ${common} data-editor-new="life" data-new-chapter="journal" aria-label="${esc(cell.caption)}，开始写今天的日记"></button>`;
+    return `<button type="button" ${common} data-pillar-new="life" data-new-chapter="journal" aria-label="${esc(cell.caption)}，开始写今天的日记"></button>`;
   }
   return `<span ${common} aria-hidden="true"></span>`;
 }

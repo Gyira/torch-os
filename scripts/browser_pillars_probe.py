@@ -741,16 +741,10 @@ async def run(base_url: str, output: Path, port: int,
             await cdp.wait_for("document.querySelector('#life-view .life-hero')", timeout=20)
             await cdp.wait_for("document.querySelector('#life-view .pillar-head-actions [data-pillar-new]')")
             await cdp.wait_for("document.querySelectorAll('#life-view .note-card[data-note-path]').length > 0", timeout=20)
+            await cdp.evaluate(RESET_OPENED)
             await cdp.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))")
-            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open === true", timeout=20)
-            report["shortcut_editor"] = await cdp.evaluate("""(() => ({
-                open: Boolean(document.querySelector('#note-editor-dialog')?.open),
-                title: document.querySelector('#note-editor-title')?.value ?? null,
-                has_body: Boolean(document.querySelector('#note-editor-text')),
-            }))()""")
-            await shot(cdp, output, report, "shortcut-editor.png")
-            await cdp.evaluate("document.querySelector('#note-editor-close').click()")
-            await cdp.wait_for("document.querySelector('#note-editor-dialog')?.open !== true", timeout=20)
+            await cdp.wait_for("window.__torchOpened.length > 0")
+            report["shortcut_new"] = await cdp.evaluate(READ_OPENED)
             # 方向键：设置侧栏移动焦点，Enter 才切换分区。
             await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=\"settings\"]').click()")
             await cdp.wait_for("location.hash === '#settings'")
@@ -796,7 +790,7 @@ def _compute_ok(report: dict) -> bool:
     note_actions = report.get("note_actions") or {}
     pillar_new = report.get("pillar_new") or {}
     new_jump = pillar_new.get("jump") or {}
-    shortcut_editor = report.get("shortcut_editor") or {}
+    shortcut_new = report.get("shortcut_new") or {}
     note_jump = report.get("note_jump") or {}
     ops_jump = report.get("ops_jump") or {}
     retired_writes = report.get("retired_writes") or {}
@@ -815,21 +809,21 @@ def _compute_ok(report: dict) -> bool:
         and pillar_new.get("present") is True
         and jump_is(new_jump.get("first", ""), "new", "知识库/")
         and new_jump.get("capture_dialog") is False
-        and shortcut_editor.get("open") is True
-        and shortcut_editor.get("has_body") is True
+        and jump_is(shortcut_new.get("first", ""), "new", "人生路/")
         # 任务笔记只读；允许章节的笔记可应用内编辑，且不再显示只读提示
         and note_dialog.get("present") is True
         and note_dialog.get("has_open_note") is True
         and note_dialog.get("has_tag_form") is False
         and note_dialog.get("has_move") is False
-        and note_dialog.get("read_only_hint") is True
+        and note_dialog.get("open_note_label") == "编辑"
         and note_dialog.get("has_editor") is False
         and note_actions.get("present") is True
         and note_actions.get("has_open_note") is True
         and note_actions.get("has_tag_form") is False
         and note_actions.get("has_move") is False
         and note_actions.get("read_only_hint") is False
-        and note_actions.get("has_editor") is True
+        and note_actions.get("has_editor") is False
+        and note_actions.get("open_note_label") == "编辑"
         # 阅读视图真的渲染了 Markdown：表格、标注块、任务清单与目录
         and note_actions.get("markdown_rendered") is True
         and note_actions.get("tables", 0) >= 1

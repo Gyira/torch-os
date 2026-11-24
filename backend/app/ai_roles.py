@@ -125,8 +125,7 @@ ENTRIES = frozenset({
     "self.mentor", "self.archive", "self.bazi",
     "knowledge.editor", "knowledge.qa",
     "ops.overview",
-    "love.overview",
-    "health.report", "finance.report",
+    "finance.report",
     "family.placeholder",
 })
 
@@ -800,10 +799,6 @@ class RoleService:
             ]
         if role.id == "journal_companion":
             return [{"entry": "journal"}]
-        if role.id == "love_master":
-            return [{"entry": "love"}]
-        if role.id == "health_doctor":
-            return [{"entry": "health"}]
         if role.id == "academic_mentor":
             return []
         return []
@@ -1494,8 +1489,7 @@ class RoleService:
         )
         prompt = self.build_prompt(role_id, mode, context_text="\n\n".join(filter(None, [prepared_text, context.text])),
                                    user_text=input_text)
-        result = self._execute(prompt, role, runner=runner,
-                               timeout=60 if role_id == "health_doctor" and mode == "estimate" else None)
+        result = self._execute(prompt, role, runner=runner)
         structured = extract_json(result.text) or {}
         self.database.audit("ai_run_completed", {
             "role": role_id, "mode": mode, "chars": len(result.text),

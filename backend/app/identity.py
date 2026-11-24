@@ -10,7 +10,7 @@ windows cannot silently overwrite each other.
 """
 
 from __future__ import annotations
-from .storage_layout import workspace_relative
+from .storage_layout import active_layout, workspace_relative
 
 import os
 import re
@@ -116,6 +116,7 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
             "heroes": [],
             "hero_overlay": 0.45,
             "hero_focal": "",
+            "hero_crops": {},
             "banner_mode": "quote",
             "banner_accent": "",
             "banner_blur": 6.0,
@@ -166,6 +167,7 @@ def read_identity(vault_dir: Path | str) -> dict[str, Any]:
         "mottos": mottos,
         "hero": hero,
         "heroes": heroes,
+        "hero_crops": metadata.get("hero_crops") or {},
         "hero_overlay": overlay,
         "hero_focal": str(metadata.get("hero_focal") or "").strip(),
         "banner_mode": mode if mode in ("quote", "stats") else "quote",
@@ -201,7 +203,7 @@ def write_identity(vault_dir: Path | str, payload: IdentityWrite, *, read_only: 
     preserved: dict[str, Any] = {}
     if current is not None:
         existing, _ = _split_front_matter(current.decode("utf-8", errors="replace"))
-        for key in ("mottos", "hero", "heroes", "hero_overlay", "hero_focal", "banner_mode",
+        for key in ("mottos", "hero", "heroes", "hero_overlay", "hero_focal", "hero_crops", "banner_mode",
                     "banner_accent", "banner_blur", "banner_darkness", "banner_left_stat",
                     "banner_center_stat", "banner_heat_color", "banner_details", "banner_font"):
             if existing.get(key) not in (None, "", []):
@@ -282,6 +284,12 @@ class BannerModeWrite(BaseModel):
     mode: Literal["quote", "stats"]
 
 
+class BannerCrop(BaseModel):
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    zoom: float = Field(ge=1, le=5)
+
+
 class BannerWrite(BaseModel):
     """工作台横幅（2026-10-05）：座右铭、图片列表、遮罩深浅、焦点、模式与字体——都写回 身份（identity）.md。"""
 
@@ -289,6 +297,7 @@ class BannerWrite(BaseModel):
 
     mottos: list[str] = Field(default_factory=list, max_length=12)
     heroes: list[str] = Field(default_factory=list, max_length=12)
+    hero_crops: dict[str, BannerCrop] = Field(default_factory=dict, max_length=12)
     hero_overlay: float = Field(default=0.45, ge=0, le=0.9)
     hero_focal: str = Field(default="", max_length=40)
     banner_mode: str = "quote"
@@ -357,8 +366,23 @@ def write_banner(vault_dir: Path | str, payload: BannerWrite, *,
     metadata["updated_at"] = utc_now()
     metadata["visibility"] = metadata.get("visibility") or "private"
     metadata["mottos"] = payload.mottos
-    metadata["heroes"] = payload.heroes
-    metadata["hero"] = payload.heroes[0] if payload.heroes else ""
+    heroes = []
+    crops = {}
+    for entry in payload.heroes:
+        relative = entry
+        if Path(entry).is_absolute():
+            try:
+                image = _hero_image_path(vault_dir, entry)
+                relative = workspace_relative(vault_dir, image).as_posix()
+            except ValueError:
+                raise HTTPException(422, "旧横幅路径不在个人数据库内，请重新导入这张图片")
+        heroes.append(relative)
+        if entry in payload.hero_crops:
+            crops[relative] = payload.hero_crops[entry].model_dump()
+    if "hero_crops" in payload.model_fields_set:
+        metadata["hero_crops"] = crops
+    metadata["heroes"] = heroes
+    metadata["hero"] = heroes[0] if heroes else ""
     metadata["hero_overlay"] = round(payload.hero_overlay, 2)
     if payload.hero_focal:
         metadata["hero_focal"] = payload.hero_focal
@@ -487,9 +511,51 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
     def identity_banner_mode(payload: BannerModeWrite):
         return write_banner_mode(vault_dir, payload.mode, read_only=read_only)
 
+    legacy_images = f"{TORCH_DATA_DIR}/{BANNER_IMAGE_DIR}"
+    portable_images = f"_Torch/{BANNER_IMAGE_DIR}"
+
+    # In split layouts .torch-os resolves to device state. Keep new photos with the notes.
+    def image_folder():
+        return portable_images if active_layout(vault_dir) else legacy_images
+
+    @router.get("/identity/banner/images")
+    def banner_images():
+        entries = []
+        for folder in (portable_images, legacy_images):
+            directory = safe_note_path(Path(vault_dir), folder)
+            if not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if path.suffix.lower() not in HERO_SUFFIXES:
+                    continue
+                try:
+                    image = safe_note_path(Path(vault_dir), f"{folder}/{path.name}")
+                    if image.is_file():
+                        entries.append((image.stat().st_mtime_ns, f"{folder}/{path.name}"))
+                except (ValueError, FileNotFoundError):
+                    continue
+        return {"paths": [path for _, path in sorted(entries, reverse=True)]}
+
+    @router.get("/identity/banner/image")
+    def banner_image(path: str = Query(max_length=500)):
+        from fastapi.responses import FileResponse
+
+        folder, _, name = path.rpartition("/")
+        if (folder not in (legacy_images, portable_images)
+                or Path(name).name != name or Path(name).suffix.lower() not in HERO_SUFFIXES
+                or any(char in name for char in (":", "\\", "\x00"))):
+            raise HTTPException(404, "横幅图片不存在")
+        try:
+            image = safe_note_path(Path(vault_dir), path)
+        except ValueError as error:
+            raise HTTPException(404, "横幅图片路径无效") from error
+        if not image.is_file():
+            raise HTTPException(404, "横幅图片不存在")
+        return FileResponse(image, headers={"Cache-Control": "no-cache"})
+
     @router.post("/identity/banner/image")
     async def identity_banner_image(file: UploadFile = File(...)):
-        """把用户选择的横幅图片复制到 `<个人数据库>/.torch-os/横幅背景/`。
+        """把用户选择的横幅图片复制到个人数据库的横幅背景目录。
 
         落点写死在后端：前端只传文件字节，返回可写进 身份（identity）.md 的库内相对路径。
         """
@@ -505,7 +571,7 @@ def create_identity_router(vault_dir: Path | str, *, read_only: bool = False, pr
         suffix = _image_suffix(raw)
         if not suffix:
             raise HTTPException(422, "仅支持 PNG / JPG / WebP / GIF 图片")
-        relative_dir = f"{TORCH_DATA_DIR}/{BANNER_IMAGE_DIR}"
+        relative_dir = image_folder()
         try:
             destination = safe_note_path(
                 Path(vault_dir), f"{relative_dir}/{_banner_filename(file.filename, suffix)}")

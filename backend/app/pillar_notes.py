@@ -145,10 +145,35 @@ def read_note(vault_dir: Path | str, relative: str) -> dict[str, Any]:
 def _unique_path(directory: Path, stem: str) -> Path:
     candidate = directory / f"{stem}.md"
     index = 2
-    while candidate.exists():
+    while os.path.lexists(candidate):
         candidate = directory / f"{stem}-{index}.md"
         index += 1
     return candidate
+
+
+def _publish_new_note(directory: Path, stem: str, data: bytes) -> Path:
+    """Publish the complete file without replacing another writer's destination."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".new-note-", suffix=".tmp",
+                                         delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        while True:
+            target = _unique_path(directory, stem)
+            try:
+                if os.name == "nt":
+                    temporary.rename(target)  # Windows rename refuses an existing destination.
+                else:
+                    os.link(temporary, target)
+                return target
+            except FileExistsError:
+                continue
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: str = "inbox",
@@ -172,7 +197,6 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
     target_dir = workspace_path(vault, directory)
     target_dir.mkdir(parents=True, exist_ok=True)
     stem = vault_layout.safe_note_stem(clean_title)
-    path = _unique_path(target_dir, stem)
     timestamp = utc_now()
     # 子本子的路径在固定章节下面，frontmatter 仍记所属章节，避免同一份笔记
     # 因为所在子文件夹不同而呈现成不同“章节”；过滤/移动靠路径和子本子 key。
@@ -201,24 +225,7 @@ def create_note(vault_dir: Path | str, *, pillar: str = "knowledge", chapter: st
             metadata[name] = value
     lines = ["---", *yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n"),
              "---", "", *text.split("\n"), ""]
-    # Publish complete bytes without overwriting a concurrently created note.
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", suffix=".tmp",
-                                         prefix=".new-note-", dir=target_dir, delete=False) as stream:
-            temp_path = Path(stream.name)
-            stream.write("\n".join(lines))
-            stream.flush()
-            os.fsync(stream.fileno())
-        while True:
-            try:
-                os.link(temp_path, path)
-                break
-            except FileExistsError:
-                path = _unique_path(target_dir, stem)
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    path = _publish_new_note(target_dir, stem, "\n".join(lines).encode("utf-8"))
     relative = _relative(vault, path)
     return read_note(vault, relative)
 
@@ -263,29 +270,41 @@ def move_note(vault_dir: Path | str, relative: str, target_chapter: str,
     if vault_layout.is_chapter_hidden(vault_dir, target_chapter):
         raise HTTPException(422, "目标本子已被删除，不能移入")
     source = safe_note_path(vault, relative)
-    if not source.is_file():
+    loaded = load_note(source)
+    if not loaded["exists"]:
         raise HTTPException(404, "笔记不存在")
-    if expected_revision:
-        loaded_source = load_note(source)
-        if str(expected_revision) != loaded_source["revision"]:
-            raise HTTPException(409, "笔记已在别处修改：请重新打开并核对后再移动")
+    if expected_revision and expected_revision != loaded["revision"]:
+        raise HTTPException(409, "笔记已在别处修改，请重新打开并核对后再移动")
     target_dir = workspace_path(vault, directory)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    # 目标就是当前文件夹：不改名、不复制，避免出现同名 -2 文件。
     if source.parent.resolve() == target_dir.resolve():
         return read_note(vault, relative)
-    target = _unique_path(target_dir, source.stem)
-    os.replace(source, target)
-    new_relative = _relative(vault, target)
-    loaded = load_note(target)
-    metadata, body = parse_text(loaded["raw"].decode("utf-8-sig"))
-    metadata["pillar"] = vault_layout.pillar_of(new_relative)
+
+    raw = loaded["raw"]
+    metadata, _ = parse_text(raw.decode("utf-8-sig"))
+    metadata["pillar"] = vault_layout.pillar_of(directory)
     metadata["chapter"] = vault_layout.base_chapter_key(target_chapter)
     metadata["updated"] = utc_now()
-    lines = ["---", *yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n").split("\n"),
-             "---", "", *body.split("\n")]
-    guarded_write(loaded, lines)
-    return read_note(vault, new_relative)
+    newline = loaded["newline"]
+    header = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip("\n")
+    header = newline.join(["---", *header.split("\n"), "---", ""]).encode("utf-8")
+    # Retain Markdown bytes, including indentation, blank lines and trailing spaces.
+    bom = b"\xef\xbb\xbf"
+    raw_body = raw.removeprefix(bom)
+    if loaded["body_start"]:
+        raw_body = b"\n".join(raw_body.split(b"\n")[loaded["body_start"]:])
+    data = (bom if raw.startswith(bom) else b"") + header + raw_body
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = _publish_new_note(target_dir, source.stem, data)
+    try:
+        moved = read_note(vault, _relative(vault, target))
+        if source.read_bytes() != raw:
+            raise HTTPException(409, "文档已在别处修改，请刷新后重试")
+        source.unlink()
+    except Exception:
+        if target.exists() and target.read_bytes() == data:
+            target.unlink()
+        raise
+    return moved
 
 
 def trash_note(vault_dir: Path | str, relative: str,

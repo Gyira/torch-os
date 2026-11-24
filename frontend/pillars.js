@@ -6,6 +6,7 @@ import {
   $, api, confirmAction, escapeHtml, formatRelativeDate, openDialog,
   state as appState, toast,
 } from "./core.js";
+import { showMarkdownNote } from "./markdown-dialog.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { archiveMarkup } from "./archive-markup.js";
@@ -14,15 +15,12 @@ import { companionForReader, companionForView } from "./ai-companions.js";
 import { opsHomeState } from "./ops-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import { buildJournalHeatmap, journalHeatmapMarkup } from "./journal-heatmap.js";
-import {
-  deleteNoteFile, initNoteEditor, invalidateChapterCache, openNoteEditor,
-} from "./note-editor.js";
 import { initShareLink, openDeepSeekAsk, openChatGPTAsk, openShareLinkDialog } from "./share-link.js";
 import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
 import { bindNotebookDrag, saveNotebookOrder } from "./notebook-order.js";
 import { openDshDrawer } from "./dsh-drawer.js";
 import {
-  DEFAULT_LIFE_WRITE_CHAPTER, buildMoveTargetGroups, buildNotebookCards,
+  DEFAULT_LIFE_WRITE_CHAPTER, buildNotebookCards,
   canDeleteNotebook, customNotebookDefinition, customNotebookName,
   customNotebookParentKey, customNotebookPillar, customNotebookTrail, defaultWriteChapter,
   greetingForHour, isCustomNotebookKey, isSubNotebookKey, journalHeading,
@@ -32,7 +30,7 @@ import {
   subchaptersFor,
 } from "./notebook-model.js";
 import {
-  createObsidianNote, isObsidianHost, obsidianOpenUri, openNoteMessage, openTaskDocument,
+  createObsidianNote, openObsidianNote, newNoteFilename, openTaskDocument,
 } from "./task-open.js";
 
 const GOAL_CHAPTERS = new Set(["goal_year", "goal_quarter", "goal_month"]);
@@ -62,12 +60,6 @@ function canWriteChapter(view, chapter) {
       || customNotebookPillar(chapter) === "knowledge";
   }
   return false;
-}
-
-/** 日记仍然只能改“今天”这一篇；过去的日记保持只读，回 Obsidian 改。 */
-function isTodayJournal(note) {
-  const day = String(note?.date || note?.path?.match(/(\d{4}-\d{2}-\d{2})\.md$/)?.[1] || "");
-  return note?.chapter === "journal" && day === shanghaiDay();
 }
 
 const PILLAR_META = {
@@ -202,7 +194,7 @@ function subNotebookForPath(view, path) {
 
 function notebookCardsFor(view) {
   const overview = state.overviews[view] || {};
-  // 生活运营首页只展示受保护的「待办事项」本子；健康/财务等章节不进入本子网格。
+  // 生活运营首页只展示受保护的「待办事项」本子；健康/财务等本子不进入本子网格。
   const chapters = view === "ops"
     ? (overview.chapters || []).filter((chapter) => chapter.key === "task")
     : (overview.chapters || []);
@@ -444,10 +436,7 @@ function readerMarkup(view, reading, railItems) {
   // 任务文档走任务专用接口（标题就是任务板标题）；其他章节仍由写作接口管理。
   const taskDocument = note.chapter === "task"
     && String(note.type || "").toLowerCase() === "task";
-  const canWrite = canWriteChapter(view, note.chapter) || isTodayJournal(note)
-    || taskDocument;
-  // 只有走写作接口的章节（含自定义本子）能在本子之间移动；日记/任务/习惯不参与。
-  const canMove = canWriteChapter(view, note.chapter);
+  const canMove = canWriteChapter(view, note.chapter) || (view === "life" && note.chapter === "journal");
   // 日记没有应用内写作接口（过去的日子只读），但可以在阅读器里软删除；
   // 任务文档的删除要进任务回收站，仍从任务板处理。
   const canDelete = !taskDocument
@@ -476,7 +465,7 @@ function readerMarkup(view, reading, railItems) {
           <span class="meta">${task.done ? "已完成" : escapeHtml(task.date || "未排期")}</span>
           <button type="button" class="text-button" data-open-linked-task="${escapeHtml(task.key)}">打开文档</button>
         </li>`).join("")}</ul>` : `<p class="field-help">还没有任务关联到这个目标；可在资料导入时选择它，或直接在任务笔记 frontmatter 写「目标」。</p>`}
-        <p class="field-help">点「打开文档」可在应用内编辑；排期与完成状态仍在工作台任务板。</p>
+        <p class="field-help">点「打开文档」查看正文。排期与完成状态在工作台任务板管理。</p>
       </section>`
     : "";
   const backlinksSection = backlinks.length
@@ -487,16 +476,15 @@ function readerMarkup(view, reading, railItems) {
     : "";
   return `
     <div class="pillar-layout is-reading">
-      <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">${railItems}</nav>
+      <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}本子">${railItems}</nav>
       <section class="pillar-reader" aria-label="${escapeHtml(displayTitle)}">
         <div class="pillar-reader-bar">
           <button type="button" class="pillar-reader-back" data-reader-back="${view}"><span aria-hidden="true">←</span> 返回列表</button>
           <p class="pillar-reader-crumbs">${escapeHtml(meta.title)} · ${escapeHtml(locationTitle)}</p>
           <div class="pillar-reader-actions">
             ${askAiButton}
-            ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">编辑</button>` : ""}
+            <button type="button" class="button primary" data-reader-open-obsidian="${view}" title="在 Obsidian 中编辑">编辑</button>
             ${canMove ? `<button type="button" class="small-button" data-note-move="${view}" title="移动到其他本子" aria-label="移动《${escapeHtml(displayTitle)}》到其他本子">移动</button>` : ""}
-            <button type="button" class="${canWrite ? "small-button" : "button primary"}" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
             ${canDelete ? `<button type="button" class="small-button reject" data-reader-delete="${view}">删除</button>` : ""}
             <button type="button" class="small-button" data-reader-copy-wikilink="${view}" title="复制可直接粘贴到 Obsidian 的双链">复制双链</button>
             <button type="button" class="small-button" data-reader-copy-path="${view}">复制路径</button>
@@ -510,13 +498,8 @@ function readerMarkup(view, reading, railItems) {
               <p class="pillar-reader-meta">${escapeHtml(note.path)}${date}</p>
               ${tagsMarkup}
             </header>
-            <div class="md-body">${doc.html || `<p class="pillar-reader-empty">${taskDocument ? "这篇任务文档还没有正文；点「应用内编辑」写点什么。" : "这篇笔记还没有正文。在 Obsidian 里写点什么吧。"}</p>`}</div>
+            <div class="md-body">${doc.html || `<p class="pillar-reader-empty">这篇文档还没有正文。点「编辑」开始写。</p>`}</div>
             <div data-reader-related>${linkedSection}${backlinksSection}</div>
-            <footer class="pillar-reader-foot">
-              <p class="field-help">${taskDocument ? "任务文档可以在应用内编辑；标题就是任务板上的名字，排期与完成仍在任务板。" : canWrite ? "这篇可以应用内编辑；也可以随时回 Obsidian 改，保存时会用 revision 防止互相覆盖。" : "这是只读阅读视图；正文、标签和所在章节都在 Obsidian 里改。"}</p>
-              ${canWrite ? `<button type="button" class="button primary" data-editor-edit="${view}">应用内编辑</button>` : ""}
-              <button type="button" class="${canWrite ? "small-button" : "button primary"}" data-reader-open-obsidian="${view}">在 Obsidian 打开并编辑</button>
-            </footer>
           </article>
           ${tocMarkup}
         </div>
@@ -546,7 +529,7 @@ function noteCardMarkup(view, note) {
   });
   const tags = card.tags.map((tag) => `<span class="note-card-tag">#${escapeHtml(tag)}</span>`).join("");
   // 只有应用内可写章节（含自定义本子）能移动；日记/任务/习惯没有“本子移动”语义。
-  const movable = canWriteChapter(view, card.chapter);
+  const movable = canWriteChapter(view, card.chapter) || (view === "life" && card.chapter === "journal");
   const moveButton = movable
     ? `<button type="button" class="note-card-move" data-note-move-path="${escapeHtml(card.path)}" data-note-move-title="${escapeHtml(card.title)}" data-note-move-chapter="${escapeHtml(card.chapter)}" data-note-move-view="${escapeHtml(view)}" title="移动到其他本子" aria-label="移动《${escapeHtml(card.title)}》到其他本子">移动</button>`
     : "";
@@ -664,7 +647,7 @@ function lifeTodayCardMarkup(hero) {
         ${weekMarkup(hero.week, hero.day)}
         ${hero.todayPath
           ? `<button type="button" class="pillar-quick-button" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
-          : `<button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
+          : `<button type="button" class="pillar-quick-button" data-pillar-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "开始写今天的日记"}</button>`}
       </div>`;
 }
 
@@ -682,8 +665,8 @@ function lifeHomeMarkup() {
   const heatmapAction = hero.written
     ? (hero.todayPath
       ? `<button type="button" class="life-heatmap-action" data-journal-day="${escapeHtml(hero.day)}" data-journal-path="${escapeHtml(hero.todayPath)}" data-journal-legacy="0">打开今天的日记</button>`
-      : `<button type="button" class="life-heatmap-action" data-editor-new="life" data-new-chapter="journal">继续写今天的日记</button>`)
-    : `<button type="button" class="life-heatmap-action" data-editor-new="life" data-new-chapter="journal">开始写今天的日记</button>`;
+      : `<button type="button" class="life-heatmap-action" data-pillar-new="life" data-new-chapter="journal">继续写今天的日记</button>`)
+    : `<button type="button" class="life-heatmap-action" data-pillar-new="life" data-new-chapter="journal">开始写今天的日记</button>`;
   return `<div class="pillar-home life-home">
     <section class="life-hero${journalEnabled ? "" : " is-solo"}" aria-labelledby="life-hero-title">
       <div class="life-hero-main">
@@ -691,7 +674,7 @@ function lifeHomeMarkup() {
         <h3 id="life-hero-title">${escapeHtml(hero.headline)}</h3>
         <p class="life-hero-copy">${escapeHtml(hero.copy)}</p>
         <div class="life-hero-actions">
-          <button type="button" class="button primary hero-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">✍ 写点什么</button>
+          <button type="button" class="button primary hero-button" data-pillar-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">✍ 写点什么</button>
         </div>
         ${journalEnabled ? `<p class="life-streak">${hero.weekDone ? `近 7 天写了 ${hero.weekDone} 天` : "最近 7 天还没有记录"}${hero.streak ? ` · 连续 ${hero.streak} 天` : ""}</p>` : ""}
       </div>
@@ -726,7 +709,7 @@ function lifeHomeMarkup() {
           </div>
           ${recent.length
             ? `<div class="note-card-grid">${recent.map((note) => noteCardMarkup("life", note)).join("")}</div>`
-            : `<div class="pillar-home-empty"><p>还没有记录。</p><p class="field-help">灵感来了就先写，写完再决定放进哪个本子。</p><button type="button" class="button primary" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button></div>`}
+            : `<div class="pillar-home-empty"><p>还没有记录。</p><p class="field-help">灵感来了就先写，写完再决定放进哪个本子。</p><button type="button" class="button primary" data-pillar-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button></div>`}
         </section>
       </main>
       <aside class="pillar-home-aside">
@@ -933,7 +916,7 @@ function openSubNotebookDialog(view) {
     return;
   }
   openNotebookCreateDialog(() => {
-    invalidateChapterCache();
+
     loadPillar(view).catch((error) => toast(error.message, "error"));
   }, {
     pillar: view,
@@ -1075,7 +1058,7 @@ function notebookPageMarkup(view) {
   const description = searching
     ? "在本库所有本子里查找标题、正文和标签。"
     : (customChapter?.description
-      || (subRow ? `子本子 · ${subRow.path}` : notebook?.description || "这个章节里的全部记录。"));
+      || (subRow ? `子本子 · ${subRow.path}` : notebook?.description || "这个本子里的全部记录。"));
   const showChips = !searching && (notebook?.custom
     ? chapters.length > 0 : chapters.length > 1);
   const createTarget = notebookCreateTarget(view);
@@ -1120,28 +1103,27 @@ function notebookPageMarkup(view) {
           <div class="notebook-page-actions">
             ${isTask
               ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>`
-              : isUtility ? "" : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
-            <button type="button" class="text-button" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">Obsidian</button>
+              : isUtility ? "" : `<button type="button" class="button primary" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">＋ 写一条</button>
             ${createTarget ? `<button type="button" class="text-button" title="${escapeHtml(createTarget.menuLabel)}" aria-label="${escapeHtml(createTarget.menuLabel)}" data-notebook-create="${escapeHtml(view)}" data-notebook-parent="${escapeHtml(createTarget.parent)}" data-notebook-parent-chapter="${escapeHtml(createTarget.parentChapter)}" data-notebook-location="${escapeHtml(createTarget.location)}">＋ 子本子</button>` : ""}
             ${canDeleteNotebook(view, deleteBook) ? `<button type="button" class="small-button reject" data-notebook-delete="${escapeHtml(deleteBook.key)}" data-notebook-delete-pillar="${escapeHtml(view)}">删除${(customChapter || subChapter) ? "子本子" : "本子"}</button>` : ""}`}
           </div>
         </header>
-        ${showChips ? `<div class="notebook-chips" role="tablist" aria-label="本子内章节">
+        ${showChips ? `<div class="notebook-chips" role="tablist" aria-label="子本子">
           <button type="button" class="notebook-chip${chapter ? "" : " is-active"}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="">全部 <span>${Number(total) || 0}</span></button>
           ${chapters.map((item) => `<button type="button" class="notebook-chip${item.key === chapter ? " is-active" : ""}" data-pillar-chapter="${escapeHtml(view)}" data-chapter="${escapeHtml(item.key)}">${escapeHtml(state.overviews[view]?.notebook_titles?.[item.key] || item.title)} <span>${item.count}</span></button>`).join("")}
         </div>` : ""}
         ${isJournal && !searching ? `<section class="journal-notebook-banner">
           <div><p class="eyebrow">TODAY</p><h3>${escapeHtml(journalHeading(shanghaiDay()))}</h3><p class="field-help">${hero.written ? "今天已经写过一页，可以继续补充。" : "今天还没写。先写一句，今天就有了落点。"}</p></div>
-          <button type="button" class="button primary" data-editor-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "写今天的日记"}</button>
+          <button type="button" class="button primary" data-pillar-new="life" data-new-chapter="journal">${hero.written ? "继续写今天的日记" : "写今天的日记"}</button>
         </section>` : ""}
         ${isTask ? `<section class="notebook-task-banner">
-          <div><p class="eyebrow">TASKS</p><h3>任务文档在这里，看板在工作台。</h3><p class="field-help">数据层已迁到 生活运营/待办事项；点开任务可以应用内编辑正文，排期与完成仍在工作台。</p></div>
+          <div><p class="eyebrow">TASKS</p><h3>任务文档在这里，看板在工作台。</h3><p class="field-help">点开任务可以查看正文，点「编辑」在 Obsidian 中修改。</p></div>
           <button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>
         </section>` : ""}
         ${isHabit ? `<div class="pillar-habits" data-habit-panel></div>` : ""}
         ${isHabit ? "" : (notes.length
           ? `<div class="note-card-grid notebook-note-grid">${notes.map((note) => noteCardMarkup(view, note)).join("")}</div>`
-          : `<div class="pillar-home-empty notebook-empty"><p>${searching ? "没有匹配的记录。" : isTask ? "还没有任务文档。" : opsLegacyReadOnly ? "这个旧章节不在新首页提供入口。" : "这个本子还没有记录。"}</p><p class="field-help">${searching ? "换个关键词，或清空搜索看看全部。" : isTask ? "去工作台任务板创建第一条待办；任务文档会自动出现在这里。" : opsLegacyReadOnly ? "旧健康/财务等章节仍可在 Obsidian 查看。" : "写下第一篇，本子就开始有自己的样子。"}</p>${searching || opsLegacyReadOnly ? "" : isTask ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>` : `<button type="button" class="button primary" data-editor-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">写第一篇</button>`}</div>`)}
+          : `<div class="pillar-home-empty notebook-empty"><p>${searching ? "没有匹配的记录。" : isTask ? "还没有任务文档。" : opsLegacyReadOnly ? "这个旧本子不在新首页提供入口。" : "这个本子还没有记录。"}</p><p class="field-help">${searching ? "换个关键词，或清空搜索看看全部。" : isTask ? "去工作台任务板创建第一条待办；任务文档会自动出现在这里。" : opsLegacyReadOnly ? "旧健康/财务等本子仍可在 Obsidian 查看。" : "写下第一篇，本子就开始有自己的样子。"}</p>${searching || opsLegacyReadOnly ? "" : isTask ? `<button type="button" class="button primary" data-ops-nav="workbench">去工作台任务板</button>` : `<button type="button" class="button primary" data-pillar-new="${escapeHtml(view)}" data-new-chapter="${escapeHtml(newChapter)}">写第一篇</button>`}</div>`)}
       </main>
       <aside class="pillar-home-aside">
         ${companionCardMarkup(view, { task: isTask })}
@@ -1151,7 +1133,7 @@ function notebookPageMarkup(view) {
         <section class="pillar-card home-stats">
           <p class="eyebrow">本子</p>
           <p class="home-card-stat">${Number(total) || 0}<small> 篇</small></p>
-          <p class="field-help">${notebook ? escapeHtml(notebook.description || "") : "当前章节的笔记。"}</p>
+          <p class="field-help">${notebook ? escapeHtml(notebook.description || "") : "当前本子的笔记。"}</p>
           ${chapters.length > (notebook?.custom ? 0 : 1) ? `<div class="home-chip-list">${chapters.map((item) => `<span>${escapeHtml(item.title)} ${item.count}</span>`).join("")}</div>` : ""}
         </section>
         ${view === "life" && lifeJournalEnabled && (isJournal || notebook?.key === "reflection") ? `<section class="pillar-card home-week-card">
@@ -1202,8 +1184,8 @@ function renderShell(view) {
   const lifeHome = view === "life" && !chapter && !activeNotebook;
   const headWriteLabel = lifeHome ? "✍ 写点什么" : "＋ 写一条";
   const headWriteTitle = lifeHome
-    ? "记下灵感；默认先放随笔，保存前也可以改本子"
-    : "应用内写一条（Markdown 工具栏+预览）";
+    ? "在 Obsidian 的随笔本子中新建文档"
+    : "在 Obsidian 中新建文档";
   const headUtility = (view === "life" && ["task", "habit"].includes(chapter))
     || (view === "ops" && chapter === "task");
   const headHtml = `
@@ -1224,8 +1206,7 @@ function renderShell(view) {
         ${view === "ops"
           ? `<button type="button" class="button secondary" data-ops-nav="workbench">任务板</button>`
           : (view === "life" || view === "knowledge"
-            ? (headUtility ? "" : `<button type="button" class="button primary" data-editor-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="${escapeHtml(headWriteTitle)}" aria-keyshortcuts="N">${escapeHtml(headWriteLabel)}</button>
-             <button type="button" class="text-button" data-pillar-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="在 Obsidian 新建笔记">Obsidian</button>`)
+            ? (headUtility ? "" : `<button type="button" class="button primary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(headNewChapter)}" title="${escapeHtml(headWriteTitle)}" aria-keyshortcuts="N">${escapeHtml(headWriteLabel)}</button>`)
             : `<button type="button" class="button primary" data-pillar-new="${view}" title="在 Obsidian 新建笔记（按 N）" aria-keyshortcuts="N">＋ 在 Obsidian 新建</button>`)}
       </div>
     </header>`;
@@ -1258,7 +1239,7 @@ function renderShell(view) {
   const hideList = (view === "life" && chapter === "habit" && !notes.length && !searching);
   root.innerHTML = `${headHtml}
     <div class="pillar-layout">
-      <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}章节">
+      <nav class="pillar-rail" aria-label="${escapeHtml(meta.title)}本子">
         <button type="button" class="pillar-rail-item${chapter ? "" : " is-active"}" data-pillar-chapter="${view}" data-chapter="">总览
           <span>${overview?.count ?? 0}</span></button>
         ${railItems}
@@ -1282,7 +1263,7 @@ function renderShell(view) {
             <p>${searching ? "没有匹配的记录。" : "这里还没有记录。"}</p>
             <p class="field-help">${escapeHtml(searching ? "换个关键词，或清空搜索看看全部。" : meta.emptyHint)}</p>
             ${view === "life" || view === "knowledge"
-              ? `<button type="button" class="button secondary" data-editor-new="${view}" data-new-chapter="${escapeHtml(chapter || defaultWriteChapter(view))}">＋ 写一条</button>`
+              ? `<button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter || defaultWriteChapter(view))}">＋ 写一条</button>`
               : `<button type="button" class="button secondary" data-pillar-new="${view}" data-new-chapter="${escapeHtml(chapter)}">＋ 在 Obsidian 新建</button>`}
           </div>`}
         </div>`)}
@@ -1292,11 +1273,11 @@ function renderShell(view) {
           <p class="eyebrow">${view === "life" || view === "knowledge" ? "写一条" : "在 Obsidian 写"}</p>
           <div class="pillar-quick">
             ${meta.quick.map((item) => (view === "life" || view === "knowledge") && !["journal", "habit"].includes(item.chapter)
-              ? `<button type="button" class="pillar-quick-button" data-editor-new="${view}" data-new-chapter="${escapeHtml(item.chapter)}" data-new-type="${escapeHtml(item.type)}">${escapeHtml(item.label)}</button>`
+              ? `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${escapeHtml(item.chapter)}" data-new-type="${escapeHtml(item.type)}">${escapeHtml(item.label)}</button>`
               : `<button type="button" class="pillar-quick-button" data-pillar-new="${view}" data-new-chapter="${item.chapter}" data-new-type="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
           </div>
           <p class="field-help">${view === "life" || view === "knowledge"
-            ? "应用内可直接写允许章节；任务、习惯、日记和身份仍走各自的专用入口。"
+            ? "点「写一条」在 Obsidian 中新建文档。"
             : "这里只读；点按钮会在 Obsidian 里新建/打开对应笔记。"}</p>
         </section>
         ${view === "self" && overview?.identity && !archiveView ? `<section class="pillar-card pillar-identity-card">
@@ -1311,7 +1292,7 @@ function renderShell(view) {
           <p class="pillar-stat">${(overview.today.journal_has_content ?? overview.today.journal_written) ? "日记已写" : "日记还没写"}</p>
           <p class="field-help">${(overview.today.journal_has_content ?? overview.today.journal_written) ? `最近更新 ${escapeHtml(formatRelativeDate(overview.today.journal_updated_at))}` : "先写一句也算记录。"}</p>
           <div class="pillar-quick">
-            <button type="button" class="pillar-quick-button" data-editor-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button>
+            <button type="button" class="pillar-quick-button" data-pillar-new="life" data-new-chapter="${DEFAULT_LIFE_WRITE_CHAPTER}">写点什么</button>
             <button type="button" class="pillar-quick-button" data-review="weekly">打开本周复盘</button>
             <button type="button" class="pillar-quick-button" data-review="monthly">打开本月复盘</button>
           </div>
@@ -1341,7 +1322,7 @@ function renderShell(view) {
         <section class="pillar-card pillar-card-quiet">
           <p class="eyebrow">说明</p>
           <p class="field-help">${escapeHtml(meta.subtitle)}${view === "life" || view === "knowledge"
-            ? "允许章节可在应用内写（保存用 revision 防覆盖）；日记、任务、习惯、身份和生活运营仍走各自入口。"
+            ? "文档可以在 Torch 中阅读，点「编辑」在 Obsidian 中修改。"
             : "这里只读浏览；新建与修改都在 Obsidian 里完成。"}</p>
         </section>
       </aside>
@@ -1428,171 +1409,27 @@ async function loadPillar(view, { keepChapter = false, reuseOverview = false } =
   renderShell(view);
 }
 
-// ===== 移动文档到其他本子（2026-10-31） =====
-// 本子 = 文件夹：后端 /api/writing/notes/move 会 os.replace 原 Markdown 到目标章节目录，
-// 并改写 frontmatter 的 chapter/pillar；这里只负责选目标、请求和刷新页面。
-
-const noteMove = { note: null, view: "life", busy: false, opening: false };
-let noteMoveInitialized = false;
-
-function noteMoveEl(id) { return document.getElementById(id); }
-
-function setNoteMoveStatus(message, tone = "") {
-  const node = noteMoveEl("note-move-status");
-  if (!node) return;
-  node.textContent = message;
-  node.className = `status-message ${tone}`.trim();
-}
-
-function noteChapterLocation(view, chapter) {
-  const book = notebookForChapter(view, chapter);
-  const chapterName = chapterTitle(view, chapter);
-  if (!book) return chapterName || "未命名本子";
-  // 自定义本子的 chapterTitle 已经是完整层级（父 / 子），不要再拼一遍。
-  if (book.custom) return chapterName || book.title || "未命名本子";
-  return book.title && book.title !== chapterName
-    ? `${book.title} · ${chapterName}`
-    : (book.title || chapterName);
-}
-
-/** 目标下拉：按内置本子顺序分组，自定义本子放「我的本子」，未知章节兜底到「其他」。 */
-function moveTargetMarkup(view, targets) {
-  const option = (chapter) => `<option value="${escapeHtml(chapter.key)}">${escapeHtml(chapter.title)}</option>`;
-  return buildMoveTargetGroups(view, targets)
-    .map((group) => `<optgroup label="${escapeHtml(group.title)}">${group.chapters.map(option).join("")}</optgroup>`)
-    .join("");
-}
-
-function closeNoteMoveDialog() {
-  if (noteMove.busy) return;
-  const dialog = noteMoveEl("note-move-dialog");
-  if (dialog?.open) dialog.close();
-  else dialog?.removeAttribute("open");
-  noteMove.note = null;
-}
-
-function initNoteMoveDialog() {
-  if (noteMoveInitialized) return;
-  noteMoveInitialized = true;
-  noteMoveEl("note-move-close")?.addEventListener("click", closeNoteMoveDialog);
-  noteMoveEl("note-move-cancel")?.addEventListener("click", closeNoteMoveDialog);
-  noteMoveEl("note-move-dialog")?.addEventListener("cancel", (event) => {
-    event.preventDefault();
-    closeNoteMoveDialog();
+async function deleteNoteFile(note) {
+  // 过去的日记走日记专用接口（只校验这一天的文件），其余笔记走写作接口。
+  const journal = note?.chapter === "journal";
+  const title = String(note?.title || (journal ? "这篇日记" : "这篇笔记"));
+  const ok = await confirmAction({
+    title: journal ? "删除这篇日记？" : "删除这篇笔记？",
+    message: `《${title}》会移入应用回收站（.torch-os/笔记回收站），之后可在「回收中心」恢复，也可在文件管理器里找回。`,
+    confirmLabel: "删除", danger: true,
   });
-  noteMoveEl("note-move-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    return submitNoteMove()
-      .catch((error) => setNoteMoveStatus(`移动失败：${error.message}`, "error"));
+  if (!ok) return null;
+  return api(journal ? "/api/journal/delete" : "/api/writing/notes/delete", {
+    method: "POST",
+    body: JSON.stringify({ path: note.path, expected_revision: note.revision || "" }),
+    timeoutMs: 60000,
   });
 }
 
-async function submitNoteMove() {
-  if (noteMove.busy) return;
-  const note = noteMove.note;
-  const view = noteMove.view;
-  const target = String(noteMoveEl("note-move-target")?.value || "");
-  if (!note?.path || !target) {
-    setNoteMoveStatus("先选择一个目标本子。", "warning");
-    return;
-  }
-  const targetLabel = noteChapterLocation(view, target);
-  noteMove.busy = true;
-  const submit = noteMoveEl("note-move-submit");
-  if (submit) submit.disabled = true;
-  setNoteMoveStatus("正在移动文件…");
-  let moved;
-  try {
-    // 先取最新 revision：别处刚改过就 409，不把未载入的修改一起搬走。
-    const latest = await api(`/api/notes?path=${encodeURIComponent(note.path)}`);
-    moved = await api("/api/writing/notes/move", {
-      method: "POST",
-      body: JSON.stringify({
-        path: note.path,
-        target_chapter: target,
-        expected_revision: String(latest?.revision || ""),
-      }),
-      timeoutMs: 60000,
-    });
-  } catch (error) {
-    noteMove.busy = false;
-    if (submit) submit.disabled = false;
-    if (error.status === 409) {
-      setNoteMoveStatus("这篇文档刚在别处被改过，未移动。请关闭后重试。", "error");
-    } else {
-      setNoteMoveStatus(`移动失败：${error.message}`, "error");
-    }
-    return;
-  }
-
-  const wasReading = state.reading[view]?.note?.path === note.path;
-  noteMove.busy = false;
-  closeNoteMoveDialog();
-  toast(`已移动到「${targetLabel}」。`, "success");
-  try {
-    if (wasReading) {
-      state.reading[view] = null;
-      const targetBook = notebookForChapter(view, target);
-      // 子本子仍挂在父本子页面下，用 chip 选中它；顶层本子/章节照旧。
-      const parentKey = targetBook?.custom ? customNotebookParentKey(target) : "";
-      state.notebook[view] = parentKey || targetBook?.key || "";
-      state.chapter[view] = target;
-      state.search[view] = "";
-    }
-    await loadPillar(view);
-    if (wasReading && moved?.path) await openNote(moved.path);
-  } catch (error) {
-    toast(`已移动，但页面刷新失败：${error.message}`, "warning");
-  }
-}
+let moveLibraryNote;
 
 export async function openNoteMoveDialog(note, { view = appState.view } = {}) {
-  if (!note?.path || noteMove.opening) return;
-  noteMove.opening = true;
-  try {
-    initNoteMoveDialog();
-    const payload = await api("/api/writing/chapters");
-    const chapters = Array.isArray(payload?.[view]) ? payload[view] : [];
-    // 换本子：只排除当前所在位置（子本子按路径判断），父本子/兄弟子本子都可选。
-    const currentRow = subNotebookForPath(view, note.path);
-    const currentKey = currentRow?.key || note.chapter;
-    const targets = chapters.filter((chapter) =>
-      chapter.key !== currentKey && canWriteChapter(view, chapter.key));
-    if (!targets.length) {
-      toast("没有其他可移动的本子；可以先新建一个本子。", "warning");
-      return;
-    }
-    noteMove.note = { ...note };
-    noteMove.view = view;
-    noteMove.busy = false;
-    const eyebrow = noteMoveEl("note-move-eyebrow");
-    if (eyebrow) eyebrow.textContent = `${view === "knowledge" ? "知识库" : "人生路"} · 移动文档`;
-    const noteTitle = noteMoveEl("note-move-note");
-    if (noteTitle) noteTitle.textContent = `《${note.title || "未命名"}》`;
-    const from = noteMoveEl("note-move-from");
-    if (from) {
-      from.textContent = `现在在：${currentRow
-        ? subDisplayTitle(view, currentRow)
-        : noteChapterLocation(view, note.chapter)}`;
-    }
-    const select = noteMoveEl("note-move-target");
-    if (select) {
-      select.innerHTML = `<option value="" disabled selected>选择目标本子 / 章节</option>${moveTargetMarkup(view, targets)}`;
-      select.value = "";
-    }
-    setNoteMoveStatus("");
-    const submit = noteMoveEl("note-move-submit");
-    if (submit) submit.disabled = false;
-    const dialog = noteMoveEl("note-move-dialog");
-    if (dialog && !dialog.open) {
-      try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
-    }
-    window.setTimeout(() => select?.focus?.(), 30);
-  } catch (error) {
-    toast(`读取可移动本子失败：${error.message}`, "error");
-  } finally {
-    noteMove.opening = false;
-  }
+  if (note?.path) await moveLibraryNote(note, view);
 }
 
 function bindPillarEvents() {
@@ -1615,7 +1452,7 @@ function bindPillarEvents() {
     if (readerOpen) {
       const view = readerOpen.dataset.readerOpenObsidian || appState.view;
       const reading = state.reading[view];
-      if (reading) openVaultNote(state.overviews[view]?.vault_name || "", reading.note.path);
+      if (reading) openVaultNote(vaultNameFor(view), reading.note.path, true);
       return;
     }
     const readerMove = event.target.closest?.("[data-note-move]");
@@ -1683,8 +1520,7 @@ function bindPillarEvents() {
       const task = reading?.linkedTasks?.find((item) => item.key === linkedTask.dataset.openLinkedTask);
       if (!task) return;
       if (!task.legacy && task.path) {
-        openNoteEditor({ task })
-          .catch((error) => toast(`打不开任务文档：${error.message}`, "error"));
+        await openNote(task.path);
         return;
       }
       if (!openTaskDocument(task, { vault_name: state.overviews[view]?.vault_name || "" })) {
@@ -1741,7 +1577,7 @@ function bindPillarEvents() {
       const parentChapter = createNotebook.dataset.notebookParentChapter || "";
       const location = createNotebook.dataset.notebookLocation || "";
       openNotebookCreateDialog(() => {
-        invalidateChapterCache();
+
         // 创建后留在当前页面，只刷新列表；新建本子不再自动跳进去。
         loadPillar(view).catch((error) => toast(error.message, "error"));
       }, { pillar: view, parent, parentChapter, location });
@@ -1782,7 +1618,7 @@ function bindPillarEvents() {
           body: JSON.stringify({ pillar: view, key, confirm: true }),
           timeoutMs: 60000,
         });
-        invalidateChapterCache();
+
         state.reading[view] = null;
         // 删子本子时留在父本子页面；删顶层/内置本子时回首页。
         state.notebook[view] = subRow
@@ -1851,36 +1687,6 @@ function bindPillarEvents() {
     const roleButton = event.target.closest?.("[data-role-open]");
     if (roleButton) {
       openDshDrawer();
-      return;
-    }
-    const editorNew = event.target.closest?.("[data-editor-new]");
-    if (editorNew) {
-      const view = editorNew.dataset.editorNew || appState.view;
-      const notebook = displayNotebook(view, state.notebook[view] || "");
-      const chapter = editorNew.dataset.newChapter || state.chapter[view]
-        || defaultChapterForNotebook(notebook)
-        || defaultWriteChapter(view);
-      const generalLifeWrite = view === "life" && !notebook && !state.chapter[view];
-      openNoteEditor({
-        context: view,
-        chapter,
-        title: "",
-        body: "",
-        heading: generalLifeWrite ? "写点什么" : "",
-      }).catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
-      return;
-    }
-    const editorEdit = event.target.closest?.("[data-editor-edit]");
-    if (editorEdit) {
-      const view = editorEdit.dataset.editorEdit || appState.view;
-      const reading = state.reading[view];
-      if (reading?.note) {
-        // 任务文档：编辑器走任务专用接口，标题直接改任务板上的名字。
-        const open = reading.note.chapter === "task"
-          ? openNoteEditor({ task: { path: reading.note.path } })
-          : openNoteEditor({ note: reading.note });
-        open.catch((error) => toast(`打不开编辑器：${error.message}`, "error"));
-      }
       return;
     }
     const shareLink = event.target.closest?.("[data-share-link]");
@@ -2057,6 +1863,11 @@ export async function openNote(path) {
     if (sequence !== noteOpenSequence) return;
     const backlinks = [], linkedTasks = [];
     const view = note.pillar;
+    if (view === "self") {
+      const vault = vaultNameFor(view) || (await api("/api/config/status")).vault_name;
+      if (sequence === noteOpenSequence) showMarkdownNote(note, vault);
+      return;
+    }
     if (!PILLAR_META[view]) {
       toast("这篇笔记不在四库里，请在 Obsidian 里打开。", "warning");
       return;
@@ -2085,13 +1896,13 @@ export async function openNote(path) {
         }
       }
     });
-    if (appState.view === view) {
+    if (appState.view === view && !document.getElementById(`${view}-view`)?.hidden) {
       renderShell(view);
       return;
     }
     // 全局搜索/管家可能从别的模块打开笔记：交给 app.js 切模块，加载器再按 reading 渲染。
-    const { switchView } = await import("./app.js");
-    const switched = await switchView(view);
+    const { showPane } = await import("./app.js");
+    const switched = await showPane(view, `${view}-view`);
     if (!switched) state.reading[view] = null;
   } catch (error) {
     toast(error.message, "error");
@@ -2137,33 +1948,21 @@ async function openWikiTarget(target) {
   toast(`四库里没有找到「${name}」，可以在 Obsidian 里打开它。`, "warning");
 }
 
-function openVaultNote(vaultName, path) {
-  if (isObsidianHost() && globalThis.parent && globalThis.parent !== globalThis) {
-    try { globalThis.parent.postMessage(openNoteMessage(path), "*"); return; } catch { /* fall through */ }
-  }
-  const uri = obsidianOpenUri(vaultName, path);
-  if (!uri) { toast("没有可用的 Obsidian 库名，请在 Obsidian 里打开。", "warning"); return; }
-  try { globalThis.open?.(uri, "_blank", "noopener"); } catch { /* ignore */ }
+function openVaultNote(vaultName, path, edit = false) {
+  if (!openObsidianNote(path, vaultName, { edit })) toast("无法打开文档，请检查 Obsidian 库连接。", "warning");
 }
-
 
 function chapterEntry(view, key) {
   return chapterList(view).find((item) => item.key === key) || null;
 }
 
 function vaultNameFor(view) {
-  return state.overviews[view]?.vault_name || state.overviews.life?.vault_name || "";
-}
-
-function localStamp() {
-  const now = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  return state.overviews[view]?.vault_name || state.overviews.life?.vault_name || appState.config?.vault_name || "";
 }
 
 function noteTemplate(type) {
   const kind = type ? `type: ${type}\n` : "";
-  return `---\n${kind}创建: ${shanghaiDay()}\n---\n\n# \n`;
+  return `---\n${kind}created: ${shanghaiDay()}\n---\n\n# \n`;
 }
 
 /** 四库新建：只在 Obsidian 里建文件，插件不写盘（2026-10-26 新原则）。 */
@@ -2179,7 +1978,7 @@ function openNewNote(view, chapter = "", type = "") {
       toast("找不到子本子文件夹，请刷新后重试。", "warning");
       return;
     }
-    const target = `${directory}/未命名-${localStamp()}.md`;
+    const target = `${directory}/${newNoteFilename()}`;
     if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || "note"))) {
       toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
     }
@@ -2188,7 +1987,7 @@ function openNewNote(view, chapter = "", type = "") {
   const custom = customNotebookName(chapter);
   if (custom && customNotebookPillar(chapter) === view) {
     const root = view === "knowledge" ? "知识库" : "人生路";
-    const target = `${root}/${custom}/未命名-${localStamp()}.md`;
+    const target = `${root}/${custom}/${newNoteFilename()}`;
     if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || "note"))) {
       toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
     }
@@ -2209,7 +2008,7 @@ function openNewNote(view, chapter = "", type = "") {
     openVaultNote(vaultNameFor(view), `${entry.path}/习惯定义.md`);
     return;
   }
-  const target = `${entry.path}/未命名-${localStamp()}.md`;
+  const target = `${entry.path}/${newNoteFilename()}`;
   if (!createObsidianNote(target, vaultNameFor(view), noteTemplate(type || entry.default_type))) {
     toast("没有可用的 Obsidian 库名，请在 Obsidian 里新建。", "warning");
   }
@@ -2265,28 +2064,37 @@ async function openTodayJournal() {
   let target = `人生路/日记/${day}.md`;
   try {
     const existing = await api(`/api/journal/note?day=${encodeURIComponent(day)}`);
-    if (existing?.exists) target = existing.relpath || target;
+    if (existing?.exists) {
+      target = existing.relpath || target;
+      if (target.startsWith("人生路/")) return openVaultNote(vaultNameFor("life"), target, true);
+    }
   } catch { /* 查询失败时按默认路径打开 */ }
   if (!String(target).startsWith("人生路/")) {
     toast("这篇日记还在旧目录，请先在设置 →「库结构与迁移」里迁移。", "warning");
     return;
   }
-  const content = noteTemplate("journal").replace("# \n", `# ${day}\n`);
+  const content = noteTemplate("journal").replace("# \n", `${journalHeading(day)}\n`);
   if (!createObsidianNote(target, vaultNameFor("life"), content)) {
     toast("没有可用的 Obsidian 库名，请在 Obsidian 里打开。", "warning");
   }
 }
 
 export function initPillars() {
-  initLibraryFiles({ books: notebookCardsFor, refresh: async (view) => {
+  moveLibraryNote = initLibraryFiles({ books: notebookCardsFor, refresh: async (view, movedPaths, target) => {
+    const readingPath = movedPaths.get(state.reading[view]?.note?.path);
     state.reading[view] = null;
-    invalidateChapterCache();
-    await loadPillar(view);
+
+    if (readingPath && target && appState.view === view) {
+      const book = notebookForChapter(target.area, target.key);
+      state.notebook[target.area] = (book?.custom && customNotebookParentKey(target.key)) || book?.key || "";
+      state.chapter[target.area] = target.key;
+      state.search[target.area] = "";
+      await loadPillar(view);
+      if (appState.view === view) await openNote(readingPath);
+    } else await loadPillar(view);
   } });
   bindPillarEvents();
   bindHabitEvents();
-  initNoteEditor();
-  initNoteMoveDialog();
   initNotebookCreate();
   initShareLink();
   // 首页本子卡片整卡拖动排序；顺序保存在库内配置，重新打开仍生效。
@@ -2296,14 +2104,24 @@ export function initPillars() {
   });
   document.addEventListener("data-changed", () => {
     state.manifest = null;
-    invalidateChapterCache();
     closePageMenu();
   });
-  // 编辑器保存/移动/删除后刷新列表；正在阅读同一篇时保持阅读位置但重读最新内容。
+  // 从 Obsidian 返回后重新读取磁盘上的文件。
   document.addEventListener("torch:notes-changed", (event) => {
     const detail = event.detail || {};
-    const view = detail.pillar || appState.view;
-    if (!["life", "knowledge", "ops"].includes(view) || appState.view !== view) return;
+    const areas = { "人生路": "life", "知识库": "knowledge", "生活运营": "ops", "自我档案": "self" };
+    const view = detail.pillar || areas[String(detail.path || "").split("/")[0]] || appState.view;
+    if (appState.view !== view && ["life", "knowledge"].includes(view)
+        && ["life", "knowledge"].includes(appState.view) && detail.previousPath
+        && detail.previousPath !== detail.path) {
+      const sourceView = appState.view;
+      if (state.reading[sourceView]?.note?.path === detail.previousPath) {
+        state.reading[sourceView] = null;
+        openNote(detail.path);
+      } else loadPillarModule(sourceView);
+      return;
+    }
+    if (!["life", "knowledge", "ops"].includes(view) || appState.view !== view || document.getElementById(`${view}-view`)?.hidden) return;
     const reading = state.reading[view];
     const matchesReading = reading?.note && detail.path
       && (reading.note.path === detail.path

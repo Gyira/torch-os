@@ -1,10 +1,6 @@
 # 薪火OS 功能地图（1.0）
 
-这份文档是「当前仓库实际能做什么」的清单，不是愿景。它与运行中的
-`GET /api/config/status`、`GET /api/tools` 和 SQLite 结构保持一致；契约测试
-`tests/test_docs_contract.py` 会在能力标记漂移时失败。
-
-`GET /api/config/status` 返回当前版本与能力标记：`ai_roles`、`attachment_localize`、`attachment_plan`、`audit_summary`、`backup_plan`、`candidate_tidy`、`cloud_backup`、`conversation_export`、`conversation_extract`、`deepseek_balance`、`diagnostics`、`dida_sync`、`dsh_web`、`export_bundle`、`growth_export`、`habits`、`health`、`history_cleanup_preview`、`history_restore`、`identity`、`import_history`、`journal_export`、`life_assistant`、`life_reports`、`link_audit`、`love`、`love_bazi`、`love_chat`、`love_cycle`、`love_gallery`、`love_master`、`love_memory`、`love_schedule`、`mcp_bridge`、`memory_batch`、`memory_delete`、`memory_export`、`memory_hub`、`monthly_review`、`note_editor`、`personal_data`、`planning_export`、`proposals`、`restore_drill`、`restored_copies`、`scheduler`、`scheduler_weekly`、`schema_export`、`share_link`、`task_reorder`、`tasks`、`tools`、`train_tracker`、`vault_admin`、`vault_audit`、`vault_connection`、`weather`、`weflow_sync`、`widget_visibility`、`workbench`、`workspaces`
+可通过 `GET /api/config/status` 查看当前实例的版本和能力开关，通过 `GET /api/tools` 查看工具清单。
 
 ## 自我档案 v2 / 人生导师 / 八字系统（2026-11-01）
 
@@ -19,7 +15,7 @@
   `/api/self/pending/*`、`/api/self/synthesize`；三栏对话 + 分层记忆 + 待确认 +
   每日三问 + 工作台常驻条。档案只有导师能写，用户确认后落盘。
 - 八字：`/api/self/bazi/*`；`自我档案/八字系统/命盘.md` + `解读/*.md`；
-  四柱/十神/藏干/五行/大运本地计算，AI 只写解读；与恋爱八字共用 `bazi_engine`。
+  四柱/十神/藏干/五行/大运本地计算，本地排盘使用 `bazi_engine`，AI 负责解读。
 - 旧忆灵：旧面板/工作台忆灵条退役；`/api/memory-hub`、`identity_inbox`、`questions`
   保留只读兼容；旧 `yiling` 角色与旧会话作为历史保留。
 
@@ -29,13 +25,7 @@
   QA/禁用 dsh 时返回 `available=false`，不启动子进程。
 - `GET /api/ai/roles`：读取 `dsh/roles/*.md` 的角色元数据（id/name/modes/proposals），
   不返回 prompt 正文；非法角色只出现在 `role_errors`，不会被使用。
-- 当前管理页显示 7 个角色：人生导师、写作伙伴、学术导师、生活管家、恋爱大师、私人医生、
-  理财专家。旧 `yiling`（忆灵/苏格拉底）角色卡保留为 `legacy: true`，仅供旧会话/旧接口兼容；
-  `health_estimator`（健康估算助手）标记 `internal: true`，只服务健康页的一句话饮食/运动估算，
-  两者都不出现在管理列表与 `/api/ai/roles` 的 `items` 中。
-  角色 = 同一 dsh 内核 + 角色卡 + 后端拼装的只读上下文，不是第二个模型或第二个 Key。身份映射：
-  自我档案→人生导师、人生路→写作伙伴、知识库→学术导师、生活运营→生活管家、
-  恋爱系统→恋爱大师。
+- 当前管理页显示五个角色：人生导师、写作伙伴、学术导师、生活管家和理财专家。旧忆灵会话可以查看历史。
 - `POST /api/ai/chat`：页面内角色抽屉的一轮对话；`thread_id` 续聊，`selectors` 只接受
   identity/note/journal/tasks/health/finance/love 等枚举来源，后端读取、编号、截断。
   新增 `selection_text` / `selection_source` / `draft_text`：编辑器/阅读器选区与未保存草稿
@@ -177,7 +167,7 @@
 | 工作台 | `#workbench` | 问候、横幅、时钟/天气/黄历、时间管理（任务、日历、习惯打卡、四象限、回收站） |
 | 人生路 | `#life` | 首页「今天，写点什么？」+ 我的本子（日记、反思复盘、心得体会、目标、项目、随笔、工作复盘）；本子内是笔记卡片列表与全屏写作；最近 7 天日记圆点 |
 | 自我档案 | `#self` | 身份卡、记忆长河、想法、关系、意义与目标、沉淀与创作、我的八字参考 |
-| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」七个页面：恋爱记忆、微信聊天、排班日历、经期关怀、恋爱相册、八字合婚、恋爱大师；「健康系统」七个页面：今日记录、身体情况、睡眠情况、饮食情况、运动记录、健康档案、私人医生 |
+| 生活运营 | `#ops` | 首页「待办事项」本子（任务文档列表 + 工作台看板 CTA）+ 恋爱/健康/财务/家庭系统卡片；二级分区「恋爱系统」五个页面：恋爱记忆、微信聊天、排班日历、经期关怀、恋爱相册；「健康系统」六个页面：今日记录、身体情况、睡眠情况、饮食情况、运动记录、健康档案 |
 | 知识库 | `#knowledge` | 首页「今天想弄明白什么？」（DeepSeek 提问/分享链接回填）+ 知识本子：收件箱、主题/读书/课程笔记、概念卡、方法库、输出与作品 |
 | AI 角色 | `#roles` | 角色工作室：搜索/分层筛选 7 位角色；编辑身份、说话风格与专属 Skill；保存回 `dsh/roles/*.md` |
 | 设置 | `#settings` | 备份与恢复、库结构与迁移、诊断、导出、数据手册、工具桥、侧边栏顺序、Obsidian 库连接（个人数据库）、帮助 |
@@ -363,22 +353,17 @@
 - 数据全部在 `生活运营/健康系统/`：`每日健康/YYYY-MM-DD.md`（frontmatter
   存睡眠/身体/饮食/运动，正文是后端重写的可读摘要）、`身体档案`（身高/生日/
   病史/过敏/用药/目标/自定义指标）、`体检与检验`（带参考区间的 Markdown 表）、
-  `训练记录`（预留）、`问诊记录`（私人医生问答自动追加）、
-  `健康报告`（私人医生产物）。旧 `01_健康与体重` 月度表只读兼容；生活运营不再有
+  `训练记录`（预留）、`问诊记录`（历史记录）、
+  `健康报告`（历史报告）。旧 `01_健康与体重` 月度表只读兼容；生活运营不再有
   独立的 `03_体检与医疗`。
-- 七个页面：今日记录（四张记录卡 + 四维进度 + 七天周卡片）、身体情况、睡眠情况、
-  饮食情况、运动记录、健康档案（档案封面 + 最新数据 + 检查与用药 + 目标 + 问诊/报告）、
-  私人医生（页内问诊 + 自动问诊记录 + 固定「健康报告」本子）。
+- 六个页面：今日记录（四张记录卡 + 四维进度 + 七天周卡片）、身体情况、睡眠情况、
+  饮食情况、运动记录、健康档案（档案封面 + 最新数据 + 检查与用药 + 目标 + 以往的问诊记录与报告）。
 - 沿用：当天没记录时显示最近一次数据（睡眠 3 天、身体 30 天、饮食 7 天、运动 14 天
   内有效），只在读取时生效，不复制成今天的新记录。
 - 评分：四维加权（睡眠 30 / 身体 25 / 饮食 20 / 运动 25），缺数据维度不参与并标
   「数据不足」；过期数据不计入。
-- 饮食/运动支持一句话描述 + dsh `health_estimator` AI 估算（先预览可改再保存），
+- 饮食与运动直接保存手动记录，
   内置约 60 种常吃食物；精确餐次与训练组数仍保留。
-- 私人医生：`health_doctor` 的 `advice`（页内聊天）与 `report`（健康报告）；
-  `POST /api/health/consult` 把每次问答追加到 `问诊记录` 当天文档；
-  `POST /api/health/report` 基于最近 30 天 + 最新档案生成，落 `健康报告`，
-  标题 `YYYY-MM-DD 健康报告`；单份报告/问诊记录可软删除，本子不可删除。
 - 旧 `vitals`/`mind` 数据保留在 Markdown，不展示、不参与评分。
 - 图表是原生 SVG（`frontend/health-model.js`），页面不使用内联 style（CSP）。
 - 未做：训练计划、体检报告 PDF/OCR、CSV 批量导入、进度照片时间轴、Web 通知提醒。
@@ -386,14 +371,13 @@
 
 ### 恋爱系统 v2（生活运营的二级分区，2026-11-01）
 
-- 位于「生活运营」模块的二级菜单，不是新的顶层模块；七个页面：恋爱记忆、微信聊天、
-  排班日历、经期关怀、恋爱相册、八字合婚、恋爱大师。顶部齿轮打开设置抽屉。
-- 私人数据全部在 `生活运营/恋爱系统/`，按页面分目录：
+- 位于「生活运营」模块的二级菜单，不是新的顶层模块；五个页面：恋爱记忆、微信聊天、
+  排班日历、经期关怀、恋爱相册。顶部齿轮打开设置抽屉。
+- 默认布局在 `生活运营/恋爱系统/`，按页面分目录：
   `恋爱记忆/`（Markdown）、`微信聊天/chat.db`、`排班日历/`、
-  `经期关怀/cycle.db`、`恋爱相册/albums.db`、`八字合婚/bazi.db`、
-  `恋爱大师/analysis.db`。旧 `.torch-os/love/` 首次启动迁移并保留原文件。
+  `经期关怀/cycle.db`、`恋爱相册/albums.db`。旧 `.torch-os/love/` 首次启动迁移并保留原文件。
 - **恋爱记忆**：人生路同款本子（默认「恋爱日志」不可删、自定义本子）、Markdown 编辑器、
-  热力图、最近记录、导出 TXT、删除进笔记回收站；AI 批量补日记先写「AI 草稿」。
+  热力图、最近记录、导出 TXT、删除进笔记回收站。
 - **微信聊天**：单联系人绑定、增量同步、三态日历（无聊天/已同步/未同步）、按日查看、
   图片/视频缩略图、TXT/JSON 导出；只访问 `127.0.0.1` 的 WeFlow API。
   WeFlow 组件 101/到期用开源 `olansoft/weflow-wcdb-api-oss` 构建的 DLL 替换，
@@ -404,15 +388,7 @@
   `经期关怀/cycle.db`，纯本地计算，不接外部服务；预测不是诊断，也不能作为避孕依据。
 - **恋爱相册**：照片/视频复制进库、相册分类、缩略图、全览、移动、删除；
   一个文件属于一个相簿。
-- **八字合婚**：男女双方出生信息 + 可选四柱；四柱/十神/藏干/大运由本地
-  `lunar_python` 或用户手填决定，AI 只写格局、喜忌与合婚解读；结果存 `八字合婚/bazi.db`，
-  历史可切换、删除、导出 HTML。
-- **恋爱大师**：关系总览 + 数据看板 + dsh skill 卡片（关系画像、深度分析、阶段报告、
-  AI 补日记、沟通教练、八字入口）；结果存 `恋爱大师/analysis.db`，可切换历史/删除/导出。
-  右侧角色层是唯一聊天入口；所有 AI 走 dsh `love_master` 与 `love-master` skill。
-- AI 只在用户显式操作时发生；画像/分析/报告/角色层使用脱敏聊天，AI 批量补日记例外
-  （按天发送不脱敏原文以保留真实称呼），经期只发送聚合阶段，照片与原始数据库不发送。
-  QA 隔离工作区不注册恋爱路由。
+- QA 隔离工作区不注册恋爱路由。
 
 ### 知识库
 

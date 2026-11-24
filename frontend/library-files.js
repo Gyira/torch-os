@@ -1,6 +1,7 @@
 import { api, escapeHtml, openDialog, confirmAction, toast, state } from "./core.js";
 import { openPopover } from "./tasks-picker.js";
-import { canDeleteNotebook, buildMoveTargetGroups } from "./notebook-model.js";
+import { canDeleteNotebook } from "./notebook-model.js";
+import { chooseMoveFolder } from "./move-picker.js";
 
 export function libraryTools(kind, id, title, view, chapter = "") {
   if (!["life", "knowledge"].includes(view)) return "";
@@ -93,6 +94,7 @@ export function initLibraryFiles({ books, refresh }) {
     busy = true; paint();
     let completed = 0;
     const failures = [];
+    const movedPaths = new Map();
     try {
       // Capture revisions before confirmation: edits in Obsidian during the dialog must conflict.
       const snapshots = new Map();
@@ -106,11 +108,8 @@ export function initLibraryFiles({ books, refresh }) {
         if (value === null) return;
       }
       if (action === "move") {
-        const payload = await api("/api/writing/chapters");
-        const chapters = payload[items[0].view] || [];
-        const groups = buildMoveTargetGroups(items[0].view, chapters);
-        value = await ask(`移动 ${items.length} 篇文档`, `<label>目标本子 / 章节<select name="value" required><option value="">请选择</option>${groups.map((group) => `<optgroup label="${escapeHtml(books(items[0].view).find((book) => book.key === group.key)?.title || group.title)}">${group.chapters.map((chapter) => `<option value="${escapeHtml(chapter.key)}">${escapeHtml(chapter.title)}</option>`).join("")}</optgroup>`).join("")}</select></label><p class="field-help">文件会实际移入目标文件夹。移动日记后，它将离开原日期的日记位置。</p>`);
-        if (value === null) return;
+        value = await chooseMoveFolder(items);
+        if (!value) return;
       }
       if (action === "delete" && !(await confirmAction({ title: `删除 ${items.length} ${items[0].kind === "book" ? "个本子" : "篇文档"}？`, message: "所选内容会移入回收中心。本子中的文档和附件会一起保留，可以恢复。", confirmLabel: "移入回收中心", danger: true }))) return;
       for (const item of items) {
@@ -122,17 +121,17 @@ export function initLibraryFiles({ books, refresh }) {
           } else {
             const snapshot = snapshots.get(item.id);
             if (snapshot instanceof Error) throw snapshot;
-            if (action === "move" && snapshot.chapter === value) { picked.delete(item.id); completed++; continue; }
             url = "/api/library/notes/action";
-            body = { action, path: item.id, expected_revision: snapshot.revision, ...(action === "title" ? { title: value } : action === "move" ? { target_chapter: value } : {}) };
+            body = { action, path: item.id, expected_revision: snapshot.revision, ...(action === "title" ? { title: value } : action === "move" ? { target_chapter: value.key } : {}) };
           }
-          await api(url, { method: "POST", body: JSON.stringify(body) });
+          const result = await api(url, { method: "POST", body: JSON.stringify(body) });
+          if (action === "move") movedPaths.set(item.id, result.path);
           picked.delete(item.id); completed++;
         } catch (error) { failures.push(`${item.title}：${error.message}`); }
       }
       if (completed) {
         document.dispatchEvent(new CustomEvent("data-changed"));
-        await refresh(items[0].view);
+        await refresh(items[0].view, movedPaths, action === "move" ? value : null);
       }
       if (failures.length) {
         openDialog("部分项目未完成", `<p>已完成 ${completed} 项，未完成 ${failures.length} 项。</p><ul>${failures.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}</ul>`);
@@ -166,4 +165,5 @@ export function initLibraryFiles({ books, refresh }) {
     }
     paint();
   });
+  return (note, view) => run("move", [{ kind: "note", id: note.path, title: note.title, chapter: note.chapter, view }]);
 }

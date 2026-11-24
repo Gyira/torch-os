@@ -79,7 +79,7 @@ export const OPS_NOTEBOOKS = Object.freeze([
   },
 ]);
 
-// 恋爱记忆：默认「恋爱日志」不可删；AI 批量补日记先放「AI 草稿」。
+// 恋爱记忆：默认「恋爱日志」不可删；「AI 草稿」保留历史文档。
 export const LOVE_NOTEBOOKS = Object.freeze([
   {
     key: "love_journal", title: "恋爱日志", eyebrow: "MEMORY", icon: "恋", tone: "rose",
@@ -88,7 +88,7 @@ export const LOVE_NOTEBOOKS = Object.freeze([
   },
   {
     key: "love_drafts", title: "AI 草稿", eyebrow: "AI DRAFT", icon: "AI", tone: "plum",
-    description: "AI 批量补日记先放这里，你确认后再移入正式本子。",
+    description: "保存已有草稿，可移入正式本子。",
     chapters: ["love_drafts"],
   },
 ]);
@@ -322,57 +322,6 @@ export function notebookForChapter(pillar, chapter) {
   return notebooksFor(pillar).find((item) => item.chapters.includes(target)) || null;
 }
 
-/**
- * 移动文档对话框的目标分组（纯函数）。
- * 输入是 /api/writing/chapters 的某个库章节数组；当前章节不列出；
- * 固定章节按本子定义顺序分组，自定义本子放「我的本子」，未登记章节兜底「其他」。
- */
-export function buildMoveTargetGroups(pillar, chapters = [], currentChapter = "") {
-  const rows = (Array.isArray(chapters) ? chapters : [])
-    .filter((chapter) => chapter && chapter.key && chapter.key !== currentChapter);
-  const byKey = new Map(rows.map((chapter) => [chapter.key, chapter]));
-  const groups = [];
-  const covered = new Set();
-  for (const notebook of notebooksFor(pillar)) {
-    const fixed = notebook.chapters.map((key) => byKey.get(key)).filter(Boolean);
-    const subs = rows
-      .filter((row) => {
-        const sub = subNotebookParts(row.key);
-        return sub && notebook.chapters.includes(sub.chapter);
-      })
-      .map((row) => ({ ...row, title: subTargetTitle(row, notebook, byKey) }));
-    for (const key of notebook.chapters) covered.add(key);
-    for (const row of subs) covered.add(row.key);
-    const mine = [...fixed, ...subs];
-    if (mine.length) groups.push({ key: notebook.key, title: notebook.title, chapters: mine });
-  }
-  const custom = rows
-    .filter((chapter) => !isSubNotebookKey(chapter.key)
-      && (chapter.custom === true || customNotebookPillar(chapter.key) === pillar))
-    .map((chapter) => {
-      const key = String(chapter.key || "");
-      // 子本子带父路径，移动时不会和同名子本子混淆。
-      return customNotebookParentKey(key)
-        ? { ...chapter, title: customNotebookTrail(key) }
-        : chapter;
-    });
-  for (const chapter of custom) covered.add(chapter.key);
-  if (custom.length) groups.push({ key: "custom", title: "我的本子", chapters: custom });
-  const others = rows.filter((chapter) => !covered.has(chapter.key));
-  if (others.length) groups.push({ key: "other", title: "其他", chapters: others });
-  return groups;
-}
-
-/** 子本子在移动/编辑器下拉里的标题：多章节本子带上基础章节名。 */
-function subTargetTitle(row, notebook, byKey) {
-  const key = String(row.key || "");
-  const trail = subNotebookTrail(key);
-  if (!notebook || notebook.chapters.length <= 1) return trail;
-  const chapter = subNotebookChapter(key);
-  const chapterTitle = row.chapter_title || byKey.get(chapter)?.title || chapter;
-  return chapterTitle ? `${chapterTitle} · ${trail}` : trail;
-}
-
 function latestByDate(rows) {
   const notes = rows.map((row) => row?.latest).filter(Boolean);
   if (!notes.length) return null;
@@ -488,7 +437,7 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
   if (leftovers.length) {
     cards.push({
       key: "other", title: "其他", eyebrow: "OTHERS", icon: "他", tone: "slate",
-      description: "还没归入本子的章节。",
+      description: "其他可用的文档位置。",
       chapters: leftovers.map((row) => ({ key: row.key, title: row.title || row.key, count: Number(row.count) || 0 })),
       count: leftovers.reduce((total, row) => total + (Number(row.count) || 0), 0),
       latest: latestByDate(leftovers),

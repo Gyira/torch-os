@@ -77,6 +77,7 @@ export function normalizeBanner(payload) {
   return {
     mode: payload?.banner_mode === "stats" ? "stats" : "quote",
     heroes,
+    crops: payload?.hero_crops || {},
     mottos,
     overlay: Number.isFinite(overlay) ? Math.min(0.9, Math.max(0, overlay)) : 0.45,
     focal: String(payload?.hero_focal || "").trim(),
@@ -103,25 +104,51 @@ export function backdropVars(blur, darkness) {
   };
 }
 
-/** 图片地址：http(s) 直接用链接；库内路径走后端沙箱端点（按索引取）。 */
+/** 已导入图片按库内路径读取；旧笔记里的其他位置仍走已配置图片索引。 */
 export function imageSrc(entry, index) {
   const value = String(entry || "").trim();
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
+  if (/^(?:\.torch-os|_Torch)\/横幅背景\/[^/\\]+$/.test(value)) {
+    return `/api/identity/banner/image?path=${encodeURIComponent(value)}`;
+  }
   return `/api/identity/hero?i=${Number(index) || 0}`;
 }
 
-function cssUrl(entry, index) {
-  return `url("${imageSrc(entry, index).replace(/"/g, "%22")}")`;
+export function imageCrop(banner, path) {
+  const saved = banner.crops?.[path] || {};
+  const fallback = /^(\d+(?:\.\d+)?)% (\d+(?:\.\d+)?)%$/.exec(banner.focal);
+  const percent = (value, legacy) => {
+    const n = Number(value ?? legacy ?? 50);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
+  };
+  return {
+    x: percent(saved.x, fallback?.[1]),
+    y: percent(saved.y, fallback?.[2]),
+    zoom: Math.min(5, Math.max(1, Number(saved.zoom) || 1)),
+  };
 }
 
-/** 按图片索引轮换横幅背景（配合 startRotation 使用）。 */
-export function setBannerImage(element, banner, index) {
-  if (!element || !banner || !banner.heroes.length) return;
-  const safeIndex = ((Number(index) || 0) % banner.heroes.length + banner.heroes.length) % banner.heroes.length;
-  element.style.backgroundImage = cssUrl(banner.heroes[safeIndex], safeIndex);
-  element.style.backgroundPosition = banner.focal || "center";
-  element.dataset.heroIndex = String(safeIndex);
+export function paintCrop(element, crop) {
+  const position = `${crop.x}% ${crop.y}%`;
+  element.style.objectPosition = position;
+  element.style.transformOrigin = position;
+  element.style.transform = `scale(${crop.zoom})`;
+}
+
+export function setBannerImage(element, banner, index, src) {
+  if (!element) return;
+  const path = banner.heroes[index];
+  if (!path) {
+    element.removeAttribute("src");
+    element.hidden = true;
+    return;
+  }
+  element.hidden = false;
+  const url = src || imageSrc(path, index);
+  if (element.getAttribute("src") !== url) element.src = url;
+  paintCrop(element, imageCrop(banner, path));
+  element.dataset.heroIndex = String(index);
 }
 
 export function quotesHtml(mottos) {
@@ -292,7 +319,7 @@ export function statsHtml(stats, options = {}) {
 }
 
 /** 把横幅状态画进 DOM；返回归一化后的 banner（供轮换与编辑器复用）。 */
-export function applyBanner(element, payload, stats) {
+export function applyBanner(element, payload, stats, imageIndex = 0, previewSrc = "") {
   if (!element) return null;
   const banner = normalizeBanner(payload);
   const background = element.querySelector(".banner-bg");
@@ -300,7 +327,7 @@ export function applyBanner(element, payload, stats) {
   const quotes = element.querySelector(".banner-quote");
   const statsBox = element.querySelector(".banner-stats");
   element.classList.toggle("banner-empty", banner.heroes.length === 0);
-  if (background) setBannerImage(background, banner, 0);
+  if (background) setBannerImage(background, banner, imageIndex, previewSrc);
   if (overlay) overlay.style.opacity = String(banner.overlay);
   if (banner.accent) element.style.setProperty("--banner-accent", banner.accent);
   else element.style.removeProperty("--banner-accent");
@@ -333,7 +360,7 @@ export function applyBanner(element, payload, stats) {
     statsBox.hidden = !showStats;
     if (showStats) {
       // 用横幅的实际宽度算可见天数：正方形格子能放几天就是几天，不再硬拉满。
-      const width = element.getBoundingClientRect?.().width
+      const width = element.offsetWidth || element.getBoundingClientRect?.().width
         || (typeof window !== "undefined" ? window.innerWidth : 1280);
       statsBox.innerHTML = statsHtml(stats, { ...banner, heatDays: heatDaysForWidth(width) });
       applyMeters(statsBox);

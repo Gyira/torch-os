@@ -59,12 +59,14 @@ export function newNoteMessage(path, content = "") {
 }
 
 /** 在 Obsidian 里打开一篇已有笔记；返回 false = 没有可打开的目标。 */
-export function openObsidianNote(path, vaultName) {
+export function openObsidianNote(path, vaultName, { edit = false } = {}) {
   const target = String(path || "").trim();
   if (!target) return false;
   if (isObsidianHost() && globalThis.parent && globalThis.parent !== globalThis) {
     try {
-      globalThis.parent.postMessage(openNoteMessage(target), "*");
+      const message = openNoteMessage(target);
+      if (edit) message.edit = true;
+      globalThis.parent.postMessage(message, "*");
       return true;
     } catch {
       // 落到 obsidian:// 兜底
@@ -74,6 +76,7 @@ export function openObsidianNote(path, vaultName) {
   if (!uri) return false;
   try {
     globalThis.open?.(uri, "_blank", "noopener");
+    if (edit) refreshOnReturn(target);
   } catch {
     return false;
   }
@@ -99,6 +102,7 @@ export function createObsidianNote(path, vaultName, content = "") {
   if (!uri) return false;
   try {
     globalThis.open?.(uri, "_blank", "noopener");
+    refreshOnReturn(target);
   } catch {
     return false;
   }
@@ -129,4 +133,17 @@ export function openTaskDocument(task, board) {
     return false;
   }
   return true;
+}
+
+export function newNoteFilename() {
+  const now = new Date();
+  const date = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  return `未命名-${date}-${crypto.randomUUID().slice(0, 8)}.md`;
+}
+
+function refreshOnReturn(path) {
+  globalThis.addEventListener?.("focus", () => {
+    document.dispatchEvent(new CustomEvent("torch:notes-changed", { detail: { path } }));
+    if (path.startsWith("自我档案/")) document.dispatchEvent(new CustomEvent("torch:self-refresh"));
+  }, { once: true });
 }

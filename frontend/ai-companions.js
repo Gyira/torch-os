@@ -21,14 +21,7 @@ export const COMPANIONS = Object.freeze({
     roleId: "life_assistant", mode: "tasks", entry: "workbench.tasks",
     title: "生活管家", layer: "ops", short: "生活管家",
   }),
-  love: Object.freeze({
-    roleId: "love_master", mode: "advice", entry: "love.overview",
-    title: "恋爱大师", layer: "love", short: "恋爱大师",
-  }),
-  health: Object.freeze({
-    roleId: "health_doctor", mode: "advice", entry: "health.report",
-    title: "私人医生", layer: "health", short: "私人医生",
-  }),
+
 });
 
 export function companionForView(view, { chapter = "", pane = "" } = {}) {
@@ -36,8 +29,7 @@ export function companionForView(view, { chapter = "", pane = "" } = {}) {
   if (key === "life") return COMPANIONS.life;
   if (key === "knowledge") return COMPANIONS.knowledge_home;
   if (key === "ops") {
-    if (pane === "love-view") return COMPANIONS.love;
-    if (pane === "health-view") return COMPANIONS.health;
+    if (pane === "love-view" || pane === "health-view") return null;
     if (String(chapter || "") === "task") return COMPANIONS.ops_tasks;
     return COMPANIONS.ops;
   }

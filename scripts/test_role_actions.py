@@ -101,15 +101,6 @@ class RoleActionTests(unittest.TestCase):
         self.assertFalse((self.vault / source["path"]).exists())
         self.assertTrue((self.vault / result["result"]["note"]["path"]).exists())
 
-    def test_love_creates_task_through_typed_executor_without_task_read_scope(self):
-        proposal = self.proposal("love_master", "new_task", {"title": "准备约会", "list": "约会", "due_date": "2026-11-05"})
-        result = self.proposals.apply(proposal["id"], confirm=True, edits={"list_name": "", "date": "2026-11-06"})
-        task = result["result"]["task"]
-        self.assertTrue(task["path"].startswith(vault_layout.TASK_ROOT + "/"))
-        self.assertEqual(task["list_name"], "收集箱")
-        self.assertEqual(task["date"], "2026-11-06")
-        with self.assertRaises(RoleScopeError):
-            RolePolicy.for_role("love_master", self.vault).check_path(task["path"], note=True)
 
     def test_life_creates_habit_without_opening_life_notes(self):
         proposal = self.proposal("life_assistant", "new_habit", {"title": "散步", "minimum_action": "走五分钟"})
@@ -129,7 +120,7 @@ class RoleActionTests(unittest.TestCase):
 
     def test_task_list_traversal_is_rejected(self):
         with self.assertRaises(ProposalError):
-            self.proposal("love_master", "new_task", {"title": "bad", "list_name": "../../逃逸"})
+            self.proposal("life_assistant", "new_task", {"title": "bad", "list_name": "../../逃逸"})
 
     def test_replaced_destination_link_is_rejected_before_executor(self):
         proposal = self.proposal()
@@ -148,7 +139,7 @@ class RoleActionTests(unittest.TestCase):
         self.assertEqual(self.proposals.get(proposal["id"])["status"], "pending")
 
     def test_unimplemented_report_actions_stay_disabled(self):
-        proposal = self.proposal("health_doctor", "health_report", {"body": "report"})
+        proposal = self.proposal("finance_advisor", "finance_report", {"body": "report"})
         with self.assertRaises(ProposalError) as error:
             self.proposals.apply(proposal["id"], confirm=True)
         self.assertEqual(error.exception.status_code, 409)
@@ -207,27 +198,27 @@ class RoleActionTests(unittest.TestCase):
             self.proposals.apply(items[0]["id"], confirm=True)
 
     def test_event_is_one_way_and_rejects_foreign_sources(self):
-        thread = self.service._create_thread("health_doctor", "advice", "")
+        thread = self.service._create_thread("finance_advisor", "report", "")
         reply = Reply.model_validate({"hub_events": [
             {"summary": "健康观察", "source_ref": "S1"},
             {"summary": "越域观察", "source_ref": vault_layout.SELF_IDENTITY_RELATIVE},
             {"summary": "伪造会话", "source_ref": "thread_someone_else"},
             {"summary": "错误地址", "source_ref": "https://[invalid"}]})
         errors = []
-        count = self.service._ingest_events(reply, self.registry.get("health_doctor"), thread["id"],
-            sources=[{"id": "S1", "kind": "health", "path": ""}], errors=errors)
+        count = self.service._ingest_events(reply, self.registry.get("finance_advisor"), thread["id"],
+            sources=[{"id": "S1", "kind": "finance", "path": ""}], errors=errors)
         self.assertEqual(count, 1)
         self.assertEqual(len(errors), 3)
         with self.db.connect() as con:
             row = con.execute("SELECT source_kind,source_ref FROM memory_hub_events").fetchone()
-        self.assertEqual(tuple(row), ("health_doctor", "context:health"))
+        self.assertEqual(tuple(row), ("finance_advisor", "context:finance"))
         self.assertFalse((self.vault / vault_layout.SELF_ARCHIVE_ROOT).exists())
 
     def test_read_only_role_does_not_post_events(self):
         self.service.read_only = True
         errors = []
         reply = Reply.model_validate({"hub_events": [{"summary": "observation"}]})
-        self.assertEqual(self.service._ingest_events(reply, self.registry.get("health_doctor"), "", errors=errors), 0)
+        self.assertEqual(self.service._ingest_events(reply, self.registry.get("finance_advisor"), "", errors=errors), 0)
         self.assertTrue(errors)
         with self.db.connect() as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM memory_hub_events").fetchone()[0], 0)
@@ -239,12 +230,11 @@ class RoleActionTests(unittest.TestCase):
         self.assertEqual(result["proposals"], [])
         self.assertEqual(len(result["action_errors"]), 1)
 
-    def test_love_legacy_report_targets_love_and_stays_in_overview(self):
-        self.service._execute.return_value = HeadlessResult('{"note":{"chapter":"life_advice","markdown":"恋爱报告"}}', "", .01, 0, "")
-        result = life_reports.generate_report(self.db, self.vault, self.service, self.proposals, "love", love_settings=self.service.love_settings)
-        path = result["note"]["path"]
-        self.assertTrue(path.startswith(vault_layout.LOVE_DRAFT_DIR + "/"))
-        self.assertIn(path, [item["path"] for item in life_reports._report_notes(self.vault)])
+    def test_retired_domains_cannot_generate_reports(self):
+        for domain in ("love", "health"):
+            with self.assertRaises(life_reports.LifeAIError):
+                life_reports.generate_report(self.db, self.vault, self.service, self.proposals, domain)
+        self.service._execute.assert_not_called()
 
     def test_http_denial_has_stable_code_and_keeps_pending(self):
         proposal = self.proposal()

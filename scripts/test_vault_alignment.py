@@ -145,7 +145,9 @@ class AlignmentTests(unittest.TestCase):
         layout.ensure_layout(self.root)
         note = self.write(layout.chapter_dir("essay") + "/保留.md", "保留现有内容")
         missing = [layout.chapter_dir("work_review_meeting"), layout.chapter_dir("self_facts"),
-                   "生活运营/财务系统", "生活运营/恋爱系统/八字合婚"]
+                   "生活运营/财务系统", "生活运营/恋爱系统/恋爱相册"]
+        for relative in layout.LEGACY_LOVE_DIRS:
+            self.assertFalse((self.root / relative).exists())
         for relative in missing:
             (self.root / relative).rmdir()
         created = layout.ensure_layout(self.root)

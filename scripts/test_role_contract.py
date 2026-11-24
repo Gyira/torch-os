@@ -84,10 +84,10 @@ class RoleContractTests(unittest.TestCase):
     def test_legacy_and_alias_are_not_separate_roles(self):
         visible = {item["id"] for item in self.manifest["items"]}
         self.assertNotIn("yiling", visible)
-        self.assertNotIn("health_estimator", visible)
-        self.assertNotIn("health_estimator", self.registry.roles)
-        self.assertEqual(active_role("health_estimator"), "health_doctor")
-        self.assertIn("estimate", self.registry.get("health_doctor").modes)
+        for role_id in ("health_estimator", "health_doctor", "love_master"):
+            self.assertNotIn(role_id, self.registry.roles)
+            with self.assertRaises(HTTPException):
+                active_role(role_id)
         with self.assertRaises(HTTPException) as raised:
             active_role("yiling")
         self.assertEqual(raised.exception.status_code, 409)

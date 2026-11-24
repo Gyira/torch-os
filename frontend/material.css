@@ -247,8 +247,8 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 
 /* Context pack: keep the selection and its consequences visible at every step. */
 .context-pack-dialog { overflow: hidden; }
-.context-pack-dialog .note-editor-head { flex-shrink: 0; }
-.context-pack-dialog .note-editor-head p { margin: 6px 0 0; color: var(--p-ink-3); font-size: 14px; }
+.context-pack-dialog .document-dialog-head { flex-shrink: 0; }
+.context-pack-dialog .document-dialog-head p { margin: 6px 0 0; color: var(--p-ink-3); font-size: 14px; }
 .context-pack-body { min-height: 0; overflow-y: auto; padding: 18px 22px; }
 .context-pack-filters { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; }
 .context-pack-filters label { display: grid; gap: 7px; font-size: 14px; min-width: 0; }

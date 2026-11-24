@@ -322,7 +322,7 @@ def _love_context(source_id: str, love_settings: Any = None) -> tuple[dict[str, 
         return _source(source_id, "love", "恋爱摘要", "", "还没有启用恋爱数据。", 1_000)
     if hasattr(love_settings, "chat_db"):
         try:
-            from .love_master import build_ai_context
+            from .love_summary import build_ai_context
             body, _meta = build_ai_context(
                 love_settings, days=90, include_chat=True, max_chars=60_000)
         except Exception as exc:

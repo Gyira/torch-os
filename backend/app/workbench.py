@@ -126,6 +126,8 @@ def collect_day(database: Database, vault_dir: Path | str, day: str) -> dict[str
         "hero": identity.get("hero") or "",
         "heroes": identity.get("heroes") or [],
         "hero_overlay": identity.get("hero_overlay", 0.45),
+        "hero_crops": identity.get("hero_crops") or {},
+        "banner_font": identity.get("banner_font") or "",
         "hero_focal": identity.get("hero_focal") or "",
         "banner_mode": identity.get("banner_mode") or "quote",
         "banner_accent": identity.get("banner_accent") or "",

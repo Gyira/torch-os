@@ -353,6 +353,11 @@ function renderPanelNav() {
 if (embedMode) {
   window.addEventListener("message", (event) => {
     const data = event?.data;
+    if (event.source === window.parent && data?.type === "torch:note-returned") {
+      document.dispatchEvent(new CustomEvent("torch:notes-changed", { detail: data }));
+      if (String(data.path).startsWith("自我档案/")) document.dispatchEvent(new CustomEvent("torch:self-refresh"));
+      return;
+    }
     if (!data || data.type !== "torch:navigate" || typeof data.view !== "string") return;
     if (!Object.hasOwn(titles, data.view) && data.view !== "roles") return;
     // dsh 侧栏的二级菜单会带上 pane。分区可能属于另一个模块（stacked 的工作台不会

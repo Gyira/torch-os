@@ -9,15 +9,12 @@
 - 趋势：``GET /api/health/trends``（指标目录里的任意数值指标 + 评分/BMI 等派生值）；
 - 洞察：``GET /api/health/insights`` 与已读标记；
 - 动作库：``GET /api/health/exercises``（文本复用 openGym，见 health_exercises）；
-- 报告：``POST /api/health/report`` 走「私人医生」角色，落 ``健康报告``；
-- 问诊记录：``POST /api/health/consult`` 把每次问答追加到 ``问诊记录`` 当天文档。
-
-写入一律先过 ``ensure_vault_writable``；AI 不可用时报告返回 409，普通记录不受影响。
+- 健康档案可查看以往的健康报告与问诊记录。
 """
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import (health_catalog, health_exercises, health_score, health_store,
                pillar_notes, vault_layout)
-from .ai_schemas import extract_json
 from .db import Database
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
-ESTIMATE_ROLE = "health_doctor"
 TREND_LIMIT = 4
 TREND_DAYS = (7, 30, 90, 180, 365)
 PSEUDO_METRICS = {
@@ -104,12 +99,6 @@ class ExerciseSaveRequest(BaseModel):
     sessions: list[TrainingRequest] = Field(default_factory=list, max_length=40)
 
 
-class EstimateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    kind: str = Field(default="food", max_length=10)
-    text: str = Field(min_length=1, max_length=2000)
-
-
 class LabRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     date: str = Field(min_length=10, max_length=10)
@@ -128,21 +117,6 @@ class InsightRead(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     id: str = Field(min_length=3, max_length=80)
     read: bool = True
-
-
-class ReportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    # kind 保留给旧调用；新版统一为「基于最新数据的健康报告」。
-    kind: str = Field(default="state", max_length=8)
-    days: int = Field(default=30, ge=7, le=366)
-    confirm: bool = Field(strict=True)
-
-
-class ConsultRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    question: str = Field(min_length=1, max_length=4000)
-    answer: str = Field(min_length=1, max_length=16000)
-    day: str = Field(default="", max_length=10)
 
 
 def _guard(read_only: bool):
@@ -310,200 +284,8 @@ def _consults(vault_dir: Path | str, limit: int = 20) -> list[dict[str, Any]]:
     return items
 
 
-def _consult_section(question: str, answer: str) -> str:
-    clock = datetime.now().astimezone().strftime("%H:%M")
-    return (f"## {clock}\n\n**我**：{question.strip()}\n\n"
-            f"**私人医生**：{answer.strip()}\n\n---\n")
-
-
-def _report_title(vault_dir: Path | str) -> str:
-    base = f"{health_store.today()} 健康报告"
-    titles = {str(item.get("title") or "") for item in _reports(vault_dir, 200)}
-    if base not in titles:
-        return base
-    index = 2
-    while f"{base}（{index}）" in titles:
-        index += 1
-    return f"{base}（{index}）"
-
-
-def _report_body(database: Database, vault_dir: Path | str, role_service: Any,
-                 days: int = 30, *, read_only: bool) -> dict[str, Any]:
-    if role_service is None:
-        raise HTTPException(409, "AI 不可用：没有配置 dsh 或 DeepSeek Key")
-    try:
-        ensure_vault_writable(read_only, "生成健康报告")
-    except VaultReadOnlyError as error:
-        raise HTTPException(409, str(error)) from error
-    span = max(7, min(int(days or 30), 366))
-    context = role_service.prepare_context("health_doctor", "health",
-                                           lambda: health_store.summary(vault_dir, days=span))
-    _, stats = context.value
-    user_text = (
-        f"请按私人医生模式，基于最近 {span} 天的记录、最新身体档案与检验记录，"
-        "分析我现在的健康状态，写一份完整的健康报告。"
-        "结构：先陈述事实（记录天数、最新指标、趋势），再解读当前状态，"
-        "最后给最多三条可执行建议与需要补充的数据/检查。"
-        "数据不足的地方明确说不足，不诊断疾病、不开药、不替代就医。"
-        "标题由系统按日期生成，你只需要输出正文。"
-        "输出约定 JSON（summary/sections/recommendations/note.markdown）。"
-    )
-    try:
-        result = role_service.run("health_doctor", "report",
-                                  context=context, user_text=user_text)
-    except RuntimeError as error:
-        raise HTTPException(409, str(error)) from error
-    except Exception as error:  # 角色层可能抛 503/超时
-        raise HTTPException(getattr(error, "status_code", 503), str(error)) from error
-    structured = extract_json(result.text) or {}
-    note_data = structured.get("note") if isinstance(structured, dict) else None
-    note_data = note_data if isinstance(note_data, dict) else {}
-    title = _report_title(vault_dir)
-    body = str(note_data.get("markdown") or "").strip() or result.text
-    from .role_policy import RolePolicy
-    RolePolicy.for_role("health_doctor", vault_dir).check_write_chapter("health_report")
-    note = pillar_notes.create_note(
-        vault_dir, pillar="ops", chapter="health_report", title=title, body=body,
-        note_type="report", tags=["AI", "health", "report"], source="AI",
-        extra_metadata={"memory": False, "generated_by": "health_doctor",
-                        "health_kind": "state", "health_days": span},
-    )
-    database.audit("health_report", {"days": span, "path": note.get("path", ""),
-                                     "chars": len(body)})
-    return {
-        "kind": "state", "label": "健康报告", "text": result.text,
-        "structured": structured if isinstance(structured, dict) else {},
-        "note": note, "stats": stats, "seconds": getattr(result, "seconds", None),
-        "reports": _reports(vault_dir),
-    }
-
-
-def _number(value: Any, minimum: float = 0, maximum: float | None = None,
-            default: float = 0) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    if number != number or number in (float("inf"), float("-inf")):
-        return default
-    number = max(minimum, number)
-    if maximum is not None:
-        number = min(maximum, number)
-    return number
-
-
-def _estimate_prompt(kind: str, text: str) -> str:
-    if kind == "food":
-        schema = (
-            '{"items":[{"meal_type":"早餐|午餐|晚餐|加餐","name":"食物名",'
-            '"portion":"份量描述","calories":数字,"protein_g":数字,'
-            '"carbs_g":数字,"fat_g":数字,"confidence":0到1}],'
-            '"note":"一句估算说明"}'
-        )
-    else:
-        schema = (
-            '{"items":[{"kind":"跑步|快走|骑行|游泳|力量|球类|瑜伽|其他",'
-            '"minutes":数字,"calories":数字,"distance_km":数字,"steps":数字,'
-            '"intensity":"低|中|高","note":"一句话","confidence":0到1}],'
-            '"note":"一句估算说明"}'
-        )
-    return (
-        f"任务：估算{'饮食' if kind == 'food' else '运动'}。\n"
-        f"用户描述：{text}\n"
-        "按常见中式份量/常见运动强度估算；不确定时给一个合理中值，并在 note 说明。"
-        "只输出一个 JSON 对象，不要解释，不要 Markdown。\n"
-        f"字段：{schema}"
-    )
-
-
-def _normalize_food_estimate(structured: dict[str, Any]) -> dict[str, Any]:
-    raw_items = structured.get("items")
-    if not isinstance(raw_items, list):
-        raw_items = [structured] if structured.get("name") else []
-    items: list[dict[str, Any]] = []
-    for raw in raw_items[:12]:
-        if not isinstance(raw, dict):
-            continue
-        name = str(raw.get("name") or "").strip()[:60]
-        if not name:
-            continue
-        meal_type = str(raw.get("meal_type") or "加餐").strip()
-        if meal_type not in health_store.MEAL_TYPES:
-            meal_type = "加餐"
-        item = {
-            "meal_type": meal_type, "name": name,
-            "portion": str(raw.get("portion") or "").strip()[:30],
-            "calories": int(round(_number(raw.get("calories"), 0, 5000))),
-            "protein_g": round(_number(raw.get("protein_g"), 0, 500), 1),
-            "carbs_g": round(_number(raw.get("carbs_g"), 0, 500), 1),
-            "fat_g": round(_number(raw.get("fat_g"), 0, 500), 1),
-            "source": "ai",
-        }
-        amount = raw.get("amount_g")
-        if amount is not None:
-            item["amount_g"] = round(_number(amount, 0, 10000), 1)
-        confidence = raw.get("confidence")
-        if confidence is not None:
-            item["confidence"] = round(_number(confidence, 0, 1), 2)
-        items.append(item)
-    if not items:
-        raise HTTPException(502, "AI 没有给出可用的食物估算，请换一种说法或手动填写")
-    totals = {
-        "calories": round(sum(item["calories"] for item in items), 1),
-        "protein_g": round(sum(item["protein_g"] for item in items), 1),
-        "carbs_g": round(sum(item["carbs_g"] for item in items), 1),
-        "fat_g": round(sum(item["fat_g"] for item in items), 1),
-    }
-    return {"items": items, "totals": totals,
-            "note": str(structured.get("note") or "")[:300]}
-
-
-def _normalize_exercise_estimate(structured: dict[str, Any]) -> dict[str, Any]:
-    raw_items = structured.get("items")
-    if not isinstance(raw_items, list):
-        raw_items = [structured] if structured.get("kind") else []
-    items: list[dict[str, Any]] = []
-    for raw in raw_items[:8]:
-        if not isinstance(raw, dict):
-            continue
-        kind = str(raw.get("kind") or "其他").strip()
-        if kind not in health_store.TRAINING_KINDS:
-            kind = "其他"
-        item = {
-            "kind": kind,
-            "minutes": int(round(_number(raw.get("minutes"), 0, 600))),
-            "calories": int(round(_number(raw.get("calories"), 0, 5000))),
-            "distance_km": round(_number(raw.get("distance_km"), 0, 200), 1),
-            "steps": int(round(_number(raw.get("steps"), 0, 100000))),
-            "source": "ai",
-        }
-        intensity = str(raw.get("intensity") or "").strip()
-        if intensity:
-            item["intensity"] = intensity[:10]
-        note = str(raw.get("note") or "").strip()
-        if note:
-            item["note"] = note[:200]
-        confidence = raw.get("confidence")
-        if confidence is not None:
-            item["confidence"] = round(_number(confidence, 0, 1), 2)
-        if not item["minutes"] and not item["calories"] and not item["steps"]:
-            continue
-        items.append(item)
-    if not items:
-        raise HTTPException(502, "AI 没有给出可用的运动估算，请换一种说法或手动填写")
-    totals = {
-        "minutes": round(sum(item["minutes"] for item in items), 1),
-        "calories": round(sum(item["calories"] for item in items), 1),
-        "distance_km": round(sum(item["distance_km"] for item in items), 1),
-        "steps": round(sum(item["steps"] for item in items), 1),
-        "sessions": float(len(items)),
-    }
-    return {"items": items, "totals": totals,
-            "note": str(structured.get("note") or "")[:300]}
-
-
 def create_health_router(database: Database, vault_dir: Path | str, *,
-                         role_service: Any = None, read_only: bool = False,
+                         read_only: bool = False,
                          prefix: str = "/api") -> APIRouter:
     router = APIRouter(prefix=f"{prefix}/health", tags=["health"])
     guard = _guard(read_only)
@@ -511,7 +293,7 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
     @router.get("/catalog")
     def catalog():
         return {"catalog": health_catalog.catalog(),
-                "capabilities": {"write": not read_only, "ai": role_service is not None}}
+                "capabilities": {"write": not read_only}}
 
     @router.get("/overview")
     def overview(day: str = Query(default="")):
@@ -575,7 +357,7 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
                 "first": history[0]["date"] if history else "",
                 "last": history[-1]["date"] if history else "",
             },
-            "capabilities": {"write": not read_only, "ai": role_service is not None},
+            "capabilities": {"write": not read_only},
         }
 
     @router.get("/week")
@@ -636,75 +418,13 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
                 "first": history[0]["date"] if history else "",
                 "last": history[-1]["date"] if history else "",
             },
-            "capabilities": {"write": not read_only, "ai": role_service is not None},
-        }
-
-    @router.get("/doctor")
-    def doctor():
-        profile = health_store.read_profile(vault_dir)
-        history = _history(vault_dir, health_store.today(), span=90)
-        latest = health_store.latest_payload(vault_dir, health_store.today(), lookback=90)
-        labs = health_store.read_labs(vault_dir)
-        reports = _reports(vault_dir, limit=20)
-        consults = _consults(vault_dir, limit=20)
-        current_score = health_score.current_score(
-            profile, history, health_store.today(), latest)
-        context, stats = health_store.summary(vault_dir, days=90)
-        return {
-            "day": health_store.today(),
-            "scope": {
-                "days": stats.get("days", 0),
-                "latest": stats.get("latest", {}),
-                "labs": len(labs.get("rows") or []),
-                "reports": len(reports),
-                "consults": len(consults),
-                "profile": bool(profile.get("exists")),
-                "context_chars": len(context),
-            },
-            "profile": {key: profile.get(key) for key in
-                        ("name", "gender", "birth_date", "height_cm", "blood_type")},
-            "current": current_score,
-            "reports": reports,
-            "consults": consults,
-            "capabilities": {"write": not read_only, "ai": role_service is not None},
+            "capabilities": {"write": not read_only},
         }
 
     @router.get("/foods")
     def foods(q: str = Query(default="", max_length=60),
               limit: int = Query(default=80, ge=1, le=200)):
         return {"items": health_catalog.food_items(q, limit)}
-
-    @router.post("/estimate")
-    def estimate(payload: EstimateRequest):
-        if role_service is None:
-            raise HTTPException(409, "AI 不可用：没有配置 dsh 或 DeepSeek Key")
-        kind = str(payload.kind or "food").strip().lower()
-        if kind not in {"food", "exercise"}:
-            raise HTTPException(422, "只能估算饮食或运动")
-        prompt = _estimate_prompt(kind, payload.text)
-        try:
-            result = role_service.run_once(ESTIMATE_ROLE, "estimate", prompt,
-                                           entry="health.report")
-        except KeyError as error:
-            raise HTTPException(409, "AI 估算角色未安装：请重启 dsh 后重试") from error
-        except ValueError as error:
-            raise HTTPException(409, f"AI 估算角色不可用：{error}") from error
-        except RuntimeError as error:
-            raise HTTPException(409, str(error)) from error
-        except Exception as error:
-            raise HTTPException(getattr(error, "status_code", 503), str(error)) from error
-        structured = (result.get("structured") if isinstance(result, dict) else None)
-        if not isinstance(structured, dict) or not structured:
-            raw_text = result.get("text") if isinstance(result, dict) else ""
-            structured = extract_json(raw_text) or {}
-        if not isinstance(structured, dict):
-            raise HTTPException(502, "AI 没有返回可用的估算结果，请重试或手动填写")
-        normalized = (_normalize_food_estimate(structured) if kind == "food"
-                      else _normalize_exercise_estimate(structured))
-        database.audit("health_estimate", {"kind": kind, "text_chars": len(payload.text),
-                                          "items": len(normalized["items"])})
-        return {**normalized, "kind": kind,
-                "seconds": result.get("seconds") if isinstance(result, dict) else None}
 
     @router.get("/day/{day}")
     def read_day(day: str):
@@ -907,13 +627,6 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
     def reports():
         return {"reports": _reports(vault_dir, limit=50)}
 
-    @router.post("/report")
-    def report(payload: ReportRequest):
-        if payload.confirm is not True:
-            raise HTTPException(422, "请明确确认生成并保存报告")
-        return _report_body(database, vault_dir, role_service, payload.days,
-                            read_only=read_only)
-
     @router.delete("/reports")
     def delete_report(path: str = Query(min_length=1, max_length=2048),
                       revision: str = Query(default="", max_length=64)):
@@ -932,37 +645,6 @@ def create_health_router(database: Database, vault_dir: Path | str, *,
     @router.get("/consults")
     def consults():
         return {"consults": _consults(vault_dir, limit=50)}
-
-    @router.post("/consult")
-    def save_consult(payload: ConsultRequest):
-        guard("记录问诊")
-        day = health_store.validate_day(payload.day or health_store.today())
-        title = f"{day} 问诊记录"
-        section = _consult_section(payload.question, payload.answer)
-        existing = next((item for item in _consults(vault_dir, 200)
-                         if item.get("title") == title), None)
-        try:
-            if existing:
-                note = pillar_notes.read_note(vault_dir, existing["path"])
-                body = (note.get("body") or "").rstrip() + "\n\n" + section
-                saved = pillar_notes.update_note(
-                    vault_dir, existing["path"], body=body,
-                    expected_revision=note.get("revision") or "")
-            else:
-                saved = pillar_notes.create_note(
-                    vault_dir, pillar="ops", chapter="health_consult", title=title,
-                    body=f"# {title}\n\n{section}", note_type="health_consult",
-                    tags=["健康", "问诊"], date=day,
-                    extra_metadata={"memory": False, "generated_by": "health_doctor",
-                                    "health_kind": "consult"})
-        except HTTPException:
-            raise
-        except Exception as error:
-            raise HTTPException(500, "问诊记录保存失败") from error
-        database.audit("health_consult_saved", {
-            "day": day, "path": saved.get("path", ""),
-            "question_chars": len(payload.question), "answer_chars": len(payload.answer)})
-        return {"note": saved, "consults": _consults(vault_dir, limit=50)}
 
     @router.delete("/consults")
     def delete_consult(path: str = Query(min_length=1, max_length=2048),

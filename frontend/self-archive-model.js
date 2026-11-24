@@ -70,7 +70,7 @@ export function portraitMarkup(portrait = {}, renderHtml = null) {
       : `<p class="field-help">还没有画像。点击「整理全部文档」生成第一份画像。</p>`}
     ${sources.length ? `<p class="field-help">来源：${sources.map(escape).join("、")}</p>` : ""}
     <div class="self-portrait-actions">
-      <button type="button" class="text-button" data-self-open-portrait>在 Obsidian 打开画像</button>
+      ${portrait.exists || body ? `<button type="button" class="text-button" data-self-open-portrait title="在 Obsidian 中编辑画像">编辑</button>` : ""}
     </div>
   </section>`;
 }
@@ -98,7 +98,7 @@ export function entryCardMarkup(entry = {}) {
         <div class="self-entry-badges">${entryBadges(entry)}</div>
         <h4>${escape(entry.title || "未命名条目")}</h4>
       </div>
-      ${entry.status === "active" ? `<button type="button" class="text-button" data-self-edit="${escape(entry.entry_id)}">修正这条</button><button type="button" class="text-button" data-self-retire="${escape(entry.entry_id)}">标为过时</button>` : `<span class="meta">${entry.status === "archived" ? "已过时" : "旧版本"}</span>`}
+      ${entry.status === "active" ? `<button type="button" class="text-button" data-self-edit="${escape(entry.entry_id)}" title="在 Obsidian 中编辑">编辑</button><button type="button" class="text-button" data-self-retire="${escape(entry.entry_id)}">标为过时</button>` : `<span class="meta">${entry.status === "archived" ? "已过时" : "旧版本"}</span>`}
       <button type="button" class="text-button" data-self-debate="${escape(entry.entry_id || "")}" data-self-debate-title="${escape(entry.title || "")}">带去 DSH</button>
     </header>
     <p class="self-entry-text">${escape(String(entry.text || "").trim())}</p>

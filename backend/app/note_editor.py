@@ -80,7 +80,7 @@ def _require_writable_chapter(chapter: str, vault_dir: Path | str) -> str:
     if (value not in WRITABLE_CHAPTERS
             and not vault_layout.is_custom_notebook_key(value)
             and not vault_layout.is_sub_notebook_key(value)):
-        raise HTTPException(422, "这个章节不在应用内写作范围里")
+        raise HTTPException(422, "这个本子不支持应用内写作")
     return value
 
 
@@ -162,8 +162,9 @@ def move_note(database: Database, vault_dir: Path | str, *, path: str,
     source_chapter = _require_writable_path(path, vault_dir)
     target = _require_writable_chapter(target_chapter, vault_dir)
     _ensure_custom_notebook_exists(vault_dir, target)
-    if chapter_pillar(source_chapter) != chapter_pillar(target):
-        raise HTTPException(422, "应用内只支持在同一个库里移动笔记")
+    source_area, target_area = chapter_pillar(source_chapter), chapter_pillar(target)
+    if source_area != target_area and {source_area, target_area} != {"life", "knowledge"}:
+        raise HTTPException(422, "仅人生路和知识库支持互相移动文档")
     _ensure_write(read_only, "移动笔记")
     note = pillar_notes.move_note(
         vault_dir, path, target, expected_revision=expected_revision)
@@ -212,7 +213,7 @@ def delete_note(database: Database, vault_dir: Path | str, *, path: str,
 class NoteCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    chapter: str = Field(min_length=1, max_length=120)
+    chapter: str = Field(min_length=1, max_length=256)
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(default="", max_length=200_000)
     note_type: str = Field(default="", max_length=40)
@@ -235,7 +236,7 @@ class NoteMoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     path: str = Field(min_length=1, max_length=2048)
-    target_chapter: str = Field(min_length=1, max_length=120)
+    target_chapter: str = Field(min_length=1, max_length=256)
     expected_revision: str = Field(default="", max_length=64)
 
 
@@ -359,7 +360,7 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
     router = APIRouter(prefix=prefix, tags=["writing"])
 
     @router.get("/writing/chapters")
-    def chapters():
+    def chapters(for_move: bool = False):
         hidden = vault_layout.hidden_chapters(vault_dir)
 
         def rows(keys):
@@ -401,6 +402,10 @@ def create_writing_router(database: Database, vault_dir: Path | str, role_servic
                 "custom": False,
                 "sub": True,
             })
+        if for_move:
+            from .library_management import notebook_titles
+            result["titles"] = {area: notebook_titles(vault_dir, area) for area in ("life", "knowledge")}
+            result["order"] = vault_layout.notebook_order(vault_dir)
         return result
 
     @router.post("/writing/notes")
