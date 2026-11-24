@@ -1255,6 +1255,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--p-accent-2)}
 .time-module { display: flex; align-items: stretch; min-height: 580px; padding: 0; }
 .time-module .time-rail { flex: 0 0 78px; display: flex; flex-direction: column; gap: 4px; padding: 12px 8px; border-right: 1px solid var(--p-line); background: var(--p-surface-2); }
 .time-rail-item { display: flex; flex-direction: column; align-items: center; gap: 3px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--p-ink-3); font-size: 12px; padding: 9px 2px; }
+#time-dida-stage { min-height: clamp(380px, 66vh, 800px); }
 .time-rail-item span { font-size: 17px; line-height: 1; }
 .time-rail-item:hover { background: var(--p-hover); color: var(--p-ink); }
 .time-rail-item.is-active { background: var(--p-surface); border-color: var(--p-line-strong); color: var(--p-ink-strong); font-weight: 600; }

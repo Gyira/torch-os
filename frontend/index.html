@@ -104,6 +104,7 @@
             <h2 id="time-module-heading" class="visually-hidden">待办事项</h2>
             <nav class="time-rail" aria-label="模块内页面" role="tablist">
               <button type="button" class="time-rail-item is-active" id="time-tab-tasks" data-time-page="tasks" role="tab" aria-selected="true" aria-controls="time-tasks-page"><span aria-hidden="true">☰</span>任务</button>
+              <button type="button" class="time-rail-item" id="time-tab-dida" data-time-page="dida" role="tab" aria-selected="false" aria-controls="time-dida-page" tabindex="-1"><span aria-hidden="true">✓</span>滴答清单</button>
               <button type="button" class="time-rail-item" id="time-tab-calendar" data-time-page="calendar" role="tab" aria-selected="false" aria-controls="time-calendar-page" tabindex="-1"><span aria-hidden="true">🗓</span>日历</button>
               <button type="button" class="time-rail-item" id="time-tab-habits" data-time-page="habits" role="tab" aria-selected="false" aria-controls="time-habits-page" tabindex="-1"><span aria-hidden="true">✅</span>习惯打卡</button>
               <button type="button" class="time-rail-item" id="time-tab-quadrant" data-time-page="quadrant" role="tab" aria-selected="false" aria-controls="time-quadrant-page" tabindex="-1"><span aria-hidden="true">▦</span>四象限</button>
@@ -188,6 +189,14 @@
                 </div>
                 <aside id="habit-detail" class="habit-detail-column" aria-label="习惯详情"></aside>
               </div>
+            </section>
+            <section class="time-page" id="time-dida-page" role="tabpanel" aria-labelledby="time-tab-dida" hidden>
+              <header class="time-head">
+                <h3>滴答清单</h3>
+                <button type="button" class="text-button" id="time-dida-reload" hidden>重新载入</button>
+                <a class="text-button" id="time-dida-external" href="https://dida365.com/webapp/" target="_blank" rel="noopener noreferrer">浏览器打开 ↗</a>
+              </header>
+              <div id="time-dida-stage"><p class="field-help" role="status" id="time-dida-message">点击「浏览器打开」使用滴答清单网页版。</p></div>
             </section>
             <section class="time-page" id="time-calendar-page" role="tabpanel" aria-labelledby="time-tab-calendar" hidden aria-label="日历"></section>
             <section class="time-page" id="time-quadrant-page" role="tabpanel" aria-labelledby="time-tab-quadrant" hidden aria-label="四象限"></section>

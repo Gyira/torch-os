@@ -25,6 +25,7 @@ import {
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
 import { openNoteEditor } from "./note-editor.js";
 import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
+import { showDidaPage } from "./dida-page.js";
 import { initTrashPage, loadTrash } from "./tasks-trash.js";
 
 const VIEW_KEY = "torch-os:time-view";
@@ -291,6 +292,8 @@ export function switchPage(next) {
   $("#time-calendar-page").hidden = next !== "calendar";
   $("#time-quadrant-page").hidden = next !== "quadrant";
   $("#time-trash-page").hidden = next !== "trash";
+  $("#time-dida-page").hidden = next !== "dida";
+  if (next === "dida") showDidaPage();
   if (next === "tasks") paintBoard();
   if (next === "habits") loadHabitsPage();
   if (next === "calendar") paintCalendar();

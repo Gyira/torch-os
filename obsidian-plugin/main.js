@@ -1985,6 +1985,10 @@ class WorkbenchView extends ItemView {
     this.registerDomEvent(window, 'message', (event) => {
       if (!event || event.source !== this.frame?.contentWindow) return;
       const data = event.data;
+      if (data?.type === 'torch:dida') {
+        if (this.uiOrigin() && event.origin === this.uiOrigin()) this.didaMessage(data);
+        return;
+      }
       if (data?.type === 'torch:chatgpt') {
         if (!this.uiOrigin() || event.origin !== this.uiOrigin()) return;
         this.chatgptMessage(data);
@@ -1998,6 +2002,7 @@ class WorkbenchView extends ItemView {
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+      if (this.didaGuest) this.positionDida();
       if (this.chatgpt) this.chatgpt.hidden = this.chatgptPhase === 'blocked' || leaf !== this.leaf || !this.chatgptBounds?.visible;
       if (leaf === this.leaf && this.frame && Date.now() - this.lastLoad > STALE_RELOAD_MS) {
         this.reload();
@@ -2014,6 +2019,7 @@ class WorkbenchView extends ItemView {
   }
 
   reload() {
+    this.closeDida();
     if (this.chatgpt) this.chatgpt.hidden = true;
     if (!this.frame || !this.plugin.uiUrl) return;
     const scheme = document.body.classList.contains('theme-dark') ? 'dark' : 'light';
@@ -2027,6 +2033,7 @@ class WorkbenchView extends ItemView {
   }
 
   showOffline(message) {
+    this.closeDida();
     if (this.chatgpt) this.chatgpt.hidden = true;
     if (this.frame) this.frame.hidden = true;
     if (!this.offline) {
@@ -2045,6 +2052,75 @@ class WorkbenchView extends ItemView {
 
   uiOrigin() {
     try { return new URL(this.plugin.uiUrl).origin; } catch { return ''; }
+  }
+
+  closeDida() {
+    this.didaGuest?.remove();
+    this.didaGuest = null;
+    this.didaReady = false;
+    this.didaRect = null;
+  }
+
+  positionDida() {
+    const guest = this.didaGuest;
+    if (!guest) return;
+    const rect = this.didaRect;
+    guest.hidden = !this.didaReady || !rect || this.frame.hidden || this.app.workspace.activeLeaf !== this.leaf;
+    if (guest.hidden) return;
+    const box = this.frame.getBoundingClientRect();
+    const outer = this.contentEl.getBoundingClientRect();
+    const width = Math.min(rect.width, box.width - rect.x);
+    const height = Math.min(rect.height, box.height - rect.y);
+    if (width <= 0 || height <= 0) { guest.hidden = true; return; }
+    Object.assign(guest.style, {
+      left: `${box.left - outer.left + rect.x}px`, top: `${box.top - outer.top + rect.y}px`,
+      width: `${width}px`, height: `${height}px`,
+    });
+  }
+
+  didaMessage(data) {
+    if (data.action === 'reload') { this.closeDida(); return; }
+    if (data.action !== 'bounds') return;
+    const rect = data.rect;
+    this.didaRect = rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]) && rect[key] >= 0)
+      && rect.width && rect.height ? rect : null;
+    if (this.didaRect && !this.didaGuest) {
+      const guest = document.createElement('webview');
+      this.didaGuest = guest;
+      guest.hidden = true;
+      guest.className = 'torch-dida-webview';
+      guest.setAttribute('title', '滴答清单');
+      guest.setAttribute('partition', 'persist:torch-dida');
+      guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
+      const status = (ready, message) => {
+        if (this.didaGuest !== guest) return;
+        this.didaReady = ready;
+        this.positionDida();
+        this.frame.contentWindow?.postMessage({ type: 'torch:dida-state', message }, this.uiOrigin());
+      };
+      let failed = false;
+      guest.addEventListener('did-start-navigation', event => {
+        if (event.isMainFrame && !event.isInPlace) failed = false;
+      });
+      guest.addEventListener('did-navigate', event => {
+        if (event.httpResponseCode >= 400) {
+          failed = true;
+          status(false, `滴答清单返回 HTTP ${event.httpResponseCode}，请重新载入或用浏览器打开。`);
+        }
+      });
+      guest.addEventListener('dom-ready', () => {
+        if (!failed && guest.getURL().startsWith('https://')) status(true, '');
+      });
+      guest.addEventListener('did-fail-load', event => {
+        if (event.errorCode === -3 || event.isMainFrame === false) return;
+        failed = true;
+        status(false, `滴答清单加载失败（${event.errorDescription || event.errorCode}），请重新载入或用浏览器打开。`);
+      });
+      guest.setAttribute('src', 'https://dida365.com/webapp/');
+      this.contentEl.appendChild(guest);
+      status(false, '正在载入滴答清单…');
+    }
+    this.positionDida();
   }
 
   /** 把状态发回 iframe；内容区自己决定要不要把说明卡盖上来。 */
@@ -2220,6 +2296,7 @@ class WorkbenchView extends ItemView {
   }
 
   async onClose() {
+    this.closeDida();
     window.clearTimeout(this.chatgptTimer);
     this.chatgpt?.remove(); this.chatgpt = null; this.chatgptBounds = null; this.chatgptPhase = '';
   }

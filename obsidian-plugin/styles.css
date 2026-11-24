@@ -6,8 +6,8 @@
   overflow: hidden;
 }
 
-.torch-chatgpt-webview { position: absolute; display: flex; border: 0; z-index: 2; background: var(--background-primary); }
-.torch-chatgpt-webview[hidden] { display: none !important; }
+.torch-dida-webview, .torch-chatgpt-webview { position: absolute; display: flex; border: 0; z-index: 2; background: var(--background-primary); }
+.torch-dida-webview[hidden], .torch-chatgpt-webview[hidden] { display: none !important; }
 
 .torch-view .torch-frame {
   display: block;
