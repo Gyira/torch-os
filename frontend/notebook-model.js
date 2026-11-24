@@ -384,12 +384,39 @@ function latestByDate(rows) {
 }
 
 /**
+ * 按用户拖动后的顺序排本子卡片。顺序文件里已经不存在的 key（删除/改名）跳过，
+ * 新出现但还没排过序的本子按原默认顺序追加在末尾。纯函数，Node 测试直接调用。
+ */
+export function applyNotebookOrder(cards = [], order = []) {
+  const rows = Array.isArray(cards) ? cards : [];
+  const byKey = new Map(
+    rows.filter((card) => card?.key).map((card) => [String(card.key), card]));
+  const seen = new Set();
+  const result = [];
+  for (const value of Array.isArray(order) ? order : []) {
+    const key = String(value || "");
+    const card = byKey.get(key);
+    if (!card || seen.has(key)) continue;
+    seen.add(key);
+    result.push(card);
+  }
+  for (const card of rows) {
+    const key = String(card?.key || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(card);
+  }
+  return result;
+}
+
+/**
  * 把 /api/pillars/{pillar}/overview 的 chapters 聚合成本子卡片。
  * 每个本子的 count 是内部章节之和，latest 取最新的一篇；空本子也会保留，
  * 因为“这个本子还没写”本身是引导，不应该被隐藏。
+ * `order` 是用户拖动后保存在 `.torch-os/notebook-order.json` 里的 key 顺序。
  */
 export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
-                                   deletedNotebooks = []) {
+                                   deletedNotebooks = [], order = []) {
   const rows = Array.isArray(chapterRows) ? chapterRows : [];
   const byKey = new Map(rows.filter(Boolean).map((row) => [row.key, row]));
   const deleted = new Set(Array.isArray(deletedNotebooks) ? deletedNotebooks : []);
@@ -468,7 +495,7 @@ export function buildNotebookCards(pillar, chapterRows = [], customRows = [],
       empty: leftovers.every((row) => (Number(row.count) || 0) === 0),
     });
   }
-  return cards;
+  return applyNotebookOrder(cards, order);
 }
 
 export function notebookTotal(cards = []) {

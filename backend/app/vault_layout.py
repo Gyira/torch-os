@@ -273,6 +273,11 @@ PROTECTED_NOTEBOOK_KEYS: dict[str, frozenset[str]] = {
     "love": frozenset({"journal", "drafts"}),
 }
 DELETED_NOTEBOOKS_REL = Path(".torch-os") / "deleted-notebooks.json"
+# 首页本子卡片的拖动顺序（2026-11-24）：纯展示偏好，写在库里的配置文件，
+# 换浏览器/客户端后仍保持一致。列表只含 key，本子被删/改名时自动跳过。
+NOTEBOOK_ORDER_REL = Path(".torch-os") / "notebook-order.json"
+NOTEBOOK_ORDER_MAX_KEYS = 400
+NOTEBOOK_ORDER_MAX_KEY = 240
 # 固定章节仍然优先；不在固定一级目录里的直属文件夹才视为“我的本子”。
 FIXED_TOP_DIRS = frozenset(item[3].split("/")[1] for item in CHAPTERS)
 _NOTEBOOK_FORBIDDEN = re.compile(r'[<>:"/\\|?*#^\[\]\x00-\x1f]')
@@ -1063,6 +1068,84 @@ def is_chapter_hidden(vault_dir: Path | str, chapter_key: str) -> bool:
     return bool(value) and value in hidden_chapters(vault_dir)
 
 
+def _notebook_order_file(vault_dir: Path | str) -> Path:
+    return workspace_path(Path(vault_dir).resolve(), NOTEBOOK_ORDER_REL)
+
+
+def notebook_order(vault_dir: Path | str) -> dict[str, list[str]]:
+    """读取各库首页本子的拖动顺序；损坏/缺失时按默认顺序处理。"""
+    result: dict[str, list[str]] = {}
+    try:
+        payload = json.loads(_notebook_order_file(vault_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return result
+    order = payload.get("order") if isinstance(payload, dict) else None
+    if not isinstance(order, dict):
+        return result
+    for pillar in BUILTIN_NOTEBOOKS:
+        values = order.get(pillar)
+        if not isinstance(values, list):
+            continue
+        keys: list[str] = []
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            key = value.strip()
+            if (not key or len(key) > NOTEBOOK_ORDER_MAX_KEY
+                    or key in keys or len(keys) >= NOTEBOOK_ORDER_MAX_KEYS):
+                continue
+            keys.append(key)
+        if keys:
+            result[pillar] = keys
+    return result
+
+
+def _write_notebook_order(vault_dir: Path | str,
+                          order: dict[str, list[str]]) -> None:
+    path = _notebook_order_file(vault_dir)
+    if not order:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"schema": 1, "order": {
+        pillar: order[pillar] for pillar in BUILTIN_NOTEBOOKS if order.get(pillar)}}
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+
+
+def set_notebook_order(vault_dir: Path | str, pillar: str, keys: Any) -> dict[str, Any]:
+    """保存某个库的本子顺序；只接受 key 列表，不校验本子是否还存在。"""
+    pillar_key = str(pillar or "")
+    if pillar_key not in BUILTIN_NOTEBOOKS:
+        raise ValueError("未知库")
+    if not isinstance(keys, (list, tuple)):
+        raise ValueError("本子顺序必须是列表")
+    clean: list[str] = []
+    for value in keys:
+        if not isinstance(value, str):
+            raise ValueError("本子 key 必须是文本")
+        key = value.strip()
+        if not key:
+            continue
+        if len(key) > NOTEBOOK_ORDER_MAX_KEY:
+            raise ValueError("本子 key 太长")
+        if key in clean:
+            continue
+        clean.append(key)
+        if len(clean) > NOTEBOOK_ORDER_MAX_KEYS:
+            raise ValueError("本子顺序过长")
+    current = notebook_order(vault_dir)
+    if clean:
+        current[pillar_key] = clean
+    else:
+        current.pop(pillar_key, None)
+    _write_notebook_order(vault_dir, current)
+    return {"pillar": pillar_key, "order": clean}
+
+
 def v1_chapter_move(relpath: str) -> tuple[str, str] | None:
     """v1 章节里的文件 → `(v2 目标路径, 章节 key)`；不在搬迁目录里返回 None。
 
@@ -1456,6 +1539,7 @@ __all__ = [
     "base_chapter_key", "sub_notebook_path", "sub_notebook_exists",
     "sub_notebook_folder_exists", "list_registered_sub_notebooks",
     "register_notebook", "unregister_notebook", "registered_notebook_keys",
+    "NOTEBOOK_ORDER_REL", "notebook_order", "set_notebook_order",
     "CHAPTERS", "CHAPTER_BY_KEY", "CHAPTER_BY_PATH",
     "LEGACY_CHAPTER_KEYS", "OPS_ROOT", "OPS_LAYOUT_SCHEMA", "OPS_LAYOUT_MARKER",
     "OPS_HEALTH_LAB", "OPS_LAYOUT_MOVES", "CHAPTER_GROUPS", "V1_CHAPTER_MOVES",

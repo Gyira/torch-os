@@ -29,7 +29,8 @@ export function opsNotebookCards(overview = {}) {
   const chapterRows = (Array.isArray(overview?.chapters) ? overview.chapters : [])
     .filter((chapter) => chapter && chapter.key === "task");
   return buildNotebookCards(
-    "ops", chapterRows, [], overview?.deleted_notebooks || []);
+    "ops", chapterRows, [], overview?.deleted_notebooks || [],
+    overview?.notebook_order || []);
 }
 
 export function opsHomeState(overview = {}) {

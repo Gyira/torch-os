@@ -145,6 +145,8 @@ def create_memory_router(vault_dir: Path | str, database: Database, *,
                 month_counts[day[:7]] = month_counts.get(day[:7], 0) + 1
         return {
             "notebooks": notebooks,
+            "notebook_order": vault_layout.notebook_order(vault).get(
+                vault_layout.LOVE_PILLAR, []),
             "recent": notes[:limit],
             "total": len(notes),
             "dates": dict(sorted(dates.items())),

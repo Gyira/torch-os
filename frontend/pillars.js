@@ -19,6 +19,7 @@ import {
 } from "./note-editor.js";
 import { initShareLink, openDeepSeekAsk, openChatGPTAsk, openShareLinkDialog } from "./share-link.js";
 import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
+import { bindNotebookDrag, saveNotebookOrder } from "./notebook-order.js";
 import { openRoleDrawer } from "./roles.js";
 import {
   DEFAULT_LIFE_WRITE_CHAPTER, buildMoveTargetGroups, buildNotebookCards,
@@ -207,7 +208,37 @@ function notebookCardsFor(view) {
     : (overview.chapters || []);
   return buildNotebookCards(
     view, chapters, overview.custom_notebooks || [],
-    overview.deleted_notebooks || []).map((book) => ({ ...book, title: overview.notebook_titles?.[book.key] || book.title }));
+    overview.deleted_notebooks || [], overview.notebook_order || [])
+    .map((book) => ({ ...book, title: overview.notebook_titles?.[book.key] || book.title }));
+}
+
+const notebookOrderSaves = new Map();
+
+/** 拖动结束后先把新顺序写进内存并重绘，再异步保存；失败时恢复旧顺序。 */
+async function saveNotebookCardOrder(view, keys) {
+  const overview = state.overviews[view];
+  if (!overview) return;
+  const previous = Array.isArray(overview.notebook_order)
+    ? overview.notebook_order.slice() : [];
+  // 连续拖动时只让最后一次保存的结果回写状态，避免慢请求把新顺序盖回旧顺序。
+  const sequence = (notebookOrderSaves.get(view) || 0) + 1;
+  notebookOrderSaves.set(view, sequence);
+  overview.notebook_order = keys.slice();
+  renderShell(view);
+  try {
+    const saved = await saveNotebookOrder(view, keys);
+    if (notebookOrderSaves.get(view) !== sequence) return;
+    if (state.overviews[view] === overview && Array.isArray(saved?.order)) {
+      overview.notebook_order = saved.order;
+    }
+  } catch (error) {
+    if (notebookOrderSaves.get(view) !== sequence) return;
+    if (state.overviews[view] === overview) {
+      overview.notebook_order = previous;
+      renderShell(view);
+    }
+    toast(`本子顺序没有保存：${error.message}`, "error");
+  }
 }
 
 function displayNotebook(view, key) {
@@ -542,7 +573,9 @@ function notebookCardMarkup(view, notebook) {
     pillar: view,
     chapterTitle: chapterTitle(view, notebook.latest.chapter),
   }) : null;
-  return `<div class="library-book-wrap"><button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}${notebook.empty ? " is-empty" : ""}" data-notebook="${escapeHtml(notebook.key)}" data-notebook-view="${escapeHtml(view)}">
+  // 生活运营首页只有一个待办本子，拖不动；不标可拖动，避免误导。
+  const dragAttrs = view === "ops" ? "" : ` draggable="true" data-notebook-drag-key="${escapeHtml(notebook.key)}" data-notebook-drag-view="${escapeHtml(view)}"`;
+  return `<div class="library-book-wrap"${dragAttrs}><button type="button"${dragAttrs ? ' draggable="true"' : ""} class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}${notebook.empty ? " is-empty" : ""}" data-notebook="${escapeHtml(notebook.key)}" data-notebook-view="${escapeHtml(view)}">
     <span class="notebook-card-top">
       <span class="notebook-icon" aria-hidden="true">${escapeHtml(notebook.icon || "本")}</span>
       <span class="notebook-count">${Number(notebook.count) || 0} 篇</span>
@@ -2282,6 +2315,11 @@ export function initPillars() {
   initNoteMoveDialog();
   initNotebookCreate();
   initShareLink();
+  // 首页本子卡片整卡拖动排序；顺序保存在库内配置，重新打开仍生效。
+  bindNotebookDrag({
+    cardSelector: ".library-book-wrap[data-notebook-drag-key]",
+    onDrop: ({ view, keys }) => saveNotebookCardOrder(view || appState.view, keys),
+  });
   document.addEventListener("data-changed", () => {
     state.manifest = null;
     invalidateChapterCache();

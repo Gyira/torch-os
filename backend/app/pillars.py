@@ -145,6 +145,7 @@ def _overview(vault_dir: Path | str, database: Database, pillar: str) -> dict[st
     if key in vault_layout.BUILTIN_NOTEBOOKS:
         payload["deleted_notebooks"] = sorted(
             vault_layout.deleted_notebook_keys(vault_dir).get(key, set()))
+        payload["notebook_order"] = vault_layout.notebook_order(vault_dir).get(key, [])
     if key in vault_layout.CUSTOM_NOTEBOOK_PILLARS:
         payload["custom_notebooks"] = _custom_notebook_rows(vault_dir, notes, key)
     if key in {"life", "knowledge"}:

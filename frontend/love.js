@@ -6,6 +6,8 @@ import { COMPANIONS } from "./ai-companions.js";
 import { renderLoveCycle, handleLoveCycleAction } from "./love-cycle.js";
 import { invalidateChapterCache, openNoteEditor } from "./note-editor.js";
 import { detailsMarkup, detailsEditPayload } from "./love-details.js";
+import { applyNotebookOrder } from "./notebook-model.js";
+import { bindNotebookDrag, saveNotebookOrder } from "./notebook-order.js";
 
 const PAGE_TITLES = {
   memories: "恋爱记忆",
@@ -179,6 +181,33 @@ function widthClass(value) {
 
 // ── 生命周期 ───────────────────────────────────────────────────────
 
+let memoryOrderSequence = 0;
+
+async function saveMemoryNotebookOrder(keys) {
+  const memory = love.memory;
+  if (!memory) return;
+  const previous = Array.isArray(memory.notebook_order)
+    ? memory.notebook_order.slice() : [];
+  // 连续拖动时只认最后一次保存的结果。
+  const sequence = memoryOrderSequence + 1;
+  memoryOrderSequence = sequence;
+  memory.notebook_order = keys.slice();
+  try {
+    const saved = await saveNotebookOrder("love", keys);
+    if (memoryOrderSequence !== sequence) return;
+    if (love.memory === memory && Array.isArray(saved?.order)) {
+      memory.notebook_order = saved.order;
+    }
+  } catch (error) {
+    if (memoryOrderSequence !== sequence) return;
+    if (love.memory === memory) {
+      memory.notebook_order = previous;
+      renderLovePage().catch(() => {});
+    }
+    toast(`本子顺序没有保存：${error.message}`, "error");
+  }
+}
+
 export function initLovePane() {
   if (love.inited) return;
   love.inited = true;
@@ -219,6 +248,11 @@ export function initLovePane() {
     Promise.resolve(handleLoveAction(event)).catch((error) => {
       toast(`操作失败：${error.message}`, "error");
     });
+  });
+  // 恋爱记忆首页的本子卡片也可以拖动排序，顺序与其它库共用同一份配置。
+  bindNotebookDrag({
+    cardSelector: ".love-notebook-card-wrap[data-notebook-drag-key]",
+    onDrop: ({ keys }) => saveMemoryNotebookOrder(keys),
   });
   // 设置抽屉在 #love-content 之外，里面的 data-love-action 也要走同一套分发。
   $id("love-settings-body")?.addEventListener("click", (event) => {
@@ -377,8 +411,8 @@ function memoryNotebookCard(notebook) {
   const latest = notebook.latest
     ? `最近：${escapeHtml(notebook.latest.title || "")}`
     : "还没有记录，打开写下第一篇";
-  return `<div class="love-notebook-card-wrap">
-    <button type="button" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}" data-love-action="memory-notebook" data-key="${escapeHtml(notebook.key)}">
+  return `<div class="love-notebook-card-wrap" draggable="true" data-notebook-drag-key="${escapeHtml(notebook.key)}" data-notebook-drag-view="love">
+    <button type="button" draggable="true" class="notebook-card tone-${escapeHtml(notebook.tone || "slate")}" data-love-action="memory-notebook" data-key="${escapeHtml(notebook.key)}">
       <span class="notebook-card-top"><span class="notebook-icon" aria-hidden="true">${escapeHtml(notebook.icon || "本")}</span><span class="notebook-count">${Number(notebook.count) || 0} 篇</span></span>
       <span class="notebook-title">${escapeHtml(notebook.title)}</span>
       <span class="notebook-desc">${escapeHtml(notebook.description || "")}</span>
@@ -407,7 +441,8 @@ function memoryNoteCard(note) {
 async function renderMemories(content) {
   const data = await loveApi("/api/love/memory/overview", { timeoutMs: 30000 });
   love.memory = data;
-  const notebooks = Array.isArray(data.notebooks) ? data.notebooks : [];
+  const notebooks = applyNotebookOrder(
+    Array.isArray(data.notebooks) ? data.notebooks : [], data.notebook_order || []);
   let notes = Array.isArray(data.recent) ? data.recent : [];
   if (love.memoryNotebook) {
     const listed = await loveApi(`/api/love/memory/notes?limit=200&notebook=${encodeURIComponent(love.memoryNotebook)}`, { timeoutMs: 30000 });

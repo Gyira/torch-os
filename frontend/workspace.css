@@ -487,6 +487,23 @@ button.life-heatmap-cell { cursor: pointer; }
 
 .notebook-card.is-empty { background: var(--p-surface-2); }
 
+/* 本子卡片拖动排序：整卡可拖，落点弱高亮，拖动中降低透明度。 */
+.library-book-wrap[draggable="true"] > .notebook-card,
+.love-notebook-card-wrap[draggable="true"] > .notebook-card { cursor: grab; }
+
+.library-book-wrap[draggable="true"] > .notebook-card:active,
+.love-notebook-card-wrap[draggable="true"] > .notebook-card:active { cursor: grabbing; }
+
+.library-book-wrap.is-dragging,
+.love-notebook-card-wrap.is-dragging { opacity: .38; }
+
+.library-book-wrap.is-drop-target .notebook-card,
+.love-notebook-card-wrap.is-drop-target .notebook-card {
+  border-color: var(--p-focus-ring-strong);
+  outline: 2px solid var(--p-focus-ring);
+  outline-offset: 2px;
+}
+
 .notebook-card-top {
   display: flex;
   align-items: center;

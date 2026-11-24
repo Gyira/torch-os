@@ -27,7 +27,9 @@ export function buildNotebookNav(trigger, view, navigate, choices = null) {
     if (focus) trigger.focus({ preventScroll: true });
   }
   function render(payload) {
-    const books = choices || buildNotebookCards(view, payload.chapters, payload.custom_notebooks, payload.deleted_notebooks);
+    const books = choices || buildNotebookCards(
+      view, payload.chapters, payload.custom_notebooks,
+      payload.deleted_notebooks, payload.notebook_order);
     card.replaceChildren();
     for (const book of books) {
       const button = document.createElement("button"); button.type = "button";

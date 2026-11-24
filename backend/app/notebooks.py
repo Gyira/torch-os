@@ -56,6 +56,16 @@ class NotebookDeleteRequest(BaseModel):
     confirm: bool = False
 
 
+class NotebookOrderRequest(BaseModel):
+    """首页本子卡片的拖动顺序；只保存展示顺序，不改变本子本身。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    pillar: str = Field(default="life", max_length=20)
+    keys: list[str] = Field(default_factory=list,
+                            max_length=vault_layout.NOTEBOOK_ORDER_MAX_KEYS)
+
+
 def _is_reparse(info: Any) -> bool:
     return stat.S_ISLNK(info.st_mode) or bool(
         getattr(info, "st_file_attributes", 0)
@@ -645,6 +655,22 @@ def create_notebook_router(database: Database, vault_dir: Path | str, *,
             pillar=payload.pillar, parent=payload.parent,
             parent_chapter=payload.parent_chapter, read_only=read_only)
 
+    @router.post("/notebooks/order")
+    def order(payload: NotebookOrderRequest):
+        try:
+            ensure_vault_writable(read_only, "调整本子顺序")
+        except VaultReadOnlyError as error:
+            raise HTTPException(409, str(error)) from error
+        try:
+            result = vault_layout.set_notebook_order(
+                vault_dir, payload.pillar, payload.keys)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        database.audit("notebook_order_updated", {
+            "pillar": result["pillar"], "order": result["order"],
+        })
+        return result
+
     @router.post("/notebooks/delete")
     def delete(payload: NotebookDeleteRequest):
         return delete_notebook(
@@ -656,5 +682,5 @@ def create_notebook_router(database: Database, vault_dir: Path | str, *,
 
 
 __all__ = ["NOTEBOOK_TRASH_DIR", "NotebookCreateRequest", "NotebookDeleteRequest",
-           "create_notebook", "list_notebooks", "delete_notebook",
-           "create_notebook_router"]
+           "NotebookOrderRequest", "create_notebook", "list_notebooks",
+           "delete_notebook", "create_notebook_router"]

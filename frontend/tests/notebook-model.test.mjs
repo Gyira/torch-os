@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applyNotebookOrder,
   buildMoveTargetGroups,
   buildNotebookCards,
   customNotebookDefinition,
@@ -17,6 +18,27 @@ import {
   subNotebookName,
   subNotebookTrail,
 } from "../notebook-model.js";
+
+test("saved notebook order skips stale keys and appends new notebooks", () => {
+  const cards = [{ key: "a" }, { key: "b" }, { key: "c" }];
+  assert.deepEqual(
+    applyNotebookOrder(cards, ["c", "gone", "a"]).map((card) => card.key),
+    ["c", "a", "b"]);
+  assert.deepEqual(
+    applyNotebookOrder(cards, []).map((card) => card.key),
+    ["a", "b", "c"]);
+  assert.deepEqual(
+    applyNotebookOrder(cards, ["a", "a"]).map((card) => card.key),
+    ["a", "b", "c"]);
+});
+
+test("home cards follow the saved notebook order", () => {
+  const cards = buildNotebookCards("life", [], [], [], ["essay", "journal"]);
+  assert.equal(cards.length, 7);
+  assert.deepEqual(cards.map((card) => card.key), [
+    "essay", "journal", "reflection", "insight", "goal", "project", "work",
+  ]);
+});
 
 test("sub-notebook keys keep parent/child hierarchy", () => {
   const parent = customNotebookKey("学习", "life");
