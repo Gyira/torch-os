@@ -1,6 +1,6 @@
 import { $, state, api, escapeHtml } from "./core.js";
 import { initSettings, loadSettings } from "./settings.js";
-import { loadAgentPane, setAgentProvider } from "./agent-pane.js";
+import { loadAgentPane } from "./agent-pane.js";
 import { initLovePane, loadLovePane } from "./love.js";
 import { initHealthPane, loadHealthPane } from "./health.js";
 import { NAV_LABELS, applyNavOrder, currentNavOrder, visiblePaneIds } from "./nav-order.js";
@@ -21,7 +21,7 @@ import { openGlobalSearch } from "./global-search.js";
 import { initKeyboardShortcuts } from "./shortcuts.js";
 import { initPersonalData } from "./personal-data.js";
 import { initRoleDrawer } from "./roles.js";
-import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
+import { initDshDrawer, openDshDrawer } from "./dsh-drawer.js";
 import { initSelectionAsk } from "./selection-ask.js";
 import { initRecycleCenter, loadRecycleCenter } from "./recycle-center.js";
 import { initMaterialMotion } from "./material-motion.js";
@@ -42,8 +42,6 @@ for (const name of ["agent", "recycle"]) {
     mainPages.append(page);
   }
 }
-const rolesPage = $("#roles-view");
-if (rolesPage) { rolesPage.classList.add("view"); rolesPage.dataset.module = "roles"; mainPages.append(rolesPage); }
 initDataCenter();
 
 // 顶层页面独立路由；生活运营保留系统分区，AI 角色管理归入设置中心。
@@ -59,11 +57,10 @@ const MODULES = {
   knowledge: { panes: [], ownNav: true },
   settings: { panes: [], ownNav: true },
   data: { panes: [], ownNav: true },
-  roles: { panes: [], ownNav: true },
 };
 const paneChoice = {};
 const PANE_GUARDS = {};
-const MODULE_GUARDS = { roles: () => confirmRoleAdminLeave() };
+const MODULE_GUARDS = {};
 const PANE_LOADERS = {
   "workbench-view": () => loadWorkbench(),
   "agent-view": loadAgentPane,
@@ -74,7 +71,6 @@ const PANE_LOADERS = {
   "self-view": () => { initSelf(); loadSelf(); },
   "ops-view": () => loadPillarModule("ops"),
   "knowledge-view": () => loadPillarModule("knowledge"),
-  "roles-view": () => { initRoleAdmin(); loadRoleAdmin(); },
   "settings-view": loadDataCenter,
   "data-view": loadDataCenter,
 };
@@ -305,12 +301,8 @@ function renderPanelNav() {
       const family = buildOpsFamily(button);
       opsMenu = family.menu;
       scroll.append(family.node);
-    } else if (view === "agent") {
-      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{ key: "chatgpt", title: "ChatGPT" }, { key: "dsh", title: "DSH" }, { key: "roles", title: "AI 角色与模型" }]);
-      family.menu.setAttribute("aria-label", "与神对话平台");
-      scroll.append(family.node); notebookMenus.push(family.menu);
     } else if (view === "self") {
-      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{key:"mentor",title:"人生导师"},{key:"bazi",title:"八字系统"}]);
+      const family = buildNotebookNav(button, view, (_view, key) => goTo(key), [{key:"mentor",title:"经历与记忆"},{key:"bazi",title:"八字系统"}]);
       family.menu.setAttribute("aria-label", "自我档案系统");
       scroll.append(family.node); notebookMenus.push(family.menu);
     } else if (["life", "knowledge"].includes(view)) {
@@ -393,13 +385,14 @@ export async function showPane(view, paneId, updateHash = true) {
 }
 
 async function goTo(target, updateHash = true) {
-  if (["chatgpt", "dsh"].includes(target)) { setAgentProvider(target); return switchView("agent", updateHash); }
-  if (["roles", "role", "ai"].includes(target)) return switchView("roles", updateHash);
+  if (target === "dsh") { openDshDrawer(); return true; }
+  if (target === "chatgpt") return switchView("agent", updateHash);
+  if (["roles", "role", "ai"].includes(target)) return switchView("agent", updateHash);
   if (["settings", "data"].includes(target)) return switchView("data", updateHash);
   if (target === "help") return switchView("workbench", updateHash);
   if (["bazi", "mentor"].includes(target)) {
     if (!(await switchView("self", updateHash))) return false;
-    document.dispatchEvent(new CustomEvent("torch:self-page", {detail:{page:target, sub:target === "bazi" ? "chart" : "chat"}}));
+    document.dispatchEvent(new CustomEvent("torch:self-page", {detail:{page:target, sub:target === "bazi" ? "chart" : "memory"}}));
     return true;
   }
   const mapped = GO_TARGETS[target];
@@ -409,6 +402,7 @@ async function goTo(target, updateHash = true) {
 }
 
 export async function switchView(view, updateHash = true) {
+  if (view === "roles") return switchView("agent", updateHash);
   if (view === "settings") return switchView("data", updateHash);
   if (!Object.hasOwn(titles, view)) return false;
   if (navigationPending) return false;
@@ -699,7 +693,7 @@ initSettings();
 initWorkbench(); initPillars();
 initMentorStrip();
 initRoleDrawer();
-initRoleAdmin();
+initDshDrawer();
 initSelectionAsk();
 initKeyboardShortcuts({ navigate: (target) => goTo(target) });
 bindSidebarPanes();

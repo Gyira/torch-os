@@ -1,5 +1,6 @@
+import { editArchiveEntry } from "./self-entry-editor.js";
 // 自我档案页：总览（本子 + 画像）、本子条目、迁移与更新（2026-11-01）。
-// 只渲染与交互；写入仍由后端「人生导师 → 待确认」链路负责。
+// 展示画像与本子，并提供手动记录、修正和 DSH 对话入口。
 import { api, confirmAction, escapeHtml, openDialog, toast } from "./core.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
@@ -41,12 +42,6 @@ function openVaultPath(path) {
     return;
   }
   try { globalThis.open?.(uri, "_blank", "noopener"); } catch { /* ignore */ }
-}
-
-function setBusy(button, busy, text = "正在整理…") {
-  if (!button) return;
-  button.disabled = busy;
-  button.textContent = busy ? text : "更新自我档案";
 }
 
 function renderOverview() {
@@ -92,6 +87,27 @@ async function handleClick(event) {
     await openBook(state.bookKey, history.dataset.selfHistoryToggle === "1");
     return;
   }
+  const retire = event.target.closest?.("[data-self-retire]");
+  if (retire) {
+    const entry = state.entries.find(row => row.entry_id === retire.dataset.selfRetire);
+    if (!entry) return;
+    retire.disabled = true;
+    try {
+      await api("/api/self/entries/" + encodeURIComponent(entry.entry_id) + "/retire", {
+        method: "POST", body: JSON.stringify({ revision: entry.revision }),
+      });
+      document.dispatchEvent(new CustomEvent("torch:self-refresh"));
+      toast("已标为过时，可在「看历史」中查看。");
+    } catch (error) { toast(error.message, "error"); }
+    finally { retire.disabled = false; }
+    return;
+  }
+  const edit = event.target.closest?.("[data-self-edit]");
+  if (edit) {
+    const entry = state.entries.find(row => row.entry_id === edit.dataset.selfEdit);
+    if (entry) editArchiveEntry(entry);
+    return;
+  }
   const debate = event.target.closest?.("[data-self-debate]");
   if (debate) {
     const entry = state.entries.find((item) => item.entry_id === debate.dataset.selfDebate);
@@ -104,8 +120,6 @@ async function handleClick(event) {
     }
     return;
   }
-  const update = event.target.closest?.("[data-self-update]");
-  if (update) { await runSynthesis(update); return; }
   const refresh = event.target.closest?.("[data-self-refresh]");
   if (refresh) {
     if (state.bookKey) await openBook(state.bookKey, state.history);
@@ -175,39 +189,6 @@ export async function openBook(bookKey, history = false) {
 }
 
 export function currentBookKey() { return state.bookKey; }
-
-async function runSynthesis(button) {
-  if (state.busy) return;
-  const ok = await confirmAction({
-    title: "更新自我档案？",
-    message: "人生导师会读一遍自我档案、记忆、最近日记、任务和知识库，生成画像并更新有依据的档案条目；事实与推断分开标注，旧判断保留为成长历史。可能耗时 1–3 分钟，会消耗 DeepSeek token。",
-    confirmLabel: "开始整理",
-  });
-  if (!ok) return;
-  state.busy = true;
-  setBusy(button, true);
-  try {
-    const result = await api("/api/self/synthesize", {
-      method: "POST",
-      body: JSON.stringify({ confirm: true, range_days: 30 }),
-      timeoutMs: 360000,
-    });
-    const updates = Array.isArray(result.archive_updates) ? result.archive_updates : [];
-    const failed = updates.filter((item) => item && !item.ok).length;
-    toast(updates.length
-      ? `画像已更新；${updates.length - failed} 项档案已更新${failed ? `，${failed} 项失败` : ""}。`
-      : `画像已更新；${result.patches?.length || 0} 条档案补丁待确认。`,
-    failed ? "error" : "success");
-    if (typeof callbacks.onChanged === "function") callbacks.onChanged(result);
-    if (state.bookKey) await openBook(state.bookKey, state.history);
-    else await loadArchiveOverview();
-  } catch (error) {
-    toast(`整理失败：${error.message}`, "error");
-  } finally {
-    state.busy = false;
-    setBusy(button, false);
-  }
-}
 
 async function previewMigration() {
   try {

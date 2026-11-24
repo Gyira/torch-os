@@ -27,6 +27,19 @@ def restricted_path(relative: Path) -> bool:
     return vault_layout.is_skipped(text) or vault_layout.is_foreign(text)
 
 
+def _resolved_for_comparison(path: Path) -> Path:
+    resolved = path.resolve()
+    if os.name == "nt":
+        # Windows can keep the extended prefix on just one of two resolved paths
+        # while a directory is being created. Compare equivalent drive/UNC names.
+        name = resolved.as_posix()
+        if re.match(r"^//[?]/[A-Za-z]:/", name):
+            return Path(name[4:])
+        if name.startswith("//?/UNC/"):
+            return Path("//" + name[8:])
+    return resolved
+
+
 def safe_note_path(vault_dir: Path, relative: str) -> Path:
     from .directory_names import canonical_path
     # Saved links from before the explicit directory migration remain readable.
@@ -34,9 +47,9 @@ def safe_note_path(vault_dir: Path, relative: str) -> Path:
         relative = canonical_path(relative)
     from .role_policy import guard_note_read
     guard_note_read(vault_dir, relative)
-    root = vault_dir.resolve()
+    root = _resolved_for_comparison(vault_dir)
     path = root / relative
-    if Path(relative).is_absolute() or '..' in Path(relative).parts or not path.resolve().is_relative_to(root):
+    if Path(relative).is_absolute() or '..' in Path(relative).parts or not _resolved_for_comparison(path).is_relative_to(root):
         raise ValueError('资料路径超出 Vault 范围')
     if Path(relative).parts and Path(relative).parts[0] == '.torch-os':
         from .storage_layout import workspace_path

@@ -30,7 +30,7 @@ export function sessionListMarkup({ sessions = [], legacy = [], currentId = "" }
   return `${rows.length ? rows.map((item) => `<button type="button" class="mentor-session${item.id === currentId ? " is-active" : ""}" data-mentor-thread="${escape(item.id)}">
       <span class="mentor-session-title">${escape(item.title || "未命名对话")}</span>
       <span class="mentor-session-meta">${escape(formatWhen(item.updated_at))}</span>
-    </button>`).join("") : `<p class="field-help">还没有对话。直接在右边说点什么。</p>`}
+    </button>`).join("") : `<p class="field-help">还没有历史对话。</p>`}
     ${old.length ? `<p class="mentor-session-group-label">旧忆灵对话</p>
       ${old.map((item) => `<button type="button" class="mentor-session is-legacy${item.id === currentId ? " is-active" : ""}" data-mentor-thread="${escape(item.id)}" data-mentor-legacy="1">
         <span class="mentor-session-title">${escape(item.title || "旧忆灵对话")}</span>

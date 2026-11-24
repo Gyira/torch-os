@@ -60,15 +60,6 @@ function statusText(status) {
   }
 }
 
-function fitFrame() {
-  const shell = node("dsh-shell");
-  if (!shell || !state.active) return;
-  // 与神对话现在在待办事项下方：高度取“视口减去吸顶导航和页面底部留白”，
-  // 滚到聊天区时正好铺满剩余屏幕，二级菜单的滚动定位也能对齐到顶部。
-  const viewport = Number(window.innerHeight) || 900;
-  shell.style.height = `${Math.max(420, Math.floor(viewport - 160))}px`;
-}
-
 function schedulePoll(delay) {
   if (state.timer) window.clearTimeout(state.timer);
   state.timer = window.setTimeout(() => {
@@ -97,7 +88,6 @@ function render(status) {
     } else {
       state.generation = generation;
     }
-    fitFrame();
     schedulePoll(8000);
     return;
   }
@@ -185,11 +175,6 @@ export function initDshPane() {
     const frame = node("dsh-frame");
     if (frame) frame.src = `/harness/?reload=${Date.now()}`;
   });
-  const external = node("dsh-open-external");
-  if (external) external.addEventListener("click", () => {
-    window.open("/harness/", "_blank", "noopener");
-  });
-  window.addEventListener("resize", fitFrame);
   document.addEventListener("visibilitychange", () => {
     if (state.active && !document.hidden) refreshStatus({ quiet: true });
   });
@@ -198,7 +183,6 @@ export function initDshPane() {
 export async function loadDshPane() {
   initDshPane();
   state.active = true;
-  fitFrame();
   const status = await refreshStatus();
   if (status && status.state === "stopped") await startHarness();
 }

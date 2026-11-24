@@ -6,8 +6,7 @@
 - ``自我档案/档案/00_画像.md``         缩略版现状画像；
 - 身份文件 ``自我档案/档案/身份（identity）.md`` 仍由 identity.py 管理。
 
-写入权只有人生导师：本模块提供 create / supersede / portrait 的原语，
-真正的“用户确认”在 mentor_pending 与 API 层。Torch 界面不提供手动编辑。
+用户手动记录、修正与模型整理共用版本化写入；旧条目保留为历史。
 """
 from __future__ import annotations
 from .storage_layout import workspace_relative
@@ -28,7 +27,7 @@ import yaml
 
 from . import vault_layout
 from .memory_store import operation_lock, read_document, update_document
-from .markdown_store import revision as _revision
+from .markdown_store import guarded_write, load_note, revision as _revision
 from .vault import parse_text, safe_note_path
 from .vault_connection import VaultReadOnlyError, ensure_vault_writable
 
@@ -46,7 +45,7 @@ ENTRY_TYPE_LABELS = {
 CONFIDENCES = ("high", "medium", "low")
 CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
 STATUSES = ("active", "superseded", "archived")
-ORIGINS = ("mentor", "question", "migration", "user-answer")
+ORIGINS = ("mentor", "question", "migration", "user-answer", "user")
 MAX_ENTRY_CHARS = 8_000
 MAX_TITLE = 120
 MAX_PORTRAIT_CHARS = 1_200
@@ -883,6 +882,24 @@ def supersede_entry(vault_dir: Path | str, old_entry_id: str, *,
             sources=sources, origin=origin, base_revision=base_revision)
 
 
+def retire_entry(vault_dir, entry_id, revision, *, read_only=False):
+    _ensure_write(read_only, "标记档案条目过时")
+    vault = Path(vault_dir).resolve()
+    with operation_lock(f"supersede|{vault}|{entry_id}"):
+        entry = find_entry(vault, entry_id, include_history=True)
+        if not entry:
+            raise SelfArchiveError("找不到这条记录", 404)
+        if entry["status"] == "archived":
+            return {"status": "archived"}
+        note = load_note(safe_note_path(vault, entry["path"]))
+        if entry["status"] != "active" or _revision(note["raw"]) != revision:
+            raise SelfArchiveConflict()
+        meta, body = parse_text(note["raw"].decode("utf-8-sig"))
+        meta.update(status="archived", updated=_now(), entry_id=entry_id)
+        guarded_write(note, _entry_text(meta, body).split("\n"))
+        return {"status": "archived"}
+
+
 def recover_incomplete_operations(vault_dir: Path | str, *,
                                   read_only: bool = False) -> dict[str, Any]:
     """Resolve recorded archive operations left by an interrupted process.
@@ -1058,17 +1075,24 @@ def context_text(vault_dir: Path | str, *, max_chars: int = 12_000, query: str =
 def overview(vault_dir: Path | str) -> dict[str, Any]:
     books: list[dict[str, Any]] = []
     total = 0
+    current = []
     for key in BOOK_ORDER:
         meta = book_meta(key)
         entries = list_entries(vault_dir, key)
         total += len(entries)
+        current.extend(entries)
         latest = entries[0] if entries else None
         books.append({
             **meta,
             "count": len(entries),
             "latest": latest,
         })
+    current.sort(key=lambda row: row["updated"] or row["created"], reverse=True)
+    def highlights(rows):
+        return [{"section": r["section"], "title": r["title"]} for r in rows[:5]]
     return {
+        "revised": highlights([r for r in current if r["supersedes"]]),
+        "hypotheses": highlights([r for r in current if r["entry_type"] == "hypothesis" or r["verify"]]),
         "books": books,
         "count": total,
         "portrait": read_portrait(vault_dir),

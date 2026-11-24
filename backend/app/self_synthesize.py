@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from . import (mentor_archive, mentor_memory, mentor_pending, mentor_questions,
                self_archive)
+from .archive_corpus import synthesize_documents
 from .ai_schemas import SynthesisResult, extract_json
 from .role_policy import RolePolicy
 
@@ -143,7 +144,7 @@ def _persist_memory(vault: Path, updates: list[Any], *, read_only: bool,
 
 def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14,
                read_only: bool = False,
-               autonomous_archive: bool = True) -> dict[str, Any]:
+               autonomous_archive: bool = True, full_report=None) -> dict[str, Any]:
     if role_service is None:
         raise SynthesizeError("AI 不可用：请先在 dsh 里配置模型", 503)
     days = max(7, min(int(range_days or 14), 30))
@@ -159,18 +160,21 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
         "输出要求": "只输出一个 JSON 对象；结构见角色说明。没有证据的写进 gaps，不要补脑。",
     }, ensure_ascii=False)
     try:
-        result = role_service.run_once(
-            "mentor", "synthesize", prompt, entry="self.archive",
-            selectors=[
-                {"entry": "identity"},
-                {"entry": "self_archive"},
-                {"entry": "mentor_memory"},
-                {"entry": "journals_recent", "days": days},
-                {"entry": "ops_summary"},
-                {"entry": "recent_notes", "days": days},
-            ],
-            max_chars=MAX_SYNTH_CHARS,
-        )
+        if full_report is not None:
+            result = synthesize_documents(role_service, vault, full_report)
+        else:
+            result = role_service.run_once(
+                "mentor", "synthesize", prompt, entry="self.archive",
+                selectors=[
+                    {"entry": "identity"},
+                    {"entry": "self_archive"},
+                    {"entry": "mentor_memory"},
+                    {"entry": "journals_recent", "days": days},
+                    {"entry": "ops_summary"},
+                    {"entry": "recent_notes", "days": days},
+                ],
+                max_chars=MAX_SYNTH_CHARS,
+            )
     except Exception as error:  # noqa: BLE001
         raise SynthesizeError(f"整理失败：{error}", 502) from error
     data = result.get("structured")
@@ -181,11 +185,18 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
     except Exception as error:  # noqa: BLE001
         raise SynthesizeError("模型没有返回可用的结构化结果；没有写入任何文件", 502) from error
 
+    if full_report is not None and not parsed.portrait.strip():
+        raise SynthesizeError("整理未返回画像，请重试")
+
+    portrait_sources = []
+    if full_report is not None and isinstance(data.get("portrait_sources"), list):
+        refs = {str(ref).strip("[]") for ref in data["portrait_sources"]}
+        portrait_sources = [row["path"] for row in result["sources"] if row["id"] in refs]
     portrait_written = False
     if parsed.portrait.strip():
         try:
             self_archive.write_portrait(
-                vault, parsed.portrait, sources=[],
+                vault, parsed.portrait, sources=portrait_sources,
                 confidence=parsed.portrait_confidence, read_only=read_only)
             portrait_written = True
         except Exception as error:  # noqa: BLE001
@@ -198,8 +209,15 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
             sources=list(result.get("sources") or []), read_only=read_only)
         patches: list[dict[str, Any]] = []
     else:
-        patches, patch_errors = _persist_patches(
-            vault, parsed.archive_patches, read_only=read_only)
+        candidates = parsed.archive_patches
+        if full_report is not None:
+            paths = {row["id"]: row["path"] for row in result["sources"]}
+            candidates = []
+            for row in parsed.archive_patches:
+                refs = row.get("sources")
+                cited = [str(ref).strip("[]") for ref in refs] if isinstance(refs, list) else []
+                candidates.append({**row, "sources": [paths[key] for key in cited if key in paths]})
+        patches, patch_errors = _persist_patches(vault, candidates, read_only=read_only)
     memory_count = _persist_memory(vault, parsed.memory_updates, read_only=read_only,
                                    bindings=result.get("sources") or [])
     questions: list[dict[str, Any]] = []
@@ -222,6 +240,7 @@ def synthesize(role_service: Any, vault_dir: Path | str, *, range_days: int = 14
     return {
         "portrait": parsed.portrait.strip(),
         "portrait_written": portrait_written,
+        "skipped": result.get("skipped", []),
         "patches": patches,
         "patch_errors": patch_errors,
         "archive_updates": archive_updates,

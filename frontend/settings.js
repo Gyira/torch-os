@@ -2,7 +2,6 @@ import { $, state, api, escapeHtml, renderState, formatDate, setStatus, toast } 
 import { NAV_LABELS, applyNavOrder, clearOrder, currentNavOrder, moveItem, storeOrder } from "./nav-order.js";
 import { initVaultMigration, loadVaultMigration } from "./vault-migration.js";
 import { initWidgetSettings, loadWidgetSettings } from "./widget-settings.js";
-import { initRoleAdmin, loadRoleAdmin, confirmRoleAdminLeave } from "./role-admin.js";
 
 let loadId = 0;
 let backupLoadId = 0;
@@ -138,7 +137,7 @@ function downloadExportBundle() {
 let currentSettingsSection = "status";
 
 export function confirmSettingsLeave() {
-  return currentSettingsSection === "roles" ? confirmRoleAdminLeave() : true;
+  return true;
 }
 
 export async function openSettingsSection(name) { return showSettingsSection(name); }
@@ -163,7 +162,6 @@ async function showSettingsSection(name, { focus = true } = {}) {
   if (focus) target.querySelector("h2, h3")?.focus?.();
   if (currentSettingsSection === "migration") loadVaultMigration();
   if (currentSettingsSection === "widgets") loadWidgetSettings();
-  if (currentSettingsSection === "roles") { initRoleAdmin(); loadRoleAdmin(); }
   if (currentSettingsSection === "backup" && cloudBackupAvailable()) loadCloudBackup();
   return true;
 }
@@ -314,7 +312,7 @@ export async function loadSettings() {
     ["本地服务", healthy ? "已连接" : health.status === "rejected" ? health.reason.message : "服务状态异常"],
     ["版本", health.status === "fulfilled" ? health.value.version || "未报告" : "未读取"],
     ["检索", "本地词法检索（不调用模型）"],
-    ["与神对话", "DeepSeek Harness（工作台内完整界面）"],
+    ["ChatGPT", "网页版对话"],
     ["最近检查", formatDate(new Date().toISOString())],
   ];
   const list = (rows) => `<dl class="settings-list">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`;

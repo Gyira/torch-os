@@ -1,10 +1,6 @@
+import { openDshDrawer } from "./dsh-drawer.js";
 // 选中文字 → 向对应 AI 提问（2026-10-31）。
 // 编辑器按钮只负责把选区快照交给 note-editor；阅读器和恋爱页直接打开全局角色抽屉。
-import { isRoleDrawerOpen, openRoleDrawer } from "./roles.js";
-import {
-  COMPANIONS, companionForEditor, companionForReader,
-} from "./ai-companions.js";
-
 const MAX_SELECTION_CHARS = 4000;
 let initialized = false;
 let pending = null;
@@ -155,14 +151,6 @@ function placeAsk(selection) {
   node.hidden = false;
 }
 
-function labelFor(selection) {
-  if (selection.surface === "editor") {
-    const dialog = editorDialog();
-    return companionForEditor(dialog?.dataset.editorContext || "life").short;
-  }
-  if (selection.surface === "love") return COMPANIONS.love.short;
-  return companionForReader(selection.view, selection.chapter)?.short || "AI";
-}
 
 function schedule() {
   window.clearTimeout(hideTimer);
@@ -173,7 +161,7 @@ function schedule() {
       return;
     }
     // 已经用这段选区打开过伙伴：保持收起，等用户选新的文字再出现。
-    if (isRoleDrawerOpen() && `${selection.source}|${selection.text}` === lastAsked) {
+    if (!el("global-dsh")?.hidden && `${selection.source}|${selection.text}` === lastAsked) {
       hideAsk();
       return;
     }
@@ -181,8 +169,8 @@ function schedule() {
     const node = button();
     if (!node) return;
     const label = el("selection-ask-label");
-    if (label) label.textContent = `问${labelFor(selection)}`;
-    node.setAttribute("aria-label", `向${labelFor(selection)}提问选中的文字`);
+    if (label) label.textContent = "问 DSH";
+    node.setAttribute("aria-label", "带着选文问 DSH");
     placeAsk(selection);
   }, 140);
 }
@@ -192,34 +180,8 @@ async function ask() {
   if (!selection) return;
   lastAsked = `${selection.source}|${selection.text}`;
   hideAsk();
-  if (selection.surface === "editor") {
-    document.dispatchEvent(new CustomEvent("torch:editor-selection-ask", {
-      detail: {
-        selection: {
-          text: selection.text,
-          source: selection.source,
-        },
-      },
-    }));
-    return;
-  }
-  if (selection.surface === "love") {
-    await openRoleDrawer({
-      ...COMPANIONS.love,
-      selection: { text: selection.text, source: selection.source },
-      prompt: "帮我看看这段，给一个具体可执行的建议。",
-    });
-    return;
-  }
-  const companion = companionForReader(selection.view, selection.chapter);
-  if (!companion) return;
-  const selectors = selection.path ? [{ entry: "note", path: selection.path }] : [];
-  await openRoleDrawer({
-    ...companion,
-    selectors,
-    selection: { text: selection.text, source: selection.source },
-    prompt: "帮我看看这段。",
-  });
+  openDshDrawer([selection.path, selection.text].filter(Boolean).join("\n"));
+
 }
 
 export function initSelectionAsk() {

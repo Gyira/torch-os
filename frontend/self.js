@@ -1,3 +1,5 @@
+import { openDshDrawer } from "./dsh-drawer.js";
+import { editArchiveEntry } from "./self-entry-editor.js";
 // 自我档案三部分外壳（2026-11-01）：自我档案 / 人生导师 / 八字系统。
 // 左栏两级展开；档案模块在 self-archive.js，导师在 mentor.js，八字在 self-bazi.js。
 import { $, api, escapeHtml, openDialog, toast } from "./core.js";
@@ -6,7 +8,7 @@ import { BOOKS } from "./self-archive-model.js";
 import {
   initSelfArchive, loadArchiveOverview, openBook, currentBookKey,
 } from "./self-archive.js";
-import { initMentor, leaveMentor, loadMentor, openMentorChat } from "./mentor.js";
+import { initMentor, leaveMentor, loadMentor } from "./mentor.js";
 import { initSelfBazi, loadSelfBazi } from "./self-bazi.js";
 
 const RAIL_STORAGE = "torch:self-rail";
@@ -62,8 +64,8 @@ function railMarkup() {
       items: `<button type="button" class="self-rail-item active" data-self-page="archive" data-self-sub="overview">档案总览</button>${books}`,
     })}
     ${railGroup({
-      key: "mentor", title: "人生导师",
-      items: `<button type="button" class="self-rail-item" data-self-page="mentor" data-self-sub="chat">对话</button>
+      key: "mentor", title: "经历与记忆",
+      items: `<button type="button" class="self-rail-item" data-self-page="mentor" data-self-sub="history">历史对话</button>
         <button type="button" class="self-rail-item" data-self-page="mentor" data-self-sub="memory">记忆</button>
         <button type="button" class="self-rail-item" data-self-page="mentor" data-self-sub="pending">待确认<span class="self-rail-badge" data-self-badge="pending" hidden>0</span></button>
         <button type="button" class="self-rail-item" data-self-page="mentor" data-self-sub="questions">今日提问<span class="self-rail-badge" data-self-badge="questions" hidden>0</span></button>`,
@@ -84,15 +86,17 @@ function shellMarkup() {
       <div>
         <p class="eyebrow">四库 · 自我档案</p>
         <h2>自我档案</h2>
-        <p class="pillar-subtitle">把经历沉淀成「我是谁」；人生导师整理并更新，事实与推断分开标注，旧判断保留为成长历史。</p>
+        <p class="pillar-subtitle">记录经历，修正对自己的认识，回看每一次变化。</p>
       </div>
     </div>
     <div class="pillar-head-actions">
       <label class="pillar-search"><span class="sr-only">搜索自我档案</span>
         <input type="search" data-self-search placeholder="搜索档案条目">
       </label>
-      <button type="button" class="button primary" data-self-update>更新自我档案</button>
-      <button type="button" class="button secondary" data-self-ask>找导师</button>
+      <button type="button" class="button primary" data-self-new>记一条</button>
+      <button type="button" class="button secondary" title="用当前配置的模型分批读取四库中的 Markdown、TXT、PDF 和 Word（.docx），整理经历、记忆与个人画像" data-self-update>整理全部文档</button>
+      <button type="button" class="button secondary" data-self-ask>问 DSH</button>
+      <span role="status" id="self-job-status"></span>
     </div>
   </header>
   <div class="self-body">
@@ -171,12 +175,13 @@ async function renderArchiveView() {
 }
 
 async function navigate(page, sub = "", options = {}) {
+  if (page === "mentor" && sub === "chat") { openDshDrawer(); sub = "memory"; }
   const previousPage = state.page;
   const validPage = ["archive", "mentor", "bazi"].includes(page) ? page : "archive";
   // 离开导师页时让页面级异步回调失效；服务端历史和草稿都保留。
   if (previousPage === "mentor" && validPage !== "mentor") leaveMentor();
   state.page = validPage;
-  state.sub = sub || (validPage === "archive" ? "overview" : validPage === "mentor" ? "chat" : "chart");
+  state.sub = sub || (validPage === "archive" ? "overview" : validPage === "mentor" ? "memory" : "chart");
   if (validPage === "archive") {
     if (state.sub.startsWith("book:")) {
       state.bookKey = state.sub.slice(5);
@@ -203,46 +208,52 @@ async function navigate(page, sub = "", options = {}) {
 }
 
 function handleDebate(detail) {
-  navigate("mentor", "chat").then(() => {
-    openMentorChat({
-      prefill: `我觉得档案里「${detail.title}」这条不对，因为……`,
-      entryId: detail.entryId || "",
-      entryTitle: detail.title || "",
-      entryText: detail.text || "",
-    });
-  }).catch((error) => toast(error.message, "error"));
+  openDshDrawer([detail.title, detail.text].filter(Boolean).join("\n"));
+}
+
+let pollTimer;
+let trackingJob = "";
+let jobSequence = 0;
+async function showJob(job) {
+  clearTimeout(pollTimer);
+  const running = job.state === "running";
+  const button = document.querySelector("[data-self-update]");
+  if (button) button.disabled = running;
+  el("self-job-status").textContent = job.message || "";
+  el("self-job-status").title = (job.skipped || []).join("\n");
+  if (running) {
+    trackingJob = job.id;
+    pollTimer = setTimeout(checkJob, 2200);
+  } else if (trackingJob) {
+    trackingJob = "";
+    if (job.state === "done") await refreshOverview({ render: state.page === "archive" });
+    if (job.state === "error") toast(job.message, "error");
+  }
+}
+
+async function checkJob() {
+  const seq = ++jobSequence;
+  try {
+    const job = await api("/api/self/organize");
+    if (seq === jobSequence) await showJob(job);
+  } catch (error) {
+    if (trackingJob && seq === jobSequence) {
+      el("self-job-status").textContent = "正在重新连接整理任务…";
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(checkJob, 4000);
+    }
+  }
 }
 
 async function runHeaderSynthesis(button) {
-  const { confirmAction } = await import("./core.js");
-  const ok = await confirmAction({
-    title: "更新自我档案？",
-    message: "人生导师会读一遍档案、记忆、最近日记、任务和知识库，生成画像并更新有依据的档案条目；事实与推断分开标注，旧判断保留为成长历史。可能耗时 1–3 分钟，会消耗 DeepSeek token。",
-    confirmLabel: "开始整理",
-  });
-  if (!ok) return;
+  if (button.disabled) return;
   button.disabled = true;
-  button.textContent = "整理中…";
+  ++jobSequence;
   try {
-    const result = await api("/api/self/synthesize", {
-      method: "POST", body: JSON.stringify({ confirm: true, range_days: 30 }),
-      timeoutMs: 360000,
-    });
-    const updates = Array.isArray(result.archive_updates) ? result.archive_updates : [];
-    const failed = updates.filter((item) => item && !item.ok).length;
-    const pendingCount = result.patches?.length || 0;
-    toast(updates.length
-      ? `画像已更新；${updates.length - failed} 项档案已更新${failed ? `，${failed} 项失败` : ""}。`
-      : `画像已更新；${pendingCount} 条档案补丁待确认。`,
-    failed ? "error" : "success");
-    await refreshOverview({ render: state.page === "archive" });
-    // 自主更新是页内非阻塞反馈；只有兼容模式的旧待确认卡才切过去。
-    if (pendingCount) await navigate("mentor", "pending");
+    await showJob(await api("/api/self/organize", { method: "POST", body: JSON.stringify({ confirm: true }) }));
   } catch (error) {
-    toast(`整理失败：${error.message}`, "error");
-  } finally {
     button.disabled = false;
-    button.textContent = "更新自我档案";
+    toast(error.message, "error");
   }
 }
 
@@ -307,7 +318,8 @@ function bindEvents() {
     const update = event.target.closest?.("[data-self-update]");
     if (update) { await runHeaderSynthesis(update); return; }
     const ask = event.target.closest?.("[data-self-ask]");
-    if (ask) { await navigate("mentor", "chat"); return; }
+    if (ask) { openDshDrawer(); return; }
+    if (event.target.closest?.("[data-self-new]")) editArchiveEntry({ section: state.bookKey });
     const result = event.target.closest?.("[data-self-search-path]");
     if (result) { await openSearchResult(result.dataset.selfSearchPath); return; }
   });
@@ -363,6 +375,7 @@ export function initSelf() {
 
 export async function loadSelf() {
   initSelf();
+  checkJob();
   await refreshOverview();
   if (state.page === "archive") await renderArchiveView();
   else if (state.page === "mentor") await loadMentor(main(), state.sub);

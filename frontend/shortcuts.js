@@ -66,7 +66,7 @@ function startChord() {
 function openNewCapture() {
   if (state.view === "workbench") {
     const tasksTab = document.querySelector('[data-time-page="tasks"]');
-    if (tasksTab && !tasksTab.classList.contains("is-active")) tasksTab.click();
+    if (tasksTab && (tasksTab.closest("[hidden]") || !tasksTab.classList.contains("is-active"))) tasksTab.click();
     const input = document.querySelector("#time-add-input");
     input?.focus?.();
     input?.scrollIntoView?.({ block: "nearest" });

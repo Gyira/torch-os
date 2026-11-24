@@ -92,7 +92,7 @@ def _decode_text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def _pdf_text(data: bytes) -> str:
+def _pdf_text(data: bytes, *, max_chars: int | None = MAX_TEXT_CHARS) -> str:
     try:
         from pypdf import PdfReader
     except ImportError as error:  # pragma: no cover - dependency is in requirements
@@ -111,7 +111,7 @@ def _pdf_text(data: bytes) -> str:
             if text.strip():
                 chunks.append(text.strip())
             total += len(text)
-            if total >= MAX_TEXT_CHARS:
+            if max_chars is not None and total >= max_chars:
                 break
         return "\n\n".join(chunks)
     except AttachmentError:
@@ -139,9 +139,9 @@ def _docx_text(data: bytes) -> str:
         raise AttachmentError(f"Word 读取失败：{error}") from error
 
 
-def _extract_text(data: bytes, ext: str) -> str:
+def extract_document_text(data: bytes, ext: str, *, pdf_limit: int | None = MAX_TEXT_CHARS) -> str:
     if ext == ".pdf":
-        text = _pdf_text(data)
+        text = _pdf_text(data, max_chars=pdf_limit)
     elif ext == ".docx":
         text = _docx_text(data)
     else:
@@ -303,7 +303,7 @@ def save_attachment(vault_dir: Path | str, filename: Any, data: bytes, *,
             "text": "",
         }
     else:
-        text = _extract_text(data, ext)
+        text = extract_document_text(data, ext)
         truncated = len(text) > MAX_TEXT_CHARS
         if truncated:
             text = text[: MAX_TEXT_CHARS - 1].rstrip() + "…"

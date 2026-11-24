@@ -18,8 +18,7 @@ async def run():
                 await cdp.call('Page.enable'); await cdp.call('Runtime.enable')
                 await cdp.call('Emulation.setDeviceMetricsOverride',{'width':1440,'height':1000,'deviceScaleFactor':1,'mobile':False})
                 await cdp.call('Page.navigate',{'url':'http://127.0.0.1:8785/#agent'})
-                await cdp.wait_for('document.querySelector("[data-agent-provider=chatgpt]")')
-                await cdp.evaluate('document.querySelector("[data-agent-provider=chatgpt]").click()')
+                await cdp.wait_for('document.querySelector("#chatgpt-stage")')
                 await asyncio.sleep(1)
                 checks={}
                 async def check(name, expression):
@@ -32,11 +31,7 @@ async def run():
                 await cdp.wait_for("document.querySelector('#context-settings-dialog').open && !document.querySelector('#context-settings-content').inert")
                 await check('navigation_cards_in_gear', "document.querySelectorAll('#context-settings-dialog [data-nav-card]').length===6")
                 await cdp.evaluate("document.querySelector('#context-settings-dialog').close()")
-                await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=agent]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}))")
-                await cdp.wait_for("document.querySelector('[data-nav-notebook=roles]')")
-                await cdp.evaluate("document.querySelector('[data-nav-notebook=roles]').click()")
-                await cdp.wait_for("!document.querySelector('#roles-view').hidden")
-                await check('roles_independent', "document.querySelector('#settings-view').hidden")
+                await check('chatgpt_direct', "document.querySelector('.panel-nav-item[data-view=agent]').textContent==='ChatGPT' && !document.querySelector('#ai-model-form')")
                 await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=self]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}))")
                 await cdp.wait_for("document.querySelector('[data-nav-notebook=mentor]')")
                 await check('self_dropdown', "!!document.querySelector('[data-nav-notebook=bazi]')")
@@ -44,7 +39,8 @@ async def run():
                 await cdp.wait_for("!document.querySelector('#self-view').hidden")
                 await cdp.evaluate("document.querySelector('.panel-nav-item[data-view=workbench]').click()")
                 await cdp.wait_for("!document.querySelector('#workbench-view').hidden")
-                await check('sync_under_trash', "document.querySelector('#time-tab-trash').nextElementSibling.dataset.contextSettings==='dida'")
+                await check('dida_default', "document.querySelector('#workbench-list-module').value === 'dida' && !document.querySelector('#time-dida-page').hidden")
+
                 await check('reports_removed', "!document.querySelector('[data-context-settings=schedule]')")
                 await cdp.evaluate("document.querySelector('#workbench-banner').click()")
                 await cdp.wait_for("document.querySelector('#heatmap-dialog').open")

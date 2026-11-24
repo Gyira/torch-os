@@ -10,7 +10,7 @@ import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { bindHabitEvents, mountHabits } from "./pillar-habits.js";
 import { archiveMarkup } from "./archive-markup.js";
 import { applyMeters } from "./meter.js";
-import { companionForReader, companionForView, documentChips } from "./ai-companions.js";
+import { companionForReader, companionForView } from "./ai-companions.js";
 import { opsHomeState } from "./ops-model.js";
 import { shanghaiDay } from "./journal-model.js";
 import { buildJournalHeatmap, journalHeatmapMarkup } from "./journal-heatmap.js";
@@ -20,7 +20,7 @@ import {
 import { initShareLink, openDeepSeekAsk, openChatGPTAsk, openShareLinkDialog } from "./share-link.js";
 import { initNotebookCreate, openNotebookCreateDialog } from "./notebook-create.js";
 import { bindNotebookDrag, saveNotebookOrder } from "./notebook-order.js";
-import { openRoleDrawer } from "./roles.js";
+import { openDshDrawer } from "./dsh-drawer.js";
 import {
   DEFAULT_LIFE_WRITE_CHAPTER, buildMoveTargetGroups, buildNotebookCards,
   canDeleteNotebook, customNotebookDefinition, customNotebookName,
@@ -455,8 +455,8 @@ function readerMarkup(view, reading, railItems) {
   // 阅读器里的 AI 入口：打开时自动带上当前文档，用户不用先复述。
   const companion = companionForReader(view, note.chapter);
   const askAiButton = companion
-    ? `<button type="button" class="reader-ai-button" data-reader-ask-ai="${view}" title="打开${escapeHtml(companion.title)}；它会自动读取《${escapeHtml(displayTitle)}》，不用先复述" aria-label="向${escapeHtml(companion.title)}提问这篇文档">
-        <span class="reader-ai-glyph" aria-hidden="true">✦</span>问${escapeHtml(companion.short)}
+    ? `<button type="button" class="reader-ai-button" data-reader-ask-ai="${view}" title="打开 DSH；它会自动读取《${escapeHtml(displayTitle)}》，不用先复述" aria-label="向 DSH 提问这篇文档">
+        <span class="reader-ai-glyph" aria-hidden="true">✦</span>问 DSH
       </button>`
     : "";
   const date = !journalLabel && note.date
@@ -604,7 +604,7 @@ function companionCardMarkup(view, { task = false } = {}) {
     <p class="eyebrow">AI · ${escapeHtml(companion.title)}</p>
     <p class="home-card-title">${escapeHtml(headline)}</p>
     <p class="field-help">${escapeHtml(copy)}</p>
-    <button type="button" class="pillar-quick-button" data-role-open="${escapeHtml(companion.roleId)}" data-role-mode="${escapeHtml(companion.mode)}" data-role-entry="${escapeHtml(companion.entry)}" data-role-title="${escapeHtml(companion.title)}">打开${escapeHtml(companion.title)}</button>
+    <button type="button" class="pillar-quick-button" data-role-open="${escapeHtml(companion.roleId)}" data-role-mode="${escapeHtml(companion.mode)}" data-role-entry="${escapeHtml(companion.entry)}" data-role-title="${escapeHtml(companion.title)}">打开 DSH</button>
   </section>`;
 }
 
@@ -1608,20 +1608,7 @@ function bindPillarEvents() {
       const note = state.reading[view]?.note;
       const companion = note ? companionForReader(view, note.chapter) : null;
       if (!note?.path || !companion) return;
-      openRoleDrawer({
-        roleId: companion.roleId,
-        mode: companion.mode,
-        entry: companion.entry,
-        title: companion.title,
-        // 只传元信息；正文由后端按 note 选择器读取，每轮都拿最新的。
-        note: {
-          title: readerNoteTitle(note),
-          path: note.path,
-          chapter: note.chapter || "",
-          chars: String(note.body || "").length,
-        },
-        chips: documentChips(view, note.chapter),
-      }).catch((error) => toast(`打不开${companion.title}：${error.message}`, "error"));
+      openDshDrawer([readerNoteTitle(note), note.path, note.body].filter(Boolean).join("\n"));
       return;
     }
     const readerOpen = event.target.closest?.("[data-reader-open-obsidian]");
@@ -1723,6 +1710,7 @@ function bindPillarEvents() {
     }
     const opsNav = event.target.closest?.("[data-ops-nav]");
     if (opsNav) {
+      document.querySelector("#time-tab-tasks")?.click();
       document.dispatchEvent(new CustomEvent("torch:show-pane", {
         detail: {
           view: "workbench", pane: "workbench-view", focus: "#workbench-time",
@@ -1862,21 +1850,7 @@ function bindPillarEvents() {
     }
     const roleButton = event.target.closest?.("[data-role-open]");
     if (roleButton) {
-      const roleId = roleButton.dataset.roleOpen || "";
-      const knowledge = roleId === "academic_mentor";
-      const life = roleId === "life_assistant";
-      openRoleDrawer({
-        roleId,
-        mode: roleButton.dataset.roleMode || undefined,
-        entry: roleButton.dataset.roleEntry || undefined,
-        title: roleButton.dataset.roleTitle || undefined,
-        selectors: life ? [] : knowledge ? [] : [{ entry: "journal" }],
-        prompt: knowledge
-          ? "帮我看看这篇回答可以怎么学，先问我一个关键问题。"
-          : life
-            ? "把任务、健康、财务和恋爱放在一起看，指出这周最值得做的一件事。"
-            : "看看我最近写的东西，问我一个我没写出来的问题。",
-      });
+      openDshDrawer();
       return;
     }
     const editorNew = event.target.closest?.("[data-editor-new]");

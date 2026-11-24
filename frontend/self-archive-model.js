@@ -67,10 +67,9 @@ export function portraitMarkup(portrait = {}, renderHtml = null) {
     </header>
     ${body
       ? `<div class="self-portrait-body md-body">${html}</div>`
-      : `<p class="field-help">还没有画像。点「更新自我档案」，让导师读一遍最近的记录。</p>`}
+      : `<p class="field-help">还没有画像。点击「整理全部文档」生成第一份画像。</p>`}
     ${sources.length ? `<p class="field-help">来源：${sources.map(escape).join("、")}</p>` : ""}
     <div class="self-portrait-actions">
-      <button type="button" class="button secondary" data-self-update>更新自我档案</button>
       <button type="button" class="text-button" data-self-open-portrait>在 Obsidian 打开画像</button>
     </div>
   </section>`;
@@ -99,7 +98,8 @@ export function entryCardMarkup(entry = {}) {
         <div class="self-entry-badges">${entryBadges(entry)}</div>
         <h4>${escape(entry.title || "未命名条目")}</h4>
       </div>
-      <button type="button" class="text-button" data-self-debate="${escape(entry.entry_id || "")}" data-self-debate-title="${escape(entry.title || "")}">和导师辩论这条</button>
+      ${entry.status === "active" ? `<button type="button" class="text-button" data-self-edit="${escape(entry.entry_id)}">修正这条</button><button type="button" class="text-button" data-self-retire="${escape(entry.entry_id)}">标为过时</button>` : `<span class="meta">${entry.status === "archived" ? "已过时" : "旧版本"}</span>`}
+      <button type="button" class="text-button" data-self-debate="${escape(entry.entry_id || "")}" data-self-debate-title="${escape(entry.title || "")}">带去 DSH</button>
     </header>
     <p class="self-entry-text">${escape(String(entry.text || "").trim())}</p>
     ${evidence ? `<p class="self-entry-detail"><strong>证据：</strong>${escape(evidence)}</p>` : ""}
@@ -113,7 +113,7 @@ export function entriesMarkup(entries = [], { history = false } = {}) {
   const rows = Array.isArray(entries) ? entries : [];
   if (!rows.length) {
     return `<div class="self-empty"><p>这个本子还没有条目。</p>
-      <p class="field-help">${history ? "没有历史版本。" : "点「更新自我档案」让导师整理，或在人生导师里直接聊。"}</p></div>`;
+      <p class="field-help">${history ? "没有历史版本。" : "点击「记一条」写下第一条记录。"}</p></div>`;
   }
   const groups = new Map();
   for (const entry of rows) {
@@ -169,16 +169,23 @@ export function migrationMarkup(migration = {}) {
   </section>`;
 }
 
+function overviewHighlights(overview) {
+  return [["最近修正", overview.revised], ["待验证的认识", overview.hypotheses]].map(([label, rows]) =>
+    rows?.length ? `<section class="self-portrait"><h3>${label}</h3>${rows.map(row =>
+      `<button class="text-button" data-self-book="${escape(row.section)}">${escape(row.title)}</button>`).join("")}</section>` : "").join("");
+}
+
 export function overviewMarkup(overview = {}, renderHtml = null) {
   return `${migrationMarkup(overview.migration)}
+    ${portraitMarkup(overview.portrait, renderHtml)}
+    ${overviewHighlights(overview)}
     <section class="self-overview-books" aria-label="档案本子">
       <header class="self-section-head">
         <div><p class="eyebrow">BOOKS · 我的档案</p><h3>十一个本子</h3></div>
         <span class="meta">${Number(overview.count) || 0} 条现行记录</span>
       </header>
       ${bookCardsMarkup(overview.books)}
-    </section>
-    ${portraitMarkup(overview.portrait, renderHtml)}`;
+    </section>`;
 }
 
 export function migrationPreviewMarkup(preview = {}) {

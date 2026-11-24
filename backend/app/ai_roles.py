@@ -1462,6 +1462,13 @@ class RoleService:
         }
 
     @_model_snapshot
+    def archive_completion(self, prompt: str, *, final: bool = False) -> str:
+        role = self.registry.get("mentor")
+        if final:
+            prompt = role.prompt_for("synthesize") + "\n\n只读资料与整理任务\n" + prompt
+        return self._execute(prompt, role).text
+
+    @_model_snapshot
     def run_once(self, role_id: str, mode: str, input_text: str, *, entry: str = "",
                  context: PreparedContext | None = None,
                  selectors: list[dict[str, Any]] | None = None,

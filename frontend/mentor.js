@@ -5,7 +5,7 @@ import { api, confirmAction, escapeHtml, openDialog, toast } from "./core.js";
 import { renderMarkdownDocument } from "./pillar-markdown.js";
 import { isObsidianHost, obsidianOpenUri, openNoteMessage } from "./task-open.js";
 import {
-  emptyChatMarkup, memoryMarkup, messageMarkup, pendingMarkup,
+  memoryMarkup, messageMarkup, pendingMarkup,
   questionsMarkup, sessionListMarkup, sideTabsMarkup, sourcesMarkup,
 } from "./mentor-model.js";
 
@@ -202,51 +202,12 @@ function openVaultPath(path) {
 
 function shellMarkup() {
   return `<div class="mentor-shell">
-    <header class="mentor-head">
-      <div>
-        <p class="eyebrow">LIFE MENTOR · 人生导师</p>
-        <h2>我在这里，先听你说。</h2>
-        <p class="field-help">读你的档案、记忆、最近日记与任务；需要更多信息时会问你。档案由我整理，事实与推断分开标注，旧判断保留为成长历史；你可以随时在对话里纠正。</p>
-      </div>
-      <div class="mentor-head-actions">
-        <button type="button" class="button secondary" data-mentor-new>＋ 新对话</button>
-        <button type="button" class="button primary" data-mentor-synthesize>更新自我档案</button>
-        <button type="button" class="text-button" data-mentor-refresh>刷新</button>
-      </div>
-    </header>
-    <div class="mentor-layout">
-      <aside class="mentor-sessions" aria-label="导师会话">
-        <header class="mentor-sessions-head"><p class="eyebrow">SESSIONS</p><span class="meta">对话</span></header>
-        <div class="mentor-session-list" data-mentor-sessions></div>
-      </aside>
-      <section class="mentor-chat" aria-label="与人生导师对话">
-        <header class="mentor-chat-head">
-          <div><p class="eyebrow" data-mentor-chat-eyebrow>MENTOR</p><h3 data-mentor-chat-title>新对话</h3></div>
-          <span class="meta" data-mentor-chat-meta></span>
-        </header>
-        <div class="mentor-messages" data-mentor-messages aria-live="polite"></div>
-        <div class="mentor-inline-pending" data-mentor-inline-pending></div>
-        <form class="mentor-composer" data-mentor-form>
-          <div class="mentor-attachment-bar" data-mentor-attachment-bar hidden></div>
-          <label class="visually-hidden" for="mentor-input">给人生导师发消息</label>
-          <textarea id="mentor-input" data-mentor-input rows="3" maxlength="8000" placeholder="想聊什么？也可以直接说「档案里这条不对，因为…」"></textarea>
-          <div class="mentor-composer-actions">
-            <div class="mentor-composer-left">
-              <button type="button" class="mentor-attach" data-mentor-attach aria-label="添加文件（文本、PDF、.docx、图片）" title="添加文件（文本、PDF、.docx、图片）">📎</button>
-              <input type="file" data-mentor-file-input multiple hidden accept=".md,.markdown,.txt,.text,.csv,.tsv,.json,.jsonl,.yaml,.yml,.log,.ini,.cfg,.conf,.toml,.xml,.html,.htm,.css,.scss,.sql,.rst,.tex,.py,.js,.mjs,.cjs,.ts,.tsx,.jsx,.java,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.swift,.kt,.gradle,.properties,.sh,.bash,.ps1,.bat,.cmd,.pdf,.docx,.png,.jpg,.jpeg,.webp,.gif" />
-              <span class="status-message" data-mentor-status role="status"></span>
-            </div>
-            <span class="field-help">Enter 发送 · Shift+Enter 换行</span>
-            <button type="button" class="button secondary" data-mentor-handoff>到 ChatGPT 继续聊</button>
-            <button type="submit" class="button primary" data-mentor-send>发送</button>
-          </div>
-        </form>
-      </section>
-      <aside class="mentor-side" aria-label="导师上下文">
-        <nav class="mentor-side-tabs" data-mentor-tabs></nav>
-        <div class="mentor-side-body" data-mentor-side-body></div>
-      </aside>
-    </div>
+    <section data-archive-history hidden><h3>历史对话</h3>
+      <div class="mentor-session-list" data-mentor-sessions></div>
+      <h4 data-mentor-chat-title></h4>
+      <div class="mentor-messages" data-mentor-messages></div>
+    </section>
+    <section data-mentor-side-body></section>
   </div>`;
 }
 
@@ -269,7 +230,7 @@ function renderChatHead() {
   const title = state.host?.querySelector?.("[data-mentor-chat-title]");
   const eyebrow = state.host?.querySelector?.("[data-mentor-chat-eyebrow]");
   const meta = state.host?.querySelector?.("[data-mentor-chat-meta]");
-  if (title) title.textContent = state.threadTitle || (state.threadId ? "对话" : "新对话");
+  if (title) title.textContent = state.threadTitle || "历史消息";
   if (eyebrow) eyebrow.textContent = state.legacyThread ? "LEGACY · 旧忆灵" : "MENTOR";
   if (meta) meta.textContent = state.legacyThread ? "只读历史" : (state.threadId ? "已保存" : "尚未开始");
 }
@@ -282,15 +243,19 @@ function renderMessages(forceScroll = false) {
     || host.scrollHeight - host.clientHeight - previousScroll < 64;
   host.innerHTML = state.messages.length
     ? state.messages.map(messageMarkup).join("")
-    : emptyChatMarkup();
+    : `<p class="field-help">暂无历史消息。</p>`;
   host.scrollTop = followBottom ? host.scrollHeight : previousScroll;
 }
 
 function renderSide() {
+  const history = state.host?.querySelector?.("[data-archive-history]");
+  if (history) history.hidden = state.activeTab !== "history";
   const tabs = state.host?.querySelector?.("[data-mentor-tabs]");
   if (tabs) tabs.innerHTML = sideTabsMarkup(state.activeTab);
   const body = state.host?.querySelector?.("[data-mentor-side-body]");
   if (!body) return;
+  body.hidden = state.activeTab === "history";
+  if (body.hidden) return;
   if (state.activeTab === "pending") {
     body.innerHTML = pendingMarkup(state.pending);
   } else if (state.activeTab === "memory") {
@@ -944,11 +909,11 @@ export async function loadMentor(host, sub = "chat", options = {}) {
   ensureShell();
   ensureConversationIdentity();
   restoreDraft();
-  if (["questions", "pending", "memory", "sources"].includes(sub)) {
+  if (["questions", "pending", "memory", "history"].includes(sub)) {
     state.activeTab = sub;
   }
   try {
-    await loadOverview({ autoOpen: true });
+    await loadOverview({ autoOpen: sub === "history" });
   } catch (error) {
     if (state.active) toast(`读不到导师数据：${error.message}`, "error");
   }

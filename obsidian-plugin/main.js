@@ -20,7 +20,7 @@
  * 另外：
  *   - 主题跟随：把 Obsidian 的计算样式翻译成产品主题桥认识的 --dsw-alias-* token；
  *   - 打开任务文档：iframe 发 torch:open-note，插件用 app.workspace 打开笔记；
- *   - 同步感：视图重新被激活且距上次加载超过 2 分钟时整页重载。
+ *   - 网页面板在工作台打开时预载，切换时复用同一个页面。
  */
 
 const {
@@ -36,7 +36,6 @@ const path = require('path');
 
 const VIEW_TYPE = 'torch-workbench';
 const RIBBON_ICON = 'layout-dashboard';
-const STALE_RELOAD_MS = 120000;
 const DEFAULT_PORT = 8765;
 const CHATGPT_URL = 'https://chatgpt.com/';
 // ChatGPT 住在自己的持久分区里：登录态由 Electron 保存，宿主主会话不受影响。
@@ -1957,12 +1956,37 @@ class VaultMigrator {
   }
 }
 
+// The native guest sits above Torch's iframe. Cut only the menu/handle/drawer
+// hit areas out of its surface, keeping its actual viewport and scroll position.
+function clipGuest(guest, rect, width, height, scale = 1) {
+  guest.style.pointerEvents = rect.dim ? 'none' : '';
+  guest.style.filter = rect.dim ? 'blur(4px) brightness(.92)' : '';
+  const holes = (Array.isArray(rect.exclusions) ? rect.exclusions : []).slice(0, 12)
+    .filter(r => r && [r.left, r.right, r.top, r.bottom].every(Number.isFinite))
+    .map(r => ({left: Math.max(0, r.left), right: Math.min(width, r.right),
+                top: Math.max(0, r.top), bottom: Math.min(height, r.bottom)}))
+    .filter(r => r.right > r.left && r.bottom > r.top);
+  if (!holes.length) { guest.style.clipPath = ''; return; }
+  const edges = [...new Set([0, height, ...holes.flatMap(r => [r.top, r.bottom])])].sort((a, b) => a - b);
+  const pieces = [];
+  function strip(left, top, right, bottom) {
+    if (right > left) pieces.push(`M${left / scale} ${top / scale}H${right / scale}V${bottom / scale}H${left / scale}Z`);
+  }
+  for (let i = 1; i < edges.length; i++) {
+    const top = edges[i - 1], bottom = edges[i];
+    const covered = holes.filter(r => r.top < bottom && r.bottom > top).sort((a, b) => a.left - b.left);
+    let x = 0;
+    for (const r of covered) { strip(x, top, r.left, bottom); x = Math.max(x, r.right); }
+    strip(x, top, width, bottom);
+  }
+  guest.style.clipPath = pieces.length ? `path("${pieces.join(' ')}")` : 'inset(50%)';
+}
+
 class WorkbenchView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
     this.frame = null;
-    this.lastLoad = 0;
     this.offline = null;
     this.chatgptPhase = '';
     this.chatgptSeen = false;
@@ -1979,7 +2003,6 @@ class WorkbenchView extends ItemView {
     this.frame = this.contentEl.createEl('iframe', { cls: 'torch-frame' });
     this.frame.setAttribute('title', '薪火OS 工作台');
     this.frame.addEventListener('load', () => {
-      this.lastLoad = Date.now();
       this.plugin.pushTheme(this.frame);
     });
     this.registerDomEvent(window, 'message', (event) => {
@@ -2001,12 +2024,9 @@ class WorkbenchView extends ItemView {
       if (data?.type === 'torch:open-plugin-settings') { this.plugin.openPluginSettings(); }
     });
     this.registerEvent(this.app.workspace.on('css-change', () => this.plugin.pushTheme(this.frame)));
-    this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
       if (this.didaGuest) this.positionDida();
-      if (this.chatgpt) this.chatgpt.hidden = this.chatgptPhase === 'blocked' || leaf !== this.leaf || !this.chatgptBounds?.visible;
-      if (leaf === this.leaf && this.frame && Date.now() - this.lastLoad > STALE_RELOAD_MS) {
-        this.reload();
-      }
+      this.positionChatgpt();
     }));
     try {
       await this.plugin.ensureUiServer();
@@ -2014,12 +2034,17 @@ class WorkbenchView extends ItemView {
       this.showOffline(this.plugin.uiSetupMessage(error));
       return;
     }
+    if (!this.frame) return;
     this.hideOffline();
     this.reload();
+    this.ensureDidaGuest();
+    this.ensureChatgptGuest();
   }
 
   reload() {
-    this.closeDida();
+    this.didaRect = null;
+    this.positionDida();
+    this.chatgptBounds = null;
     if (this.chatgpt) this.chatgpt.hidden = true;
     if (!this.frame || !this.plugin.uiUrl) return;
     const scheme = document.body.classList.contains('theme-dark') ? 'dark' : 'light';
@@ -2033,7 +2058,9 @@ class WorkbenchView extends ItemView {
   }
 
   showOffline(message) {
-    this.closeDida();
+    this.didaRect = null;
+    this.positionDida();
+    this.chatgptBounds = null;
     if (this.chatgpt) this.chatgpt.hidden = true;
     if (this.frame) this.frame.hidden = true;
     if (!this.offline) {
@@ -2058,6 +2085,7 @@ class WorkbenchView extends ItemView {
     this.didaGuest?.remove();
     this.didaGuest = null;
     this.didaReady = false;
+    this.didaStatus = '';
     this.didaRect = null;
   }
 
@@ -2072,60 +2100,80 @@ class WorkbenchView extends ItemView {
     const width = Math.min(rect.width, box.width - rect.x);
     const height = Math.min(rect.height, box.height - rect.y);
     if (width <= 0 || height <= 0) { guest.hidden = true; return; }
+    // Keep Dida's sidebar usable in a short pane while retaining the host hit area.
+    const scale = Math.max(0.85, Math.min(1, height / 740));
+    clipGuest(guest, rect, width, height, scale);
     Object.assign(guest.style, {
       left: `${box.left - outer.left + rect.x}px`, top: `${box.top - outer.top + rect.y}px`,
-      width: `${width}px`, height: `${height}px`,
+      width: `${width / scale}px`, height: `${height / scale}px`,
+      transformOrigin: 'top left', transform: `scale(${scale})`,
     });
   }
 
   didaMessage(data) {
-    if (data.action === 'reload') { this.closeDida(); return; }
+    if (data.action === 'reload') {
+      const rect = this.didaRect;
+      this.closeDida();
+      this.didaRect = rect;
+      this.ensureDidaGuest();
+      return;
+    }
+    const wasVisible = Boolean(this.didaRect);
     if (data.action !== 'bounds') return;
     const rect = data.rect;
     this.didaRect = rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]) && rect[key] >= 0)
       && rect.width && rect.height ? rect : null;
-    if (this.didaRect && !this.didaGuest) {
-      const guest = document.createElement('webview');
-      this.didaGuest = guest;
-      guest.hidden = true;
-      guest.className = 'torch-dida-webview';
-      guest.setAttribute('title', '滴答清单');
-      guest.setAttribute('partition', 'persist:torch-dida');
-      guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
-      const status = (ready, message) => {
-        if (this.didaGuest !== guest) return;
-        this.didaReady = ready;
-        this.positionDida();
-        this.frame.contentWindow?.postMessage({ type: 'torch:dida-state', message }, this.uiOrigin());
-      };
-      let failed = false;
-      guest.addEventListener('did-start-navigation', event => {
-        if (event.isMainFrame && !event.isInPlace) failed = false;
-      });
-      guest.addEventListener('did-navigate', event => {
-        if (event.httpResponseCode >= 400) {
-          failed = true;
-          status(false, `滴答清单返回 HTTP ${event.httpResponseCode}，请重新载入或用浏览器打开。`);
-        }
-      });
-      guest.addEventListener('dom-ready', () => {
-        if (!failed && guest.getURL().startsWith('https://')) status(true, '');
-      });
-      guest.addEventListener('did-fail-load', event => {
-        if (event.errorCode === -3 || event.isMainFrame === false) return;
-        failed = true;
-        status(false, `滴答清单加载失败（${event.errorDescription || event.errorCode}），请重新载入或用浏览器打开。`);
-      });
-      guest.setAttribute('src', 'https://dida365.com/webapp/');
-      this.contentEl.appendChild(guest);
-      status(false, '正在载入滴答清单…');
+    if (this.didaRect) {
+      this.ensureDidaGuest();
+      if (!wasVisible) this.frame.contentWindow?.postMessage({ type: 'torch:dida-state', message: this.didaStatus }, this.uiOrigin());
     }
     this.positionDida();
+  }
+
+  ensureDidaGuest() {
+    if (this.didaGuest) return;
+    const guest = document.createElement('webview');
+    this.didaGuest = guest;
+    guest.hidden = true;
+    guest.className = 'torch-dida-webview';
+    guest.setAttribute('title', '滴答清单');
+    guest.setAttribute('partition', 'persist:torch-dida');
+    guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
+    const status = (ready, message) => {
+      if (this.didaGuest !== guest) return;
+      this.didaReady = ready;
+      this.didaStatus = message;
+      this.positionDida();
+      this.frame.contentWindow?.postMessage({ type: 'torch:dida-state', message }, this.uiOrigin());
+    };
+    let failed = false;
+    guest.addEventListener('did-start-navigation', event => {
+      if (event.isMainFrame && !event.isInPlace) failed = false;
+    });
+    guest.addEventListener('did-navigate', event => {
+      if (event.httpResponseCode >= 400) {
+        failed = true;
+        status(false, `滴答清单返回 HTTP ${event.httpResponseCode}，请重新载入或用浏览器打开。`);
+      }
+    });
+    guest.addEventListener('dom-ready', () => {
+      if (!failed && guest.getURL().startsWith('https://')) status(true, '');
+    });
+    guest.addEventListener('did-fail-load', event => {
+      if (event.errorCode === -3 || event.isMainFrame === false) return;
+      failed = true;
+      status(false, `滴答清单加载失败（${event.errorDescription || event.errorCode}），请重新载入或用浏览器打开。`);
+    });
+    guest.setAttribute('src', 'https://dida365.com/webapp/');
+    this.contentEl.appendChild(guest);
+    status(false, '正在载入滴答清单…');
   }
 
   /** 把状态发回 iframe；内容区自己决定要不要把说明卡盖上来。 */
   chatgptState(state, message = '') {
     this.chatgptPhase = state;
+    this.chatgptStateMessage = message;
+    this.positionChatgpt();
     try {
       this.frame?.contentWindow?.postMessage(
         { type: 'torch:chatgpt-state', state, message },
@@ -2139,7 +2187,10 @@ class WorkbenchView extends ItemView {
 
   /** ChatGPT 那个持久分区的会话（登录态就存在这里）。 */
   chatgptSession() {
-    try { return require('electron').session.fromPartition(CHATGPT_PARTITION); } catch { return null; }
+    try {
+      const electron = require('electron');
+      return (electron.session || electron.remote?.session)?.fromPartition(CHATGPT_PARTITION);
+    } catch { return null; }
   }
 
   /** 代理只作用于 ChatGPT 分区：宿主主会话和 iframe 都保持原样。 */
@@ -2238,58 +2289,75 @@ class WorkbenchView extends ItemView {
       return;
     }
     if (data.action !== 'bounds') return;
+    const wasVisible = this.chatgptBounds?.visible;
     this.chatgptBounds = data;
-    if (!data.visible) { if (this.chatgpt) this.chatgpt.hidden = true; return; }
-    const rect = data.rect;
-    if (!rect || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) || rect.width <= 0 || rect.height <= 0) return;
-    if (!this.chatgpt) {
-      // Host-owned guest browser: no preload, no page-script injection; Obsidian
-      // forces sandbox + no node integration for every guest it attaches.
-      const guest = document.createElement('webview');
-      guest.className = 'torch-chatgpt-webview';
-      guest.setAttribute('partition', CHATGPT_PARTITION);
-      guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
-      guest.setAttribute('title', 'ChatGPT 网页');
-      guest.addEventListener('dom-ready', () => { if (this.chatgpt === guest) this.onChatgptDomReady(guest); });
-      guest.addEventListener('did-start-loading', () => {
-        if (this.chatgpt === guest && this.chatgptPhase !== 'ready') this.chatgptState('loading', '正在载入 ChatGPT…');
-      });
-      guest.addEventListener('did-fail-load', (event) => {
-        if (event.errorCode === -3 || event.isMainFrame === false) return;
-        this.chatgptFailure = { url: String(event.validatedURL || ''), at: Date.now() };
-        const reason = `ChatGPT 加载失败（${event.errorDescription || event.errorCode}）。本机可能访问不了 chatgpt.com。`;
-        // 已经正常进过 ChatGPT 时（比如正停在登录页）只提示，不把页面收走。
-        if (this.chatgptSeen) this.chatgptState('loading', reason);
-        else this.blockChatgpt(guest, reason);
-      });
-      guest.addEventListener('new-window', (event) => {
-        event.preventDefault?.();
-        try {
-          const url = new URL(event.url);
-          // 登录弹窗（Google/Apple 等）留在同一分区里，换掉也会丢登录态；只放行 https。
-          if (url.protocol === 'https:' && isSigninUrl(url.toString())) {
-            guest.setAttribute('src', url.toString());
-            return;
-          }
-          if (url.protocol === 'https:') this.plugin.openExternalUrl(url.toString(), this.uiOrigin());
-        } catch {}
-      });
-      this.contentEl.appendChild(guest);
-      this.chatgpt = guest;
-      this.chatgptFailure = null;
-      this.chatgptState('loading', '正在载入 ChatGPT；登录或验证遇到限制时可使用浏览器打开。');
-      if (proxyRulesOf(this.plugin.settings?.chatgptProxy)) {
-        // 先让分区拿到代理再导航，否则第一个请求已经走了直连。
-        this.applyChatgptProxy().finally(() => { if (this.chatgpt === guest) guest.setAttribute('src', CHATGPT_URL); });
-      } else {
-        guest.setAttribute('src', CHATGPT_URL);
-      }
-      this.armChatgptTimer();
+    if (data.visible) {
+      this.ensureChatgptGuest();
+      if (!wasVisible) this.chatgptState(this.chatgptPhase, this.chatgptStateMessage);
+    }
+    this.positionChatgpt();
+  }
+
+  ensureChatgptGuest() {
+    if (this.chatgpt) return;
+    // Host-owned guest browser: no preload, no page-script injection; Obsidian
+    // forces sandbox + no node integration for every guest it attaches.
+    const guest = document.createElement('webview');
+    guest.hidden = true;
+    guest.className = 'torch-chatgpt-webview';
+    guest.setAttribute('partition', CHATGPT_PARTITION);
+    guest.setAttribute('webpreferences', 'contextIsolation=yes,sandbox=yes,nodeIntegration=no');
+    guest.setAttribute('title', 'ChatGPT 网页');
+    guest.addEventListener('dom-ready', () => { if (this.chatgpt === guest) this.onChatgptDomReady(guest); });
+    guest.addEventListener('did-start-loading', () => {
+      if (this.chatgpt === guest && this.chatgptPhase !== 'ready') this.chatgptState('loading', '正在载入 ChatGPT…');
+    });
+    guest.addEventListener('did-fail-load', (event) => {
+      if (this.chatgpt !== guest || event.errorCode === -3 || event.isMainFrame === false) return;
+      this.chatgptFailure = { url: String(event.validatedURL || ''), at: Date.now() };
+      const reason = `ChatGPT 加载失败（${event.errorDescription || event.errorCode}）。本机可能访问不了 chatgpt.com。`;
+      // 已经正常进过 ChatGPT 时（比如正停在登录页）只提示，不把页面收走。
+      if (this.chatgptSeen) this.chatgptState('loading', reason);
+      else this.blockChatgpt(guest, reason);
+    });
+    guest.addEventListener('new-window', (event) => {
+      event.preventDefault?.();
+      try {
+        const url = new URL(event.url);
+        // 登录弹窗（Google/Apple 等）留在同一分区里，换掉也会丢登录态；只放行 https。
+        if (url.protocol === 'https:' && isSigninUrl(url.toString())) {
+          guest.setAttribute('src', url.toString());
+          return;
+        }
+        if (url.protocol === 'https:') this.plugin.openExternalUrl(url.toString(), this.uiOrigin());
+      } catch {}
+    });
+    this.contentEl.appendChild(guest);
+    this.chatgpt = guest;
+    this.chatgptFailure = null;
+    this.chatgptState('loading', '正在载入 ChatGPT；登录或验证遇到限制时可使用浏览器打开。');
+    if (proxyRulesOf(this.plugin.settings?.chatgptProxy)) {
+      // 先让分区拿到代理再导航，否则第一个请求已经走了直连。
+      this.applyChatgptProxy().finally(() => { if (this.chatgpt === guest) guest.setAttribute('src', CHATGPT_URL); });
+    } else {
+      guest.setAttribute('src', CHATGPT_URL);
+    }
+    this.armChatgptTimer();
+  }
+
+  positionChatgpt() {
+    if (!this.chatgpt) return;
+    const rect = this.chatgptBounds?.rect;
+    if (!this.chatgptBounds?.visible || this.frame?.hidden || !rect ||
+        !['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))) {
+      this.chatgpt.hidden = true;
+      return;
     }
     const outer = this.contentEl.getBoundingClientRect(), box = this.frame.getBoundingClientRect();
     const x = Math.max(box.left, box.left + rect.x), y = Math.max(box.top, box.top + rect.y);
     const right = Math.min(box.right, box.left + rect.x + rect.width);
     const bottom = Math.min(box.bottom, box.top + rect.y + rect.height);
+    clipGuest(this.chatgpt, rect, Math.max(0, right - x), Math.max(0, bottom - y));
     Object.assign(this.chatgpt.style, { left: `${x - outer.left}px`, top: `${y - outer.top}px`, width: `${Math.max(0, right - x)}px`, height: `${Math.max(0, bottom - y)}px` });
     this.chatgpt.hidden = this.chatgptPhase === 'blocked'
       || right <= x || bottom <= y || this.app.workspace.activeLeaf !== this.leaf;
@@ -2298,6 +2366,7 @@ class WorkbenchView extends ItemView {
   async onClose() {
     this.closeDida();
     window.clearTimeout(this.chatgptTimer);
+    this.frame = null;
     this.chatgpt?.remove(); this.chatgpt = null; this.chatgptBounds = null; this.chatgptPhase = '';
   }
 }

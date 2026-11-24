@@ -80,6 +80,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC"
   border: 1px solid var(--m-edge); border-radius: 10px; font: inherit; font-size: 12px;
   color: var(--p-ink-2); background: var(--p-surface); cursor: pointer; white-space: nowrap;
 }
+.dida-module { padding: 12px 16px 18px; min-width: 0; }
+.dida-module h2 { margin: 0; font-size: 16px; }
 .context-setting-button svg { width: 14px; height: 14px; flex-shrink: 0; }
 .time-module { border-radius: var(--m-radius); overflow: clip; }
 .time-module .time-rail { background: var(--p-surface-2); padding: 12px 7px; }
@@ -431,3 +433,32 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 #context-settings-dialog { max-width:min(1100px,calc(100vw - 32px)); }
 @media(max-width:640px) { .data-center { padding:16px; } .data-metrics,.data-center-actions { grid-template-columns:1fr; } .data-chart-row { grid-template-columns:100px 1fr 35px; gap:8px; } .data-center-head { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce) { .data-action { transition:none; } .data-action:hover { transform:none; } }
+
+/* Global Harness stays mounted so a closed drawer keeps its session and draft. */
+#dsh-tab { position: fixed; z-index: 22; inset: 45% 0 auto auto; background: var(--p-surface); color: var(--p-ink); border: 1px solid var(--p-line-strong); border-radius: 9px 0 0 9px; padding: 10px 5px; writing-mode: vertical-rl; }
+body.dsh-drawer-open #dsh-tab { display: none; }
+#dsh-tools[popover] { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: visible; pointer-events: none; z-index: 2147483600; }
+#dsh-tools::backdrop { background: transparent; pointer-events: none; }
+#dsh-scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; pointer-events: auto; background: rgb(30 37 49 / .13); backdrop-filter: blur(5px) saturate(.88); }
+#global-dsh { position: absolute; box-sizing: border-box; inset: 6px 6px 6px auto; width: clamp(min(320px, 100% - 12px), calc(var(--drawer-width, 100vw) - 12px), calc(100% - 12px)); padding: 5px 5px 5px 10px; display: flex; flex-direction: column; pointer-events: auto; color: var(--p-ink); background: color-mix(in srgb, var(--p-surface) 77%, transparent); backdrop-filter: blur(20px) saturate(145%); border: 1px solid rgb(255 255 255 / .52); border-radius: 18px; box-shadow: inset 1px 1px 1px rgb(255 255 255 / .65), 0 12px 48px rgb(17 24 39 / .24); }
+#global-dsh[hidden], #dsh-scrim[hidden] { display: none; }
+#dsh-grip { position: absolute; inset: 12px auto 12px 0; width: 12px; z-index: 2; cursor: ew-resize; touch-action: none; }
+#dsh-grip::after { content: ""; position: absolute; top: 46%; bottom: 46%; left: 3px; width: 3px; min-height: 28px; border-radius: 4px; background: color-mix(in srgb, var(--p-ink) 25%, transparent); }
+#dsh-grip:focus-visible { outline: 2px solid var(--p-accent); }
+#global-dsh.resizing iframe { pointer-events: none; }
+.dsh-drawer-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--p-line); }
+.dsh-drawer-head strong { margin-right: auto; }
+#global-dsh .dsh-shell { flex: 1; height: auto; min-height: 0; }
+#global-dsh .dsh-statusbar { flex-wrap: wrap; }
+#dsh-context { padding: 8px 12px; }
+#dsh-context textarea { display: block; width: 100%; }
+body.view-agent .topbar { display: none; }
+.chatgpt-nav-actions { display: none; }
+body.view-agent .chatgpt-nav-actions { display: flex; flex: 0 0 auto; gap: 4px; align-items: center; }
+#agent-view #chatgpt-stage { min-height: 280px; height: calc(100dvh - var(--panel-nav-h, 60px) - 28px); }
+#chatgpt-status:not(:empty) { margin: 0; padding: 18px; }
+.self-entry-dialog { width: min(560px, 94vw); max-height: 90dvh; overflow: auto; }
+.self-entry-dialog form { display: grid; gap: 10px; }
+.self-entry-dialog label { display: grid; gap: 3px; }
+
+.chatgpt-nav-actions .text-button { width: 34px; height: 34px; padding: 0; font-size: 19px; border-radius: 50%; }

@@ -132,6 +132,7 @@ function renderWelcome(payload) {
   card.querySelector('[data-welcome="task"]')?.addEventListener("click", () => {
     dismissWelcome();
     card.remove();
+    $("#time-tab-tasks").click();
     const input = $("#time-add-input");
     input?.focus();
     input?.scrollIntoView({ block: "center", behavior: "smooth" });

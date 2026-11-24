@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock, Thread
+from uuid import uuid4
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,6 +23,25 @@ class SynthesizePayload(BaseModel):
 
     confirm: bool = False
     range_days: int = Field(default=14, ge=7, le=30)
+
+
+class RetirePayload(BaseModel):
+    revision: str = Field(min_length=1, max_length=128)
+
+
+class EntryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    book_key: str
+    entry_type: str
+    confidence: str = "medium"
+    title: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=8000)
+    evidence: str = Field(default="", max_length=2000)
+    counterexample: str = Field(default="", max_length=2000)
+    verify: str = Field(default="", max_length=2000)
+    sources: list[str] = Field(default_factory=list, max_length=20)
+    operation_id: str = Field(min_length=8, max_length=140)
+    base_revision: str = ""
 
 
 class PendingAcceptPayload(BaseModel):
@@ -147,6 +168,22 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
                 vault, book_key, include_history=history),
         })
 
+    @router.post("/self/entries")
+    def create_entry(payload: EntryPayload):
+        return _guard(lambda: self_archive.create_entry(vault, origin="user", read_only=read_only,
+            **payload.model_dump(exclude={"base_revision"})))
+
+    @router.post("/self/entries/{entry_id}/retire")
+    def retire_entry(entry_id: str, payload: RetirePayload):
+        return _guard(lambda: self_archive.retire_entry(vault, entry_id, payload.revision, read_only=read_only))
+
+    @router.put("/self/entries/{entry_id}")
+    def revise_entry(entry_id: str, payload: EntryPayload):
+        if not payload.base_revision:
+            raise HTTPException(422, "请先读取当前版本")
+        return _guard(lambda: self_archive.supersede_entry(vault, entry_id, origin="user",
+            read_only=read_only, **payload.model_dump(exclude={"book_key"})))
+
     @router.get("/self/entries/{entry_id}")
     def self_entry(entry_id: str):
         item = self_archive.find_entry(vault, entry_id, include_history=True)
@@ -199,6 +236,43 @@ def create_self_router(vault_dir: Path | str, *, read_only: bool = False,
         return _guard(lambda: self_synthesize.synthesize(
             role_service, vault, range_days=payload.range_days,
             read_only=read_only, autonomous_archive=autonomous_archive))
+
+    job_lock = Lock()
+    job = {"state": "idle", "id": "", "message": ""}
+
+    def set_job(**values):
+        with job_lock:
+            job.update(values)
+
+    def organize_all():
+        try:
+            result = self_synthesize.synthesize(
+                role_service, vault, read_only=read_only, autonomous_archive=autonomous_archive,
+                full_report=lambda message: set_job(message=message))
+            errors = result["patch_errors"] or [u.get("error", "档案条目未保存")
+                for u in result["archive_updates"] if not u.get("ok")]
+            set_job(state="done", message=f"已整理 {len(result['sources'])} 篇文档，"
+                    f"更新画像和 {result['memory_updates']} 条记忆。" +
+                    (f"部分条目未保存：{errors[0]}" if errors else "") +
+                    (f"未能读取 {len(result['skipped'])} 篇。" if result["skipped"] else ""),
+                    skipped=result["skipped"])
+        except Exception as error:
+            set_job(state="error", message=str(error))
+
+    @router.get("/self/organize")
+    def organize_status():
+        with job_lock:
+            return dict(job)
+
+    @router.post("/self/organize")
+    def start_organize(payload: MigrationPayload):
+        if not payload.confirm or read_only:
+            raise HTTPException(409, "需要可写库并明确确认整理")
+        with job_lock:
+            if job["state"] != "running":
+                job.update(state="running", id=uuid4().hex, skipped=[], message="正在扫描四库文档…")
+                Thread(target=organize_all, daemon=True, name="torch-archive").start()
+            return dict(job)
 
     # ----- 人生导师 -------------------------------------------------------
 

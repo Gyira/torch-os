@@ -25,7 +25,7 @@ import {
 import { isObsidianHost, openTaskDocument } from "./task-open.js";
 import { openNoteEditor } from "./note-editor.js";
 import { isTaskDrag, readTaskDragKey } from "./tasks-drag.js";
-import { showDidaPage } from "./dida-page.js";
+import { selectListModule } from "./dida-page.js";
 import { initTrashPage, loadTrash } from "./tasks-trash.js";
 
 const VIEW_KEY = "torch-os:time-view";
@@ -100,6 +100,9 @@ export function initTimeModule() {
   $("#time-goal-filter")?.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-goal-filter-clear]")) selectView({ view: "today" });
   });
+
+  selectListModule("dida", { scroll: false });
+  $("#workbench-list-module").addEventListener("change", event => selectListModule(event.target.value));
 
   // 左侧按钮栏：任务 / 日历 / 习惯打卡 / 四象限。
   // 这是一组 tab：只有当前页在 Tab 顺序里，左右/上下键由 shortcuts.js 移动并切换。
@@ -277,6 +280,7 @@ export function initTimeModule() {
 
 /** 切模块内的页：任务页有二级侧边栏，其余页没有。 */
 export function switchPage(next) {
+  selectListModule("tasks");
   page = next;
   closePopover();
   if (next !== "tasks" && multi) exitMulti();
@@ -292,8 +296,6 @@ export function switchPage(next) {
   $("#time-calendar-page").hidden = next !== "calendar";
   $("#time-quadrant-page").hidden = next !== "quadrant";
   $("#time-trash-page").hidden = next !== "trash";
-  $("#time-dida-page").hidden = next !== "dida";
-  if (next === "dida") showDidaPage();
   if (next === "tasks") paintBoard();
   if (next === "habits") loadHabitsPage();
   if (next === "calendar") paintCalendar();

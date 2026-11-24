@@ -312,42 +312,13 @@ test("导师 A 的 finally 不能解除 B 的 busy；B 自己的回复才结束�
   assert.equal(ctx.snapshot().thread, "B");
 });
 
-test("导师草稿按会话隔离，失败不覆盖后来输入，离开重进仍可恢复", async () => {
-  const { ctx, env, chats } = await mentorHarness();
+test("历史对话只读，仍能阅读已有导师会话", async () => {
+  const { ctx, env } = await mentorHarness();
   await ctx.openThreadNow("A");
-  const input = env.document.querySelector("[data-mentor-input]");
-  input.value = "A 的草稿";
-  await ctx.openThreadNow("B");
-  assert.equal(input.value, "");
-  input.value = "B 的草稿";
-  await ctx.openThreadNow("A");
-  assert.equal(input.value, "A 的草稿");
-  const sending = ctx.sendMessage("A 的草稿");
-  input.value = "失败后新写的";
-  chats[0].reject(new Error("超时"));
-  await sending;
-  assert.equal(input.value, "失败后新写的");
-  ctx.leaveMentor();
-  ctx.stateRef.active = true;
-  ctx.renderAll();
-  assert.equal(ctx.snapshot().input, "失败后新写的");
-});
-
-test("导师输入法组合中的 Enter 不发送；滚动不让正在阅读的用户跳到底部", async () => {
-  const { ctx, env, chats } = await mentorHarness();
-  await ctx.openThreadNow("A");
-  const input = env.document.querySelector("[data-mentor-input]");
-  input.value = "中文输入";
-  await env.document.body.fire("keydown", { key: "Enter", isComposing: true, target: input });
-  assert.equal(chats.length, 0);
-  const messages = env.document.querySelector("[data-mentor-messages]");
-  messages.scrollTop = 0;
-  messages.scrollHeight = 1000;
-  messages.clientHeight = 100;
-  ctx.renderMessages();
-  assert.equal(messages.scrollTop, 0);
-  await env.document.body.fire("keydown", { key: "Enter", target: input });
-  assert.equal(chats.length, 1);
+  assert.equal(ctx.snapshot().thread, "A");
+  assert.equal(env.document.querySelector("[data-mentor-input]"), null);
+  assert.equal(env.document.querySelector("[data-mentor-new]"), null);
+  assert.equal(ctx.snapshot().messages[0].content, "你好 A");
 });
 
 test("导师回复成功但记忆写入失败时保留回复并明确提示失败", async () => {

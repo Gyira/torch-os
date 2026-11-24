@@ -21,9 +21,9 @@ import {
   templateStripMarkup, templateVariables,
 } from "./journal-templates.js";
 import {
-  closeRoleDrawer, isRoleDrawerEmbedded, isRoleDrawerOpen, openRoleDrawer,
+  closeRoleDrawer, isRoleDrawerEmbedded, isRoleDrawerOpen,
 } from "./roles.js";
-import { companionForEditor } from "./ai-companions.js";
+import { openDshDrawer } from "./dsh-drawer.js";
 import { openObsidianNote } from "./task-open.js";
 
 const state = {
@@ -1437,15 +1437,11 @@ function syncCompanionUi() {
   const dialog = el("note-editor-dialog");
   if (dialog) dialog.dataset.editorContext = state.context || "life";
   const loveContext = state.context === "love";
-  const companion = companionForEditor(state.context);
   const button = el("note-editor-role");
   if (button) {
-    const label = `和${companion.title}聊聊`;
-    button.textContent = label;
-    button.setAttribute("aria-label", label);
-    button.dataset.roleTitle = companion.title;
-    // 恋爱记忆的 AI 统一在「恋爱大师」右侧角色层；编辑器不再开第二个聊天入口。
-    button.hidden = loveContext;
+    button.textContent = "带去 DSH";
+    button.setAttribute("aria-label", "带着这篇文档问 DSH");
+    button.hidden = false;
   }
   // 任务文档不做话题判类/润色；恋爱记忆也不在这里判类/润色，统一走恋爱大师。
   const classify = el("note-editor-classify");
@@ -1456,10 +1452,6 @@ function syncCompanionUi() {
 }
 
 function openCompanion(selection = null) {
-  if (state.context === "love") {
-    setStatus("恋爱记忆的 AI 统一在「恋爱大师」右侧角色层里使用。", "warning");
-    return;
-  }
   if (!selection) {
     const textarea = el("note-editor-text");
     const start = Number(textarea?.selectionStart);
@@ -1471,37 +1463,7 @@ function openCompanion(selection = null) {
       }
     }
   }
-  const companion = companionForEditor(state.context);
-  const changed = dirty();
-  const selectorsForCompanion = () => {
-    const list = [];
-    if (dirty()) return list;
-    if (state.journal && state.journalDay) {
-      list.push({ entry: "journal", day: state.journalDay });
-    } else if (state.path) {
-      list.push({ entry: "note", path: state.path });
-    }
-    return list;
-  };
-  const selectors = selectorsForCompanion();
-  const quote = selection && String(selection.text || "").trim() ? selection : null;
-  openRoleDrawer({
-    roleId: companion.roleId,
-    mode: companion.mode,
-    entry: companion.entry,
-    title: companion.title,
-    host: "editor",
-    selectors,
-    getSelectors: selectorsForCompanion,
-    draftContext: state.path || (state.journalDay ? `journal:${state.journalDay}` : ""),
-    getDraftText: () => (dirty() ? currentBody() : ""),
-    selection: quote,
-    prompt: quote ? "帮我看看这段。" : "",
-    hint: changed
-      ? "发送时会带上当前草稿；AI 只提议，采纳后才写入。"
-      : "AI 只提议，采纳后才写入。",
-    onError: (message) => setStatus(message, "error"),
-  });
+  openDshDrawer([state.path, selection?.text || currentBody()].filter(Boolean).join("\n"));
 }
 
 function openInObsidian() {

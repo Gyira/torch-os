@@ -1,3 +1,4 @@
+import { visibleStageRect, observeStage } from "./embedded-stage.js";
 import { isObsidianHost } from "./task-open.js";
 
 let initialized = false;
@@ -7,7 +8,24 @@ function hostMessage(payload) {
   window.parent.postMessage({ type: "torch:dida", ...payload }, "*");
 }
 
-export function showDidaPage() {
+export function selectListModule(value, { scroll = true } = {}) {
+  const dida = value === "dida";
+  document.querySelector("#workbench-list-module").value = dida ? "dida" : "tasks";
+  document.querySelector("#workbench-time").hidden = dida;
+  document.querySelector("#time-dida-page").hidden = !dida;
+  if (dida && isObsidianHost()) {
+    const stage = document.querySelector("#time-dida-stage");
+    const controls = document.querySelector("#workbench-list-module").closest(".workbench-controls");
+    const navBottom = document.querySelector(".panel-nav")?.getBoundingClientRect().bottom || 0;
+    const offset = controls.getBoundingClientRect().top - navBottom - 8;
+    if (scroll && offset > 0 && innerHeight - stage.getBoundingClientRect().top < Math.min(740, stage.offsetHeight)) {
+      window.scrollBy({ top: offset, behavior: "instant" });
+    }
+    showDidaPage();
+  }
+}
+
+function showDidaPage() {
   if (!isObsidianHost() || initialized) return;
   initialized = true;
   const stage = document.querySelector("#time-dida-stage");
@@ -27,15 +45,7 @@ export function showDidaPage() {
   });
 
   function reportBounds() {
-    const box = stage.getBoundingClientRect();
-    const nav = document.querySelector(".top-nav-mode .panel-nav")?.getBoundingClientRect();
-    const banner = document.querySelector(".service-banner")?.getBoundingClientRect();
-    const x = Math.max(0, box.left);
-    const y = Math.max(0, box.top, nav?.bottom || 0, banner?.bottom || 0);
-    const width = Math.min(innerWidth, box.right) - x;
-    const height = Math.min(innerHeight, box.bottom) - y;
-    const obscured = document.hidden || document.querySelector("dialog[open], .panel-nav-menu:not([hidden])");
-    const rect = width > 0 && height > 0 && !obscured ? { x, y, width, height } : null;
+    const rect = visibleStageRect(stage);
     const key = JSON.stringify(rect);
     if (key !== lastBounds) {
       lastBounds = key;
@@ -47,13 +57,6 @@ export function showDidaPage() {
     lastBounds = "";
     reportBounds();
   });
-  new ResizeObserver(reportBounds).observe(stage);
-  new IntersectionObserver(reportBounds).observe(stage);
-  new MutationObserver(reportBounds).observe(document.body, {
-    subtree: true, attributes: true, attributeFilter: ["hidden", "open"],
-  });
-  document.addEventListener("scroll", reportBounds, true);
-  document.addEventListener("visibilitychange", reportBounds);
-  window.addEventListener("resize", reportBounds);
+  observeStage(stage, reportBounds);
   reportBounds();
 }
