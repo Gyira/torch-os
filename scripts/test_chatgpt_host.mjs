@@ -31,7 +31,12 @@ test('native guest is isolated, reused, clipped and disposed', async () => {
     view.chatgptMessage({action:'bounds',visible:false}); assert.equal(guest.hidden,true);
     view.chatgptMessage({action:'bounds',visible:true,rect:{x:0,y:0,width:300,height:400}});
     assert.equal(created,1); assert.equal(guest.hidden,false);
+    // 侧栏/其它 leaf 处于激活状态时，只要工作台仍可见，guest 不能隐藏。
     view.app.workspace.activeLeaf={};
+    view.chatgptMessage({action:'bounds',visible:true,rect:{x:0,y:0,width:300,height:400}});
+    assert.equal(guest.hidden,false);
+    // 工作台真正不可见（iframe 尺寸为 0）时才隐藏。
+    view.frame = { getBoundingClientRect:()=>({left:0,top:0,right:0,bottom:0}), contentWindow:{postMessage(){}} };
     view.chatgptMessage({action:'bounds',visible:true,rect:{x:0,y:0,width:300,height:400}});
     assert.equal(guest.hidden,true);
     await view.onClose(); assert.equal(removed,true); assert.equal(view.chatgpt,null);
@@ -83,6 +88,10 @@ test('workbench warms both sites, retains them on frame reload, and replays read
     const rect = {x: 0, y: 5, width: 700, height: 500};
     for (let pass = 0; pass < 2; pass++) {
       messages.length = 0;
+      view.didaMessage({action: 'bounds', rect});
+      assert.equal(dida.hidden, false);
+      // 侧栏/其它 leaf 激活时，只要工作台可见，滴答 guest 仍必须显示。
+      view.app.workspace.activeLeaf = {};
       view.didaMessage({action: 'bounds', rect});
       assert.equal(dida.hidden, false);
       assert.equal(dida.style.transformOrigin, 'top left');

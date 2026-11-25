@@ -180,37 +180,30 @@ export async function initPersonalData({ waitForService = true, timeoutMs = 3000
   try {
     // 没读到后端时不要拿本机缓存去“补写”：可能只是超时，补写会覆盖库里更新的值。
     if (store && loaded) {
-      // 先把升级前的本机值拍个快照：下面灌库里的值会覆盖同名键，快照用于首次迁移。
-      const snapshot = {};
-      for (const key of localKeys(store)) {
-        if (!isPersonalKey(key) || SKIP_KEYS.has(key)) continue;
-        try { snapshot[key] = store.getItem(key) ?? ""; } catch { /* ignore */ }
-      }
       const owner = store.getItem?.(OWNER_KEY) || "";
       const sameVault = Boolean(vaultId) && owner === vaultId;
-      // 没有归属标记但本机已有设置 = 升级后第一次运行（本机是旧数据的来源）。
-      const firstUpgrade = Boolean(vaultId) && !owner && Object.keys(snapshot).length > 0;
-      switched = Boolean(vaultId) && !sameVault && !firstUpgrade;
+      // 没有归属标记 = 这个 origin 第一次打开该库（例如插件升级后界面端口从
+      // 9168 换到 9411）。此时 localStorage 里可能只有小组件启动时先画出来的
+      // 默认值（纪念日默认“纪念日 + 一年前”），绝不能当成升级前的旧数据推到
+      // 库里，否则会覆盖库里真实的纪念日/倒计时。
+      const freshOrigin = Boolean(vaultId) && !owner;
+      switched = Boolean(vaultId) && !sameVault && !freshOrigin;
       if (switched) {
         // 同一浏览器 origin 可能先后打开过多个个人数据库：先清掉上一个库的缓存。
         for (const key of localKeys(store)) {
           if (isPersonalKey(key)) { try { store.removeItem(key); } catch { /* ignore */ } }
         }
       }
+      // 库里已有的键一律以库为准（换 origin / 换设备时都不能让本机默认值反向覆盖）。
       for (const [key, value] of Object.entries(remote)) {
         if (!isPersonalKey(key) || SKIP_KEYS.has(key) || typeof value !== "string") continue;
-        // 首次升级时本机旧值优先，库里的值只补本机没有的键。
-        if (firstUpgrade && Object.hasOwn(snapshot, key)) continue;
         try { store.setItem(key, value); } catch { fallback.set(key, value); }
       }
+      // 本机独有的键（升级前还没有写进库的老设置）才补推回库。
       if (!switched) {
-        if (firstUpgrade) {
-          Object.assign(toPush, snapshot);
-        } else {
-          for (const key of localKeys(store)) {
-            if (!isPersonalKey(key) || SKIP_KEYS.has(key) || Object.hasOwn(remote, key)) continue;
-            try { toPush[key] = store.getItem(key) ?? ""; } catch { /* ignore */ }
-          }
+        for (const key of localKeys(store)) {
+          if (!isPersonalKey(key) || SKIP_KEYS.has(key) || Object.hasOwn(remote, key)) continue;
+          try { toPush[key] = store.getItem(key) ?? ""; } catch { /* ignore */ }
         }
       }
       if (vaultId) { try { store.setItem(OWNER_KEY, vaultId); } catch { /* ignore */ } }
@@ -220,7 +213,19 @@ export async function initPersonalData({ waitForService = true, timeoutMs = 3000
   }
   // 只有确认读到了库里的数据才开启镜像：否则小组件启动时写默认值可能覆盖库里更新的设置。
   // 这次会话先用本机缓存；下次成功连上后端时，未同步的本机键会作为“local-only”补写。
-  if (loaded) installMirror();
+  if (loaded) {
+    installMirror();
+    // 小组件是在这次异步同步之前先初始化的，缓存里可能还是默认值；
+    // 通知它们重新读一次 localStorage（见 countdown.js / anniversary-widget.js）。
+    try {
+      const doc = globalThis.document;
+      if (doc?.dispatchEvent && typeof globalThis.CustomEvent === "function") {
+        doc.dispatchEvent(new globalThis.CustomEvent("torch:personal-data", {
+          detail: { vault: vaultId, switched },
+        }));
+      }
+    } catch { /* 非浏览器测试环境没有 document */ }
+  }
   if (Object.keys(toPush).length) queue(toPush);
   return {
     synced: loaded,

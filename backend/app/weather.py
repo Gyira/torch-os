@@ -30,7 +30,9 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 GEO_URL = "https://ipwho.is/"
 ALLOWED_HOSTS = ("api.open-meteo.com", "geocoding-api.open-meteo.com", "ipwho.is")
-TIMEOUT_SECONDS = 8.0
+# 出站每次请求的 deadline。部分网络到 api.open-meteo.com 握手/首包要 8–10 秒，
+# 8 秒会间歇性 502；单次放宽到 12 秒，仍由前端 30 秒总超时兜底。
+TIMEOUT_SECONDS = 12.0
 MAX_RESPONSE_BYTES = 256_000
 CACHE_SECONDS = 30 * 60
 MAX_CACHE_ENTRIES = 64

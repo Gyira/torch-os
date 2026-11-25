@@ -146,7 +146,13 @@ export function setBannerImage(element, banner, index, src) {
   }
   element.hidden = false;
   const url = src || imageSrc(path, index);
-  if (element.getAttribute("src") !== url) element.src = url;
+  // 服务刚启动时可能先拿到界面缓存里的横幅数据，图片请求却 503 失败；
+  // 之后同一 URL 再赋给 <img> 不会触发重新加载，所以失败过的图要强制重设一次。
+  const failed = element.complete === true && element.naturalWidth === 0;
+  if (element.getAttribute("src") !== url || failed) {
+    if (failed) element.removeAttribute("src");
+    element.src = url;
+  }
   paintCrop(element, imageCrop(banner, path));
   element.dataset.heroIndex = String(index);
 }

@@ -485,6 +485,15 @@ export function initAnniversaryWidget() {
   bindDialogClose();
   paint();
   maybeRemind();
+  if (host.dataset.anniversaryPersonal !== "1") {
+    host.dataset.anniversaryPersonal = "1";
+    // 个性化数据是异步灌进 localStorage 的；同步完成后重读配置并重画卡片。
+    document.addEventListener("torch:personal-data", () => {
+      config = loadConfig();
+      paint();
+      maybeRemind();
+    });
+  }
   if (typeof window.setInterval === "function") {
     window.setInterval(() => {
       if (!document.hidden) refreshLive();

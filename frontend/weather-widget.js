@@ -37,6 +37,7 @@ let previewToken = 0;
 let lastLoadAt = 0;
 let lastAttemptAt = 0;
 let initialized = false;
+let personalBound = false;
 let clockStarted = false;
 let dialogOpen = false;
 let searchState = { query: "", results: [], loading: false, error: "" };
@@ -570,6 +571,18 @@ export function initWeatherWidget() {
   }
   // 用户要求：每次打开系统都自动更新一次天气；后端仍会按 30 分钟缓存兜底。
   loadWeather({ force: true });
+  if (!personalBound) {
+    personalBound = true;
+    // 常用城市/选中城市是异步从 .torch-os 同步回来的；同步完成后重新取一次，
+    // 避免首屏先按 IP 定位、之后一直显示错误的城市。
+    document.addEventListener("torch:personal-data", () => {
+      if (!initialized) return;
+      restoreState();
+      paintCard();
+      paintDialog();
+      loadWeather({ force: true, city: targetCity() });
+    });
+  }
   document.addEventListener("visibilitychange", () => {
     if (document.hidden || loading) return;
     if (Date.now() - lastLoadAt > STALE_MS) loadWeather({ force: true, city: targetCity() });
@@ -593,7 +606,8 @@ export function loadWeatherWidget({ force = false } = {}) {
   if (force) return loadWeather({ force: true, city: targetCity() });
   if (!payload) {
     if (loading) return undefined;
-    if (lastAttemptAt && Date.now() - lastAttemptAt < RETRY_MS) return undefined;
+    // 首屏常在本地服务就绪前先请求一次而失败。工作台重画/服务就绪后要能立刻补试，
+    // 不能被 60 秒重试间隔挡住，否则天气要等 5 分钟定时器才会恢复。
     return loadWeather({ city: targetCity() });
   }
   paintCard();

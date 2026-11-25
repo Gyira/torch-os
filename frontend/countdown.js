@@ -109,6 +109,15 @@ export function initCountdownWidget() {
     host.dataset.countdownReady = "1";
     host.addEventListener("click", handleClick);
   }
+  if (host.dataset.countdownPersonal !== "1") {
+    host.dataset.countdownPersonal = "1";
+    // 页面先画默认值、后从 .torch-os 同步个性化数据；同步完成后丢掉旧缓存重画，
+    // 否则换设备/换界面端口时会一直停留在默认倒计时。
+    document.addEventListener("torch:personal-data", () => {
+      currentConfig = null;
+      paint(host);
+    });
+  }
   ensureConfig();
   paint(host);
   startTicker();

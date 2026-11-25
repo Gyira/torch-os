@@ -336,9 +336,31 @@ function initVisibleWidgets() {
   applyWidgetVisibility(widgetColumns(), Array.from(hidden));
 }
 
+let bannerImageRetries = 0;
+
+/** 横幅图片偶发失败（服务启动中/界面缓存先到）时自动重试，成功后清零。 */
+function initBannerImageRetry() {
+  const hero = $("#workbench-hero");
+  if (!hero || hero.dataset.retryBound === "1") return;
+  hero.dataset.retryBound = "1";
+  hero.addEventListener("load", () => { bannerImageRetries = 0; });
+  hero.addEventListener("error", () => {
+    const src = hero.getAttribute("src");
+    if (!src || bannerImageRetries >= 5) return;
+    bannerImageRetries += 1;
+    window.setTimeout(() => {
+      if (hero.getAttribute("src") !== src) return;
+      // 同一 URL 直接再赋值不会触发加载：先移除 src 再设回去。
+      hero.removeAttribute("src");
+      hero.src = src;
+    }, Math.min(8000, 1000 * (2 ** (bannerImageRetries - 1))));
+  });
+}
+
 export function initWorkbench() {
   // 网页书签栏：问候语右侧的快捷入口（数据在 .torch-os，齿轮里增删改）。
   initBookmarks();
+  initBannerImageRetry();
   // 每日必做的勾选（习惯打卡本身由 habits-page.js 处理）
   $("#time-daily-list").addEventListener("change", (event) => {
     const dailyBox = event.target.closest("[data-daily-toggle]");

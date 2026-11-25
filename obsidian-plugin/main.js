@@ -2103,7 +2103,10 @@ class WorkbenchView extends ItemView {
     const guest = this.didaGuest;
     if (!guest) return;
     const rect = this.didaRect;
-    guest.hidden = !this.didaReady || !rect || this.frame.hidden || this.app.workspace.activeLeaf !== this.leaf;
+    // 不能用 activeLeaf 判断：点 iframe 里的内容不会改变 Obsidian 的 activeLeaf，
+    // 侧栏/别的标签处于激活状态时这里会把已经加载好的滴答 webview 一直藏起来（表现为空白面板）。
+    // 真正的隐藏交给 frame.hidden 与下面的尺寸判断（后台标签尺寸为 0）。
+    guest.hidden = !this.didaReady || !rect || this.frame.hidden;
     if (guest.hidden) return;
     const box = this.frame.getBoundingClientRect();
     const outer = this.contentEl.getBoundingClientRect();
@@ -2369,8 +2372,9 @@ class WorkbenchView extends ItemView {
     const bottom = Math.min(box.bottom, box.top + rect.y + rect.height);
     clipGuest(this.chatgpt, rect, Math.max(0, right - x), Math.max(0, bottom - y));
     Object.assign(this.chatgpt.style, { left: `${x - outer.left}px`, top: `${y - outer.top}px`, width: `${Math.max(0, right - x)}px`, height: `${Math.max(0, bottom - y)}px` });
+    // 同上：不要用 activeLeaf 判断可见性（iframe 内的点击不会把父 leaf 设为激活）。
     this.chatgpt.hidden = this.chatgptPhase === 'blocked'
-      || right <= x || bottom <= y || this.app.workspace.activeLeaf !== this.leaf;
+      || right <= x || bottom <= y;
   }
 
   async onClose() {
