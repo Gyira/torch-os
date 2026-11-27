@@ -3,6 +3,20 @@
 这份文档给下一次会话快速接手用；功能细节以 `README.md`、`docs/FEATURE_MAP.md` 和
 `docs/薪火OS-重设计方案-v2.0.md` 为准。
 
+## 2026-11-27 列车追踪在休息日不再整卡消失（修复）
+
+- 现象：设置 →「工作台小组件」里「列车追踪」是开着的，工作台却看不到卡片；排班是休息日。
+  根因是 `train-tracker-widget.js` 把卡片标成 `data-duty-hidden="true"`，
+  `material.css` 再 `display:none !important` 整卡藏掉，于是设置开关看起来失灵。
+- 修复：休息日保留卡片，改为 `data-resting="true"`。有关注车次就照常显示它的状态，
+  只把 meta 前缀改成「休息日 ·」；没有关注车次时显示「今日休息 / 休息日 · 点开添加关注车次」。
+  进度条在休息日淡到 45%。设置开关现在是唯一开关，排班只影响内容。
+- 验证：无头 Chrome 打开 `127.0.0.1:9168/#workbench`（CDP 拦截所有写接口，
+  `.torch-os/personal-data.json` 哈希前后一致）：休息日卡片 `display:flex`，
+  显示 `G335 运行中 · 北京西 → 南昌西 · 休息日 · 郑州东 → 武汉 · 15:55 到`、进度 49.7%；
+  `scripts/browser_navigation_checks.py` 的 `rest_day_hides_train_card` 改为
+  `rest_day_keeps_train_card`（卡片可见 + 出现「今日休息/休息日」）。
+
 ## 2026-11-22 工作台秒开（2.3.0）
 
 - 插件在 `main.js` 内新增 `LocalUiServer`：只监听 `127.0.0.1`，直接提供

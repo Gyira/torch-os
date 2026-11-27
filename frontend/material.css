@@ -316,7 +316,8 @@ dialog.almanac-mode[open] { display: flex; flex-direction: column; overflow: hid
 }
 .standalone-agent .dsh-frame-wrap { height: calc(100dvh - var(--panel-nav-h, 86px) - 160px); min-height: 420px; }
 .standalone-agent .dsh-frame { height: 100%; }
-#workbench-train-tracker[data-duty-hidden="true"] { display: none !important; }
+/* 列车追踪卡在休息日不再 display:none（设置里开着就该看得见），只把进度条淡下来。 */
+#workbench-train-tracker[data-resting="true"] .train-tracker-progress { opacity: .45; }
 .recycle-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, 220px); gap: 14px 20px; padding: 20px; margin: 20px 0 12px; border: 1px solid var(--p-line); border-radius: 18px; background: var(--p-surface); }
 .recycle-toolbar label { display: grid; gap: 6px; font-size: 13px; color: var(--p-ink-3); }
 .recycle-toolbar input[type="search"], .recycle-toolbar select { min-height: 42px; width: 100%; min-width: 0; }

@@ -1,4 +1,5 @@
-// 工作台「列车追踪」小组件：跟随恋爱系统里的今日值班，休息日隐藏。
+// 工作台「列车追踪」小组件：跟随恋爱系统里的今日值班；休息日卡片照常显示，
+// 只是内容换成「今日休息」+ 关注车次（原来整卡 display:none，设置里的开关会看起来失灵）。
 // 关注列表是用户自己添加的车次号；经停时刻来自本地 .torch-os/train-tracker/timetable.json，
 // 也可以在弹窗里手动从 12306 官方接口同步一次（失败保留本地数据）。
 import { $, api, confirmAction, escapeHtml, jsonBody, openDialog, setStatus, toast } from "./core.js";
@@ -23,6 +24,7 @@ let dialogOpen = false;
 let watchError = "";
 let dutyCode = "";
 let dutyHint = "";
+let resting = false;
 const automaticAttempts = new Map();
 
 function storage() {
@@ -59,8 +61,21 @@ function renderCard(error = "") {
   const card = $(`#${CARD_ID}`);
   if (!card) return;
   const model = cardModel(payload, selectedCode());
-  if (dutyHint && !dialogOpen) model.meta = dutyHint + (payload?.found ? ` · ${model.meta}` : "");
-  if (!dutyCode && !dialogOpen) { model.code = "今日值乘"; model.status = dutyHint || "正在读取排班"; }
+  if (resting && !dialogOpen) {
+    // 休息日保留卡片：有关注车次就照常显示它的状态，只在前缀标出“休息日”。
+    if (payload?.found) {
+      model.meta = `休息日 · ${model.meta}`;
+    } else {
+      model.status = "今日休息";
+      model.tone = "done";
+      model.meta = watch.codes.length
+        ? `休息日 · 关注 ${watch.codes.length} 趟车，点开查看`
+        : "休息日 · 点开添加关注车次";
+    }
+  } else if (dutyHint && !dialogOpen) {
+    model.meta = dutyHint + (payload?.found ? ` · ${model.meta}` : "");
+  }
+  if (!resting && !dutyCode && !dialogOpen) { model.code = "今日值乘"; model.status = dutyHint || "正在读取排班"; }
   if (error) {
     model.status = "暂时读不到数据";
     model.meta = error;
@@ -113,12 +128,15 @@ export async function loadTrainTrackerWidget() {
     if (token !== requestToken) return;
     statusPayload = status;
     const today = schedule.days?.find((day) => day.date === schedule.today);
-    const offDuty = today?.in_range && (today.rest === true || today.work === false);
+    // 休息日不再藏卡片：设置里的开关是唯一开关，卡片留在原位只换内容。
+    resting = Boolean(today?.in_range && (today.rest === true || today.work === false));
     const card = $(`#${CARD_ID}`);
-    if (card) card.dataset.dutyHidden = String(Boolean(offDuty));
+    if (card) card.dataset.resting = String(resting);
     const codes = dutyTrainCodes(today);
     dutyCode = "";
-    dutyHint = !schedule.found || !today?.in_range ? "排班暂不可用" : !codes.length ? "今天未填写值乘车次" : "跟随今日值班 · 按时刻表推算";
+    dutyHint = !schedule.found || !today?.in_range ? "排班暂不可用"
+      : resting ? "今日休息"
+        : !codes.length ? "今天未填写值乘车次" : "跟随今日值班 · 按时刻表推算";
     const rows = [];
     for (const code of codes) {
       let row = await api(`/api/train-tracker/train?code=${encodeURIComponent(code)}`, { timeoutMs: 15000 });
@@ -146,9 +164,23 @@ export async function loadTrainTrackerWidget() {
     dutyCode = selected?.code || codes[0] || "";
     payload = selected;
     if (dutyCode && !dialogOpen) watch.selected = dutyCode;
+    // 休息日没有值乘车次：补取关注列表里选中的那趟，卡片不至于空着。
+    if (resting && !dialogOpen) {
+      const code = watch.selected || watch.codes[0] || "";
+      payload = null;
+      if (code) {
+        try {
+          payload = await api(`/api/train-tracker/train?code=${encodeURIComponent(code)}`, { timeoutMs: 15000 });
+        } catch (problem) {
+          payload = { found: false, code, error: problem.message };
+        }
+        if (token !== requestToken) return;
+      }
+    }
   } catch (problem) {
     if (token !== requestToken) return;
     statusPayload = null;
+    resting = false;
     dutyCode = "";
     error = problem.message;
   }
